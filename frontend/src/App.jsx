@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { useMemo, useState } from 'react'
 import './styles.css'
 
@@ -738,8 +737,3 @@ export default function App() {
     </div>
   )
 }
-=======
-export default function App() {
-  return <h1>HyperSync</h1>
-}
->>>>>>> b1bf2e5949f91c5b6272bd09fb21e6ec779548e0
