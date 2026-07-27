@@ -1,109 +1,18 @@
-# ============================================================
-# Python backend and bot
-# ============================================================
-
 .venv/
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-
-# Python build files
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-
-# ============================================================
-# Secrets and environment variables
-# ============================================================
 
 .env
 .env.*
 !.env.example
 
-*.pem
-*.key
-
-
-# ============================================================
-# React, Node.js, and Vite
-# ============================================================
-
 frontend/node_modules/
 frontend/dist/
-frontend/dist-ssr/
-
-*.local
-
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-
-# ============================================================
-# HyperSync temporary runtime files
-# ============================================================
-
-storage/temporary/*
-storage/uploads/*
-storage/logs/*
-
-# Keep the empty folder structure in Git
-!storage/temporary/downloads/
-!storage/temporary/processing/
-!storage/temporary/artwork/
-
-!storage/temporary/downloads/.gitkeep
-!storage/temporary/processing/.gitkeep
-!storage/temporary/artwork/.gitkeep
-!storage/uploads/.gitkeep
-!storage/logs/.gitkeep
-
-
-# ============================================================
-# Logs
-# ============================================================
 
 *.log
-logs/
-
-
-# ============================================================
-# VS Code and other editors
-# ============================================================
-
-.vscode/*
-!.vscode/extensions.json
-
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-
-# ============================================================
-# Operating-system files
-# ============================================================
-
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+.vscode/
+.idea/
