@@ -1,9 +1,9 @@
 import pytest
-from backend.app.main import app
 from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
 
 from backend.app.api.routes import health as health_route
+from backend.app.main import app
 
 
 @pytest.mark.asyncio

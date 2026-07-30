@@ -23,10 +23,7 @@ from .base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
 def enum_values(enum_class: type[StrEnum]) -> list[str]:
-    return [
-        member.value
-        for member in enum_class
-    ]
+    return [member.value for member in enum_class]
 
 
 class AccountType(StrEnum):

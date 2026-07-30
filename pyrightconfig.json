@@ -1,0 +1,22 @@
+{
+  "include": [
+    "backend",
+    "tests",
+    "scripts"
+  ],
+  "exclude": [
+    ".venv",
+    "frontend/node_modules",
+    "frontend/dist"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        "."
+      ]
+    }
+  ]
+}

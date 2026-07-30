@@ -37,9 +37,7 @@ def test_users_table_has_required_columns() -> None:
 
 
 def test_sessions_do_not_store_raw_tokens() -> None:
-    sessions_table = Base.metadata.tables[
-        "user_sessions"
-    ]
+    sessions_table = Base.metadata.tables["user_sessions"]
 
     column_names = set(
         sessions_table.columns.keys(),
