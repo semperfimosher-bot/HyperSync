@@ -1,10 +1,12 @@
 {
   "include": [
     "backend",
+    "migrations",
     "tests",
     "scripts"
   ],
   "exclude": [
+    ".git",
     ".venv",
     "frontend/node_modules",
     "frontend/dist"
