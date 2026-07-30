@@ -6,9 +6,13 @@
     "scripts"
   ],
   "exclude": [
-    ".git",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
     ".venv",
-    "frontend/node_modules",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
     "frontend/dist"
   ],
   "venvPath": ".",
