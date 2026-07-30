@@ -9,10 +9,18 @@ WORKDIR /app
 COPY requirements.backend.txt ./requirements.backend.txt
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install --no-cache-dir -r requirements.backend.txt
+    && python -m pip install \
+        --no-cache-dir \
+        -r requirements.backend.txt
 
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 COPY backend ./backend
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD [
+    "sh",
+    "-c",
+    "python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+]

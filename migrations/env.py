@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.app.config import get_settings
 from backend.app.models import Base
 
-
 config = context.config
 
 if config.config_file_name is not None:
@@ -24,9 +23,7 @@ def run_migrations_offline() -> None:
     database_url = settings.sqlalchemy_migration_url
 
     if not database_url:
-        raise RuntimeError(
-            "MIGRATION_DATABASE_URL is not configured."
-        )
+        raise RuntimeError("MIGRATION_DATABASE_URL is not configured.")
 
     context.configure(
         url=database_url,
@@ -60,9 +57,7 @@ async def run_async_migrations() -> None:
     database_url = settings.sqlalchemy_migration_url
 
     if not database_url:
-        raise RuntimeError(
-            "MIGRATION_DATABASE_URL is not configured."
-        )
+        raise RuntimeError("MIGRATION_DATABASE_URL is not configured.")
 
     engine = create_async_engine(
         database_url,

@@ -4,7 +4,10 @@ from sqlalchemy import text
 
 from backend.app.database import get_engine
 
+EXPECTED_REVISION = "022b324132d4"
+
 EXPECTED_TABLES = {
+    "alembic_version",
     "users",
     "user_profiles",
     "user_sessions",
@@ -14,7 +17,7 @@ EXPECTED_TABLES = {
 async def main() -> None:
     engine = get_engine()
 
-    query = text(
+    table_query = text(
         """
         SELECT table_name
         FROM information_schema.tables
@@ -22,19 +25,38 @@ async def main() -> None:
         """
     )
 
+    revision_query = text(
+        """
+        SELECT version_num
+        FROM alembic_version
+        """
+    )
+
     try:
         async with engine.connect() as connection:
-            result = await connection.execute(query)
-            actual_tables = set(result.scalars().all())
+            table_result = await connection.execute(table_query)
 
-        missing_tables = EXPECTED_TABLES - actual_tables
+            actual_tables = set(table_result.scalars().all())
 
-        if missing_tables:
-            missing_names = ", ".join(sorted(missing_tables))
+            missing_tables = EXPECTED_TABLES - actual_tables
 
-            raise SystemExit(f"Missing database tables: {missing_names}")
+            if missing_tables:
+                missing_names = ", ".join(sorted(missing_tables))
 
-        print("Account schema is present in Neon.")
+                raise SystemExit(f"Missing database tables: {missing_names}")
+
+            revision_result = await connection.execute(revision_query)
+
+            current_revision = revision_result.scalar_one_or_none()
+
+        if current_revision != EXPECTED_REVISION:
+            raise SystemExit(
+                "Unexpected Alembic revision. "
+                f"Expected {EXPECTED_REVISION}, "
+                f"found {current_revision!r}."
+            )
+
+        print("Account schema and Alembic revision are correct in Neon.")
     finally:
         await engine.dispose()
 
