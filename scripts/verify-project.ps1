@@ -1,3 +1,10 @@
+param(
+    [switch]$SkipDatabase,
+    [switch]$SkipSecurityAudit,
+    [switch]$RequireDocker
+)
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path `
@@ -30,14 +37,18 @@ function Stop-Verification {
 }
 
 
-function Invoke-NativeCheck {
+function Invoke-NativeCapture {
     param(
         [string]$CheckName,
-        [scriptblock]$Command
+        [scriptblock]$Command,
+        [int[]]$AllowedExitCodes = @(0),
+        [string]$FailOnOutputPattern = ""
     )
 
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $exitCode = 1
+    $output = @()
 
     try {
         $global:LASTEXITCODE = 0
@@ -62,205 +73,230 @@ function Invoke-NativeCheck {
         $ErrorActionPreference = $previousPreference
     }
 
-    if ($exitCode -ne 0) {
+    if (-not ($AllowedExitCodes -contains $exitCode)) {
         Stop-Verification `
             -CheckName "$CheckName (exit code $exitCode)" `
             -Output $output
+    }
+
+    if (
+        $FailOnOutputPattern -and
+        (($output -join "`n") -match $FailOnOutputPattern)
+    ) {
+        Stop-Verification `
+            -CheckName "$CheckName emitted a warning" `
+            -Output $output
+    }
+
+    return [PSCustomObject]@{
+        ExitCode = $exitCode
+        Output = $output
+    }
+}
+
+
+function Invoke-NativeCheck {
+    param(
+        [string]$CheckName,
+        [scriptblock]$Command,
+        [string]$FailOnOutputPattern = ""
+    )
+
+    [void](
+        Invoke-NativeCapture `
+            -CheckName $CheckName `
+            -Command $Command `
+            -FailOnOutputPattern $FailOnOutputPattern
+    )
+}
+
+
+function Require-Command {
+    param(
+        [string]$CommandName
+    )
+
+    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+        Stop-Verification `
+            -CheckName "Required command" `
+            -Output @(
+                "Command not found: $CommandName"
+            )
     }
 }
 
 
 # ------------------------------------------------------------
-# Required project files
+# Required local tools and environment
 # ------------------------------------------------------------
 
-$requiredFiles = @(
-    ".env",
-    ".env.example",
-    ".gitattributes",
-    ".gitignore",
-    "Dockerfile.backend",
-    "README.md",
-    "alembic.ini",
-    "pyproject.toml",
-    "pyrightconfig.json",
-    "requirements.backend.txt",
-    "requirements.dev.txt",
-    "backend\__init__.py",
-    "backend\app\__init__.py",
-    "backend\app\main.py",
-    "backend\app\config.py",
-    "backend\app\database.py",
-    "backend\app\api\router.py",
-    "backend\app\api\routes\health.py",
-    "backend\app\models\__init__.py",
-    "backend\app\models\base.py",
-    "backend\app\models\account.py",
-    "migrations\env.py",
-    "scripts\__init__.py",
-    "scripts\check_schema.py",
-    "tests\test_health.py",
-    "tests\test_models.py",
-    "frontend\Dockerfile",
-    "frontend\package.json",
-    "frontend\package-lock.json"
-)
-
-$missingFiles = @(
-    $requiredFiles |
-        Where-Object {
-            -not (Test-Path $_)
-        }
-)
-
-if ($missingFiles.Count -gt 0) {
-    Stop-Verification `
-        -CheckName "Required project files" `
-        -Output @(
-            "These files are missing:"
-            $missingFiles
-        )
-}
-
-
-# ------------------------------------------------------------
-# Local Python environment
-# ------------------------------------------------------------
+Require-Command "git"
+Require-Command "node"
+Require-Command "npm.cmd"
 
 $python = Join-Path `
     $ProjectRoot `
     ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $python)) {
+if (-not (Test-Path $python -PathType Leaf)) {
     Stop-Verification `
         -CheckName "Python virtual environment" `
         -Output @(
-            "Missing:"
-            ".venv\Scripts\python.exe"
+            "Missing: .venv\Scripts\python.exe"
         )
 }
 
-
-# ------------------------------------------------------------
-# Alembic structure
-# ------------------------------------------------------------
-
-$migrationFiles = @(
-    Get-ChildItem `
-        ".\migrations\versions\*.py" `
-        -File `
-        -ErrorAction SilentlyContinue
-)
-
-if ($migrationFiles.Count -eq 0) {
+if (-not (Test-Path ".env" -PathType Leaf)) {
     Stop-Verification `
-        -CheckName "Alembic migrations" `
+        -CheckName "Local environment file" `
         -Output @(
-            "No migration files were found."
+            "Missing: .env"
         )
 }
 
-$postWriteHookSections = @(
-    Select-String `
-        -Path ".\alembic.ini" `
-        -Pattern "^\[post_write_hooks\]\s*$"
-)
+$gitRootResult = Invoke-NativeCapture `
+    -CheckName "Git repository root" `
+    -Command {
+        git rev-parse --show-toplevel
+    }
 
-if ($postWriteHookSections.Count -ne 1) {
+$gitRoot = (
+    $gitRootResult.Output |
+        Select-Object -First 1
+).Trim()
+
+if (
+    [System.IO.Path]::GetFullPath($gitRoot).TrimEnd("\") -ne
+    [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd("\")
+) {
     Stop-Verification `
-        -CheckName "Alembic post-write configuration" `
+        -CheckName "Git repository root" `
         -Output @(
-            "Expected exactly one [post_write_hooks] section."
-            "Found: $($postWriteHookSections.Count)"
+            "Expected: $ProjectRoot"
+            "Found: $gitRoot"
         )
 }
 
 
 # ------------------------------------------------------------
-# Git safety checks
+# Git safety, merge state, secrets, generated files, whitespace
 # ------------------------------------------------------------
 
 Invoke-NativeCheck `
     -CheckName ".env ignore rule" `
     -Command {
-        git check-ignore -q .env
+        git check-ignore -q -- .env
     }
 
-$global:LASTEXITCODE = 0
+$conflictResult = Invoke-NativeCapture `
+    -CheckName "Git conflict-marker scan" `
+    -AllowedExitCodes @(0, 1) `
+    -Command {
+        git grep `
+            -n `
+            -E `
+            "^(<<<<<<<|=======|>>>>>>>)" `
+            -- `
+            .
+    }
 
-$conflictOutput = @(
-    git grep `
-        -n `
-        -E `
-        "^(<<<<<<<|=======|>>>>>>>)" `
-        -- `
-        . 2>&1
-)
-
-$conflictExitCode = $LASTEXITCODE
-
-# git grep returns:
-# 0 when matches exist
-# 1 when no matches exist
-# Anything else means the command failed.
-if ($conflictExitCode -eq 0) {
+if ($conflictResult.ExitCode -eq 0) {
     Stop-Verification `
-        -CheckName "Git conflict-marker scan" `
-        -Output $conflictOutput
+        -CheckName "Git conflict markers" `
+        -Output $conflictResult.Output
 }
 
-if ($conflictExitCode -ne 1) {
-    Stop-Verification `
-        -CheckName "Git conflict-marker scan command" `
-        -Output $conflictOutput
-}
+$unmergedResult = Invoke-NativeCapture `
+    -CheckName "Git unmerged-file check" `
+    -Command {
+        git ls-files --unmerged
+    }
 
-$global:LASTEXITCODE = 0
-
-$unmergedFiles = @(
-    git diff `
-        --name-only `
-        --diff-filter=U 2>&1
-)
-
-if ($LASTEXITCODE -ne 0) {
-    Stop-Verification `
-        -CheckName "Git unmerged-file check" `
-        -Output $unmergedFiles
-}
-
-if ($unmergedFiles.Count -gt 0) {
+if ($unmergedResult.Output.Count -gt 0) {
     Stop-Verification `
         -CheckName "Git unmerged files" `
-        -Output $unmergedFiles
+        -Output $unmergedResult.Output
 }
 
-$global:LASTEXITCODE = 0
+$forbiddenTrackedResult = Invoke-NativeCapture `
+    -CheckName "Tracked-file safety check" `
+    -Command {
+        git ls-files `
+            -- `
+            ".env" `
+            ":(glob).env.*" `
+            ":(exclude).env.example" `
+            ":(glob).venv/**" `
+            ":(glob)**/__pycache__/**" `
+            ":(glob)**/*.pyc" `
+            ":(glob).pytest_cache/**" `
+            ":(glob).ruff_cache/**" `
+            ":(glob)frontend/node_modules/**" `
+            ":(glob)frontend/dist/**" `
+            ":(glob)storage/**" `
+            ":(glob)**/*.log"
+    }
 
-$forbiddenTrackedFiles = @(
-    git ls-files `
-        -- `
-        ".env" `
-        ":(glob).venv/**" `
-        ":(glob)frontend/node_modules/**" `
-        ":(glob)frontend/dist/**" 2>&1
-)
-
-if ($LASTEXITCODE -ne 0) {
-    Stop-Verification `
-        -CheckName "Tracked-file safety check" `
-        -Output $forbiddenTrackedFiles
-}
-
-if ($forbiddenTrackedFiles.Count -gt 0) {
+if ($forbiddenTrackedResult.Output.Count -gt 0) {
     Stop-Verification `
         -CheckName "Secret or generated files tracked by Git" `
-        -Output $forbiddenTrackedFiles
+        -Output $forbiddenTrackedResult.Output
+}
+
+Invoke-NativeCheck `
+    -CheckName "Unstaged Git whitespace validation" `
+    -Command {
+        git diff --check
+    }
+
+Invoke-NativeCheck `
+    -CheckName "Staged Git whitespace validation" `
+    -Command {
+        git diff --cached --check
+    }
+
+
+# ------------------------------------------------------------
+# PowerShell syntax for every tracked PowerShell script
+# ------------------------------------------------------------
+
+$powerShellFilesResult = Invoke-NativeCapture `
+    -CheckName "PowerShell file discovery" `
+    -Command {
+        git ls-files -- "*.ps1"
+    }
+
+$powerShellErrors = @()
+
+foreach ($relativePath in $powerShellFilesResult.Output) {
+    if (-not $relativePath) {
+        continue
+    }
+
+    $tokens = $null
+    $parseErrors = $null
+    $fullPath = Join-Path $ProjectRoot $relativePath
+
+    [System.Management.Automation.Language.Parser]::ParseFile(
+        $fullPath,
+        [ref]$tokens,
+        [ref]$parseErrors
+    ) | Out-Null
+
+    foreach ($parseError in @($parseErrors)) {
+        $powerShellErrors += "$relativePath - $parseError"
+    }
+}
+
+if ($powerShellErrors.Count -gt 0) {
+    Stop-Verification `
+        -CheckName "PowerShell syntax" `
+        -Output $powerShellErrors
 }
 
 
 # ------------------------------------------------------------
-# Python dependencies and imports
+# Deep project and backend structure checks
 # ------------------------------------------------------------
 
 Invoke-NativeCheck `
@@ -270,13 +306,14 @@ Invoke-NativeCheck `
     }
 
 Invoke-NativeCheck `
-    -CheckName "Backend import test" `
+    -CheckName "Deep project and backend verification" `
     -Command {
         & $python -m scripts.verify_backend
     }
 
+
 # ------------------------------------------------------------
-# Python linting, formatting, warnings, and syntax
+# Python linting, formatting, typing, security, tests, compilation
 # ------------------------------------------------------------
 
 Invoke-NativeCheck `
@@ -284,9 +321,10 @@ Invoke-NativeCheck `
     -Command {
         & $python -m ruff check `
             backend `
-            tests `
+            bot `
+            migrations `
             scripts `
-            migrations
+            tests
     }
 
 Invoke-NativeCheck `
@@ -295,18 +333,38 @@ Invoke-NativeCheck `
         & $python -m ruff format `
             --check `
             backend `
-            tests `
+            bot `
+            migrations `
             scripts `
-            migrations
+            tests
     }
 
-# -W error causes Python warnings during tests to fail verification.
+Invoke-NativeCheck `
+    -CheckName "Pyright type check" `
+    -Command {
+        & $python -m pyright --warnings
+    }
+
+Invoke-NativeCheck `
+    -CheckName "Bandit backend security scan" `
+    -Command {
+        & $python -m bandit `
+            -q `
+            -r `
+            backend `
+            bot `
+            -ll `
+            -ii
+    }
+
 Invoke-NativeCheck `
     -CheckName "Tests and Python warnings" `
     -Command {
         & $python -m pytest `
             -q `
-            -W error
+            -W error `
+            --strict-config `
+            --strict-markers
     }
 
 Invoke-NativeCheck `
@@ -314,21 +372,33 @@ Invoke-NativeCheck `
     -Command {
         & $python -m compileall `
             -q `
+            -f `
             backend `
             bot `
+            migrations `
             scripts `
-            migrations
+            tests
     }
+
+if (-not $SkipSecurityAudit) {
+    Invoke-NativeCheck `
+        -CheckName "Python dependency vulnerability audit" `
+        -Command {
+            & $python -m pip_audit `
+                --strict `
+                -r requirements.backend.txt
+        }
+}
 
 
 # ------------------------------------------------------------
-# Alembic and Neon
+# Alembic migration graph and live Neon compatibility
 # ------------------------------------------------------------
 
 Invoke-NativeCheck `
-    -CheckName "Alembic current revision" `
+    -CheckName "Alembic heads" `
     -Command {
-        & $python -m alembic current
+        & $python -m alembic heads
     }
 
 Invoke-NativeCheck `
@@ -338,43 +408,94 @@ Invoke-NativeCheck `
     }
 
 Invoke-NativeCheck `
-    -CheckName "Models match the database" `
+    -CheckName "Alembic upgrade SQL generation" `
     -Command {
-        & $python -m alembic check
+        & $python -m alembic upgrade head --sql
     }
 
-Invoke-NativeCheck `
-    -CheckName "Neon schema verification" `
-    -Command {
-        & $python -m scripts.check_schema
-    }
+if (-not $SkipDatabase) {
+    Invoke-NativeCheck `
+        -CheckName "Alembic current revision" `
+        -Command {
+            & $python -m alembic current
+        }
+
+    Invoke-NativeCheck `
+        -CheckName "Models match the database" `
+        -Command {
+            & $python -m alembic check
+        }
+
+    Invoke-NativeCheck `
+        -CheckName "Neon schema verification" `
+        -Command {
+            & $python -m scripts.check_schema
+        }
+}
 
 
 # ------------------------------------------------------------
-# Frontend dependencies, build, and vulnerabilities
+# Frontend dependency tree, syntax, build warnings, and security
 # ------------------------------------------------------------
+
+$viteProcesses = @()
+
+try {
+    $escapedProjectRoot = [regex]::Escape($ProjectRoot)
+
+    $viteProcesses = @(
+        Get-CimInstance `
+            Win32_Process `
+            -Filter "Name = 'node.exe'" `
+            -ErrorAction Stop |
+            Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine -match "vite" -and
+                $_.CommandLine -match $escapedProjectRoot
+            }
+    )
+}
+catch {
+    $viteProcesses = @()
+}
+
+if ($viteProcesses.Count -gt 0) {
+    Stop-Verification `
+        -CheckName "Running Vite process" `
+        -Output @(
+            "Stop the HyperSync Vite development server with Ctrl+C before verification."
+        )
+}
 
 Push-Location ".\frontend"
 
 try {
+    $warningPattern = "(?im)^\s*(npm\s+warn|warning:|\(!\))"
+
     Invoke-NativeCheck `
         -CheckName "Frontend clean dependency installation" `
+        -FailOnOutputPattern $warningPattern `
         -Command {
             npm.cmd ci
         }
 
     Invoke-NativeCheck `
+        -CheckName "Frontend dependency-tree compatibility" `
+        -Command {
+            npm.cmd ls --all
+        }
+
+    Invoke-NativeCheck `
         -CheckName "Frontend production build" `
+        -FailOnOutputPattern $warningPattern `
         -Command {
             npm.cmd run build
         }
 
-    # audit-level=low fails if npm reports any vulnerability level.
     Invoke-NativeCheck `
         -CheckName "Frontend dependency security audit" `
         -Command {
-            npm.cmd audit `
-                --audit-level=low
+            npm.cmd audit --audit-level=low
         }
 }
 finally {
@@ -383,21 +504,56 @@ finally {
 
 
 # ------------------------------------------------------------
-# Final Git whitespace check
+# Optional local Docker/BuildKit validation
+# ------------------------------------------------------------
+
+if ($RequireDocker) {
+    Require-Command "docker"
+
+    Invoke-NativeCheck `
+        -CheckName "Docker daemon" `
+        -Command {
+            docker version
+        }
+
+    Invoke-NativeCheck `
+        -CheckName "Backend Docker BuildKit validation" `
+        -Command {
+            docker buildx build `
+                --check `
+                --file Dockerfile.backend `
+                .
+        }
+
+    Invoke-NativeCheck `
+        -CheckName "Frontend Docker BuildKit validation" `
+        -Command {
+            docker buildx build `
+                --check `
+                --file frontend/Dockerfile `
+                .
+        }
+}
+
+
+# ------------------------------------------------------------
+# Final validation after tools may have generated files
 # ------------------------------------------------------------
 
 Invoke-NativeCheck `
-    -CheckName "Git whitespace and patch validation" `
+    -CheckName "Final unstaged Git whitespace validation" `
     -Command {
-        cmd.exe `
-            /d `
-            /c `
-            "git diff --check 2>&1"
+        git diff --check
     }
 
-# This is printed only when every check above succeeded.
+Invoke-NativeCheck `
+    -CheckName "Final staged Git whitespace validation" `
+    -Command {
+        git diff --cached --check
+    }
+
 Write-Host `
-    "All good Shane, hoorah" `
-    -ForegroundColor Green
+    "All good Shane, Hoorah" `
+    -ForegroundColor Blue
 
 exit 0

@@ -52,6 +52,8 @@ class Settings(BaseSettings):
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "hypersync-api"
+    jwt_audience: str = "hypersync-web"
     access_token_ttl_minutes: int = 60
     refresh_token_ttl_days: int = 30
 
