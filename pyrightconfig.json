@@ -1,9 +1,10 @@
 {
   "include": [
     "backend",
+    "bot",
     "migrations",
-    "tests",
-    "scripts"
+    "scripts",
+    "tests"
   ],
   "exclude": [
     "**/node_modules",
@@ -17,6 +18,11 @@
   ],
   "venvPath": ".",
   "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportUnusedImport": "error",
+  "reportUnusedVariable": "error",
+  "reportUnnecessaryTypeIgnoreComment": "error",
   "executionEnvironments": [
     {
       "root": ".",

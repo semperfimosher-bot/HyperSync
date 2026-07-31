@@ -2,6 +2,13 @@
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+]
+filterwarnings = [
+    "error",
+]
 
 [tool.ruff]
 target-version = "py313"

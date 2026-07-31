@@ -1,0 +1,21 @@
+HyperSync verifier upgrade
+
+Copy these files into the matching locations at the repository root:
+
+scripts/verify_backend.py
+scripts/verify-project.ps1
+requirements.dev.txt
+pyrightconfig.json
+pyproject.toml
+
+Then run:
+
+python -m pip install -r .\requirements.dev.txt
+python -m ruff check backend bot migrations scripts tests --fix
+python -m ruff format backend bot migrations scripts tests
+python -m pytest -q -W error
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-project.ps1
+
+For an additional local Docker/BuildKit validation when Docker Desktop is installed and running:
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-project.ps1 -RequireDocker
