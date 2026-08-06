@@ -1085,9 +1085,132 @@ function SectionHeading({
   );
 }
 
-function HomePage({ onNavigate }) {
+function HomePage({
+  onNavigate,
+  onOpenAuth,
+}) {
   return (
     <div className="page-stack home-page">
+      <section className="home-signal bevel-panel">
+        <div
+          className="home-signal__circuit"
+          aria-hidden="true"
+        />
+
+        <div className="home-signal__content">
+          <span className="home-signal__eyebrow">
+            <i aria-hidden="true" />
+            HyperSync // Guest mode
+          </span>
+
+          <h2>
+            <span></span>
+          </h2>
+
+          <p>
+          </p>
+
+          <div className="home-signal__actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                onNavigate("search");
+              }}
+            >
+              <Icon
+                name="search"
+                size={18}
+              />
+
+              Explore music
+            </button>
+
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onOpenAuth}
+            >
+              <Icon
+                name="profile"
+                size={17}
+              />
+
+              Account options
+            </button>
+          </div>
+
+          <div className="home-signal__status">
+            <span>
+              <i aria-hidden="true" />
+              Guest access active
+            </span>
+
+            <span>
+              <Icon
+                name="lock"
+                size={14}
+              />
+
+              Saving requires an account
+            </span>
+          </div>
+        </div>
+
+        <div
+          className="home-signal__art"
+          aria-hidden="true"
+        >
+          <svg
+            className="home-signal__wave"
+            viewBox="0 0 520 250"
+          >
+            <path
+              className="home-signal__wave-glow"
+              d={
+                "M5 132c34 0 34-45 68-45 " +
+                "s34 91 68 91 34-137 68-137 " +
+                "34 184 68 184 34-149 68-149 " +
+                "34 105 68 105 34-49 68-49 " +
+                "34 0 68 0"
+              }
+            />
+
+            <path
+              className="home-signal__wave-line"
+              d={
+                "M5 132c34 0 34-45 68-45 " +
+                "s34 91 68 91 34-137 68-137 " +
+                "34 184 68 184 34-149 68-149 " +
+                "34 105 68 105 34-49 68-49 " +
+                "34 0 68 0"
+              }
+            />
+          </svg>
+
+          <span
+            className={
+              "home-signal__orbit " +
+              "home-signal__orbit--one"
+            }
+          />
+
+          <span
+            className={
+              "home-signal__orbit " +
+              "home-signal__orbit--two"
+            }
+          />
+
+          <div className="home-signal__poster">
+            <img
+              src="/hypersync-home-logo.png"
+              alt=""
+            />
+          </div>
+        </div>
+      </section>
+
       <section>
         <SectionHeading
           title="Recently Played"
@@ -1111,7 +1234,9 @@ function HomePage({ onNavigate }) {
           </div>
 
           <div>
-            <strong>No listening history yet</strong>
+            <strong>
+              No listening history yet
+            </strong>
 
             <p>
               Once real playback is connected,
@@ -1692,9 +1817,12 @@ function MainPage({
     );
   }
 
-  return (
-  <HomePage onNavigate={onNavigate} />
- );
+ return (
+  <HomePage
+    onNavigate={onNavigate}
+    onOpenAuth={onOpenAuth}
+  />
+);
 }
 
 function MobileBottomNav({
