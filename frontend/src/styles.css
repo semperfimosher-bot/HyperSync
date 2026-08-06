@@ -75,18 +75,147 @@ svg {
   display: block;
 }
 
+/*
+  Main circuit backdrop.
+
+  The visual is generated entirely with inline SVG
+  and CSS rather than an external image.
+*/
+
 .hex-backdrop {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  opacity: 0.79;
+  opacity: 1;
+  background:
+    radial-gradient(
+      circle at 86% 27%,
+      rgba(20, 67, 255, 0.58),
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 50% 47%,
+      rgba(9, 37, 192, 0.32),
+      transparent 46%
+    ),
+    linear-gradient(
+      90deg,
+      #020749 0%,
+      #030b64 25%,
+      #06147c 55%,
+      #07188a 74%,
+      #020b5c 100%
+    );
   filter:
-    saturate(4.06)
-    contrast(1.04)
-    brightness(0.98);
+    saturate(1.12)
+    contrast(1.05);
   z-index: -5;
+}
+
+.circuit-backdrop {
+  overflow: hidden;
+}
+
+.circuit-backdrop path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.circuit-backdrop__grid {
+  stroke: #2860dc;
+  stroke-width: 0.65;
+  opacity: 0.075;
+}
+
+.circuit-backdrop__soft-glow {
+  stroke: #114dff;
+  stroke-width: 11;
+  opacity: 0.12;
+  filter: blur(7px);
+  mix-blend-mode: screen;
+}
+
+.circuit-backdrop__soft-lines {
+  stroke: #1737bf;
+  stroke-width: 1.2;
+  opacity: 0.42;
+}
+
+.circuit-backdrop__main-glow {
+  stroke: #006cff;
+  stroke-width: 14;
+  opacity: 0.24;
+  filter: blur(7px);
+  mix-blend-mode: screen;
+}
+
+.circuit-backdrop__main-lines {
+  stroke: #1759ff;
+  stroke-width: 2;
+  opacity: 0.78;
+  filter:
+    drop-shadow(
+      0 0 3px
+      rgba(0, 105, 255, 0.75)
+    );
+}
+
+.circuit-backdrop__highlights {
+  stroke: #45dfff;
+  stroke-width: 0.85;
+  opacity: 0.8;
+  filter:
+    drop-shadow(
+      0 0 3px
+      rgba(44, 226, 255, 0.9)
+    );
+  mix-blend-mode: screen;
+}
+
+.circuit-backdrop__streaks {
+  stroke: #0d65ff;
+  stroke-width: 3;
+  opacity: 0.16;
+  filter: blur(2px);
+  mix-blend-mode: screen;
+}
+
+.circuit-backdrop__node-halo {
+  fill: #0c68ff;
+  opacity: 0.36;
+  filter: blur(8px);
+  mix-blend-mode: screen;
+}
+
+.circuit-backdrop__node-ring {
+  fill: rgba(8, 87, 255, 0.12);
+  stroke: #2f86ff;
+  stroke-width: 1.5;
+  opacity: 0.8;
+  filter:
+    drop-shadow(
+      0 0 5px
+      rgba(0, 124, 255, 0.85)
+    );
+}
+
+.circuit-backdrop__node-core {
+  fill: #bfffff;
+  stroke: #45eeff;
+  stroke-width: 1;
+  filter:
+    drop-shadow(
+      0 0 4px
+      #36eaff
+    )
+    drop-shadow(
+      0 0 10px
+      #087eff
+    );
 }
 
 .app-shell {
@@ -103,9 +232,9 @@ svg {
   background:
     linear-gradient(
       180deg,
-      rgba(3, 8, 13, 0.35),
-      rgba(2, 6, 10, 0.78) 46%,
-      rgba(2, 5, 8, 0.97)
+      rgba(1, 4, 30, 0.1),
+      rgba(1, 5, 24, 0.3) 48%,
+      rgba(1, 4, 15, 0.68) 100%
     );
 }
 
@@ -115,20 +244,20 @@ svg {
   pointer-events: none;
   background:
     radial-gradient(
-      circle at 18% 12%,
-      rgba(0, 137, 255, 0.08),
-      transparent 28rem
+      circle at 16% 14%,
+      rgba(23, 72, 255, 0.12),
+      transparent 30rem
     ),
     radial-gradient(
-      circle at 82% 28%,
-      rgba(0, 198, 255, 0.06),
-      transparent 30rem
+      circle at 84% 27%,
+      rgba(0, 164, 255, 0.09),
+      transparent 28rem
     ),
     linear-gradient(
       180deg,
-      rgba(1, 5, 9, 0.08) 0%,
-      rgba(1, 5, 9, 0.2) 48%,
-      rgba(1, 4, 8, 0.46) 100%
+      rgba(1, 4, 20, 0.02),
+      rgba(1, 4, 16, 0.12) 52%,
+      rgba(1, 4, 12, 0.36)
     );
   content: "";
   z-index: -4;

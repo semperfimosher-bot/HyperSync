@@ -619,526 +619,160 @@ function BrandLogo({
   );
 }
 
-function HexBackdrop({
-  idPrefix = "hypersync-background",
-}) {
-  const tileGradientId =
-    `${idPrefix}-tile-gradient`;
+function HexBackdrop() {
+  const primaryTraces = [
+    "M82 35H242C288 35 303 96 356 96H486",
+    "M72 47H233C279 47 294 108 347 108H486",
 
-  const gridPatternId =
-    `${idPrefix}-grid-pattern`;
+    "M500 35H690C731 35 744 89 786 89H1001",
+    "M500 48H681C722 48 735 102 777 102H991",
 
-  const textureFilterId =
-    `${idPrefix}-texture-filter`;
+    "M0 157H478C538 157 558 188 621 188H1057",
+    "M0 170H468C528 170 548 201 611 201H1057",
 
-  const glowFilterId =
-    `${idPrefix}-edge-glow`;
+    "M182 194H310C348 194 364 225 402 225H633",
+    "M182 207H301C339 207 355 238 393 238H623",
 
-  const strongGlowFilterId =
-    `${idPrefix}-strong-edge-glow`;
+    "M583 218H704C749 218 758 246 800 246H968",
+    "M592 230H696C739 230 748 258 790 258H958",
 
-  const vignetteId =
-    `${idPrefix}-vignette`;
+    "M0 294H299C339 294 354 326 395 326H608",
+    "M0 307H290C330 307 345 339 386 339H598",
 
-  const blueAreaGlowId =
-    `${idPrefix}-blue-area-glow`;
+    "M0 355H270C309 355 325 325 363 325H446",
+    "M0 389H278C321 389 339 337 390 337H661",
+  ];
 
-  const cyanAreaGlowId =
-    `${idPrefix}-cyan-area-glow`;
+  const secondaryTraces = [
+    "M0 121H194C234 121 253 145 295 145H475",
+    "M0 132H185C225 132 244 156 286 156H466",
+
+    "M155 270H321C362 270 378 302 421 302H652",
+    "M151 281H312C353 281 369 313 412 313H643",
+
+    "M344 78H512C549 78 565 109 605 109H790",
+    "M737 286H848C885 286 899 263 936 263H1054",
+
+    "M58 409H268C306 409 326 377 365 377H530",
+    "M717 152H814C851 152 864 177 901 177H1127",
+  ];
+
+  const nodes = [
+    { x: 1002, y: 95 },
+    { x: 1058, y: 194 },
+    { x: 968, y: 246 },
+  ];
 
   return (
     <svg
-      className="hex-backdrop"
-      viewBox="0 0 1600 1000"
+      className="hex-backdrop circuit-backdrop"
+      viewBox="0 0 1213 453"
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
+      focusable="false"
     >
-      <defs>
-        <linearGradient
-          id={tileGradientId}
-          x1="0"
-          y1="0"
-          x2="1"
-          y2="1"
-        >
-          <stop
-            offset="0"
-            stopColor="#17222c"
-          />
+      <path
+        className="circuit-backdrop__grid"
+        d={
+          "M0 45H1213 " +
+          "M0 90H1213 " +
+          "M0 135H1213 " +
+          "M0 180H1213 " +
+          "M0 225H1213 " +
+          "M0 270H1213 " +
+          "M0 315H1213 " +
+          "M0 360H1213 " +
+          "M0 405H1213 " +
+          "M60 0V453 " +
+          "M120 0V453 " +
+          "M180 0V453 " +
+          "M240 0V453 " +
+          "M300 0V453 " +
+          "M360 0V453 " +
+          "M420 0V453 " +
+          "M480 0V453 " +
+          "M540 0V453 " +
+          "M600 0V453 " +
+          "M660 0V453 " +
+          "M720 0V453 " +
+          "M780 0V453 " +
+          "M840 0V453 " +
+          "M900 0V453 " +
+          "M960 0V453 " +
+          "M1020 0V453 " +
+          "M1080 0V453 " +
+          "M1140 0V453 " +
+          "M1200 0V453"
+        }
+      />
 
-          <stop
-            offset="0.42"
-            stopColor="#111b24"
-          />
+      <g className="circuit-backdrop__soft-glow">
+        {secondaryTraces.map((trace) => (
+          <path key={`soft-glow-${trace}`} d={trace} />
+        ))}
+      </g>
 
-          <stop
-            offset="0.72"
-            stopColor="#0c151d"
-          />
+      <g className="circuit-backdrop__soft-lines">
+        {secondaryTraces.map((trace) => (
+          <path key={`soft-line-${trace}`} d={trace} />
+        ))}
+      </g>
 
-          <stop
-            offset="1"
-            stopColor="#081017"
-          />
-        </linearGradient>
+      <g className="circuit-backdrop__main-glow">
+        {primaryTraces.map((trace) => (
+          <path key={`main-glow-${trace}`} d={trace} />
+        ))}
+      </g>
 
-        <radialGradient
-          id={blueAreaGlowId}
-          cx="50%"
-          cy="50%"
-          r="50%"
-        >
-          <stop
-            offset="0"
-            stopColor="#008cff"
-            stopOpacity="0.3"
-          />
+      <g className="circuit-backdrop__main-lines">
+        {primaryTraces.map((trace) => (
+          <path key={`main-line-${trace}`} d={trace} />
+        ))}
+      </g>
 
-          <stop
-            offset="0.38"
-            stopColor="#006fd4"
-            stopOpacity="0.11"
-          />
+      <g className="circuit-backdrop__highlights">
+        <path d="M500 35H690C731 35 744 89 786 89H1001" />
 
-          <stop
-            offset="1"
-            stopColor="#00111d"
-            stopOpacity="0"
-          />
-        </radialGradient>
+        <path d="M0 157H478C538 157 558 188 621 188H1057" />
 
-        <radialGradient
-          id={cyanAreaGlowId}
-          cx="50%"
-          cy="50%"
-          r="50%"
-        >
-          <stop
-            offset="0"
-            stopColor="#20efff"
-            stopOpacity="0.22"
-          />
+        <path d="M583 218H704C749 218 758 246 800 246H968" />
 
-          <stop
-            offset="0.42"
-            stopColor="#00a8d8"
-            stopOpacity="0.08"
-          />
+        <path d="M0 294H299C339 294 354 326 395 326H608" />
+      </g>
 
-          <stop
-            offset="1"
-            stopColor="#001018"
-            stopOpacity="0"
-          />
-        </radialGradient>
+      <g className="circuit-backdrop__streaks">
+        <path d="M0 164H611" />
+        <path d="M88 229H704" />
+        <path d="M0 318H515" />
+        <path d="M356 109H893" />
+      </g>
 
-        <radialGradient
-          id={vignetteId}
-          cx="50%"
-          cy="45%"
-          r="72%"
-        >
-          <stop
-            offset="0"
-            stopColor="#07121a"
-            stopOpacity="0"
-          />
-
-          <stop
-            offset="0.62"
-            stopColor="#02070b"
-            stopOpacity="0.16"
-          />
-
-          <stop
-            offset="1"
-            stopColor="#010408"
-            stopOpacity="0.86"
-          />
-        </radialGradient>
-
-        <pattern
-          id={gridPatternId}
-          width="252"
-          height="146"
-          patternUnits="userSpaceOnUse"
-        >
-          <g>
-            <path
-              d={
-                "M42 2H126L168 73 " +
-                "126 144H42L0 73Z"
-              }
-              fill={`url(#${tileGradientId})`}
-              stroke="#1d3446"
-              strokeWidth="2"
+      <g className="circuit-backdrop__nodes">
+        {nodes.map(({ x, y }) => (
+          <g key={`${x}-${y}`}>
+            <circle
+              className="circuit-backdrop__node-halo"
+              cx={x}
+              cy={y}
+              r="25"
             />
 
-            <path
-              d={
-                "M168 -71H252L294 0 " +
-                "252 71H168L126 0Z"
-              }
-              fill={`url(#${tileGradientId})`}
-              stroke="#1b3244"
-              strokeWidth="2"
+            <circle
+              className="circuit-backdrop__node-ring"
+              cx={x}
+              cy={y}
+              r="13"
             />
 
-            <path
-              d={
-                "M168 75H252L294 146 " +
-                "252 217H168L126 146Z"
-              }
-              fill={`url(#${tileGradientId})`}
-              stroke="#1b3244"
-              strokeWidth="2"
-            />
-
-            <path
-              d="M42 2H126"
-              fill="none"
-              stroke="rgba(132,177,207,0.16)"
-              strokeWidth="1"
-            />
-
-            <path
-              d="M0 73 42 144"
-              fill="none"
-              stroke="rgba(0,0,0,0.65)"
-              strokeWidth="3"
-            />
-
-            <path
-              d="M168 73 126 144"
-              fill="none"
-              stroke="rgba(0,0,0,0.55)"
-              strokeWidth="3"
+            <circle
+              className="circuit-backdrop__node-core"
+              cx={x}
+              cy={y}
+              r="5"
             />
           </g>
-        </pattern>
-
-        <filter
-          id={textureFilterId}
-          x="-20%"
-          y="-20%"
-          width="140%"
-          height="140%"
-        >
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.018 0.034"
-            numOctaves="4"
-            seed="19"
-            result="noise"
-          />
-
-          <feColorMatrix
-            in="noise"
-            type="matrix"
-            values={
-              "0.20 0 0 0 0.02 " +
-              "0 0.28 0 0 0.04 " +
-              "0 0 0.38 0 0.06 " +
-              "0 0 0 0.34 0"
-            }
-            result="coloredNoise"
-          />
-
-          <feBlend
-            in="SourceGraphic"
-            in2="coloredNoise"
-            mode="soft-light"
-          />
-        </filter>
-
-        <filter
-          id={glowFilterId}
-          x="-100%"
-          y="-100%"
-          width="300%"
-          height="300%"
-        >
-          <feGaussianBlur
-            stdDeviation="3.4"
-            result="blur"
-          />
-
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-
-        <filter
-          id={strongGlowFilterId}
-          x="-150%"
-          y="-150%"
-          width="400%"
-          height="400%"
-        >
-          <feGaussianBlur
-            stdDeviation="7"
-            result="wideBlur"
-          />
-
-          <feGaussianBlur
-            in="SourceGraphic"
-            stdDeviation="2.2"
-            result="tightBlur"
-          />
-
-          <feMerge>
-            <feMergeNode in="wideBlur" />
-            <feMergeNode in="tightBlur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-
-      <rect
-        width="1600"
-        height="1000"
-        fill="#04090e"
-      />
-
-      <rect
-        width="1600"
-        height="1000"
-        fill={`url(#${gridPatternId})`}
-        filter={`url(#${textureFilterId})`}
-      />
-
-      <g opacity="0.72">
-        <ellipse
-          cx="240"
-          cy="240"
-          rx="300"
-          ry="260"
-          fill={`url(#${blueAreaGlowId})`}
-        />
-
-        <ellipse
-          cx="1210"
-          cy="240"
-          rx="350"
-          ry="280"
-          fill={`url(#${blueAreaGlowId})`}
-        />
-
-        <ellipse
-          cx="900"
-          cy="690"
-          rx="390"
-          ry="300"
-          fill={`url(#${blueAreaGlowId})`}
-        />
-
-        <ellipse
-          cx="450"
-          cy="610"
-          rx="210"
-          ry="180"
-          fill={`url(#${cyanAreaGlowId})`}
-        />
-
-        <ellipse
-          cx="1250"
-          cy="630"
-          rx="230"
-          ry="190"
-          fill={`url(#${cyanAreaGlowId})`}
-        />
+        ))}
       </g>
-
-      <g
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        filter={`url(#${glowFilterId})`}
-      >
-        <g
-          stroke="#008cff"
-          strokeWidth="3"
-          opacity="0.72"
-        >
-          <path d="M0 177H62" />
-          <path d="M62 177 105 248" />
-          <path d="M105 248H188" />
-
-          <path d="M212 67H295" />
-          <path d="M295 67 337 138" />
-
-          <path d="M379 283H463" />
-          <path d="M463 283 505 354" />
-
-          <path d="M548 67H631" />
-          <path d="M631 67 673 138" />
-
-          <path d="M758 229H842" />
-          <path d="M842 229 884 300" />
-
-          <path d="M967 121H1051" />
-          <path d="M1051 121 1093 192" />
-
-          <path d="M1177 229H1261" />
-          <path d="M1261 229 1303 300" />
-
-          <path d="M1387 67H1471" />
-          <path d="M1471 67 1513 138" />
-
-          <path d="M128 393H211" />
-          <path d="M211 393 253 464" />
-
-          <path d="M379 501H463" />
-          <path d="M463 501 505 572" />
-
-          <path d="M630 447H714" />
-          <path d="M714 447 756 518" />
-
-          <path d="M841 393H925" />
-          <path d="M925 393 967 464" />
-
-          <path d="M1051 555H1135" />
-          <path d="M1135 555 1177 626" />
-
-          <path d="M1302 447H1386" />
-          <path d="M1386 447 1428 518" />
-
-          <path d="M43 718H127" />
-          <path d="M127 718 169 789" />
-
-          <path d="M337 664H421" />
-          <path d="M421 664 463 735" />
-
-          <path d="M630 772H714" />
-          <path d="M714 772 756 843" />
-
-          <path d="M967 718H1051" />
-          <path d="M1051 718 1093 789" />
-
-          <path d="M1261 772H1345" />
-          <path d="M1345 772 1387 843" />
-
-          <path d="M1471 610H1555" />
-        </g>
-
-        <g
-          stroke="#22efff"
-          strokeWidth="2.4"
-          opacity="0.62"
-        >
-          <path d="M253 175H337" />
-          <path d="M505 229 547 158" />
-          <path d="M715 121H799" />
-          <path d="M1093 338H1177" />
-          <path d="M1345 284H1429" />
-          <path d="M211 610H295" />
-          <path d="M505 718H589" />
-          <path d="M756 572H840" />
-          <path d="M1177 664H1261" />
-          <path d="M1428 880H1512" />
-        </g>
-      </g>
-
-      <g
-        filter={`url(#${strongGlowFilterId})`}
-      >
-        <circle
-          cx="212"
-          cy="176"
-          r="4"
-          fill="#66f3ff"
-        />
-
-        <circle
-          cx="463"
-          cy="283"
-          r="4"
-          fill="#14caff"
-        />
-
-        <circle
-          cx="631"
-          cy="67"
-          r="4"
-          fill="#42ecff"
-        />
-
-        <circle
-          cx="842"
-          cy="229"
-          r="4"
-          fill="#23bfff"
-        />
-
-        <circle
-          cx="1093"
-          cy="192"
-          r="4"
-          fill="#36dfff"
-        />
-
-        <circle
-          cx="1261"
-          cy="229"
-          r="4"
-          fill="#25baff"
-        />
-
-        <circle
-          cx="463"
-          cy="501"
-          r="4"
-          fill="#37dcff"
-        />
-
-        <circle
-          cx="925"
-          cy="393"
-          r="4"
-          fill="#15b5ff"
-        />
-
-        <circle
-          cx="1135"
-          cy="555"
-          r="4"
-          fill="#58f7ff"
-        />
-
-        <circle
-          cx="714"
-          cy="772"
-          r="4"
-          fill="#20caff"
-        />
-
-        <circle
-          cx="1051"
-          cy="718"
-          r="4"
-          fill="#29c7ff"
-        />
-
-        <circle
-          cx="1387"
-          cy="843"
-          r="4"
-          fill="#1cabff"
-        />
-      </g>
-
-      <rect
-        width="1600"
-        height="1000"
-        fill={`url(#${vignetteId})`}
-      />
-
-      <rect
-        width="1600"
-        height="1000"
-        fill="rgba(1,5,9,0.18)"
-      />
     </svg>
   );
 }
