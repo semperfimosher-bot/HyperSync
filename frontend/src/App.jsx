@@ -7,6 +7,29 @@ const NAV_ITEMS = [
   { id: "profile", label: "Profile", icon: "profile" },
 ];
 
+const ADMIN_NAV_ITEMS = [
+  {
+    id: "admin",
+    label: "Dashboard",
+    icon: "shield",
+  },
+  {
+    id: "admin-bot",
+    label: "Bot Control",
+    icon: "chart",
+  },
+  {
+    id: "admin-uploads",
+    label: "Uploads",
+    icon: "plus",
+  },
+  {
+    id: "admin-catalog",
+    label: "Media Catalog",
+    icon: "music",
+  },
+];
+
 const LIBRARY_TABS = [
   "Playlists",
   "Artists",
@@ -51,7 +74,44 @@ const PAGE_TITLES = {
   search: "Search",
   library: "My Library",
   profile: "Profile",
+
+  admin: "Admin Dashboard",
+  "admin-bot": "Bot Control",
+  "admin-uploads": "Uploads",
+  "admin-catalog": "Media Catalog",
 };
+
+function getGreetingName(user) {
+  const rawName =
+    user?.displayName ??
+    user?.display_name ??
+    user?.username ??
+    "Guest";
+
+  const cleanedName =
+    String(rawName).trim();
+
+  if (!cleanedName) {
+    return "Guest";
+  }
+
+  return cleanedName.split(/\s+/)[0];
+}
+
+function getTimeGreeting() {
+  const hour =
+    new Date().getHours();
+
+  if (hour < 12) {
+    return "good morning";
+  }
+
+  if (hour < 18) {
+    return "good afternoon";
+  }
+
+  return "good evening";
+}
 
 function Icon({ name, size = 22 }) {
   const props = {
@@ -607,7 +667,7 @@ function BrandLogo({
         <path
           d="M49 5 22 43h17L26 78l31-39H40z"
           fill="none"
-          stroke="#d9fbff"
+          stroke="#d6f7d3"
           strokeOpacity=".58"
         />
       </svg>
@@ -890,9 +950,16 @@ function MobileHeader({
 
 function DesktopSidebar({
   activePage,
+  currentUser,
   onNavigate,
   onOpenAuth,
 }) {
+  const isAdmin =
+    isAdminUser(currentUser);
+
+  const accountName =
+    getGreetingName(currentUser);
+
   return (
     <aside className="desktop-sidebar">
       <BrandLogo idPrefix="desktop-logo" />
@@ -949,6 +1016,41 @@ function DesktopSidebar({
       </button>
     </aside>
   );
+
+  {isAdmin ? (
+  <>
+    <span
+      className={
+        "desktop-nav__label " +
+        "desktop-nav__label--admin"
+      }
+    >
+      Admin
+    </span>
+
+    {ADMIN_NAV_ITEMS.map((item) => (
+      <button
+        className={
+          activePage === item.id
+            ? "desktop-nav__item is-active"
+            : "desktop-nav__item"
+        }
+        type="button"
+        key={item.id}
+        onClick={() => {
+          onNavigate(item.id);
+        }}
+      >
+        <Icon
+          name={item.icon}
+          size={20}
+        />
+
+        <span>{item.label}</span>
+      </button>
+    ))}
+  </>
+) : null}
 }
 
 function DesktopTopbar({
@@ -1085,131 +1187,81 @@ function SectionHeading({
   );
 }
 
+function isAdminUser(user) {
+  return user?.role === "admin";
+}
+
 function HomePage({
+  currentUser,
   onNavigate,
   onOpenAuth,
 }) {
+  const greetingName =
+    getGreetingName(currentUser);
+
+  const timeGreeting =
+    getTimeGreeting();
+
   return (
     <div className="page-stack home-page">
-      <section className="home-signal bevel-panel">
-        <div
-          className="home-signal__circuit"
-          aria-hidden="true"
+      <section className="home-signal">
+  <div className="home-signal__content">
+    <div className="home-welcome">
+      <h2>
+        Hello {greetingName},
+      </h2>
+
+     <p className="home-welcome__time">
+        {timeGreeting}
+     </p>
+
+<div className="home-welcome__tagline">
+  <span>your vibe.</span>
+
+  <span>
+    your <strong>music.</strong>
+  </span>
+
+  <span>
+    your <strong>world.</strong>
+  </span>
+</div>
+</div>
+
+    <div className="home-signal__status">
+      <span>
+        <i aria-hidden="true" />
+
+        {currentUser
+          ? `Signed in as ${greetingName}`
+          : "Guest access active"}
+      </span>
+
+      <span>
+        <Icon
+          name="lock"
+          size={14}
         />
 
-        <div className="home-signal__content">
-          <span className="home-signal__eyebrow">
-            <i aria-hidden="true" />
-            HyperSync // Guest mode
-          </span>
+        {currentUser
+          ? "Account session active"
+          : "Saving requires an account"}
+      </span>
+    </div>
+  </div>
 
-          <h2>
-            <span></span>
-          </h2>
-
-          <p>
-          </p>
-
-          <div className="home-signal__actions">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={() => {
-                onNavigate("search");
-              }}
-            >
-              <Icon
-                name="search"
-                size={18}
-              />
-
-              Explore music
-            </button>
-
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onOpenAuth}
-            >
-              <Icon
-                name="profile"
-                size={17}
-              />
-
-              Account options
-            </button>
-          </div>
-
-          <div className="home-signal__status">
-            <span>
-              <i aria-hidden="true" />
-              Guest access active
-            </span>
-
-            <span>
-              <Icon
-                name="lock"
-                size={14}
-              />
-
-              Saving requires an account
-            </span>
-          </div>
-        </div>
-
-        <div
-          className="home-signal__art"
-          aria-hidden="true"
-        >
-          <svg
-            className="home-signal__wave"
-            viewBox="0 0 520 250"
-          >
-            <path
-              className="home-signal__wave-glow"
-              d={
-                "M5 132c34 0 34-45 68-45 " +
-                "s34 91 68 91 34-137 68-137 " +
-                "34 184 68 184 34-149 68-149 " +
-                "34 105 68 105 34-49 68-49 " +
-                "34 0 68 0"
-              }
-            />
-
-            <path
-              className="home-signal__wave-line"
-              d={
-                "M5 132c34 0 34-45 68-45 " +
-                "s34 91 68 91 34-137 68-137 " +
-                "34 184 68 184 34-149 68-149 " +
-                "34 105 68 105 34-49 68-49 " +
-                "34 0 68 0"
-              }
-            />
-          </svg>
-
-          <span
-            className={
-              "home-signal__orbit " +
-              "home-signal__orbit--one"
-            }
-          />
-
-          <span
-            className={
-              "home-signal__orbit " +
-              "home-signal__orbit--two"
-            }
-          />
-
-          <div className="home-signal__poster">
-            <img
-              src="/hypersync-home-logo.png"
-              alt=""
-            />
-          </div>
-        </div>
-      </section>
+  <div
+    className="home-signal__art"
+    aria-hidden="true"
+  >
+    <div className="home-signal__poster">
+      <img
+        src="/hypersync-home-logo.png"
+        alt=""
+      />
+    </div>
+  </div>
+</section>
 
       <section>
         <SectionHeading
@@ -1779,8 +1831,57 @@ function ProfilePage({
   );
 }
 
+function AdminPlaceholderPage({
+  section,
+}) {
+  const content = {
+    admin: {
+      title: "Admin Dashboard",
+      description:
+        "HyperSync administration overview.",
+    },
+
+    "admin-bot": {
+      title: "Bot Control",
+      description:
+        "Bot discovery and processing controls " +
+        "will appear here.",
+    },
+
+    "admin-uploads": {
+      title: "Uploads",
+      description:
+        "Authorized media upload and ingestion " +
+        "tools will appear here.",
+    },
+
+    "admin-catalog": {
+      title: "Media Catalog",
+      description:
+        "Catalog management tools will appear here.",
+    },
+  };
+
+  const page =
+    content[section] ??
+    content.admin;
+
+  return (
+    <div className="page-stack admin-page">
+      <section className="admin-page__header">
+        <span>ADMINISTRATION</span>
+
+        <h2>{page.title}</h2>
+
+        <p>{page.description}</p>
+      </section>
+    </div>
+  );
+}
+
 function MainPage({
   activePage,
+  currentUser,
   onNavigate,
   onOpenAuth,
   query,
@@ -1790,6 +1891,37 @@ function MainPage({
   statusMessage,
   onStatusMessage,
 }) {
+
+  const adminPage =
+  ADMIN_NAV_ITEMS.some(
+    (item) => item.id === activePage,
+  );
+
+if (adminPage) {
+  if (!isAdminUser(currentUser)) {
+    return (
+      <div className="page-stack">
+        <section className="admin-page__denied">
+          <Icon name="lock" size={28} />
+
+          <h2>Admin access required</h2>
+
+          <p>
+            This area is available only to
+            HyperSync administrators.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <AdminPlaceholderPage
+      section={activePage}
+    />
+  );
+}
+
   if (activePage === "search") {
     return (
       <SearchPage
@@ -1819,6 +1951,7 @@ function MainPage({
 
  return (
   <HomePage
+    currentUser={currentUser}
     onNavigate={onNavigate}
     onOpenAuth={onOpenAuth}
   />
@@ -2218,6 +2351,9 @@ function AuthOverlay({
 }
 
 export default function App() {
+  const [currentUser, setCurrentUser] =
+  useState(null);
+
   const [activePage, setActivePage] =
     useState("home");
 
@@ -2273,13 +2409,14 @@ export default function App() {
     <div className={appClassName}>
       <HexBackdrop idPrefix="auth-overlay-background" />
 
-      <DesktopSidebar
-        activePage={activePage}
-        onNavigate={navigate}
-        onOpenAuth={() => {
-          openAuth("signin");
-        }}
-      />
+<DesktopSidebar
+  activePage={activePage}
+  currentUser={currentUser}
+  onNavigate={navigate}
+  onOpenAuth={() => {
+    openAuth("signin");
+  }}
+/>
 
       <section className="main-workspace">
         <MobileHeader
@@ -2301,6 +2438,7 @@ export default function App() {
         <main className="main-content">
           <MainPage
             activePage={activePage}
+            currentUser={currentUser}
             onNavigate={navigate}
             onOpenAuth={() => {
               openAuth("signin");

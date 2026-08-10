@@ -300,7 +300,7 @@ svg {
 .mobile-header h1 {
   grid-column: 1 / -1;
   margin: 1px 0 0;
-  font-size: 22px;
+  font-size: 24px;
   line-height: 1;
   letter-spacing: -0.04em;
 }
@@ -407,7 +407,6 @@ svg {
 }
 
 .bevel-panel,
-.home-hero,
 .auth-panel {
   clip-path:
     polygon(
@@ -420,14 +419,6 @@ svg {
       0 calc(100% - 14px),
       0 14px
     );
-}
-
-.eyebrow {
-  color: var(--blue-bright);
-  font-size: 9px;
-  font-weight: 850;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .primary-button,
@@ -488,7 +479,7 @@ svg {
 
 .section-heading h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
   letter-spacing: -0.025em;
 }
 
@@ -500,159 +491,6 @@ svg {
   color: var(--blue);
   background: transparent;
   font-size: 9px;
-}
-
-.home-hero {
-  position: relative;
-  display: grid;
-  min-height: 235px;
-  align-items: end;
-  padding: 23px 20px;
-  overflow: hidden;
-  border:
-    1px solid
-    rgba(57, 191, 255, 0.25);
-  background:
-    radial-gradient(
-      circle at 86% 20%,
-      rgba(0, 156, 255, 0.22),
-      transparent 38%
-    ),
-    linear-gradient(
-      145deg,
-      rgba(7, 28, 42, 0.95),
-      rgba(3, 10, 16, 0.96) 60%,
-      rgba(2, 6, 10, 0.98)
-    );
-  box-shadow:
-    inset 0 1px
-    rgba(255, 255, 255, 0.04),
-    0 18px 45px
-    rgba(0, 0, 0, 0.3);
-}
-
-.home-hero::before {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(
-      30deg,
-      transparent 48%,
-      rgba(27, 217, 255, 0.06) 49%,
-      rgba(27, 217, 255, 0.06) 51%,
-      transparent 52%
-    ),
-    linear-gradient(
-      150deg,
-      transparent 48%,
-      rgba(27, 217, 255, 0.04) 49%,
-      rgba(27, 217, 255, 0.04) 51%,
-      transparent 52%
-    );
-  background-size: 74px 126px;
-  content: "";
-}
-
-.home-hero__copy {
-  position: relative;
-  z-index: 2;
-}
-
-.home-hero h2 {
-  margin: 8px 0 9px;
-  max-width: 280px;
-  font-size:
-    clamp(
-      29px,
-      9vw,
-      42px
-    );
-  line-height: 1;
-  letter-spacing: -0.055em;
-}
-
-.home-hero p {
-  max-width: 440px;
-  margin: 0;
-  color: #9aabb8;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.home-hero__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 18px;
-}
-
-.home-hero__visual {
-  position: absolute;
-  top: -10px;
-  right: -70px;
-  width: 270px;
-  opacity: 0.32;
-  transform: rotate(-5deg);
-}
-
-.quick-grid {
-  display: grid;
-  grid-template-columns:
-    repeat(
-      4,
-      minmax(0, 1fr)
-    );
-  gap: 8px;
-}
-
-.quick-card {
-  display: grid;
-  min-width: 0;
-  justify-items: center;
-  gap: 7px;
-  padding: 0;
-  color: #a7b3bd;
-  background: transparent;
-  font-size: 9px;
-}
-
-.quick-card > span {
-  display: grid;
-  width: 100%;
-  max-width: 72px;
-  aspect-ratio: 1;
-  place-items: center;
-  border:
-    1px solid
-    rgba(90, 174, 219, 0.22);
-  border-radius: 17px;
-  color: #9ddff6;
-  background:
-    radial-gradient(
-      circle at 50% 20%,
-      rgba(22, 154, 220, 0.15),
-      transparent 52%
-    ),
-    rgba(11, 20, 28, 0.92);
-  box-shadow:
-    inset 0 1px
-    rgba(255, 255, 255, 0.04),
-    0 9px 18px
-    rgba(0, 0, 0, 0.23);
-}
-
-.quick-card:hover > span {
-  border-color:
-    rgba(27, 217, 255, 0.56);
-  color: var(--blue-bright);
-}
-
-.quick-card strong {
-  overflow: hidden;
-  max-width: 100%;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .empty-content-card {
@@ -696,7 +534,6 @@ svg {
 .cover-placeholder {
   position: relative;
   display: grid;
-  aspect-ratio: 1;
   overflow: hidden;
   place-items: center;
   border:
@@ -842,19 +679,6 @@ svg {
   text-align: left;
 }
 
-.category-card::after {
-  position: absolute;
-  right: -28px;
-  bottom: -28px;
-  width: 84px;
-  height: 84px;
-  border-radius: 50%;
-  background:
-    rgba(0, 130, 255, 0.16);
-  filter: blur(3px);
-  content: "";
-}
-
 .category-card strong {
   position: relative;
   z-index: 1;
@@ -874,7 +698,7 @@ svg {
 }
 
 .category-card--2 svg {
-  color: #1b72ff;
+  color: #1bcaffda;
 }
 
 .category-card--3 svg {
@@ -2198,76 +2022,8 @@ span svg {
     gap: 27px;
   }
 
-  .home-hero {
-    min-height: 280px;
-    grid-template-columns:
-      minmax(0, 1.15fr)
-      minmax(280px, 0.85fr);
-    align-items: center;
-    padding: 34px 38px;
-  }
-
-  .home-hero h2 {
-    max-width: 620px;
-    font-size:
-      clamp(
-        36px,
-        4vw,
-        56px
-      );
-  }
-
-  .home-hero p {
-    max-width: 590px;
-    font-size: 12px;
-  }
-
-  .home-hero__visual {
-    position: relative;
-    top: auto;
-    right: auto;
-    width: 100%;
-    opacity: 0.95;
-    transform: none;
-  }
-
   .section-heading h2 {
     font-size: 17px;
-  }
-
-  .quick-grid {
-    grid-template-columns:
-      repeat(
-        4,
-        minmax(0, 1fr)
-      );
-    gap: 12px;
-  }
-
-  .quick-card {
-    justify-items: start;
-    grid-template-columns:
-      62px
-      minmax(0, 1fr);
-    align-items: center;
-    gap: 12px;
-    padding: 12px;
-    border:
-      1px solid
-      rgba(86, 167, 211, 0.15);
-    border-radius: 14px;
-    background:
-      rgba(6, 14, 20, 0.8);
-    text-align: left;
-  }
-
-  .quick-card > span {
-    width: 62px;
-    border-radius: 14px;
-  }
-
-  .quick-card strong {
-    font-size: 11px;
   }
 
   .empty-content-card {
@@ -2634,30 +2390,6 @@ span svg {
     display: none;
   }
 
-  .home-hero {
-    grid-template-columns: 1fr;
-  }
-
-  .home-hero__visual {
-    position: absolute;
-    right: -55px;
-    width: 380px;
-    opacity: 0.35;
-  }
-
-  .home-hero__copy {
-    position: relative;
-    z-index: 2;
-  }
-
-  .quick-grid {
-    grid-template-columns:
-      repeat(
-        2,
-        minmax(0, 1fr)
-      );
-  }
-
   .profile-card-grid {
     grid-template-columns:
       repeat(
@@ -2683,45 +2415,9 @@ span svg {
 }
 
 /*
-  HyperSync Home Signal Gateway.
-
-  Uses the existing poster image located at:
-  frontend/public/hypersync-home-logo.png
+  Home panel overlays retained from the earlier design.
+  These still affect the current Home hero, so they are not dead CSS.
 */
-
-.home-signal {
-  position: relative;
-  display: grid;
-  min-height: 510px;
-  overflow: hidden;
-  border:
-    1px solid
-    rgba(67, 203, 255, 0.34);
-  background:
-    radial-gradient(
-      circle at 77% 30%,
-      rgba(0, 132, 255, 0.24),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 18% 82%,
-      rgba(0, 202, 255, 0.1),
-      transparent 38%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(6, 25, 39, 0.98),
-      rgba(2, 10, 18, 0.98) 55%,
-      rgba(1, 6, 12, 0.99)
-    );
-  box-shadow:
-    inset 0 1px
-    rgba(255, 255, 255, 0.06),
-    0 24px 60px
-    rgba(0, 0, 0, 0.4),
-    0 0 32px
-    rgba(0, 136, 255, 0.09);
-}
 
 .home-signal::before,
 .home-signal::after {
@@ -2737,385 +2433,343 @@ span svg {
       90deg,
       rgba(36, 224, 255, 0.65),
       transparent 22%
-    )
-    top left / 170px 1px no-repeat,
+    ) top left / 170px 1px no-repeat,
     linear-gradient(
       180deg,
       rgba(36, 224, 255, 0.5),
       transparent 24%
-    )
-    top left / 1px 150px no-repeat,
+    ) top left / 1px 150px no-repeat,
     linear-gradient(
       270deg,
       rgba(36, 224, 255, 0.54),
       transparent 22%
-    )
-    bottom right / 170px 1px no-repeat,
+    ) bottom right / 170px 1px no-repeat,
     linear-gradient(
       0deg,
       rgba(36, 224, 255, 0.48),
       transparent 24%
-    )
-    bottom right / 1px 150px no-repeat;
+    ) bottom right / 1px 150px no-repeat;
   z-index: 6;
 }
 
 .home-signal::after {
+  position: absolute;
   inset: 0;
+  pointer-events: none;
   background:
     linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.025),
       transparent 24%,
       transparent 75%,
-      rgba(0, 0, 0, 0.34)
+      rgba(0, 0, 0, 0.22)
     ),
     radial-gradient(
       ellipse at center,
-      transparent 42%,
-      rgba(0, 4, 9, 0.38) 100%
+      transparent 55%,
+      rgba(0, 4, 9, 0.24) 100%
     );
+  content: "";
   z-index: 3;
 }
 
-.home-signal__circuit {
-  position: absolute;
-  inset: 0;
-  opacity: 0.22;
+/* ==================================================
+   HOME HERO — EASY CONTROLS
+   ================================================== */
+
+.home-signal {
+  /* BLOCK */
+  --home-height: 400px;
+
+  /* TEXT POSITION */
+  --home-text-x: 40px;
+  --home-text-y: -25px;
+
+  /* TAGLINE */
+  --home-tagline-top: 80px;
+
+  /* STATUS */
+  --home-status-x: -15px;
+  --home-status-y: 70px;
+
+  /* LOGO / POSTER */
+  --logo-width: 200px;
+  --logo-height: 240px;
+  --logo-x: 0px;
+  --logo-y: 0px;
+
+  /* POSTER TILT */
+  --logo-rotate-x: 0deg;
+  --logo-rotate-y: 15deg;
+  --logo-rotate-z: -4deg;
+
+  position: relative;
+  display: grid;
+  min-height: var(--home-height);
+  grid-template-columns:
+    minmax(0, 1.25fr)
+    minmax(300px, 0.75fr);
+  overflow: hidden;
+  clip-path: none;
+  border: 1px solid rgba(237, 21, 25, 0);
+  border-radius: 12px;
+  background-color: #000;
   background-image:
     linear-gradient(
-      90deg,
-      transparent 0 12%,
-      rgba(27, 217, 255, 0.16)
-      12% 12.25%,
-      transparent 12.25% 100%
+      180deg,
+      #000000bd 10%
     ),
-    linear-gradient(
-      0deg,
-      transparent 0 24%,
-      rgba(27, 217, 255, 0.1)
-      24% 24.35%,
-      transparent 24.35% 100%
-    );
-  background-size:
-    190px 100%,
-    100% 112px;
-  mask-image:
-    linear-gradient(
-      90deg,
-      black,
-      rgba(0, 0, 0, 0.7) 58%,
-      transparent 100%
-    );
+    url("/hypersync-home-texture.png");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
 }
+
+/* ==================================================
+   LEFT SIDE
+   ================================================== */
 
 .home-signal__content {
   position: relative;
-  display: grid;
+  display: flex;
   min-width: 0;
-  align-content: start;
-  padding: 29px 22px 18px;
+  flex-direction: column;
+  padding: 0;
+  translate:
+    var(--home-text-x)
+    var(--home-text-y);
   z-index: 5;
 }
 
-.home-signal__eyebrow {
-  display: inline-flex;
-  justify-self: start;
-  min-height: 29px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 11px;
-  border:
-    1px solid
-    rgba(27, 217, 255, 0.22);
-  border-radius: 999px;
-  color: #a8d7e7;
-  background:
-    rgba(0, 125, 202, 0.08);
-  font-size: 8px;
-  font-weight: 850;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.home-signal__eyebrow i,
-.home-signal__status
-span:first-child i {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #2eeaff;
-  box-shadow:
-    0 0 10px
-    rgba(46, 234, 255, 0.95);
-}
-
-.home-signal h2 {
-  max-width: 620px;
-  margin: 17px 0 13px;
-  font-size:
-    clamp(
-      37px,
-      11vw,
-      58px
-    );
-  line-height: 0.94;
-  letter-spacing: -0.062em;
-}
-
-.home-signal h2 span {
+.home-welcome {
   display: block;
-  color: transparent;
-  background:
-    linear-gradient(
-      90deg,
-      #e9fbff,
-      #5ee9ff 43%,
-      #078cff 76%,
-      #1653d8
-    );
-  background-clip: text;
-  -webkit-background-clip: text;
 }
 
-.home-signal__content > p {
-  max-width: 560px;
+.home-welcome h2 {
+  max-width: 620px;
   margin: 0;
-  color: #91a4b2;
-  font-size: 11px;
-  line-height: 1.65;
+  color: #fff;
+  font-size: 30px;
+  line-height: 1.12;
+  letter-spacing: -0.055em;
+  background: none;
+  -webkit-text-fill-color: currentColor;
 }
 
-.home-signal__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 21px;
+.home-welcome__time {
+  margin: 4px 0 0 15px !important;
+  color: #0033fd !important;
+  font-size: 20px !important;
+  line-height: 1.15 !important;
 }
+
+.home-welcome__tagline {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--home-tagline-top);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1.3;
+  letter-spacing: -0.045em;
+}
+
+.home-welcome h2,
+.home-welcome__time,
+.home-welcome__tagline {
+  font-family:
+    "Kalam",
+    cursive;
+  font-weight: 2;
+}
+
+.home-welcome__tagline strong {
+  color: #006aff;
+  -webkit-text-fill-color: #086dff;
+  font-weight: 10;
+}
+
+.home-welcome__tagline span:nth-child(1) {
+  transform: rotate(0deg);
+  translate: 15px;
+}
+
+.home-welcome__tagline span:nth-child(2) {
+  transform: rotate(0deg);
+  translate: 25px;
+}
+
+.home-welcome__tagline span:nth-child(3) {
+  transform: rotate(0deg);
+  translate: 35px;
+}
+
+/* ==================================================
+   STATUS
+   ================================================== */
 
 .home-signal__status {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 19px;
-  color: #77909f;
-  font-size: 8px;
+  gap: 12px 25px;
+  margin: 0;
+  translate:
+    var(--home-status-x)
+    var(--home-status-y);
+  color: #fff;
+  font-family:
+    "Kalam",
+    cursive;
+  font-size: 11px;
 }
 
 .home-signal__status span {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+}
+
+.home-signal__status span:first-child i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #12cfff;
+  box-shadow:
+    0 0 9px rgba(0, 76, 255, 0.674);
 }
 
 .home-signal__status svg {
-  color: #39cfff;
+  color: #15d4ff;
 }
+
+/* ==================================================
+   RIGHT-SIDE LOGO
+   ================================================== */
 
 .home-signal__art {
   position: relative;
   display: grid;
-  min-height: 270px;
+  min-height: 100%;
   place-items: center;
-  margin: -12px 0 0;
+  margin: 0;
+  translate: 0;
   z-index: 4;
 }
 
 .home-signal__poster {
   position: relative;
-  width:
-    min(
-      57vw,
-      220px
-    );
-  aspect-ratio: 532 / 651;
+  width: var(--logo-width);
+  height: var(--logo-height);
+  translate:
+    var(--logo-x)
+    var(--logo-y);
   overflow: hidden;
-  border:
-    1px solid
-    rgba(98, 211, 255, 0.32);
-  border-radius: 17px;
+  border: 1px solid rgba(0, 116, 255, 0.3);
+  border-radius: 12px;
   background: #071018;
   box-shadow:
-    0 28px 50px
-    rgba(0, 0, 0, 0.55),
-    0 0 28px
-    rgba(0, 143, 255, 0.24),
-    inset 0 1px
-    rgba(255, 255, 255, 0.08);
+    0 22px 35px rgba(0, 0, 0, 0.45);
   transform:
-    perspective(900px)
-    rotateY(-7deg)
-    rotateZ(1.4deg);
+    perspective(1000px)
+    rotateX(var(--logo-rotate-x))
+    rotateY(var(--logo-rotate-y))
+    rotateZ(var(--logo-rotate-z));
   z-index: 3;
 }
 
 .home-signal__poster::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(
-      115deg,
-      rgba(255, 255, 255, 0.14),
-      transparent 20%,
-      transparent 76%,
-      rgba(0, 145, 255, 0.09)
-    );
-  content: "";
+  display: none;
 }
 
 .home-signal__poster img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
-.home-signal__wave {
-  position: absolute;
-  width: min(112%, 560px);
-  overflow: visible;
-  opacity: 0.78;
-  z-index: 2;
-}
-
-.home-signal__wave path {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.home-signal__wave-glow {
-  stroke: #007cff;
-  stroke-width: 13;
-  opacity: 0.28;
-  filter: blur(8px);
-}
-
-.home-signal__wave-line {
-  stroke: #4eeeff;
-  stroke-width: 2.3;
-  filter:
-    drop-shadow(
-      0 0 5px
-      rgba(0, 201, 255, 0.95)
-    );
-}
-
-.home-signal__orbit {
-  position: absolute;
-  border:
-    1px solid
-    rgba(47, 206, 255, 0.28);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 24px
-    rgba(0, 145, 255, 0.08),
-    0 0 20px
-    rgba(0, 145, 255, 0.08);
-}
-
-.home-signal__orbit--one {
-  width: 245px;
-  height: 245px;
-}
-
-.home-signal__orbit--two {
-  width: 315px;
-  height: 315px;
-  opacity: 0.42;
-}
-
+/* Keep the desktop centering that the older Home rules supplied. */
 @media (min-width: 700px) {
   .home-signal {
-    min-height: 380px;
-    grid-template-columns:
-      minmax(0, 1.12fr)
-      minmax(270px, 0.88fr);
     align-items: center;
   }
-
-  .home-signal__content {
-    padding: 38px 0 38px 38px;
-  }
-
-  .home-signal h2 {
-    font-size:
-      clamp(
-        45px,
-        6vw,
-        64px
-      );
-  }
-
-  .home-signal h2 span {
-    display: inline;
-  }
-
-  .home-signal__art {
-    min-height: 380px;
-    margin: 0 -30px 0 -10px;
-  }
-
-  .home-signal__poster {
-    width: min(24vw, 245px);
-  }
 }
 
-@media (min-width: 980px) {
+/* ==================================================
+   TABLET / MOBILE
+   ================================================== */
+
+@media (max-width: 800px) {
   .home-signal {
-    min-height: 410px;
-    grid-template-columns:
-      minmax(430px, 1.1fr)
-      minmax(330px, 0.9fr);
-  }
-
-  .home-signal__content {
-    padding: 44px 0 44px 46px;
-  }
-
-  .home-signal__content > p {
-    font-size: 12px;
-  }
-
-  .home-signal__art {
-    min-height: 410px;
-    margin-right: -44px;
-  }
-
-  .home-signal__poster {
-    width: min(18vw, 270px);
-  }
-}
-
-@media (max-width: 410px) {
-  .home-signal {
-    min-height: 500px;
-  }
-
-  .home-signal__content {
-    padding-right: 18px;
-    padding-left: 18px;
-  }
-
-  .home-signal h2 {
-    font-size: 36px;
-  }
-
-  .home-signal__actions {
-    display: grid;
+    --home-height: 650px;
+    --logo-width: 190px;
+    --logo-height: 255px;
+    --logo-x: 0px;
+    --logo-y: 20px;
     grid-template-columns: 1fr;
   }
 
-  .home-signal__actions
-  .primary-button,
-  .home-signal__actions
-  .secondary-button {
-    width: 100%;
+  .home-signal__art {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 500px) {
+  .home-signal {
+    --home-height: 620px;
+    --logo-width: 145px;
+    --logo-height: 195px;
   }
 
-  .home-signal__art {
-    min-height: 245px;
+  .home-signal__status {
+    max-width: 230px;
   }
+}
+
+.desktop-nav__label--admin {
+  margin-top: 22px;
+  color: #18cfff;
+}
+
+.admin-page__header,
+.admin-page__denied {
+  padding: 24px;
+  border:
+    1px solid
+    rgba(27, 217, 255, 0.18);
+  border-radius: 14px;
+  background:
+    rgba(5, 13, 20, 0.88);
+}
+
+.admin-page__header > span {
+  color: var(--blue);
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.admin-page__header h2,
+.admin-page__denied h2 {
+  margin: 8px 0 5px;
+}
+
+.admin-page__header p,
+.admin-page__denied p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-page__denied {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.admin-page__denied > svg {
+  color: var(--blue-bright);
 }
