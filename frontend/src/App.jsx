@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+const DEV_ADMIN_MODE = true;
 const NAV_ITEMS = [
   { id: "home", label: "Home", icon: "home" },
   { id: "search", label: "Search", icon: "search" },
@@ -957,9 +958,6 @@ function DesktopSidebar({
   const isAdmin =
     isAdminUser(currentUser);
 
-  const accountName =
-    getGreetingName(currentUser);
-
   return (
     <aside className="desktop-sidebar">
       <BrandLogo idPrefix="desktop-logo" />
@@ -991,33 +989,7 @@ function DesktopSidebar({
             <span>{item.label}</span>
           </button>
         ))}
-      </nav>
-
-      <div className="desktop-sidebar__spacer" />
-
-      <button
-        className="desktop-account"
-        type="button"
-        onClick={onOpenAuth}
-      >
-        <span className="avatar avatar--small">
-          G
-        </span>
-
-        <span>
-          <strong>Guest mode</strong>
-          <small>Sign in to save music</small>
-        </span>
-
-        <Icon
-          name="chevron"
-          size={16}
-        />
-      </button>
-    </aside>
-  );
-
-  {isAdmin ? (
+        {isAdmin ? (
   <>
     <span
       className={
@@ -1051,6 +1023,31 @@ function DesktopSidebar({
     ))}
   </>
 ) : null}
+      </nav>
+
+      <div className="desktop-sidebar__spacer" />
+
+      <button
+        className="desktop-account"
+        type="button"
+        onClick={onOpenAuth}
+      >
+        <span className="avatar avatar--small">
+          G
+        </span>
+
+        <span>
+          <strong>Guest mode</strong>
+          <small>Sign in to save music</small>
+        </span>
+
+        <Icon
+          name="chevron"
+          size={16}
+        />
+      </button>
+    </aside>
+  );
 }
 
 function DesktopTopbar({
@@ -1188,6 +1185,10 @@ function SectionHeading({
 }
 
 function isAdminUser(user) {
+  if (DEV_ADMIN_MODE) {
+    return true;
+  }
+
   return user?.role === "admin";
 }
 
