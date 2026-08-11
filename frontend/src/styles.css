@@ -948,6 +948,23 @@ svg {
   text-transform: uppercase;
 }
 
+.profile-role-badge {
+  justify-self: start;
+  min-height: 24px;
+  padding: 4px 10px;
+  border:
+    1px solid
+    rgba(27, 217, 255, 0.24);
+  border-radius: 999px;
+  color: var(--blue-bright);
+  background:
+    rgba(0, 130, 220, 0.08);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .profile-stats {
   display: grid;
   grid-template-columns:

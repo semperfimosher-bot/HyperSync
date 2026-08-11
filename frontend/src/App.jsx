@@ -1,6 +1,141 @@
-import { useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-const DEV_ADMIN_MODE = true;
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ??
+  "http://localhost:8000/api";
+
+function formatApiError(detail) {
+  if (!detail) {
+    return "HyperSync request failed.";
+  }
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item.msg ?? String(item))
+      .join(" ");
+  }
+
+  return String(detail);
+}
+
+async function refreshAccessToken() {
+  const response = await fetch(
+    `${API_BASE}/auth/refresh`,
+    {
+      method: "POST",
+      credentials: "include",
+    },
+  );
+
+  if (!response.ok) {
+    localStorage.removeItem(
+      "hypersync_access_token",
+    );
+
+    throw new Error(
+      "Authentication session expired.",
+    );
+  }
+
+  const data =
+    await response.json();
+
+  localStorage.setItem(
+    "hypersync_access_token",
+    data.access_token,
+  );
+
+  return data.access_token;
+}
+
+async function apiRequest(
+  path,
+  options = {},
+  accessToken = null,
+) {
+  const token =
+    accessToken ??
+    localStorage.getItem(
+      "hypersync_access_token",
+    );
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers ?? {}),
+  };
+
+  if (token) {
+    headers.Authorization =
+      `Bearer ${token}`;
+  }
+
+  let response = await fetch(
+    `${API_BASE}${path}`,
+    {
+      ...options,
+      headers,
+      credentials: "include",
+    },
+  );
+
+  // Never attempt a refresh for authentication
+  // endpoints themselves.
+  const isAuthEndpoint =
+    path === "/auth/login" ||
+    path === "/auth/register" ||
+    path === "/auth/refresh";
+
+  if (
+    response.status === 401 &&
+    !isAuthEndpoint
+  ) {
+    try {
+      const newToken =
+        await refreshAccessToken();
+
+      const retryHeaders = {
+        "Content-Type": "application/json",
+        ...(options.headers ?? {}),
+        Authorization:
+          `Bearer ${newToken}`,
+      };
+
+      response = await fetch(
+        `${API_BASE}${path}`,
+        {
+          ...options,
+          headers: retryHeaders,
+          credentials: "include",
+        },
+      );
+    } catch {
+      localStorage.removeItem(
+        "hypersync_access_token",
+      );
+    }
+  }
+
+  const data =
+    await response.json()
+      .catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      formatApiError(data?.detail),
+    );
+  }
+
+  return data;
+}
+
 const NAV_ITEMS = [
   { id: "home", label: "Home", icon: "home" },
   { id: "search", label: "Search", icon: "search" },
@@ -97,6 +232,16 @@ function getGreetingName(user) {
   }
 
   return cleanedName.split(/\s+/)[0];
+}
+
+function getUserInitial(user) {
+  const name = getGreetingName(user);
+
+  if (name === "Guest") {
+    return "G";
+  }
+
+  return name.charAt(0).toUpperCase();
 }
 
 function getTimeGreeting() {
@@ -958,6 +1103,21 @@ function DesktopSidebar({
   const isAdmin =
     isAdminUser(currentUser);
 
+  const greetingName =
+    getGreetingName(currentUser);
+
+  const userInitial =
+    getUserInitial(currentUser);
+
+  function handleAccountClick() {
+    if (currentUser) {
+      onNavigate("profile");
+      return;
+    }
+
+    onOpenAuth();
+  }
+
   return (
     <aside className="desktop-sidebar">
       <BrandLogo idPrefix="desktop-logo" />
@@ -1030,15 +1190,24 @@ function DesktopSidebar({
       <button
         className="desktop-account"
         type="button"
-        onClick={onOpenAuth}
+        onClick={handleAccountClick}
       >
         <span className="avatar avatar--small">
-          G
+          {userInitial}
         </span>
 
         <span>
-          <strong>Guest mode</strong>
-          <small>Sign in to save music</small>
+          {currentUser ? (
+            <>
+              <strong>{greetingName}</strong>
+              <small>{currentUser.email}</small>
+            </>
+          ) : (
+            <>
+              <strong>Guest mode</strong>
+              <small>Sign in to save music</small>
+            </>
+          )}
         </span>
 
         <Icon
@@ -1054,8 +1223,25 @@ function DesktopTopbar({
   activePage,
   searchQuery,
   onSearchChange,
+  currentUser,
+  onNavigate,
   onOpenAuth,
 }) {
+  const greetingName =
+    getGreetingName(currentUser);
+
+  const userInitial =
+    getUserInitial(currentUser);
+
+  function handleProfileClick() {
+    if (currentUser) {
+      onNavigate("profile");
+      return;
+    }
+
+    onOpenAuth();
+  }
+
   return (
     <header className="desktop-topbar">
       <div className="desktop-topbar__title">
@@ -1082,13 +1268,15 @@ function DesktopTopbar({
       <button
         className="desktop-profile-button"
         type="button"
-        onClick={onOpenAuth}
+        onClick={handleProfileClick}
       >
         <span className="avatar avatar--tiny">
-          G
+          {userInitial}
         </span>
 
-        <span>Guest</span>
+        <span>
+          {currentUser ? greetingName : "Guest"}
+        </span>
 
         <Icon
           name="chevron"
@@ -1185,11 +1373,10 @@ function SectionHeading({
 }
 
 function isAdminUser(user) {
-  if (DEV_ADMIN_MODE) {
-    return true;
-  }
-
-  return user?.role === "admin";
+  return Boolean(
+    user &&
+    user.role === "admin"
+  );
 }
 
 function HomePage({
@@ -1549,12 +1736,17 @@ function SettingsRow({
 }
 
 function ProfilePage({
+  currentUser,
   onOpenAuth,
+  onLogout,
   compactMode,
   onToggleCompact,
   statusMessage,
   onStatusMessage,
 }) {
+  const greetingName =
+    getGreetingName(currentUser);
+
   return (
     <div className="page-stack profile-page">
       <section className="profile-identity">
@@ -1563,7 +1755,11 @@ function ProfilePage({
             <svg
               viewBox="0 0 100 100"
               role="img"
-              aria-label="Guest profile avatar"
+              aria-label={
+                currentUser
+                  ? `${greetingName} profile avatar`
+                  : "Guest profile avatar"
+              }
             >
               <defs>
                 <radialGradient id="guest-avatar-glow">
@@ -1620,18 +1816,30 @@ function ProfilePage({
         </div>
 
         <div className="profile-identity__copy">
-          <h2>Guest</h2>
+          <h2>
+            {currentUser ? greetingName : "Guest"}
+          </h2>
 
           <p>
-            Music synced to your style.
+            {currentUser
+              ? currentUser.email
+              : "Music synced to your style."}
           </p>
 
-          <button
-            type="button"
-            onClick={onOpenAuth}
-          >
-            Account required
-          </button>
+          {currentUser ? (
+            <span className="profile-role-badge">
+              {currentUser.role === "admin"
+                ? "Administrator"
+                : "Member"}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenAuth}
+            >
+              Account required
+            </button>
+          )}
         </div>
       </section>
 
@@ -1782,30 +1990,61 @@ function ProfilePage({
             "settings-panel--account"
           }
         >
-          <SettingsRow
-            icon="profile"
-            label="Sign in or create account"
-            onClick={onOpenAuth}
-          />
+          {currentUser ? (
+            <>
+              <SettingsRow
+                icon="profile"
+                label="Username"
+                value={currentUser.username}
+              />
 
-          <SettingsRow
-            icon="link"
-            label="Linked Accounts"
-            value="Unavailable"
-            onClick={() => {
-              onStatusMessage(
-                "Linked accounts are not " +
-                "implemented yet.",
-              );
-            }}
-          />
+              <SettingsRow
+                icon="link"
+                label="Linked Accounts"
+                value="Unavailable"
+                onClick={() => {
+                  onStatusMessage(
+                    "Linked accounts are not " +
+                    "implemented yet.",
+                  );
+                }}
+              />
 
-          <SettingsRow
-            icon="logout"
-            label="Log Out"
-            value="Guest"
-            disabled
-          />
+              <SettingsRow
+                icon="logout"
+                label="Log Out"
+                value={greetingName}
+                onClick={onLogout}
+              />
+            </>
+          ) : (
+            <>
+              <SettingsRow
+                icon="profile"
+                label="Sign in or create account"
+                onClick={onOpenAuth}
+              />
+
+              <SettingsRow
+                icon="link"
+                label="Linked Accounts"
+                value="Unavailable"
+                onClick={() => {
+                  onStatusMessage(
+                    "Linked accounts are not " +
+                    "implemented yet.",
+                  );
+                }}
+              />
+
+              <SettingsRow
+                icon="logout"
+                label="Log Out"
+                value="Guest"
+                disabled
+              />
+            </>
+          )}
         </div>
       </section>
 
@@ -1874,6 +2113,7 @@ function MainPage({
   currentUser,
   onNavigate,
   onOpenAuth,
+  onLogout,
   query,
   onQueryChange,
   compactMode,
@@ -1930,7 +2170,9 @@ if (adminPage) {
   if (activePage === "profile") {
     return (
       <ProfilePage
+        currentUser={currentUser}
         onOpenAuth={onOpenAuth}
+        onLogout={onLogout}
         compactMode={compactMode}
         onToggleCompact={onToggleCompact}
         statusMessage={statusMessage}
@@ -2089,6 +2331,7 @@ function AuthOverlay({
   onModeChange,
   onClose,
   onGuest,
+  onAuthenticated,
 }) {
   const [showPassword, setShowPassword] =
     useState(false);
@@ -2105,21 +2348,66 @@ function AuthOverlay({
 
   const isCreate = mode === "create";
 
-  function submit(event) {
-    event.preventDefault();
+  async function submit(event) {
+  event.preventDefault();
 
-    setMessage(
+  setMessage("");
+
+  const form =
+    new FormData(event.currentTarget);
+
+  const username =
+    String(
+      form.get("username") ?? "",
+    ).trim();
+
+  const password =
+    String(
+      form.get("password") ?? "",
+    );
+
+  try {
+    const data = await apiRequest(
       isCreate
-        ? (
-          "Registration is not connected " +
-          "to the backend yet."
-        )
-        : (
-          "Sign-in is not connected " +
-          "to the backend yet."
+        ? "/auth/register"
+        : "/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify(
+          isCreate
+            ? {
+                username,
+                email: String(
+                  form.get("email") ?? "",
+                ).trim(),
+                password,
+              }
+            : {
+                username,
+                password,
+              },
         ),
+      },
+    );
+
+    localStorage.setItem(
+      "hypersync_access_token",
+      data.access_token,
+    );
+
+    onAuthenticated(data.user);
+
+    onClose();
+
+    setMessage("");
+  } catch (error) {
+    setMessage(
+      error instanceof Error
+        ? error.message
+        : "Authentication failed.",
     );
   }
+}
 
   return (
     <div
@@ -2155,8 +2443,8 @@ function AuthOverlay({
           <p>
             {isCreate
               ? (
-                "Account creation will be connected " +
-                "to the real authentication API."
+                "Create a HyperSync account to save " +
+                "your library and sync across devices."
               )
               : (
                 "Sync your world. Stream your sound. " +
@@ -2351,7 +2639,11 @@ export default function App() {
     useState("");
 
   const [authOpen, setAuthOpen] =
-    useState(true);
+    useState(
+      () => !localStorage.getItem(
+        "hypersync_access_token",
+      ),
+    );
 
   const [authMode, setAuthMode] =
     useState("signin");
@@ -2361,6 +2653,29 @@ export default function App() {
 
   const [statusMessage, setStatusMessage] =
     useState("");
+
+  async function handleLogout() {
+    try {
+      await apiRequest(
+        "/auth/logout",
+        {
+          method: "POST",
+        },
+      );
+    } catch {
+      // Even if the server request fails,
+      // clear the local authentication state.
+    } finally {
+      localStorage.removeItem(
+        "hypersync_access_token",
+      );
+
+      setCurrentUser(null);
+      setActivePage("home");
+      setAuthMode("signin");
+      setAuthOpen(false);
+    }
+  }
 
   const pageTitle =
     PAGE_TITLES[activePage] ??
@@ -2376,6 +2691,41 @@ export default function App() {
     ),
     [compactMode],
   );
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function restoreAuthentication() {
+    try {
+      const user =
+        await apiRequest(
+          "/users/me",
+        );
+
+      if (cancelled) {
+        return;
+      }
+
+      setCurrentUser(user);
+      setAuthOpen(false);
+    } catch {
+      localStorage.removeItem(
+        "hypersync_access_token",
+      );
+
+      if (!cancelled) {
+        setCurrentUser(null);
+        setAuthOpen(true);
+      }
+    }
+  }
+
+  restoreAuthentication();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   function navigate(page) {
     setActivePage(page);
@@ -2420,6 +2770,8 @@ export default function App() {
           activePage={activePage}
           searchQuery={searchQuery}
           onSearchChange={updateSearch}
+          currentUser={currentUser}
+          onNavigate={navigate}
           onOpenAuth={() => {
             openAuth("signin");
           }}
@@ -2433,6 +2785,7 @@ export default function App() {
             onOpenAuth={() => {
               openAuth("signin");
             }}
+            onLogout={handleLogout}
             query={searchQuery}
             onQueryChange={updateSearch}
             compactMode={compactMode}
@@ -2456,17 +2809,21 @@ export default function App() {
         onNavigate={navigate}
       />
 
-      <AuthOverlay
-        open={authOpen}
-        mode={authMode}
-        onModeChange={setAuthMode}
-        onClose={() => {
-          setAuthOpen(false);
-        }}
-        onGuest={() => {
-          setAuthOpen(false);
-        }}
-      />
+<AuthOverlay
+  open={authOpen}
+  mode={authMode}
+  onModeChange={setAuthMode}
+  onClose={() => {
+    setAuthOpen(false);
+  }}
+  onAuthenticated={(user) => {
+    setCurrentUser(user);
+    setActivePage("home");
+  }}
+  onGuest={() => {
+    setAuthOpen(false);
+  }}
+/>
     </div>
   );
 }
