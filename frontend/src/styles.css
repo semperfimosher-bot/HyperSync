@@ -2669,7 +2669,7 @@ span svg {
 @media (max-width: 699px) {
 
   .home-signal {
-    --home-height: 420px;
+    --home-height: 450px;
 
     /* Mobile text positioning */
     --home-text-x: 0px;
@@ -2683,8 +2683,8 @@ span svg {
     --home-status-y: 0px;
 
     /* Mobile logo */
-    --logo-width: 100px;
-    --logo-height: 125px;
+    --logo-width: 180px;
+    --logo-height: 220px;
     --logo-x: 80px;
     --logo-y: -60px;
 
@@ -2838,10 +2838,10 @@ span svg {
   .home-signal {
     --home-height: 200px;
 
-    --logo-width: 100px;
-    --logo-height: 125px;
+    --logo-width: 180px;
+    --logo-height: 220px;
     --logo-x: 80px;
-    --logo-y: -50px;
+    --logo-y: -60px;
 
     padding:
       25px
