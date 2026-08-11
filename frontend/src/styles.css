@@ -1688,32 +1688,6 @@ span svg {
   text-align: center;
 }
 
-@media (max-width: 365px) {
-  .main-content {
-    padding-right: 10px;
-    padding-left: 10px;
-  }
-
-  .mobile-header {
-    padding-right: 10px;
-    padding-left: 10px;
-  }
-
-  .brand--compact
-  .brand__wordmark {
-    font-size: 9px;
-  }
-
-  .profile-card-grid,
-  .empty-content-card__covers {
-    gap: 5px;
-  }
-
-  .settings-panel--settings
-  .settings-row > span {
-    font-size: 6px;
-  }
-}
 
 @media (min-width: 980px) {
   :root {
@@ -2483,7 +2457,7 @@ span svg {
 
   /* TEXT POSITION */
   --home-text-x: 40px;
-  --home-text-y: -25px;
+  --home-text-y: 25px;
 
   /* TAGLINE */
   --home-tagline-top: 80px;
@@ -2688,88 +2662,213 @@ span svg {
   object-fit: cover;
 }
 
-/* Keep the desktop centering that the older Home rules supplied. */
-@media (min-width: 700px) {
-  .home-signal {
-    align-items: center;
-  }
-}
-
 /* ==================================================
-   TABLET / MOBILE
+   HOME — MOBILE
    ================================================== */
 
-@media (max-width: 800px) {
+@media (max-width: 699px) {
+
   .home-signal {
-    --home-height: 650px;
-    --logo-width: 190px;
-    --logo-height: 255px;
-    --logo-x: 0px;
-    --logo-y: 20px;
+    --home-height: 420px;
+
+    /* Mobile text positioning */
+    --home-text-x: 0px;
+    --home-text-y: 0px;
+
+    /* Mobile tagline */
+    --home-tagline-top: 50px;
+
+    /* Mobile status */
+    --home-status-x: 0px;
+    --home-status-y: 0px;
+
+    /* Mobile logo */
+    --logo-width: 100px;
+    --logo-height: 125px;
+    --logo-x: 80px;
+    --logo-y: -60px;
+
+    display: grid;
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+
+    min-height: var(--home-height);
+
+    padding: 20px 20px 20px 20px;
+
+    align-items: start;
   }
 
+
+  /* =========================
+     TEXT
+     ========================= */
+
+  .home-signal__content {
+    width: 100%;
+    padding: 0;
+
+    translate:
+      var(--home-text-x)
+      var(--home-text-y);
+  }
+
+
+  .home-welcome h2 {
+    max-width: 100%;
+
+    font-size: 24px;
+    line-height: 1.1;
+  }
+
+
+  .home-welcome__time {
+    margin:
+      5px 0 0 7px !important;
+
+    font-size: 16px !important;
+  }
+
+  .home-welcome__tagline span:nth-child(1) {
+    translate: 4px;
+    font-size: 18px;
+  }
+
+  .home-welcome__tagline span:nth-child(2) {
+    translate: 11px;
+    font-size: 18px;
+  }
+
+  .home-welcome__tagline span:nth-child(3) {
+    translate: 18px;
+    font-size: 18px;
+  }
+
+
+  /* =========================
+     STATUS
+     ========================= */
+
+  .home-signal__status {
+    width: 100%;
+    max-width: 100%;
+
+    margin-top: 22px;
+
+    translate:
+      var(--home-status-x)
+      var(--home-status-y);
+
+    gap: 7px 16px;
+
+    font-size: 10px;
+  }
+
+
+  .home-signal__status span {
+    gap: 6px;
+  }
+
+
+  .home-signal__status span:first-child i {
+    width: 7px;
+    height: 7px;
+  }
+
+
+  /* =========================
+     LOGO
+     ========================= */
+
   .home-signal__art {
-    position: absolute;
-    right: 20px;
-    bottom: 20px;
+    position: relative;
+
+    width: 100%;
     min-height: 0;
+
+    display: grid;
+    place-items: center;
+
+    margin-top: 15px;
+
+    translate: none;
+  }
+
+
+  .home-signal__poster {
+    width: var(--logo-width);
+    height: var(--logo-height);
+
+    translate:
+      var(--logo-x)
+      var(--logo-y);
   }
 }
 
-@media (max-width: 500px) {
+@media (max-width: 365px) {
+
+  .main-content {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .mobile-header {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .brand--compact
+  .brand__wordmark {
+    font-size: 9px;
+  }
+
+  .profile-card-grid,
+  .empty-content-card__covers {
+    gap: 5px;
+  }
+
+  .settings-panel--settings
+  .settings-row > span {
+    font-size: 6px;
+  }
+
+
+  /* HOME */
+
   .home-signal {
-    --home-height: 620px;
-    --logo-width: 145px;
-    --logo-height: 195px;
+    --home-height: 200px;
+
+    --logo-width: 100px;
+    --logo-height: 125px;
+    --logo-x: 80px;
+    --logo-y: -50px;
+
+    padding:
+      25px
+      15px
+      20px;
+  }
+
+  .home-welcome h2 {
+    font-size: 22px;
+  }
+
+  .home-welcome__time {
+    font-size: 15px !important;
+  }
+
+  .home-welcome__tagline {
+    max-width: 285px;
+    font-size: 19px;
   }
 
   .home-signal__status {
-    max-width: 230px;
+    margin-top: 18px;
+    gap: 6px 11px;
+    font-size: 9px;
   }
-}
 
-.desktop-nav__label--admin {
-  margin-top: 22px;
-  color: #18cfff;
-}
-
-.admin-page__header,
-.admin-page__denied {
-  padding: 24px;
-  border:
-    1px solid
-    rgba(27, 217, 255, 0.18);
-  border-radius: 14px;
-  background:
-    rgba(5, 13, 20, 0.88);
-}
-
-.admin-page__header > span {
-  color: var(--blue);
-  font-size: 8px;
-  font-weight: 850;
-  letter-spacing: 0.16em;
-}
-
-.admin-page__header h2,
-.admin-page__denied h2 {
-  margin: 8px 0 5px;
-}
-
-.admin-page__header p,
-.admin-page__denied p {
-  margin: 0;
-  color: var(--muted);
-}
-
-.admin-page__denied {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  text-align: center;
-}
-
-.admin-page__denied > svg {
-  color: var(--blue-bright);
+  .home-signal__art {
+    margin-top: 18px;
+  }
 }

@@ -1235,18 +1235,7 @@ function HomePage({
 
         {currentUser
           ? `Signed in as ${greetingName}`
-          : "Guest access active"}
-      </span>
-
-      <span>
-        <Icon
-          name="lock"
-          size={14}
-        />
-
-        {currentUser
-          ? "Account session active"
-          : "Saving requires an account"}
+          : "Sign in to save your music"}
       </span>
     </div>
   </div>
