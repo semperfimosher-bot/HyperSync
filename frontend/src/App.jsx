@@ -1,265 +1,45 @@
 import {
+  memo,
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ??
-  "http://localhost:8000/api";
+import { apiRequest } from "./api/client.js";
+import {
+  cacheUserProfile,
+  hasStoredSession,
+  logoutSession,
+  readCachedUserProfile,
+  restoreSession,
+  saveAuthSession,
+  shouldRestoreSession,
+} from "./api/auth.js";
+import HexBackdrop from "./components/HexBackdrop.jsx";
+import {
+  ADMIN_NAV_ITEMS,
+  LIBRARY_TABS,
+  NAV_ITEMS,
+  PAGE_TITLES,
+  SEARCH_CATEGORIES,
+  SEARCH_SUGGESTIONS,
+} from "./constants.js";
+import {
+  getGreetingName,
+  getTimeGreeting,
+  getUserInitial,
+  isAdminUser,
+} from "./utils/user.js";
 
-function formatApiError(detail) {
-  if (!detail) {
-    return "HyperSync request failed.";
-  }
+// -----------------------------------------------------------------------------
+// UI primitives
+// -----------------------------------------------------------------------------
 
-  if (typeof detail === "string") {
-    return detail;
-  }
-
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => item.msg ?? String(item))
-      .join(" ");
-  }
-
-  return String(detail);
-}
-
-async function refreshAccessToken() {
-  const response = await fetch(
-    `${API_BASE}/auth/refresh`,
-    {
-      method: "POST",
-      credentials: "include",
-    },
-  );
-
-  if (!response.ok) {
-    localStorage.removeItem(
-      "hypersync_access_token",
-    );
-
-    throw new Error(
-      "Authentication session expired.",
-    );
-  }
-
-  const data =
-    await response.json();
-
-  localStorage.setItem(
-    "hypersync_access_token",
-    data.access_token,
-  );
-
-  return data.access_token;
-}
-
-async function apiRequest(
-  path,
-  options = {},
-  accessToken = null,
-) {
-  const token =
-    accessToken ??
-    localStorage.getItem(
-      "hypersync_access_token",
-    );
-
-  const headers = {
-    "Content-Type": "application/json",
-    ...(options.headers ?? {}),
-  };
-
-  if (token) {
-    headers.Authorization =
-      `Bearer ${token}`;
-  }
-
-  let response = await fetch(
-    `${API_BASE}${path}`,
-    {
-      ...options,
-      headers,
-      credentials: "include",
-    },
-  );
-
-  // Never attempt a refresh for authentication
-  // endpoints themselves.
-  const isAuthEndpoint =
-    path === "/auth/login" ||
-    path === "/auth/register" ||
-    path === "/auth/refresh";
-
-  if (
-    response.status === 401 &&
-    !isAuthEndpoint
-  ) {
-    try {
-      const newToken =
-        await refreshAccessToken();
-
-      const retryHeaders = {
-        "Content-Type": "application/json",
-        ...(options.headers ?? {}),
-        Authorization:
-          `Bearer ${newToken}`,
-      };
-
-      response = await fetch(
-        `${API_BASE}${path}`,
-        {
-          ...options,
-          headers: retryHeaders,
-          credentials: "include",
-        },
-      );
-    } catch {
-      localStorage.removeItem(
-        "hypersync_access_token",
-      );
-    }
-  }
-
-  const data =
-    await response.json()
-      .catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(
-      formatApiError(data?.detail),
-    );
-  }
-
-  return data;
-}
-
-const NAV_ITEMS = [
-  { id: "home", label: "Home", icon: "home" },
-  { id: "search", label: "Search", icon: "search" },
-  { id: "library", label: "Library", icon: "library" },
-  { id: "profile", label: "Profile", icon: "profile" },
-];
-
-const ADMIN_NAV_ITEMS = [
-  {
-    id: "admin",
-    label: "Dashboard",
-    icon: "shield",
-  },
-  {
-    id: "admin-bot",
-    label: "Bot Control",
-    icon: "chart",
-  },
-  {
-    id: "admin-uploads",
-    label: "Uploads",
-    icon: "plus",
-  },
-  {
-    id: "admin-catalog",
-    label: "Media Catalog",
-    icon: "music",
-  },
-];
-
-const LIBRARY_TABS = [
-  "Playlists",
-  "Artists",
-  "Albums",
-  "Songs",
-];
-
-const SEARCH_CATEGORIES = [
-  {
-    id: "trending",
-    label: "Trending",
-    icon: "chart",
-  },
-  {
-    id: "new",
-    label: "New Releases",
-    icon: "disc",
-  },
-  {
-    id: "playlists",
-    label: "Playlists",
-    icon: "playlist",
-  },
-  {
-    id: "genres",
-    label: "Genres",
-    icon: "mountains",
-  },
-];
-
-const SEARCH_SUGGESTIONS = [
-  "Synthwave",
-  "Retrowave",
-  "Chillwave",
-  "Cyberpunk",
-  "Ambient",
-  "Electronic",
-];
-
-const PAGE_TITLES = {
-  home: "Home",
-  search: "Search",
-  library: "My Library",
-  profile: "Profile",
-
-  admin: "Admin Dashboard",
-  "admin-bot": "Bot Control",
-  "admin-uploads": "Uploads",
-  "admin-catalog": "Media Catalog",
-};
-
-function getGreetingName(user) {
-  const rawName =
-    user?.displayName ??
-    user?.display_name ??
-    user?.username ??
-    "Guest";
-
-  const cleanedName =
-    String(rawName).trim();
-
-  if (!cleanedName) {
-    return "Guest";
-  }
-
-  return cleanedName.split(/\s+/)[0];
-}
-
-function getUserInitial(user) {
-  const name = getGreetingName(user);
-
-  if (name === "Guest") {
-    return "G";
-  }
-
-  return name.charAt(0).toUpperCase();
-}
-
-function getTimeGreeting() {
-  const hour =
-    new Date().getHours();
-
-  if (hour < 12) {
-    return "good morning";
-  }
-
-  if (hour < 18) {
-    return "good afternoon";
-  }
-
-  return "good evening";
-}
-
-function Icon({ name, size = 22 }) {
+const Icon = memo(function Icon({
+  name,
+  size = 22,
+}) {
   const props = {
     width: size,
     height: size,
@@ -667,7 +447,7 @@ function Icon({ name, size = 22 }) {
       {paths[name] ?? null}
     </svg>
   );
-}
+});
 
 function BrandLogo({
   idPrefix = "brand",
@@ -825,164 +605,6 @@ function BrandLogo({
   );
 }
 
-function HexBackdrop() {
-  const primaryTraces = [
-    "M82 35H242C288 35 303 96 356 96H486",
-    "M72 47H233C279 47 294 108 347 108H486",
-
-    "M500 35H690C731 35 744 89 786 89H1001",
-    "M500 48H681C722 48 735 102 777 102H991",
-
-    "M0 157H478C538 157 558 188 621 188H1057",
-    "M0 170H468C528 170 548 201 611 201H1057",
-
-    "M182 194H310C348 194 364 225 402 225H633",
-    "M182 207H301C339 207 355 238 393 238H623",
-
-    "M583 218H704C749 218 758 246 800 246H968",
-    "M592 230H696C739 230 748 258 790 258H958",
-
-    "M0 294H299C339 294 354 326 395 326H608",
-    "M0 307H290C330 307 345 339 386 339H598",
-
-    "M0 355H270C309 355 325 325 363 325H446",
-    "M0 389H278C321 389 339 337 390 337H661",
-  ];
-
-  const secondaryTraces = [
-    "M0 121H194C234 121 253 145 295 145H475",
-    "M0 132H185C225 132 244 156 286 156H466",
-
-    "M155 270H321C362 270 378 302 421 302H652",
-    "M151 281H312C353 281 369 313 412 313H643",
-
-    "M344 78H512C549 78 565 109 605 109H790",
-    "M737 286H848C885 286 899 263 936 263H1054",
-
-    "M58 409H268C306 409 326 377 365 377H530",
-    "M717 152H814C851 152 864 177 901 177H1127",
-  ];
-
-  const nodes = [
-    { x: 1002, y: 95 },
-    { x: 1058, y: 194 },
-    { x: 968, y: 246 },
-  ];
-
-  return (
-    <svg
-      className="hex-backdrop circuit-backdrop"
-      viewBox="0 0 1213 453"
-      preserveAspectRatio="xMidYMid slice"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        className="circuit-backdrop__grid"
-        d={
-          "M0 45H1213 " +
-          "M0 90H1213 " +
-          "M0 135H1213 " +
-          "M0 180H1213 " +
-          "M0 225H1213 " +
-          "M0 270H1213 " +
-          "M0 315H1213 " +
-          "M0 360H1213 " +
-          "M0 405H1213 " +
-          "M60 0V453 " +
-          "M120 0V453 " +
-          "M180 0V453 " +
-          "M240 0V453 " +
-          "M300 0V453 " +
-          "M360 0V453 " +
-          "M420 0V453 " +
-          "M480 0V453 " +
-          "M540 0V453 " +
-          "M600 0V453 " +
-          "M660 0V453 " +
-          "M720 0V453 " +
-          "M780 0V453 " +
-          "M840 0V453 " +
-          "M900 0V453 " +
-          "M960 0V453 " +
-          "M1020 0V453 " +
-          "M1080 0V453 " +
-          "M1140 0V453 " +
-          "M1200 0V453"
-        }
-      />
-
-      <g className="circuit-backdrop__soft-glow">
-        {secondaryTraces.map((trace) => (
-          <path key={`soft-glow-${trace}`} d={trace} />
-        ))}
-      </g>
-
-      <g className="circuit-backdrop__soft-lines">
-        {secondaryTraces.map((trace) => (
-          <path key={`soft-line-${trace}`} d={trace} />
-        ))}
-      </g>
-
-      <g className="circuit-backdrop__main-glow">
-        {primaryTraces.map((trace) => (
-          <path key={`main-glow-${trace}`} d={trace} />
-        ))}
-      </g>
-
-      <g className="circuit-backdrop__main-lines">
-        {primaryTraces.map((trace) => (
-          <path key={`main-line-${trace}`} d={trace} />
-        ))}
-      </g>
-
-      <g className="circuit-backdrop__highlights">
-        <path d="M500 35H690C731 35 744 89 786 89H1001" />
-
-        <path d="M0 157H478C538 157 558 188 621 188H1057" />
-
-        <path d="M583 218H704C749 218 758 246 800 246H968" />
-
-        <path d="M0 294H299C339 294 354 326 395 326H608" />
-      </g>
-
-      <g className="circuit-backdrop__streaks">
-        <path d="M0 164H611" />
-        <path d="M88 229H704" />
-        <path d="M0 318H515" />
-        <path d="M356 109H893" />
-      </g>
-
-      <g className="circuit-backdrop__nodes">
-        {nodes.map(({ x, y }) => (
-          <g key={`${x}-${y}`}>
-            <circle
-              className="circuit-backdrop__node-halo"
-              cx={x}
-              cy={y}
-              r="25"
-            />
-
-            <circle
-              className="circuit-backdrop__node-ring"
-              cx={x}
-              cy={y}
-              r="13"
-            />
-
-            <circle
-              className="circuit-backdrop__node-core"
-              cx={x}
-              cy={y}
-              r="5"
-            />
-          </g>
-        ))}
-      </g>
-    </svg>
-  );
-}
-
 function CoverPlaceholder({
   variant = 1,
   label = "Awaiting catalog",
@@ -1061,6 +683,10 @@ function CoverPlaceholder({
   );
 }
 
+// -----------------------------------------------------------------------------
+// Layout chrome
+// -----------------------------------------------------------------------------
+
 function MobileHeader({
   title,
   onOpenAuth,
@@ -1102,21 +728,6 @@ function DesktopSidebar({
 }) {
   const isAdmin =
     isAdminUser(currentUser);
-
-  const greetingName =
-    getGreetingName(currentUser);
-
-  const userInitial =
-    getUserInitial(currentUser);
-
-  function handleAccountClick() {
-    if (currentUser) {
-      onNavigate("profile");
-      return;
-    }
-
-    onOpenAuth();
-  }
 
   return (
     <aside className="desktop-sidebar">
@@ -1187,34 +798,6 @@ function DesktopSidebar({
 
       <div className="desktop-sidebar__spacer" />
 
-      <button
-        className="desktop-account"
-        type="button"
-        onClick={handleAccountClick}
-      >
-        <span className="avatar avatar--small">
-          {userInitial}
-        </span>
-
-        <span>
-          {currentUser ? (
-            <>
-              <strong>{greetingName}</strong>
-              <small>{currentUser.email}</small>
-            </>
-          ) : (
-            <>
-              <strong>Guest mode</strong>
-              <small>Sign in to save music</small>
-            </>
-          )}
-        </span>
-
-        <Icon
-          name="chevron"
-          size={16}
-        />
-      </button>
     </aside>
   );
 }
@@ -1346,6 +929,10 @@ function DesktopRightRail() {
   );
 }
 
+// -----------------------------------------------------------------------------
+// Shared page pieces
+// -----------------------------------------------------------------------------
+
 function SectionHeading({
   title,
   actionLabel,
@@ -1372,12 +959,9 @@ function SectionHeading({
   );
 }
 
-function isAdminUser(user) {
-  return Boolean(
-    user &&
-    user.role === "admin"
-  );
-}
+// -----------------------------------------------------------------------------
+// Pages
+// -----------------------------------------------------------------------------
 
 function HomePage({
   currentUser,
@@ -2108,6 +1692,10 @@ function AdminPlaceholderPage({
   );
 }
 
+// -----------------------------------------------------------------------------
+// Routing
+// -----------------------------------------------------------------------------
+
 function MainPage({
   activePage,
   currentUser,
@@ -2325,6 +1913,10 @@ function PlayerBar() {
   );
 }
 
+// -----------------------------------------------------------------------------
+// Authentication
+// -----------------------------------------------------------------------------
+
 function AuthOverlay({
   open,
   mode,
@@ -2390,9 +1982,14 @@ function AuthOverlay({
       },
     );
 
-    localStorage.setItem(
-      "hypersync_access_token",
+    saveAuthSession(
       data.access_token,
+      { remember: rememberMe },
+    );
+
+    cacheUserProfile(
+      data.user,
+      { remember: rememberMe },
     );
 
     onAuthenticated(data.user);
@@ -2628,9 +2225,13 @@ function AuthOverlay({
   );
 }
 
+// -----------------------------------------------------------------------------
+// App shell
+// -----------------------------------------------------------------------------
+
 export default function App() {
   const [currentUser, setCurrentUser] =
-  useState(null);
+    useState(() => readCachedUserProfile());
 
   const [activePage, setActivePage] =
     useState("home");
@@ -2640,8 +2241,9 @@ export default function App() {
 
   const [authOpen, setAuthOpen] =
     useState(
-      () => !localStorage.getItem(
-        "hypersync_access_token",
+      () => (
+        !shouldRestoreSession() &&
+        !readCachedUserProfile()
       ),
     );
 
@@ -2654,27 +2256,13 @@ export default function App() {
   const [statusMessage, setStatusMessage] =
     useState("");
 
-  async function handleLogout() {
-    try {
-      await apiRequest(
-        "/auth/logout",
-        {
-          method: "POST",
-        },
-      );
-    } catch {
-      // Even if the server request fails,
-      // clear the local authentication state.
-    } finally {
-      localStorage.removeItem(
-        "hypersync_access_token",
-      );
+  function handleLogout() {
+    logoutSession();
 
-      setCurrentUser(null);
-      setActivePage("home");
-      setAuthMode("signin");
-      setAuthOpen(false);
-    }
+    setCurrentUser(null);
+    setActivePage("home");
+    setAuthMode("signin");
+    setAuthOpen(false);
   }
 
   const pageTitle =
@@ -2692,58 +2280,105 @@ export default function App() {
     [compactMode],
   );
 
-useEffect(() => {
-  let cancelled = false;
-
-  async function restoreAuthentication() {
-    try {
-      const user =
-        await apiRequest(
-          "/users/me",
-        );
-
-      if (cancelled) {
-        return;
-      }
-
-      setCurrentUser(user);
-      setAuthOpen(false);
-    } catch {
-      localStorage.removeItem(
-        "hypersync_access_token",
-      );
-
-      if (!cancelled) {
-        setCurrentUser(null);
+  useEffect(() => {
+    if (!shouldRestoreSession()) {
+      if (!readCachedUserProfile()) {
         setAuthOpen(true);
       }
+
+      return undefined;
     }
-  }
 
-  restoreAuthentication();
+    let cancelled = false;
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
+    const syncSession = () => {
+      restoreSession().then((user) => {
+        if (cancelled) {
+          return;
+        }
 
-  function navigate(page) {
+        if (user) {
+          setCurrentUser(user);
+          setAuthOpen(false);
+          return;
+        }
+
+        if (!readCachedUserProfile()) {
+          setCurrentUser(null);
+          setAuthOpen(true);
+          return;
+        }
+
+        setCurrentUser(null);
+        setAuthOpen(true);
+      });
+    };
+
+    if (
+      typeof requestIdleCallback ===
+      "function"
+    ) {
+      const idleId =
+        requestIdleCallback(syncSession, {
+          timeout: 250,
+        });
+
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(idleId);
+      };
+    }
+
+    const timeoutId =
+      window.setTimeout(syncSession, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
+  const navigate = useCallback((page) => {
     setActivePage(page);
     setStatusMessage("");
-  }
+  }, []);
 
-  function updateSearch(value) {
+  const updateSearch = useCallback((value) => {
     setSearchQuery(value);
+    setActivePage((currentPage) => (
+      currentPage === "search"
+        ? currentPage
+        : "search"
+    ));
+  }, []);
 
-    if (activePage !== "search") {
-      setActivePage("search");
-    }
-  }
-
-  function openAuth(mode = "signin") {
+  const openAuth = useCallback((mode = "signin") => {
     setAuthMode(mode);
     setAuthOpen(true);
-  }
+  }, []);
+
+  const openSignIn = useCallback(() => {
+    openAuth("signin");
+  }, [openAuth]);
+
+  const toggleCompact = useCallback(() => {
+    setCompactMode((value) => !value);
+  }, []);
+
+  const handleAuthenticated = useCallback((user) => {
+    cacheUserProfile(user);
+    setCurrentUser(user);
+    setActivePage("home");
+    setAuthOpen(false);
+  }, []);
+
+  const closeAuth = useCallback(() => {
+    setAuthOpen(false);
+  }, []);
+
+  const continueAsGuest = useCallback(() => {
+    setAuthOpen(false);
+  }, []);
 
   return (
     <div className={appClassName}>
@@ -2817,6 +2452,7 @@ useEffect(() => {
     setAuthOpen(false);
   }}
   onAuthenticated={(user) => {
+    cacheUserProfile(user);
     setCurrentUser(user);
     setActivePage("home");
   }}
