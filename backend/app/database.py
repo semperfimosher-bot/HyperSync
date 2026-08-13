@@ -1,4 +1,3 @@
-import ssl
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
@@ -21,11 +20,8 @@ def get_engine() -> AsyncEngine:
     if not database_url:
         raise RuntimeError("DATABASE_URL is not configured.")
 
-    tls_context = ssl.create_default_context()
-
     return create_async_engine(
         database_url,
-        connect_args={"ssl": tls_context},
         pool_pre_ping=True,
         pool_recycle=300,
     )
