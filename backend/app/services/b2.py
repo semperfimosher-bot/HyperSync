@@ -1,7 +1,6 @@
 from functools import lru_cache
 
 import b2sdk.v2 as b2
-from b2sdk.v2 import InMemoryAccountInfo
 
 from ..config import get_settings
 

@@ -15,3 +15,9 @@ __all__ = [
     "UserRole",
     "UserSession",
 ]
+
+from .media import Track
+
+__all__ = [
+    "Track",
+]

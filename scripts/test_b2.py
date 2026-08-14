@@ -1,5 +1,5 @@
-from backend.app.services.b2 import get_b2_bucket
 from backend.app.config import get_settings
+from backend.app.services.b2 import get_b2_bucket
 
 settings = get_settings()
 bucket = get_b2_bucket()
