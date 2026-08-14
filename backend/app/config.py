@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     bot_token_ttl_minutes: int = 60
 
     rclone_remote: str = "hypersync-b2"
+
+    b2_endpoint: str = ""
+    b2_key_id: str = ""
+    b2_application_key: str = ""
+
     b2_bucket_name: str = ""
     b2_audio_prefix: str = "audio"
     b2_artwork_prefix: str = "artwork"
