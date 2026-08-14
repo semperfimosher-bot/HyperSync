@@ -31,10 +31,7 @@ async def main() -> None:
             )
 
             if result.scalar_one_or_none() is not None:
-                print(
-                    f"Already exists: "
-                    f"{track_data['b2_object_key']}"
-                )
+                print(f"Already exists: {track_data['b2_object_key']}")
                 continue
 
             session.add(Track(**track_data))
