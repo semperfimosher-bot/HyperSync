@@ -1,7 +1,10 @@
-from collections.abc import Iterator
+import asyncio
+import os
+import threading
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from ...database import get_session_factory
@@ -14,71 +17,191 @@ router = APIRouter(
 )
 
 
-DEFAULT_CHUNK_SIZE = 1024 * 1024
+STREAM_CHUNK_SIZE = 1024 * 1024
+
+
+def range_error(
+    detail: str,
+    file_size: int,
+) -> HTTPException:
+    return HTTPException(
+        status_code=416,
+        detail=detail,
+        headers={
+            "Content-Range": f"bytes */{file_size}",
+        },
+    )
 
 
 def parse_range(
     range_header: str | None,
     file_size: int,
 ) -> tuple[int, int]:
+    if file_size <= 0:
+        raise range_error(
+            "Cannot stream an empty file.",
+            file_size,
+        )
+
     if not range_header:
         return 0, file_size - 1
 
     if not range_header.startswith("bytes="):
-        raise HTTPException(
-            status_code=416,
-            detail="Invalid range header.",
+        raise range_error(
+            "Invalid range header.",
+            file_size,
         )
 
     value = range_header.removeprefix("bytes=")
 
     if "," in value:
-        raise HTTPException(
-            status_code=416,
-            detail="Multiple ranges are not supported.",
+        raise range_error(
+            "Multiple ranges are not supported.",
+            file_size,
+        )
+
+    if "-" not in value:
+        raise range_error(
+            "Invalid range.",
+            file_size,
         )
 
     start_text, end_text = value.split("-", 1)
 
-    if not start_text:
-        suffix_length = int(end_text)
-
-        if suffix_length <= 0:
-            raise HTTPException(
-                status_code=416,
-                detail="Invalid range.",
-            )
-
-        start = max(
-            file_size - suffix_length,
-            0,
+    if not start_text and not end_text:
+        raise range_error(
+            "Invalid range.",
+            file_size,
         )
-        end = file_size - 1
 
-    else:
-        start = int(start_text)
+    try:
+        if not start_text:
+            suffix_length = int(end_text)
 
-        if start >= file_size:
-            raise HTTPException(
-                status_code=416,
-                detail="Range is outside the file.",
+            if suffix_length <= 0:
+                raise range_error(
+                    "Invalid range.",
+                    file_size,
+                )
+
+            start = max(
+                file_size - suffix_length,
+                0,
             )
-
-        if end_text:
-            end = min(
-                int(end_text),
-                file_size - 1,
-            )
-        else:
             end = file_size - 1
 
+        else:
+            start = int(start_text)
+
+            if start < 0 or start >= file_size:
+                raise range_error(
+                    "Range is outside the file.",
+                    file_size,
+                )
+
+            if end_text:
+                end = int(end_text)
+
+                if end < 0:
+                    raise range_error(
+                        "Invalid range.",
+                        file_size,
+                    )
+
+                end = min(
+                    end,
+                    file_size - 1,
+                )
+            else:
+                end = file_size - 1
+
+    except ValueError as exc:
+        raise range_error(
+            "Invalid range.",
+            file_size,
+        ) from exc
+
     if start > end:
-        raise HTTPException(
-            status_code=416,
-            detail="Invalid range.",
+        raise range_error(
+            "Invalid range.",
+            file_size,
         )
 
     return start, end
+
+
+def safe_filename(title: str) -> str:
+    filename = title.strip()
+
+    if not filename:
+        filename = "audio"
+
+    filename = filename.replace("\\", "_")
+    filename = filename.replace("/", "_")
+    filename = filename.replace('"', "_")
+    filename = filename.replace("\r", "_")
+    filename = filename.replace("\n", "_")
+
+    return f"{filename}.mp3"
+
+
+async def stream_b2_file(
+    downloaded,
+):
+    read_fd, write_fd = os.pipe()
+
+    error: list[BaseException] = []
+
+    def download() -> None:
+        try:
+            with os.fdopen(
+                write_fd,
+                "wb",
+                buffering=0,
+            ) as output:
+                downloaded.save(
+                    output,
+                    allow_seeking=False,
+                )
+        except BaseException as exc:
+            error.append(exc)
+
+            try:
+                os.close(write_fd)
+            except OSError:
+                pass
+
+    thread = threading.Thread(
+        target=download,
+        daemon=True,
+    )
+    thread.start()
+
+    try:
+        while True:
+            chunk = await asyncio.to_thread(
+                os.read,
+                read_fd,
+                STREAM_CHUNK_SIZE,
+            )
+
+            if not chunk:
+                break
+
+            yield chunk
+
+        await asyncio.to_thread(
+            thread.join,
+        )
+
+        if error:
+            raise error[0]
+
+    finally:
+        try:
+            os.close(read_fd)
+        except OSError:
+            pass
 
 
 @router.get("/{track_id}")
@@ -106,7 +229,8 @@ async def stream_audio(
 
     bucket = get_b2_bucket()
 
-    file_info = bucket.get_file_info_by_name(
+    file_info = await asyncio.to_thread(
+        bucket.get_file_info_by_name,
         track.b2_object_key,
     )
 
@@ -117,29 +241,29 @@ async def stream_audio(
         file_size,
     )
 
-    downloaded = bucket.download_file_by_name(
+    downloaded = await asyncio.to_thread(
+        bucket.download_file_by_name,
         track.b2_object_key,
         range_=(start, end),
     )
 
+    content_length = end - start + 1
+
     response_headers = {
         "Accept-Ranges": "bytes",
-        "Content-Length": str(end - start + 1),
+        "Content-Length": str(content_length),
         "Content-Type": track.mime_type,
         "Cache-Control": ("public, max-age=86400, stale-while-revalidate=604800"),
-        "Content-Disposition": (f'inline; filename="{track.title}.mp3"'),
+        "Content-Disposition": (f'inline; filename="{safe_filename(track.title)}"'),
     }
 
     if range:
         response_headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 
-    async def body() -> Iterator[bytes]:
-        yield downloaded.get_bytes_read()
-
     status_code = 206 if range else 200
 
-    return Response(
-        content=downloaded.get_bytes_read(),
+    return StreamingResponse(
+        stream_b2_file(downloaded),
         status_code=status_code,
         headers=response_headers,
         media_type=track.mime_type,

@@ -1,10 +1,10 @@
 import asyncio
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 from backend.app.database import get_engine
-
-EXPECTED_REVISION = "022b324132d4"
 
 EXPECTED_TABLES = {
     "alembic_version",
@@ -12,6 +12,18 @@ EXPECTED_TABLES = {
     "user_profiles",
     "user_sessions",
 }
+
+
+def get_alembic_head() -> str:
+    alembic_config = Config("alembic.ini")
+    script = ScriptDirectory.from_config(alembic_config)
+
+    heads = script.get_heads()
+
+    if len(heads) != 1:
+        raise RuntimeError(f"Expected exactly one Alembic head, found: {heads}")
+
+    return heads[0]
 
 
 async def main() -> None:
@@ -42,18 +54,19 @@ async def main() -> None:
 
             if missing_tables:
                 missing_names = ", ".join(sorted(missing_tables))
-
                 raise SystemExit(f"Missing database tables: {missing_names}")
 
             revision_result = await connection.execute(revision_query)
 
             current_revision = revision_result.scalar_one_or_none()
 
-        if current_revision != EXPECTED_REVISION:
-            raise SystemExit(
-                "Unexpected Alembic revision. "
-                f"Expected {EXPECTED_REVISION}, "
-                f"found {current_revision!r}."
+        expected_revision = get_alembic_head()
+
+        if current_revision != expected_revision:
+            raise RuntimeError(
+                f"Unexpected Alembic revision. "
+                f"Expected {expected_revision}, "
+                f"found '{current_revision}'."
             )
 
         print("Account schema and Alembic revision are correct in Neon.")
