@@ -7,6 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..database import get_database_session
+from ..models.account import User, UserRole, UserSession
+from ..security.tokens import (
+    InvalidAccessTokenError,
+    decode_access_token,
+)
+
 
 def _as_utc_aware(value: datetime | None) -> datetime | None:
     if value is None:
