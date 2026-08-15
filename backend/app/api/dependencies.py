@@ -7,6 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+
+def _as_utc_aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 from ..database import get_database_session
 from ..models.account import User, UserRole, UserSession
 from ..security.tokens import (
@@ -73,8 +82,10 @@ async def get_current_user(
         )
 
     now = datetime.now(UTC)
+    user_session_revoked_at = _as_utc_aware(user_session.revoked_at)
+    user_session_expires_at = _as_utc_aware(user_session.expires_at)
 
-    if user_session.revoked_at is not None:
+    if user_session_revoked_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication session has been revoked.",
@@ -83,7 +94,7 @@ async def get_current_user(
             },
         )
 
-    if user_session.expires_at <= now:
+    if user_session_expires_at is not None and user_session_expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication session has expired.",

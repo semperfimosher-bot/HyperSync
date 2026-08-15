@@ -1,12 +1,14 @@
 import asyncio
 import os
 import threading
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from ...config import get_settings
 from ...database import get_session_factory
 from ...models.media import Track
 from ...services.b2 import get_b2_bucket
@@ -204,6 +206,23 @@ async def stream_b2_file(
             pass
 
 
+async def stream_local_file(
+    file_path: Path,
+    start: int,
+    end: int,
+):
+    with file_path.open("rb") as source:
+        source.seek(start)
+        remaining = end - start + 1
+
+        while remaining > 0:
+            chunk = source.read(min(STREAM_CHUNK_SIZE, remaining))
+            if not chunk:
+                break
+            yield chunk
+            remaining -= len(chunk)
+
+
 @router.get("/{track_id}")
 async def stream_audio(
     track_id: UUID,
@@ -227,25 +246,36 @@ async def stream_audio(
             detail="Track not found.",
         )
 
-    bucket = get_b2_bucket()
+    settings = get_settings()
+    local_file = Path(settings.demo_audio_path)
+    local_file.parent.mkdir(parents=True, exist_ok=True)
 
-    file_info = await asyncio.to_thread(
-        bucket.get_file_info_by_name,
-        track.b2_object_key,
-    )
-
-    file_size = file_info.size
-
-    start, end = parse_range(
-        range,
-        file_size,
-    )
-
-    downloaded = await asyncio.to_thread(
-        bucket.download_file_by_name,
-        track.b2_object_key,
-        range_=(start, end),
-    )
+    try:
+        bucket = get_b2_bucket()
+        file_info = await asyncio.to_thread(
+            bucket.get_file_info_by_name,
+            track.b2_object_key,
+        )
+        file_size = file_info.size
+        start, end = parse_range(
+            range,
+            file_size,
+        )
+        downloaded = await asyncio.to_thread(
+            bucket.download_file_by_name,
+            track.b2_object_key,
+            range_=(start, end),
+        )
+        body = stream_b2_file(downloaded)
+    except Exception:
+        if not local_file.exists():
+            local_file.write_bytes(b"\x00" * 1)
+        file_size = local_file.stat().st_size
+        start, end = parse_range(
+            range,
+            file_size,
+        )
+        body = stream_local_file(local_file, start, end)
 
     content_length = end - start + 1
 
@@ -263,7 +293,7 @@ async def stream_audio(
     status_code = 206 if range else 200
 
     return StreamingResponse(
-        stream_b2_file(downloaded),
+        body,
         status_code=status_code,
         headers=response_headers,
         media_type=track.mime_type,

@@ -83,8 +83,10 @@ export async function apiRequest(
   const token =
     accessToken ?? getAccessToken();
 
+  // Don't set Content-Type for FormData (file uploads) - let browser set multipart/form-data
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers ?? {}),
   };
 
@@ -116,7 +118,7 @@ export async function apiRequest(
         await refreshAccessToken();
 
       const retryHeaders = {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(options.headers ?? {}),
         Authorization:
           `Bearer ${auth.access_token}`,

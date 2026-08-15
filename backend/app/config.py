@@ -12,6 +12,9 @@ def _prepare_asyncpg_url(value: str) -> str:
     if not value:
         return ""
 
+    if value.startswith(("sqlite://", "sqlite+aiosqlite://", "sqlite:///")):
+        return value
+
     if value.startswith("postgres://"):
         value = "postgresql://" + value.removeprefix("postgres://")
 
@@ -71,10 +74,12 @@ class Settings(BaseSettings):
     b2_audio_prefix: str = "audio"
     b2_artwork_prefix: str = "artwork"
     b2_profile_prefix: str = "profiles"
+    b2_presigned_url_ttl_seconds: int = 300
 
     local_temp_root: str = "storage/temporary"
     local_upload_root: str = "storage/uploads"
     local_log_root: str = "storage/logs"
+    demo_audio_path: str = "storage/demo/demo_track.wav"
 
     lrclib_base_url: str = "https://lrclib.net"
     lrclib_client_name: str = "HyperSync/0.1.0 (https://hypersynced.app)"

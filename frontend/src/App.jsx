@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { apiRequest } from "./api/client.js";
+import * as player from "./audioPlayer.js";
 import {
   cacheUserProfile,
   hasStoredSession,
@@ -683,6 +684,44 @@ function CoverPlaceholder({
   );
 }
 
+function TrackArtwork({
+  src,
+  alt,
+  variant = 1,
+}) {
+  if (!src) {
+    return (
+      <CoverPlaceholder
+        variant={variant}
+        label={alt || "No track artwork"}
+      />
+    );
+  }
+
+  return (
+    <div className="track-artwork-shell">
+      <img
+        className="track-artwork"
+        src={src}
+        alt={alt || "Track artwork"}
+        loading="lazy"
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+          const fallback = event.currentTarget.nextElementSibling;
+          if (fallback) {
+            fallback.style.display = "grid";
+          }
+        }}
+      />
+
+      <CoverPlaceholder
+        variant={variant}
+        label={alt || "No track artwork"}
+      />
+    </div>
+  );
+}
+
 // -----------------------------------------------------------------------------
 // Layout chrome
 // -----------------------------------------------------------------------------
@@ -974,55 +1013,103 @@ function HomePage({
   const timeGreeting =
     getTimeGreeting();
 
+  const [tracks, setTracks] = useState([]);
+  const [catalogError, setCatalogError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTracks() {
+      try {
+        const data = await apiRequest("/catalog/tracks");
+        if (cancelled) return;
+        setTracks(data || []);
+        setCatalogError("");
+      } catch (error) {
+        if (!cancelled) {
+          setTracks([]);
+          setCatalogError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load catalog.",
+          );
+        }
+      }
+    }
+
+    loadTracks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const playTrack = async (trackId, track = null) => {
+    if (!trackId) return;
+    try {
+      await player.playTrack(trackId, {
+        artworkUrl: track?.artwork_url ?? null,
+        title: track?.title ?? "",
+        artist: track?.artist ?? "",
+      });
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error
+          ? error.message
+          : "Playback failed.",
+      );
+    }
+  };
+
   return (
     <div className="page-stack home-page">
       <section className="home-signal">
-  <div className="home-signal__content">
-    <div className="home-welcome">
-      <h2>
-        Hello {greetingName},
-      </h2>
+        <div className="home-signal__content">
+          <div className="home-welcome">
+            <h2>
+              Hello {greetingName},
+            </h2>
 
-     <p className="home-welcome__time">
-        {timeGreeting}
-     </p>
+            <p className="home-welcome__time">
+              {timeGreeting}
+            </p>
 
-<div className="home-welcome__tagline">
-  <span>your vibe.</span>
+            <div className="home-welcome__tagline">
+              <span>your vibe.</span>
 
-  <span>
-    your <strong>music.</strong>
-  </span>
+              <span>
+                your <strong>music.</strong>
+              </span>
 
-  <span>
-    your <strong>world.</strong>
-  </span>
-</div>
-</div>
+              <span>
+                your <strong>world.</strong>
+              </span>
+            </div>
+          </div>
 
-    <div className="home-signal__status">
-      <span>
-        <i aria-hidden="true" />
+          <div className="home-signal__status">
+            <span>
+              <i aria-hidden="true" />
 
-        {currentUser
-          ? `Signed in as ${greetingName}`
-          : "Sign in to save your music"}
-      </span>
-    </div>
-  </div>
+              {currentUser
+                ? `Signed in as ${greetingName}`
+                : "Sign in to save your music"}
+            </span>
+          </div>
+        </div>
 
-  <div
-    className="home-signal__art"
-    aria-hidden="true"
-  >
-    <div className="home-signal__poster">
-      <img
-        src="/hypersync-home-logo.png"
-        alt=""
-      />
-    </div>
-  </div>
-</section>
+        <div
+          className="home-signal__art"
+          aria-hidden="true"
+        >
+          <div className="home-signal__poster">
+            <img
+              src="/hypersync-home-logo.png"
+              alt=""
+            />
+          </div>
+        </div>
+      </section>
 
       <section>
         <SectionHeading
@@ -1033,31 +1120,53 @@ function HomePage({
           }}
         />
 
-        <div className="empty-content-card">
-          <div
-            className="empty-content-card__covers"
-            aria-hidden="true"
-          >
-            {[1, 2, 3, 4].map((variant) => (
-              <CoverPlaceholder
-                key={variant}
-                variant={variant}
-              />
+        {catalogError ? (
+          <div className="empty-content-card">
+            <div>
+              <strong>Catalog unavailable</strong>
+              <p>{catalogError}</p>
+            </div>
+          </div>
+        ) : tracks.length > 0 ? (
+          <div className="search-chips">
+            {tracks.map((track) => (
+              <button
+                key={track.id}
+                type="button"
+                onClick={() => playTrack(track.id, track)}
+                title={`Play ${track.title}`}
+              >
+                {track.title} — {track.artist}
+              </button>
             ))}
           </div>
+        ) : (
+          <div className="empty-content-card">
+            <div
+              className="empty-content-card__covers"
+              aria-hidden="true"
+            >
+              {[1, 2, 3, 4].map((variant) => (
+                <CoverPlaceholder
+                  key={variant}
+                  variant={variant}
+                />
+              ))}
+            </div>
 
-          <div>
-            <strong>
-              No listening history yet
-            </strong>
+            <div>
+              <strong>
+                No listening history yet
+              </strong>
 
-            <p>
-              Once real playback is connected,
-              recently played music will appear
-              in this section.
-            </p>
+              <p>
+                Once real playback is connected,
+                recently played music will appear
+                in this section.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </section>
     </div>
   );
@@ -1068,6 +1177,46 @@ function SearchPage({
   onQueryChange,
 }) {
   const normalizedQuery = query.trim();
+  const [results, setResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadResults() {
+      if (!normalizedQuery) {
+        setResults([]);
+        setSearchError("");
+        return;
+      }
+
+      try {
+        const data = await apiRequest(
+          `/catalog/tracks?q=${encodeURIComponent(normalizedQuery)}`,
+        );
+
+        if (!cancelled) {
+          setResults(data || []);
+          setSearchError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setResults([]);
+          setSearchError(
+            error instanceof Error
+              ? error.message
+              : "Unable to search the catalog.",
+          );
+        }
+      }
+    }
+
+    loadResults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedQuery]);
 
   return (
     <div className="page-stack search-page">
@@ -1149,32 +1298,60 @@ function SearchPage({
           }
         />
 
-        <div className="search-empty-panel">
-          <Icon
-            name="search"
-            size={30}
-          />
+        {normalizedQuery ? (
+          searchError ? (
+            <div className="empty-content-card">
+              <div>
+                <strong>Search failed</strong>
+                <p>{searchError}</p>
+              </div>
+            </div>
+          ) : results.length > 0 ? (
+            <div className="search-chips">
+              {results.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  onClick={() => {
+                    player.playTrack(track.id, {
+                      artworkUrl: track.artwork_url,
+                      title: track.title,
+                      artist: track.artist,
+                    }).catch(() => {});
+                  }}
+                >
+                  {track.title} — {track.artist}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="search-empty-panel">
+              <Icon
+                name="search"
+                size={30}
+              />
 
-          <strong>
-            {normalizedQuery
-              ? "Catalog search is not connected yet"
-              : "Suggestions are waiting for your catalog"}
-          </strong>
+              <strong>No songs match this search</strong>
 
-          <p>
-            {normalizedQuery
-              ? (
-                "Your query is stored in the interface, " +
-                "but HyperSync will not invent results " +
-                "before the real catalog API is available."
-              )
-              : (
-                "Real suggestions will be calculated from " +
-                "catalog and listening data after those " +
-                "services are connected."
-              )}
-          </p>
-        </div>
+              <p>
+                Try another title, artist, or album name.
+              </p>
+            </div>
+          )
+        ) : (
+          <div className="search-empty-panel">
+            <Icon
+              name="search"
+              size={30}
+            />
+
+            <strong>Suggestions are waiting for your catalog</strong>
+
+            <p>
+              Real recommendations will be calculated from the catalog once you search for music.
+            </p>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -1644,6 +1821,267 @@ function ProfilePage({
   );
 }
 
+function AdminUploadsPage() {
+  const [file, setFile] = useState(null);
+  const [title, setTitle] = useState("");
+  const [artist, setArtist] = useState("");
+  const [album, setAlbum] = useState("");
+  const [duration, setDuration] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadedTracks, setUploadedTracks] = useState([]);
+
+  const loadCatalogTracks = useCallback(async () => {
+    try {
+      const tracks = await apiRequest("/catalog/tracks");
+      setUploadedTracks(tracks || []);
+    } catch (error) {
+      setUploadedTracks([]);
+      setUploadStatus(
+        error instanceof Error
+          ? error.message
+          : "Unable to load catalog.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCatalogTracks();
+  }, [loadCatalogTracks]);
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+    }
+  };
+
+  const handleUpload = async (e) => {
+    e.preventDefault();
+    if (!file || !title || !artist || !album) {
+      setUploadStatus("Please fill in all fields.");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadStatus("Uploading...");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("title", title);
+      formData.append("artist", artist);
+      formData.append("album", album);
+      formData.append("duration_seconds", String(duration));
+
+      const response = await apiRequest("/admin/tracks/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      setUploadStatus("Upload successful!");
+      setFile(null);
+      setTitle("");
+      setArtist("");
+      setAlbum("");
+      setDuration(0);
+      const fileInput = document.querySelector("input[type=file]");
+      if (fileInput) {
+        fileInput.value = "";
+      }
+      await loadCatalogTracks();
+      if (response?.track_id) {
+        setUploadedTracks((tracks) => [
+          {
+            id: response.track_id,
+            title: response.title,
+            artist: response.artist,
+            album: response.album,
+            duration_seconds: response.duration_seconds,
+          },
+          ...tracks,
+        ]);
+      }
+    } catch (error) {
+      setUploadStatus(
+        error instanceof Error
+          ? error.message
+          : "Upload failed.",
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteTrack = async (trackId) => {
+    try {
+      await apiRequest(`/admin/tracks/${trackId}`, {
+        method: "DELETE",
+      });
+
+      setUploadedTracks((tracks) =>
+        tracks.filter((track) => track.id !== trackId),
+      );
+      setUploadStatus("Track deleted.");
+    } catch (error) {
+      setUploadStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete track.",
+      );
+    }
+  };
+
+  return (
+    <div className="page-stack admin-page">
+      <section className="admin-page__header">
+        <span>ADMINISTRATION</span>
+        <h2>Uploads</h2>
+        <p>
+          Upload authorized audio files to B2
+          and add them to the catalog.
+        </p>
+      </section>
+
+      <section className="admin-upload-form">
+        <h3>Upload New Track</h3>
+        <form onSubmit={handleUpload}>
+          <div className="form-group">
+            <label htmlFor="file-input">
+              Audio File
+            </label>
+            <input
+              id="file-input"
+              type="file"
+              accept="audio/*"
+              onChange={handleFileChange}
+              disabled={isUploading}
+              required
+            />
+            {file && (
+              <small>{file.name}</small>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="title-input">
+              Title
+            </label>
+            <input
+              id="title-input"
+              type="text"
+              value={title}
+              onChange={(e) =>
+                setTitle(e.target.value)
+              }
+              disabled={isUploading}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="artist-input">
+              Artist
+            </label>
+            <input
+              id="artist-input"
+              type="text"
+              value={artist}
+              onChange={(e) =>
+                setArtist(e.target.value)
+              }
+              disabled={isUploading}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="album-input">
+              Album
+            </label>
+            <input
+              id="album-input"
+              type="text"
+              value={album}
+              onChange={(e) =>
+                setAlbum(e.target.value)
+              }
+              disabled={isUploading}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="duration-input">
+              Duration (seconds)
+            </label>
+            <input
+              id="duration-input"
+              type="number"
+              value={duration}
+              onChange={(e) =>
+                setDuration(
+                  parseInt(e.target.value) || 0,
+                )
+              }
+              disabled={isUploading}
+              min="0"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isUploading || !file}
+            className="primary-button"
+          >
+            {isUploading ? "Uploading..." : "Upload"}
+          </button>
+        </form>
+
+        {uploadStatus && (
+          <p className="upload-status">
+            {uploadStatus}
+          </p>
+        )}
+      </section>
+
+      {uploadedTracks.length > 0 && (
+        <section className="admin-upload-list">
+          <h3>Catalog Tracks</h3>
+          <div className="upload-list">
+            {uploadedTracks.map((track) => (
+              <div
+                key={track.id}
+                className="upload-item"
+              >
+                <div>
+                  <strong>{track.title}</strong>
+                  <small>
+                    {track.artist} - {track.album}
+                  </small>
+                </div>
+
+                <div className="upload-item__actions">
+                  <small>
+                    {track.duration_seconds ?? 0}s
+                  </small>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => handleDeleteTrack(track.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function AdminPlaceholderPage({
   section,
 }) {
@@ -1733,6 +2171,10 @@ if (adminPage) {
     );
   }
 
+  if (activePage === "admin-uploads") {
+    return <AdminUploadsPage />;
+  }
+
   return (
     <AdminPlaceholderPage
       section={activePage}
@@ -1818,23 +2260,67 @@ function MobileBottomNav({
 }
 
 function PlayerBar() {
+  // subscribes to the shared audio player state
+  const [state, setState] = useState(() => ({
+    src: null,
+    paused: true,
+    currentTime: 0,
+    duration: 0,
+  }));
+
+  useEffect(() => {
+    const unsub = player.subscribe((s) => {
+      setState(s);
+    });
+
+    return unsub;
+  }, []);
+
+  const toggle = useCallback(async () => {
+    try {
+      await player.togglePlay();
+    } catch (e) {
+      // ignore play errors (browser may block autoplay)
+    }
+  }, []);
+
+  const formatTime = (t) => {
+    if (!isFinite(t) || t <= 0) return "0:00";
+    const mins = Math.floor(t / 60);
+    const secs = Math.floor(t % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
+  };
+
+  const titleText = state.title || (state.src ? decodeURIComponent(state.src.replace(/.*\//, "")) : "Nothing playing");
+  const subtitleText = state.artist
+    ? state.artist
+    : state.src
+      ? "Now playing"
+      : "Select a real track after catalog integration";
+
+  const canControl = Boolean(state.src);
+
   return (
     <section
       className="player-bar"
       aria-label="Player status"
     >
       <div className="player-bar__track">
-        <CoverPlaceholder
+        <TrackArtwork
+          src={state.artworkUrl}
+          alt={titleText}
           variant={1}
-          label="No track artwork"
         />
 
         <span>
-          <strong>Nothing playing</strong>
+          <strong>
+            {titleText}
+          </strong>
 
           <small>
-            Select a real track after catalog
-            integration
+            {state.src
+              ? `${subtitleText} • ${formatTime(state.currentTime)} / ${formatTime(state.duration)}`
+              : subtitleText}
           </small>
         </span>
       </div>
@@ -1842,72 +2328,56 @@ function PlayerBar() {
       <button
         className="player-like"
         type="button"
-        disabled
-        aria-label="Like unavailable"
+        disabled={!canControl}
+        aria-label="Like"
       >
-        <Icon
-          name="heart"
-          size={19}
-        />
+        <Icon name="heart" size={19} />
       </button>
 
       <div className="desktop-player-controls">
         <button
           type="button"
-          disabled
-          aria-label="Previous unavailable"
+          onClick={() => player.seekTo(0)}
+          disabled={!canControl}
+          aria-label="Previous"
         >
-          <Icon
-            name="previous"
-            size={17}
-          />
+          <Icon name="previous" size={17} />
         </button>
 
         <button
-          className={
-            "desktop-player-controls__main"
-          }
+          className={"desktop-player-controls__main"}
           type="button"
-          disabled
-          aria-label="Play unavailable"
+          onClick={toggle}
+          disabled={!canControl}
+          aria-label={state.paused ? "Play" : "Pause"}
         >
-          <Icon
-            name="play"
-            size={21}
-          />
+          <Icon name={state.paused ? "play" : "pause"} size={21} />
         </button>
 
         <button
           type="button"
-          disabled
-          aria-label="Next unavailable"
+          onClick={() => player.seekTo(state.duration || 0)}
+          disabled={!canControl}
+          aria-label="Next"
         >
-          <Icon
-            name="next"
-            size={17}
-          />
+          <Icon name="next" size={17} />
         </button>
       </div>
 
-      <div
-        className="desktop-progress"
-        aria-hidden="true"
-      >
-        <span>0:00</span>
+      <div className="desktop-progress" aria-hidden="true">
+        <span>{formatTime(state.currentTime)}</span>
         <i />
-        <span>0:00</span>
+        <span>{formatTime(state.duration)}</span>
       </div>
 
       <button
         className="mobile-player-control"
         type="button"
-        disabled
-        aria-label="Playback unavailable"
+        onClick={toggle}
+        disabled={!canControl}
+        aria-label="Playback"
       >
-        <Icon
-          name="play"
-          size={19}
-        />
+        <Icon name={state.paused ? "play" : "pause"} size={19} />
       </button>
     </section>
   );

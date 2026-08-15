@@ -1,5 +1,8 @@
+import io
+import wave
 from collections.abc import AsyncIterator
 from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -10,20 +13,26 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from .config import get_settings
+from .models.base import Base
+from .models.media import Track
 
 
 @lru_cache
 def get_engine() -> AsyncEngine:
     settings = get_settings()
-    database_url = settings.sqlalchemy_database_url
+    database_url = settings.sqlalchemy_database_url or "sqlite+aiosqlite:///./local_dev.db"
 
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is not configured.")
+    engine_kwargs = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
+
+    if database_url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
 
     return create_async_engine(
         database_url,
-        pool_pre_ping=True,
-        pool_recycle=300,
+        **engine_kwargs,
     )
 
 
@@ -46,6 +55,61 @@ async def get_database_session() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+def ensure_demo_audio_file() -> Path:
+    settings = get_settings()
+    path = Path(settings.demo_audio_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        return path
+
+    audio_buffer = io.BytesIO()
+    with wave.open(audio_buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(22050)
+        wav_file.writeframes(b"\x00\x00" * (22050 * 2))
+
+    path.write_bytes(audio_buffer.getvalue())
+    return path
+
+
+async def ensure_demo_data() -> None:
+    settings = get_settings()
+    database_url = settings.sqlalchemy_database_url
+
+    async with get_engine().begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    # Only bootstrap demo data for SQLite (local dev), not for Postgres (Neon)
+    if not database_url.startswith("sqlite"):
+        return
+
+    demo_audio_file = ensure_demo_audio_file()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        result = await session.execute(__import__("sqlalchemy").sql.select(Track).limit(1))
+
+        if result.scalar_one_or_none() is not None:
+            return
+
+        session.add(
+            Track(
+                title="Demo track",
+                artist="Local demo artist",
+                album="Local demo album",
+                b2_object_key=demo_audio_file.name,
+                mime_type="audio/wav",
+                file_size=demo_audio_file.stat().st_size,
+                duration_seconds=2,
+                is_published=True,
+            )
+        )
+        await session.commit()
 
 
 async def check_database() -> None:

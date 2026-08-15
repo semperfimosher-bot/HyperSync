@@ -6,11 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api.router import api_router
 from .config import get_settings
-from .database import close_database
+from .database import close_database, ensure_demo_data
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    await ensure_demo_data()
     yield
     await close_database()
 
