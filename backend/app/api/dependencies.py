@@ -22,14 +22,6 @@ def _as_utc_aware(value: datetime | None) -> datetime | None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
 
-
-from ..database import get_database_session
-from ..models.account import User, UserRole, UserSession
-from ..security.tokens import (
-    InvalidAccessTokenError,
-    decode_access_token,
-)
-
 bearer_scheme = HTTPBearer(
     auto_error=False,
 )
