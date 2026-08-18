@@ -1,7 +1,7 @@
 :root {
   color-scheme: dark;
   font-family:
-  cursive,
+  Cursive,
     sans-serif;
   color: #f6f8fb;
   background: #03070b;
@@ -621,7 +621,7 @@ svg {
   left: 0;
   width: 100%;
   height: 100%;
-  display: grid;
+  display: none;
 }
 
 .mobile-search-field,
@@ -2145,6 +2145,28 @@ span svg {
     border-radius: 16px;
   }
 
+  .right-rail-art {
+  width: 100%;
+}
+
+.right-rail-art .track-artwork-shell {
+  width: 100%;
+  border-radius: 16px;
+}
+
+.right-rail-art .track-artwork {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.right-rail-art .cover-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+}
+
   .right-rail-empty {
     display: grid;
     justify-items: center;
@@ -2550,8 +2572,8 @@ span svg {
 .home-welcome__time,
 .home-welcome__tagline {
   font-family:
-    "Kalam",
-    cursive;
+   cursive;
+
   font-weight: 2;
 }
 
@@ -2568,12 +2590,12 @@ span svg {
 
 .home-welcome__tagline span:nth-child(2) {
   transform: rotate(0deg);
-  translate: 25px;
+  translate: 20px;
 }
 
 .home-welcome__tagline span:nth-child(3) {
   transform: rotate(0deg);
-  translate: 35px;
+  translate: 25px;
 }
 
 /* ==================================================
@@ -2637,7 +2659,7 @@ span svg {
     var(--logo-x)
     var(--logo-y);
   overflow: hidden;
-  border: 1px solid rgba(0, 116, 255, 0.3);
+  border: 1px solid rgba(4, 3, 19, 0.58);
   border-radius: 12px;
   background: #071018;
   box-shadow:
@@ -2655,7 +2677,7 @@ span svg {
 }
 
 .home-signal__poster img {
-  display: block;
+  display: transparent;
   width: 100%;
   height: 100%;
   object-fit: cover;

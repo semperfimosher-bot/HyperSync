@@ -910,34 +910,65 @@ function DesktopTopbar({
 }
 
 function DesktopRightRail() {
+  const [state, setState] = useState(() => ({
+    src: null,
+    artworkUrl: null,
+    title: "",
+    artist: "",
+    paused: true,
+    currentTime: 0,
+    duration: 0,
+  }));
+
+  useEffect(() => {
+    const unsub = player.subscribe((s) => {
+      setState(s);
+    });
+
+    return unsub;
+  }, []);
+
+  const titleText = state.title || "No track selected";
+  const hasTrack = Boolean(state.src);
+
   return (
     <aside className="desktop-right-rail">
       <div className="right-rail-heading">
         <span>Now playing</span>
-        <h2>No track selected</h2>
+
+        <h2>
+          {titleText}
+        </h2>
       </div>
 
       <div className="right-rail-art">
-        <CoverPlaceholder
+        <TrackArtwork
+          src={state.artworkUrl}
+          alt={state.title || "No track artwork"}
           variant={2}
-          label="No track artwork"
         />
       </div>
 
-      <div className="right-rail-empty">
-        <Icon
-          name="music"
-          size={28}
-        />
+      {!hasTrack ? (
+        <div className="right-rail-empty">
+          <Icon
+            name="music"
+            size={28}
+          />
 
-        <strong>Playback is waiting</strong>
+          <strong>Playback is waiting</strong>
 
-        <p>
-          Real track information will appear here
-          after the catalog and streaming endpoints
-          are connected.
-        </p>
-      </div>
+          <p>
+            Choose a track to start listening.
+          </p>
+        </div>
+      ) : (
+        <div className="right-rail-empty">
+          <strong>
+            {state.artist || "Unknown artist"}
+          </strong>
+        </div>
+      )}
 
       <div
         className="right-rail-tabs"
@@ -960,8 +991,7 @@ function DesktopRightRail() {
         <span>Queue is empty</span>
 
         <small>
-          Choose a real track after catalog
-          integration.
+          Add tracks to your queue to see them here.
         </small>
       </div>
     </aside>
