@@ -22,6 +22,7 @@ def _as_utc_aware(value: datetime | None) -> datetime | None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
 
+
 bearer_scheme = HTTPBearer(
     auto_error=False,
 )

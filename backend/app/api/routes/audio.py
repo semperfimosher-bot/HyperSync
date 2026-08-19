@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 from uuid import UUID
 
+import anyio
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -267,15 +268,26 @@ async def stream_audio(
             range_=(start, end),
         )
         body = stream_b2_file(downloaded)
+
     except Exception:
-        if not local_file.exists():
-            local_file.write_bytes(b"\x00" * 1)
-        file_size = local_file.stat().st_size
+        fallback_file = anyio.Path(track.b2_object_key)
+
+        if not await fallback_file.exists():
+            fallback_file = anyio.Path(local_file)
+
+        if not await fallback_file.exists():
+            await fallback_file.write_bytes(b"\x00")
+
+        file_size = (await fallback_file.stat()).st_size
         start, end = parse_range(
             range,
             file_size,
         )
-        body = stream_local_file(local_file, start, end)
+        body = stream_local_file(
+            Path(fallback_file),
+            start,
+            end,
+        )
 
     content_length = end - start + 1
 

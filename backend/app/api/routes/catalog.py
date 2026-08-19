@@ -159,7 +159,9 @@ async def get_track_artwork(track_id: UUID):
             stream_b2_file(downloaded),
             media_type=content_type,
             headers={
-                "Cache-Control": f"public, max-age={cache_seconds}, stale-while-revalidate={cache_seconds * 2}",
+                "Cache-Control": (
+                    f"public, max-age={cache_seconds}, stale-while-revalidate={cache_seconds * 2}"
+                ),
             },
         )
     except Exception as exc:

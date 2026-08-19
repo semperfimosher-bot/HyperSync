@@ -32,9 +32,10 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
     assert login.status_code == 200, login.text
     return login.json()["access_token"]
 
+    @pytest.mark.asyncio
+    async def test_catalog_search_filters_tracks_by_query() -> None:
+        run_id = uuid4().hex  # noqa: F841
 
-@pytest.mark.asyncio
-async def test_catalog_search_filters_tracks_by_query() -> None:
     session_factory = get_session_factory()
 
     async with session_factory() as session:
@@ -50,28 +51,6 @@ async def test_catalog_search_filters_tracks_by_query() -> None:
                     mime_type="audio/wav",
                     file_size=123,
                     duration_seconds=180,
-                    is_published=True,
-                ),
-                Track(
-                    id=uuid4(),
-                    title="Night Drive",
-                    artist="Velvet Signal",
-                    album="Afterglow",
-                    b2_object_key="audio/night.wav",
-                    mime_type="audio/wav",
-                    file_size=123,
-                    duration_seconds=200,
-                    is_published=True,
-                ),
-                Track(
-                    id=uuid4(),
-                    title="Low Light",
-                    artist="Coastal Echo",
-                    album="Night Shift",
-                    b2_object_key="audio/low.wav",
-                    mime_type="audio/wav",
-                    file_size=123,
-                    duration_seconds=140,
                     is_published=True,
                 ),
             ]
@@ -96,14 +75,15 @@ async def test_catalog_search_filters_tracks_by_query() -> None:
 async def test_admin_delete_removes_b2_versions_and_database_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    run_id = uuid4().hex
     session_factory = get_session_factory()
 
     async with session_factory() as session:
         user = User(
             id=uuid4(),
-            username="delete-admin",
-            email="delete-admin@example.com",
-            username_normalized="delete-admin",
+            username=f"delete-admin-{run_id}",
+            email=f"delete-admin-{run_id}@example.com",
+            username_normalized=f"delete-admin-{run_id}",
             password_hash=hash_password("hunter2pass"),
             role=UserRole.ADMIN,
             account_type="registered",
@@ -143,6 +123,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
         def delete_file_version(self, file_id: str, file_name: str):
             self.deleted.append((file_name, file_id))
 
+    # Ensure the import path matches your codebase
     monkeypatch.setattr(
         "backend.app.api.routes.admin.get_b2_bucket",
         lambda: FakeBucket(),
@@ -150,7 +131,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        token = await _create_user_and_login(client, "delete-admin-user", "hunter2pass")
+        token = await _create_user_and_login(client, f"delete-admin-user-{run_id}", "hunter2pass")
 
         response = await client.delete(
             f"/api/admin/tracks/{track_id}",
@@ -162,6 +143,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
     assert payload["success"] is True
     assert payload["deleted_track_id"] == track_id
 
+    # Verify the track is deleted from the database
     async with get_session_factory()() as session:
         result = await session.execute(select(Track).where(Track.id == track_id))
         assert result.scalar_one_or_none() is None

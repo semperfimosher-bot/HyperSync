@@ -1,12 +1,14 @@
+import asyncio
+import base64
 from io import BytesIO
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from mutagen import File as MutagenFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from mutagen._file import File as MutagenFile
+from mutagen.flac import Picture
 from sqlalchemy import select
 
 from ...config import get_settings
-from ...database import get_database_session
 from ...models.media import Track
 from ...services.b2 import get_b2_bucket
 from ..dependencies import AdminUser, DatabaseSession
@@ -36,9 +38,9 @@ async def upload_track(
     title: str = Form(...),
     artist: str = Form(...),
     album: str = Form(...),
-    duration_seconds: int = Form(0),
-    user: AdminUser = None,
-    session: DatabaseSession = None,
+    duration_seconds: int = Form(...),
+    user: AdminUser = Depends(),
+    session: DatabaseSession = Depends(),
 ):
     """Upload an audio file to B2 and create a Track record."""
     if not file:
@@ -54,58 +56,67 @@ async def upload_track(
         )
 
     settings = get_settings()
+
     try:
         file_content = await file.read()
         file_size = len(file_content)
 
-        file_ext = file.filename.split(".")[-1] if file.filename else "wav"
+        file_ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "wav"
+
         object_key = f"{settings.b2_audio_prefix}/{uuid4()}.{file_ext}"
 
-        # Extract embedded artwork from the audio file
+        # Extract embedded artwork from the audio file.
         artwork_data = None
         artwork_mime_type = None
+
         try:
-            audio_file = MutagenFile(BytesIO(file_content), easy=False)
+            audio_file = MutagenFile(
+                BytesIO(file_content),
+                easy=False,
+            )
+
             if audio_file is not None:
-                # Try common metadata tags for embedded artwork
                 if hasattr(audio_file, "tags") and audio_file.tags:
-                    # For MP3 files (ID3)
+                    # MP3 / ID3 artwork.
                     if hasattr(audio_file.tags, "getall"):
                         apic_frames = audio_file.tags.getall("APIC")
+
                         if apic_frames:
                             artwork_data = apic_frames[0].data
                             artwork_mime_type = apic_frames[0].mime
-                    # For Ogg/Vorbis files
-                    elif "metadata_block_picture" in audio_file.tags:
-                        import base64
-                        from mutagen.flac import Picture
 
+                    # Ogg/Vorbis and FLAC artwork.
+                    elif "metadata_block_picture" in audio_file.tags:
                         picture_data = base64.b64decode(
                             audio_file.tags["metadata_block_picture"][0]
                         )
                         picture = Picture(picture_data)
                         artwork_data = picture.data
                         artwork_mime_type = picture.mime
-                    # For FLAC files
-                    elif hasattr(audio_file, "pictures") and audio_file.pictures:
-                        artwork_data = audio_file.pictures[0].data
-                        artwork_mime_type = audio_file.pictures[0].mime
+
         except Exception:
-            pass  # If artwork extraction fails, continue without it
+            # If artwork extraction fails, continue without artwork.
+            pass
 
         bucket = get_b2_bucket()
-        bucket.upload_bytes(
+
+        await asyncio.to_thread(
+            bucket.upload_bytes,
             file_content,
             object_key,
             content_type=file.content_type,
         )
 
-        # Upload embedded artwork if found
+        # Upload embedded artwork if found.
         artwork_object_key = None
+
         if artwork_data and artwork_mime_type:
             artwork_ext = artwork_mime_type.split("/")[-1] if "/" in artwork_mime_type else "jpg"
+
             artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
-            bucket.upload_bytes(
+
+            await asyncio.to_thread(
+                bucket.upload_bytes,
                 artwork_data,
                 artwork_object_key,
                 content_type=artwork_mime_type,
@@ -123,6 +134,7 @@ async def upload_track(
             duration_seconds=duration_seconds,
             is_published=True,
         )
+
         session.add(track)
         await session.commit()
 
@@ -139,6 +151,8 @@ async def upload_track(
         }
 
     except Exception as exc:
+        await session.rollback()
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Upload failed: {str(exc)}",
@@ -153,6 +167,7 @@ async def delete_track(
 ):
     """Delete a track and every stored version of its B2 object."""
     track = await session.get(Track, track_id)
+
     if track is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -164,22 +179,39 @@ async def delete_track(
 
     if object_key:
         try:
-            versions = bucket.list_file_versions(file_name=object_key)
+            versions = await asyncio.to_thread(
+                bucket.list_file_versions,
+                file_name=object_key,
+            )
+
             for version in versions:
                 file_name = getattr(version, "file_name", None) or getattr(
                     version, "fileName", None
                 )
+
                 file_id = getattr(version, "file_id", None) or getattr(version, "fileId", None)
+
                 if file_name and file_id:
-                    bucket.delete_file_version(file_id=file_id, file_name=file_name)
+                    await asyncio.to_thread(
+                        bucket.delete_file_version,
+                        file_id=file_id,
+                        file_name=file_name,
+                    )
+
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to remove B2 versions for track: {str(exc)}",
+                detail=(f"Failed to remove B2 versions for track: {str(exc)}"),
             ) from exc
 
     duplicate_tracks = (
-        (await session.execute(select(Track).where(Track.b2_object_key == object_key)))
+        (
+            await session.execute(
+                select(Track).where(
+                    Track.b2_object_key == object_key,
+                )
+            )
+        )
         .scalars()
         .all()
     )
