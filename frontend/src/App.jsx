@@ -2112,51 +2112,456 @@ function AdminUploadsPage() {
   );
 }
 
-function AdminPlaceholderPage({
-  section,
-}) {
-  const content = {
-    admin: {
-      title: "Admin Dashboard",
-      description:
-        "HyperSync administration overview.",
-    },
+function AdminDashboardPage() {
+  const [tracks, setTracks] = useState([]);
+  const [health, setHealth] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
 
-    "admin-bot": {
-      title: "Bot Control",
-      description:
-        "Bot discovery and processing controls " +
-        "will appear here.",
-    },
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
 
-    "admin-uploads": {
-      title: "Uploads",
-      description:
-        "Authorized media upload and ingestion " +
-        "tools will appear here.",
-    },
+    try {
+      const [catalogResult, healthResult] =
+        await Promise.all([
+          apiRequest("/catalog/tracks"),
+          fetch("/health").then(async (response) => {
+            if (!response.ok) {
+              throw new Error("Health check failed.");
+            }
 
-    "admin-catalog": {
-      title: "Media Catalog",
-      description:
-        "Catalog management tools will appear here.",
-    },
-  };
+            return response.json();
+          }),
+        ]);
 
-  const page =
-    content[section] ??
-    content.admin;
+      setTracks(catalogResult || []);
+      setHealth(healthResult);
+      setMessage("");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to load admin dashboard.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDashboard();
+
+    const interval = window.setInterval(
+      loadDashboard,
+      30000,
+    );
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [loadDashboard]);
+
+  const artistCount = useMemo(() => {
+    return new Set(
+      tracks
+        .map((track) => track.artist)
+        .filter(Boolean),
+    ).size;
+  }, [tracks]);
+
+  const albumCount = useMemo(() => {
+    return new Set(
+      tracks
+        .map((track) => track.album)
+        .filter(Boolean),
+    ).size;
+  }, [tracks]);
+
+  const artworkCount = useMemo(() => {
+    return tracks.filter(
+      (track) => Boolean(track.artwork_url),
+    ).length;
+  }, [tracks]);
+
+  const recentTracks = tracks.slice(0, 6);
 
   return (
-    <div className="page-stack admin-page">
-      <section className="admin-page__header">
-        <span>ADMINISTRATION</span>
+    <div className="page-stack admin-dashboard-page">
+      <section className="admin-hero-panel">
+        <div>
+          <span className="admin-eyebrow">
+            HYPERSYNC CONTROL CENTER
+          </span>
 
-        <h2>{page.title}</h2>
+          <h2>Admin Dashboard</h2>
 
-        <p>{page.description}</p>
+          <p>
+            Monitor your catalog, playback services,
+            storage pipeline, and automation from one
+            place.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="admin-refresh-button"
+          onClick={loadDashboard}
+          disabled={loading}
+        >
+          <Icon
+            name="chart"
+            size={16}
+          />
+
+          {loading ? "Refreshing..." : "Refresh"}
+        </button>
+      </section>
+
+      {message ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>{message}</span>
+        </div>
+      ) : null}
+
+      <section className="admin-stat-grid">
+        <AdminStatCard
+          icon="music"
+          label="Published Tracks"
+          value={tracks.length}
+          detail="Catalog items available"
+        />
+
+        <AdminStatCard
+          icon="people"
+          label="Artists"
+          value={artistCount}
+          detail="Unique catalog artists"
+        />
+
+        <AdminStatCard
+          icon="disc"
+          label="Albums"
+          value={albumCount}
+          detail="Unique albums"
+        />
+
+        <AdminStatCard
+          icon="mountains"
+          label="Artwork Coverage"
+          value={
+            tracks.length
+              ? `${Math.round(
+                  (artworkCount / tracks.length) *
+                    100,
+                )}%`
+              : "0%"
+          }
+          detail={`${artworkCount} tracks with artwork`}
+        />
+      </section>
+
+      <section className="admin-dashboard-grid">
+        <article className="admin-panel admin-health-panel">
+          <div className="admin-panel__heading">
+            <div>
+              <span>PLATFORM</span>
+              <h3>System Health</h3>
+            </div>
+
+            <span
+              className={
+                health?.database === "healthy"
+                  ? "admin-status admin-status--online"
+                  : "admin-status admin-status--offline"
+              }
+            >
+              {health?.database === "healthy"
+                ? "ONLINE"
+                : "CHECK"}
+            </span>
+          </div>
+
+          <div className="admin-health-list">
+            <AdminHealthRow
+              label="API"
+              value={
+                health?.api === "healthy"
+                  ? "Healthy"
+                  : "Unavailable"
+              }
+              healthy={
+                health?.api === "healthy"
+              }
+            />
+
+            <AdminHealthRow
+              label="Database"
+              value={
+                health?.database === "healthy"
+                  ? "Healthy"
+                  : "Unavailable"
+              }
+              healthy={
+                health?.database === "healthy"
+              }
+            />
+
+            <AdminHealthRow
+              label="Application"
+              value={
+                health?.application ||
+                "HyperSync"
+              }
+              healthy
+            />
+
+            <AdminHealthRow
+              label="Version"
+              value={health?.version || "—"}
+              healthy
+            />
+          </div>
+        </article>
+
+        <article className="admin-panel">
+          <div className="admin-panel__heading">
+            <div>
+              <span>AUTOMATION</span>
+              <h3>Bot Status</h3>
+            </div>
+
+            <span className="admin-status admin-status--offline">
+              NOT CONNECTED
+            </span>
+          </div>
+
+          <div className="bot-status-card">
+            <div className="bot-status-icon">
+              <Icon
+                name="chart"
+                size={25}
+              />
+            </div>
+
+            <div>
+              <strong>HyperSync Bot</strong>
+              <p>
+                Bot backend is not connected yet.
+                The control surface is ready for
+                the automation service.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(
+                  "hypersync:navigate-admin-bot",
+                ),
+              );
+            }}
+          >
+            Open Bot Control
+            <Icon
+              name="chevron"
+              size={14}
+            />
+          </button>
+        </article>
+      </section>
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG</span>
+            <h3>Recent Tracks</h3>
+          </div>
+
+          <strong className="admin-panel-count">
+            {tracks.length} total
+          </strong>
+        </div>
+
+        {recentTracks.length > 0 ? (
+          <div className="admin-recent-list">
+            {recentTracks.map((track) => (
+              <div
+                className="admin-recent-item"
+                key={track.id}
+              >
+                <TrackArtwork
+                  src={track.artwork_url}
+                  alt={track.title}
+                  variant={1}
+                />
+
+                <div className="admin-recent-copy">
+                  <strong>{track.title}</strong>
+
+                  <span>
+                    {track.artist}
+                    {track.album
+                      ? ` • ${track.album}`
+                      : ""}
+                  </span>
+                </div>
+
+                <span className="admin-track-duration">
+                  {track.duration_seconds
+                    ? `${Math.floor(
+                        track.duration_seconds / 60,
+                      )}:${String(
+                        track.duration_seconds % 60,
+                      ).padStart(2, "0")}`
+                    : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="admin-empty-state">
+            <Icon
+              name="music"
+              size={28}
+            />
+
+            <strong>No published tracks</strong>
+
+            <p>
+              Upload your first track to populate
+              the catalog.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="admin-quick-actions">
+        <AdminQuickAction
+          icon="plus"
+          title="Upload Track"
+          description="Add audio and embedded artwork."
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent(
+                "hypersync:navigate-admin-uploads",
+              ),
+            );
+          }}
+        />
+
+        <AdminQuickAction
+          icon="music"
+          title="Manage Catalog"
+          description="Review and remove catalog items."
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent(
+                "hypersync:navigate-admin-catalog",
+              ),
+            );
+          }}
+        />
+
+        <AdminQuickAction
+          icon="chart"
+          title="Bot Control"
+          description="Monitor automation and processing."
+          onClick={() => {
+            window.dispatchEvent(
+              new CustomEvent(
+                "hypersync:navigate-admin-bot",
+              ),
+            );
+          }}
+        />
       </section>
     </div>
+  );
+}
+
+function AdminStatCard({
+  icon,
+  label,
+  value,
+  detail,
+}) {
+  return (
+    <article className="admin-stat-card">
+      <div className="admin-stat-card__icon">
+        <Icon
+          name={icon}
+          size={19}
+        />
+      </div>
+
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function AdminHealthRow({
+  label,
+  value,
+  healthy,
+}) {
+  return (
+    <div className="admin-health-row">
+      <span>{label}</span>
+
+      <div>
+        <i
+          className={
+            healthy
+              ? "admin-health-dot admin-health-dot--ok"
+              : "admin-health-dot"
+          }
+        />
+
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function AdminQuickAction({
+  icon,
+  title,
+  description,
+  onClick,
+}) {
+  return (
+    <button
+      type="button"
+      className="admin-quick-action"
+      onClick={onClick}
+    >
+      <span className="admin-quick-action__icon">
+        <Icon
+          name={icon}
+          size={20}
+        />
+      </span>
+
+      <span>
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+
+      <Icon
+        name="chevron"
+        size={15}
+      />
+    </button>
   );
 }
 
@@ -2201,15 +2606,23 @@ if (adminPage) {
     );
   }
 
-  if (activePage === "admin-uploads") {
-    return <AdminUploadsPage />;
-  }
+  if (activePage === "admin") {
+  return <AdminDashboardPage />;
+}
 
-  return (
-    <AdminPlaceholderPage
-      section={activePage}
-    />
-  );
+if (activePage === "admin-bot") {
+  return <AdminBotPage />;
+}
+
+if (activePage === "admin-uploads") {
+  return <AdminUploadsPage />;
+}
+
+if (activePage === "admin-catalog") {
+  return <AdminCatalogPage />;
+}
+
+return <AdminDashboardPage />;
 }
 
   if (activePage === "search") {
