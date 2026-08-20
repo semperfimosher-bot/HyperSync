@@ -75,20 +75,24 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
 async def test_admin_delete_removes_b2_versions_and_database_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run_id = uuid4().hex
+    run_id = uuid4().hex[:8]
+    admin_username = f"delete-admin-{run_id}"
+    object_key = f"audio/delete-me-{run_id}.wav"
+
     session_factory = get_session_factory()
 
     async with session_factory() as session:
         user = User(
             id=uuid4(),
-            username=f"delete-admin-{run_id}",
-            email=f"delete-admin-{run_id}@example.com",
-            username_normalized=f"delete-admin-{run_id}",
+            username=admin_username,
+            email=f"{admin_username}@example.com",
+            username_normalized=admin_username,
             password_hash=hash_password("hunter2pass"),
             role=UserRole.ADMIN,
             account_type="registered",
             is_active=True,
         )
+
         session.add(user)
         await session.commit()
         await session.refresh(user)
@@ -98,52 +102,102 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
             title="Delete Me",
             artist="Admin Test",
             album="Removal",
-            b2_object_key="audio/delete-me.wav",
+            b2_object_key=object_key,
             mime_type="audio/wav",
             file_size=4096,
             duration_seconds=64,
             is_published=True,
         )
+
         session.add(track)
         await session.commit()
         await session.refresh(track)
+
         track_id = str(track.id)
 
     class FakeBucket:
         def __init__(self) -> None:
             self.deleted: list[tuple[str, str]] = []
 
-        def list_file_versions(self, file_name: str | None = None):
-            assert file_name == "audio/delete-me.wav"
+        def list_file_versions(
+            self,
+            file_name: str | None = None,
+        ):
+            assert file_name == object_key
+
             return [
-                type("Version", (), {"file_name": "audio/delete-me.wav", "file_id": "v1"})(),
-                type("Version", (), {"file_name": "audio/delete-me.wav", "file_id": "v2"})(),
+                type(
+                    "Version",
+                    (),
+                    {
+                        "file_name": object_key,
+                        "file_id": "v1",
+                    },
+                )(),
+                type(
+                    "Version",
+                    (),
+                    {
+                        "file_name": object_key,
+                        "file_id": "v2",
+                    },
+                )(),
             ]
 
-        def delete_file_version(self, file_id: str, file_name: str):
-            self.deleted.append((file_name, file_id))
+        def delete_file_version(
+            self,
+            file_id: str,
+            file_name: str,
+        ):
+            self.deleted.append(
+                (file_name, file_id),
+            )
 
-    # Ensure the import path matches your codebase
     monkeypatch.setattr(
         "backend.app.api.routes.admin.get_b2_bucket",
         lambda: FakeBucket(),
     )
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        token = await _create_user_and_login(client, f"delete-admin-user-{run_id}", "hunter2pass")
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        login = await client.post(
+            "/api/auth/login",
+            json={
+                "username": admin_username,
+                "password": "hunter2pass",
+            },
+        )
+
+        assert login.status_code == 200, login.text
+
+        token = login.json()["access_token"]
 
         response = await client.delete(
             f"/api/admin/tracks/{track_id}",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+            },
         )
 
     assert response.status_code == 200, response.text
+
     payload = response.json()
+
     assert payload["success"] is True
     assert payload["deleted_track_id"] == track_id
+    assert payload["deleted_object_key"] == object_key
 
-    # Verify the track is deleted from the database
     async with get_session_factory()() as session:
-        result = await session.execute(select(Track).where(Track.id == track_id))
+        result = await session.execute(
+            select(Track).where(
+                Track.id == track_id,
+            )
+        )
+
         assert result.scalar_one_or_none() is None

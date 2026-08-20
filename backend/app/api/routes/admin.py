@@ -1,9 +1,10 @@
 import asyncio
 import base64
 from io import BytesIO
+from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from mutagen._file import File as MutagenFile
 from mutagen.flac import Picture
 from sqlalchemy import select
@@ -34,13 +35,13 @@ async def check_admin_access(
 
 @router.post("/tracks/upload")
 async def upload_track(
-    file: UploadFile = File(...),
-    title: str = Form(...),
-    artist: str = Form(...),
-    album: str = Form(...),
-    duration_seconds: int = Form(...),
-    user: AdminUser = Depends(),
-    session: DatabaseSession = Depends(),
+    file: Annotated[UploadFile, File(...)],
+    title: Annotated[str, Form(...)],
+    artist: Annotated[str, Form(...)],
+    album: Annotated[str, Form(...)],
+    duration_seconds: Annotated[int, Form(...)],
+    user: AdminUser,
+    session: DatabaseSession,
 ):
     """Upload an audio file to B2 and create a Track record."""
     if not file:
