@@ -4,6 +4,7 @@ from .routes import (
     admin,
     audio,
     auth,
+    bot,
     catalog,
     health,
     users,
@@ -41,5 +42,10 @@ api_router.include_router(
 
 api_router.include_router(
     audio.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    bot.router,
     prefix="/api",
 )
