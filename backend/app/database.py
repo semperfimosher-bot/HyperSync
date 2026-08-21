@@ -1,10 +1,11 @@
 import io
+import ssl
 import wave
 from collections.abc import AsyncIterator
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -28,7 +29,15 @@ def get_engine() -> AsyncEngine:
     }
 
     if database_url.startswith("sqlite"):
-        engine_kwargs["connect_args"] = {"check_same_thread": False}
+        engine_kwargs["connect_args"] = {
+            "check_same_thread": False,
+        }
+    else:
+        ssl_context = ssl.create_default_context()
+
+        engine_kwargs["connect_args"] = {
+            "ssl": ssl_context,
+        }
 
     return create_async_engine(
         database_url,
@@ -80,19 +89,20 @@ async def ensure_demo_data() -> None:
     settings = get_settings()
     database_url = settings.sqlalchemy_database_url
 
-    async with get_engine().begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    # Only bootstrap demo data for SQLite (local dev), not for Postgres (Neon)
+    # Only bootstrap local SQLite databases.
+    # PostgreSQL/Neon schema changes must come from Alembic migrations.
     if not database_url.startswith("sqlite"):
         return
+
+    async with get_engine().begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
 
     demo_audio_file = ensure_demo_audio_file()
 
     session_factory = get_session_factory()
 
     async with session_factory() as session:
-        result = await session.execute(__import__("sqlalchemy").sql.select(Track).limit(1))
+        result = await session.execute(select(Track).limit(1))
 
         if result.scalar_one_or_none() is not None:
             return

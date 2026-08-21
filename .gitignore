@@ -18,3 +18,8 @@ Desktop.ini
 
 .vscode/
 .idea/
+
+# Local development databases
+local_dev.db
+*.sqlite
+*.sqlite3
