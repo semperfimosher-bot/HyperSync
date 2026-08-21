@@ -1,3 +1,13 @@
+import BrandLogo from "../ui/BrandLogo.jsx";
+import Icon from "../ui/Icon.jsx";
+
+import {
+  ADMIN_NAV_ITEMS,
+  NAV_ITEMS,
+} from "../../constants.js";
+
+import { isAdminUser } from "../../utils/user.js";
+
 function DesktopSidebar({
   activePage,
   currentUser,

@@ -1,3 +1,6 @@
+import BrandLogo from "../ui/BrandLogo.jsx";
+import Icon from "../ui/Icon.jsx";
+
 function MobileHeader({
   title,
   onOpenAuth,

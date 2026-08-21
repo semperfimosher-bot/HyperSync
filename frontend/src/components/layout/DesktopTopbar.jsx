@@ -1,4 +1,12 @@
-import DesktopSidebar from "./DesktopSidebar";
+import Icon from "../ui/Icon.jsx";
+
+import { PAGE_TITLES } from "../../constants.js";
+
+import {
+  getGreetingName,
+  getUserInitial,
+} from "../../utils/user.js";
+
 
 function DesktopTopbar({
   activePage,

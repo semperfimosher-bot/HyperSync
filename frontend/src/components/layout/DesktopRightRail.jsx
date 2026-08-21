@@ -1,3 +1,14 @@
+import {
+  useEffect,
+  useState,
+} from "react";
+
+import * as player from "../../audioPlayer.js";
+
+import Icon from "../ui/Icon.jsx";
+
+import { TrackArtwork } from "../ui/TrackArtwork.jsx";
+
 function DesktopRightRail() {
   const [state, setState] = useState(() => ({
     src: null,
