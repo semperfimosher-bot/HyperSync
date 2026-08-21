@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 const Icon = memo(function Icon({
   name,
   size = 22,
