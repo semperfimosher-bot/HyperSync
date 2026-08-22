@@ -1,3 +1,15 @@
+import { useEffect, useState } from "react";
+
+import { apiRequest } from "../../api/client.js";
+import * as player from "../../audioPlayer.js";
+
+import {
+  getGreetingName,
+  getTimeGreeting,
+} from "../../utils/user.js";
+
+import SectionHeading from "../ui/SectionHeading.jsx";
+
 function HomePage({
   currentUser,
   onNavigate,
@@ -138,17 +150,17 @@ function HomePage({
           </div>
         ) : (
           <div className="empty-content-card">
-            <div
-              className="empty-content-card__covers"
-              aria-hidden="true"
-            >
-              {[1, 2, 3, 4].map((variant) => (
-                <CoverPlaceholder
-                  key={variant}
-                  variant={variant}
-                />
-              ))}
-            </div>
+           <div
+        className="empty-content-card__covers"
+            aria-hidden="true"
+        >
+      {[1, 2, 3, 4].map((variant) => (
+    <div
+      key={variant}
+      className={`cover-placeholder cover-placeholder--${variant}`}
+    />
+  ))}
+</div>
 
             <div>
               <strong>

@@ -1,3 +1,9 @@
+import { useState } from "react";
+
+import Icon from "../ui/Icon.jsx";
+
+import { LIBRARY_TABS } from "../../constants.js";
+
 function LibraryPage({ onOpenAuth }) {
   const [activeTab, setActiveTab] =
     useState("Playlists");

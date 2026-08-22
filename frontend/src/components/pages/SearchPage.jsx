@@ -1,3 +1,16 @@
+import { useEffect, useState } from "react";
+
+import { apiRequest } from "../../api/client.js";
+import * as player from "../../audioPlayer.js";
+
+import Icon from "../ui/Icon.jsx";
+import SectionHeading from "../ui/SectionHeading.jsx";
+
+import {
+  SEARCH_CATEGORIES,
+  SEARCH_SUGGESTIONS,
+} from "../../constants.js";
+
 function SearchPage({
   query,
   onQueryChange,

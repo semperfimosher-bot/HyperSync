@@ -8,6 +8,11 @@ import {
 import * as player from "./audioPlayer.js";
 
 import {
+  getGreetingName,
+  isAdminUser
+} from "./utils/user.js";
+
+import {
   cacheUserProfile,
   hasStoredSession,
   logoutSession,
@@ -244,21 +249,22 @@ function ProfilePage({
       <section>
         <SectionHeading title="Recently Played" />
 
-        <div className="profile-card-grid">
+      <div className="profile-card-grid">
           {[1, 2, 3, 4].map((variant) => (
-            <article
-              className="profile-media-card"
-              key={variant}
-            >
-              <CoverPlaceholder
-                variant={variant}
-              />
+    <article
+      className="profile-media-card"
+      key={variant}
+    >
+      <div
+        className={`cover-placeholder cover-placeholder--${variant}`}
+        aria-hidden="true"
+      />
 
-              <strong>Empty slot</strong>
-              <small>No listening data</small>
-            </article>
-          ))}
-        </div>
+      <strong>Empty slot</strong>
+      <small>No listening data</small>
+    </article>
+        ))}
+    </div>
       </section>
 
       <section>
