@@ -1,3 +1,26 @@
+import { API_BASE } from "../../api/client.js";
+
+function resolveArtworkUrl(src) {
+  if (!src) {
+    return null;
+  }
+
+  if (
+    src.startsWith("http://") ||
+    src.startsWith("https://")
+  ) {
+    return src;
+  }
+
+  if (API_BASE.startsWith("http")) {
+    const apiOrigin = new URL(API_BASE).origin;
+
+    return `${apiOrigin}${src}`;
+  }
+
+  return src;
+}
+
 function CoverPlaceholder({
   variant = 1,
   label = "Awaiting catalog",
@@ -80,7 +103,10 @@ function TrackArtwork({
   alt,
   variant = 1,
 }) {
-  if (!src) {
+  const artworkUrl =
+    resolveArtworkUrl(src);
+
+  if (!artworkUrl) {
     return (
       <CoverPlaceholder
         variant={variant}
@@ -93,7 +119,7 @@ function TrackArtwork({
     <div className="track-artwork-shell">
       <img
         className="track-artwork"
-        src={src}
+        src={artworkUrl}
         alt={alt || "Track artwork"}
         loading="lazy"
         onError={(event) => {

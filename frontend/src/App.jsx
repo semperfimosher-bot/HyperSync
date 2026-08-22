@@ -1266,7 +1266,7 @@ function AdminDashboardPage() {
                   (artworkCount / tracks.length) *
                     100,
                 )}%`
-              : "0%"
+              : "0"
           }
           detail={`${artworkCount} tracks with artwork`}
         />
