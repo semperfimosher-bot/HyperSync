@@ -699,6 +699,426 @@ function AdminUploadsPage() {
   );
 }
 
+function AdminBotPage() {
+  const [status, setStatus] = useState("offline");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const refreshStatus = useCallback(async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const data = await apiRequest("/admin/bot/status");
+
+      setStatus(
+        data?.status ||
+          data?.state ||
+          "offline",
+      );
+    } catch (error) {
+      setStatus("offline");
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to load bot status.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const sendBotAction = async (action) => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      await apiRequest("/admin/bot/control", {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+        }),
+      });
+
+      setMessage(
+        `Bot ${action} command sent successfully.`,
+      );
+
+      await refreshStatus();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Bot command failed.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isOnline =
+    status === "online" ||
+    status === "running" ||
+    status === "healthy";
+
+  return (
+    <div className="page-stack admin-page">
+      <section className="admin-page__header">
+        <span>ADMINISTRATION</span>
+
+        <h2>Bot Control</h2>
+
+        <p>
+          Monitor and control the HyperSync
+          automation service.
+        </p>
+      </section>
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>AUTOMATION</span>
+            <h3>Bot Status</h3>
+          </div>
+
+          <span
+            className={
+              isOnline
+                ? "admin-status admin-status--online"
+                : "admin-status admin-status--offline"
+            }
+          >
+            {isOnline ? "ONLINE" : "OFFLINE"}
+          </span>
+        </div>
+
+        <div className="bot-status-card">
+          <div className="bot-status-icon">
+            <Icon
+              name="chart"
+              size={25}
+            />
+          </div>
+
+          <div>
+            <strong>
+              HyperSync Bot
+            </strong>
+
+            <p>
+              Current status:{" "}
+              {status}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {message ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>{message}</span>
+        </div>
+      ) : null}
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>CONTROLS</span>
+            <h3>Bot Controls</h3>
+          </div>
+        </div>
+
+        <div className="admin-quick-actions">
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("start")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="play"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Start Bot</strong>
+              <small>
+                Start the automation service.
+              </small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("stop")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="close"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Stop Bot</strong>
+              <small>
+                Stop the automation service.
+              </small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("restart")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="chart"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Restart Bot</strong>
+              <small>
+                Restart the automation service.
+              </small>
+            </span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="secondary-admin-button"
+          disabled={loading}
+          onClick={refreshStatus}
+        >
+          {loading
+            ? "Refreshing..."
+            : "Refresh Status"}
+
+          <Icon
+            name="chevron"
+            size={14}
+          />
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function AdminCatalogPage() {
+  const [tracks, setTracks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+
+  const loadTracks = useCallback(async () => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const data = await apiRequest(
+        "/catalog/tracks",
+      );
+
+      setTracks(data || []);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to load catalog.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTracks();
+  }, [loadTracks]);
+
+  const deleteTrack = async (trackId) => {
+    try {
+      await apiRequest(
+        `/admin/tracks/${trackId}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      setTracks((current) =>
+        current.filter(
+          (track) => track.id !== trackId,
+        ),
+      );
+
+      setMessage("Track deleted.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete track.",
+      );
+    }
+  };
+
+  return (
+    <div className="page-stack admin-page">
+      <section className="admin-page__header">
+        <span>ADMINISTRATION</span>
+
+        <h2>Media Catalog</h2>
+
+        <p>
+          Review and manage every published
+          HyperSync track.
+        </p>
+      </section>
+
+      {message ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>{message}</span>
+        </div>
+      ) : null}
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG</span>
+            <h3>Published Tracks</h3>
+          </div>
+
+          <strong className="admin-panel-count">
+            {tracks.length} total
+          </strong>
+        </div>
+
+        {loading ? (
+          <div className="admin-empty-state">
+            <Icon
+              name="chart"
+              size={28}
+            />
+
+            <strong>
+              Loading catalog...
+            </strong>
+          </div>
+        ) : tracks.length === 0 ? (
+          <div className="admin-empty-state">
+            <Icon
+              name="music"
+              size={28}
+            />
+
+            <strong>
+              No published tracks
+            </strong>
+
+            <p>
+              Upload a track to populate
+              the catalog.
+            </p>
+          </div>
+        ) : (
+          <div className="admin-recent-list">
+            {tracks.map((track) => (
+              <div
+                className="admin-recent-item"
+                key={track.id}
+              >
+                <TrackArtwork
+                  src={track.artwork_url}
+                  alt={track.title}
+                  variant={1}
+                />
+
+                <div className="admin-recent-copy">
+                  <strong>
+                    {track.title}
+                  </strong>
+
+                  <span>
+                    {track.artist}
+
+                    {track.album
+                      ? ` • ${track.album}`
+                      : ""}
+                  </span>
+                </div>
+
+                <span className="admin-track-duration">
+                  {track.duration_seconds
+                    ? `${Math.floor(
+                        track.duration_seconds /
+                          60,
+                      )}:${String(
+                        track.duration_seconds %
+                          60,
+                      ).padStart(2, "0")}`
+                    : "—"}
+                </span>
+
+                <button
+                  type="button"
+                  className="danger-button"
+                  onClick={() =>
+                    deleteTrack(track.id)
+                  }
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <button
+        type="button"
+        className="secondary-admin-button"
+        onClick={loadTracks}
+        disabled={loading}
+      >
+        {loading
+          ? "Refreshing..."
+          : "Refresh Catalog"}
+
+        <Icon
+          name="chevron"
+          size={14}
+        />
+      </button>
+    </div>
+  );
+}
+
 function AdminDashboardPage() {
   const [tracks, setTracks] = useState([]);
   const [health, setHealth] = useState(null);
