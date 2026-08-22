@@ -120,3 +120,5 @@ export {
   CoverPlaceholder,
   TrackArtwork,
 };
+
+export default TrackArtwork

@@ -5,6 +5,8 @@ import {
   useState,
 } from "react";
 
+import * as player from "./audioPlayer.js";
+
 import {
   cacheUserProfile,
   hasStoredSession,
@@ -29,6 +31,8 @@ import {
   SEARCH_CATEGORIES,
   SEARCH_SUGGESTIONS,
 } from "./constants.js";
+
+import TrackArtwork from "./components/ui/TrackArtwork.jsx";
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
