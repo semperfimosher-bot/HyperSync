@@ -23,6 +23,7 @@ def get_engine() -> AsyncEngine:
     settings = get_settings()
     database_url = settings.sqlalchemy_database_url or "sqlite+aiosqlite:///./local_dev.db"
 
+    database_url = "sqlite+aiosqlite:///./local_dev.db"
     engine_kwargs = {
         "pool_pre_ping": True,
         "pool_recycle": 300,

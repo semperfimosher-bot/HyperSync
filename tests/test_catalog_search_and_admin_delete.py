@@ -113,7 +113,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
         await session.commit()
         await session.refresh(track)
 
-        track_id = str(track.id)
+        track_id = track.id
 
     class FakeBucket:
         def __init__(self) -> None:
@@ -190,7 +190,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
     payload = response.json()
 
     assert payload["success"] is True
-    assert payload["deleted_track_id"] == track_id
+    assert payload["deleted_track_id"] == str(track_id)
     assert payload["deleted_object_key"] == object_key
 
     async with get_session_factory()() as session:

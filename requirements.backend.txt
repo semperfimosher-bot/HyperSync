@@ -12,3 +12,4 @@ email-validator==2.3.0
 boto3==1.43.71
 b2sdk==2.12.0
 mutagen==1.46.0
+aiosqlite==0.22.1

@@ -146,11 +146,11 @@ if (-not (Test-Path $python -PathType Leaf)) {
         )
 }
 
-if (-not (Test-Path ".env" -PathType Leaf)) {
+if (-not (Test-Path "backend/.env" -PathType Leaf)) {
     Stop-Verification `
         -CheckName "Local environment file" `
         -Output @(
-            "Missing: .env"
+            "Missing: backend/.env"
         )
 }
 
