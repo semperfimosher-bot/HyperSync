@@ -1,4 +1,6 @@
+import asyncio
 from functools import lru_cache
+from typing import Any
 
 import b2sdk.v2 as b2
 
@@ -43,3 +45,52 @@ def get_b2_endpoint() -> str:
         raise RuntimeError("B2_ENDPOINT is not configured.")
 
     return settings.b2_endpoint
+
+
+async def delete_all_object_versions(
+    bucket: Any,
+    object_key: str,
+) -> int:
+    versions = await asyncio.to_thread(
+        bucket.list_file_versions,
+        file_name=object_key,
+    )
+
+    deletions = []
+
+    for version in versions:
+        file_name = getattr(
+            version,
+            "file_name",
+            None,
+        ) or getattr(
+            version,
+            "fileName",
+            None,
+        )
+
+        file_id = getattr(
+            version,
+            "file_id",
+            None,
+        ) or getattr(
+            version,
+            "fileId",
+            None,
+        )
+
+        if file_name and file_id:
+            deletions.append(
+                asyncio.to_thread(
+                    bucket.delete_file_version,
+                    file_id=file_id,
+                    file_name=file_name,
+                )
+            )
+
+    if not deletions:
+        return 0
+
+    await asyncio.gather(*deletions)
+
+    return len(deletions)

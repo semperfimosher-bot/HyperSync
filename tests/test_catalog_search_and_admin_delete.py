@@ -78,6 +78,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
     run_id = uuid4().hex[:8]
     admin_username = f"delete-admin-{run_id}"
     object_key = f"audio/delete-me-{run_id}.wav"
+    artwork_object_key = f"artwork/delete-me-{run_id}.jpg"
 
     session_factory = get_session_factory()
 
@@ -103,6 +104,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
             artist="Admin Test",
             album="Removal",
             b2_object_key=object_key,
+            artwork_object_key=artwork_object_key,
             mime_type="audio/wav",
             file_size=4096,
             duration_seconds=64,
@@ -123,26 +125,47 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
             self,
             file_name: str | None = None,
         ):
-            assert file_name == object_key
+            if file_name == object_key:
+                return [
+                    type(
+                        "Version",
+                        (),
+                        {
+                            "file_name": object_key,
+                            "file_id": "audio-v1",
+                        },
+                    )(),
+                    type(
+                        "Version",
+                        (),
+                        {
+                            "file_name": object_key,
+                            "file_id": "audio-v2",
+                        },
+                    )(),
+                ]
 
-            return [
-                type(
-                    "Version",
-                    (),
-                    {
-                        "file_name": object_key,
-                        "file_id": "v1",
-                    },
-                )(),
-                type(
-                    "Version",
-                    (),
-                    {
-                        "file_name": object_key,
-                        "file_id": "v2",
-                    },
-                )(),
-            ]
+            if file_name == artwork_object_key:
+                return [
+                    type(
+                        "Version",
+                        (),
+                        {
+                            "file_name": artwork_object_key,
+                            "file_id": "art-v1",
+                        },
+                    )(),
+                    type(
+                        "Version",
+                        (),
+                        {
+                            "file_name": artwork_object_key,
+                            "file_id": "art-v2",
+                        },
+                    )(),
+                ]
+
+            raise AssertionError(f"Unexpected B2 object key: {file_name}")
 
         def delete_file_version(
             self,
@@ -153,9 +176,11 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
                 (file_name, file_id),
             )
 
+    fake_bucket = FakeBucket()
+
     monkeypatch.setattr(
         "backend.app.api.routes.admin.get_b2_bucket",
-        lambda: FakeBucket(),
+        lambda: fake_bucket,
     )
 
     transport = ASGITransport(
@@ -192,6 +217,19 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
     assert payload["success"] is True
     assert payload["deleted_track_id"] == str(track_id)
     assert payload["deleted_object_key"] == object_key
+
+    assert payload["deleted_artwork_object_key"] == artwork_object_key
+
+    assert payload["deleted_b2_versions"] == 4
+
+    assert sorted(fake_bucket.deleted) == sorted(
+        [
+            (object_key, "audio-v1"),
+            (object_key, "audio-v2"),
+            (artwork_object_key, "art-v1"),
+            (artwork_object_key, "art-v2"),
+        ]
+    )
 
     async with get_session_factory()() as session:
         result = await session.execute(

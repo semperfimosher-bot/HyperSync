@@ -7,11 +7,13 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from mutagen._file import File as MutagenFile
 from mutagen.flac import Picture
-from sqlalchemy import select
 
 from ...config import get_settings
 from ...models.media import Track
-from ...services.b2 import get_b2_bucket
+from ...services.b2 import (
+    delete_all_object_versions,
+    get_b2_bucket,
+)
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -166,8 +168,12 @@ async def delete_track(
     user: AdminUser,
     session: DatabaseSession,
 ):
-    """Delete a track and every stored version of its B2 object."""
-    track = await session.get(Track, track_id)
+    """Permanently delete a track and all of its B2 versions."""
+
+    track = await session.get(
+        Track,
+        track_id,
+    )
 
     if track is None:
         raise HTTPException(
@@ -176,55 +182,43 @@ async def delete_track(
         )
 
     bucket = get_b2_bucket()
-    object_key = track.b2_object_key
 
-    if object_key:
-        try:
-            versions = await asyncio.to_thread(
-                bucket.list_file_versions,
-                file_name=object_key,
-            )
+    object_keys = [
+        key
+        for key in (
+            track.b2_object_key,
+            track.artwork_object_key,
+        )
+        if key
+    ]
 
-            for version in versions:
-                file_name = getattr(version, "file_name", None) or getattr(
-                    version, "fileName", None
+    try:
+        deleted_versions = await asyncio.gather(
+            *(
+                delete_all_object_versions(
+                    bucket,
+                    object_key,
                 )
-
-                file_id = getattr(version, "file_id", None) or getattr(version, "fileId", None)
-
-                if file_name and file_id:
-                    await asyncio.to_thread(
-                        bucket.delete_file_version,
-                        file_id=file_id,
-                        file_name=file_name,
-                    )
-
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=(f"Failed to remove B2 versions for track: {str(exc)}"),
-            ) from exc
-
-    duplicate_tracks = (
-        (
-            await session.execute(
-                select(Track).where(
-                    Track.b2_object_key == object_key,
-                )
+                for object_key in object_keys
             )
         )
-        .scalars()
-        .all()
-    )
 
-    for duplicate_track in duplicate_tracks:
-        await session.delete(duplicate_track)
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(f"Failed to permanently remove track files from B2: {exc}"),
+        ) from exc
+
+    await session.delete(track)
 
     await session.commit()
 
     return {
         "success": True,
         "deleted_track_id": str(track_id),
-        "deleted_object_key": object_key,
-        "deleted_rows": len(duplicate_tracks),
+        "deleted_object_key": track.b2_object_key,
+        "deleted_artwork_object_key": track.artwork_object_key,
+        "deleted_b2_versions": sum(deleted_versions),
     }
