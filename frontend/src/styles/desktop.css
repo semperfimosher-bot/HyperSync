@@ -700,24 +700,27 @@
 
   .main-content {
     padding:
-      24px
-      30px
+      35px
+      40px
       105px;
   }
 
   .page-stack.home-page {
-    width: min(100%, 1180px);
+    width: min(100%, 960px);
     gap: 28px;
   }
 
   .home-hero-image {
-    min-height: 470px;
-    border-radius: 25px;
+  height: 350px;
+  min-height: 350px;
+  width: 600px;
+  min-width: 100%;
+  border-radius: 12px;
   }
 
   .home-hero-image__content {
-    left: 48px;
-    bottom: 78px;
+  left: 48px;
+  bottom: 78px;
   }
 
   .home-hero-image__welcome {
@@ -725,7 +728,7 @@
   }
 
   .home-hero-image__user {
-    font-size: 15px;
+  font-size: 15px;
   }
 
   .home-track-grid {
@@ -735,7 +738,6 @@
         minmax(0, 1fr)
       );
   }
-
 }
 
 /* =========================================================
@@ -787,7 +789,6 @@
 
     gap: 2px;
   }
-
 
   /* Buttons ABOVE progress bar */
 
@@ -1026,5 +1027,4 @@
       0 0 10px
       rgba(0, 191, 255, 0.8);
   }
-
 }
