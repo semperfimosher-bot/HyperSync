@@ -1,5 +1,4 @@
 @media (max-width: 699px) {
-
   .home-signal {
     --home-height: 450px;
 
@@ -19,6 +18,8 @@
     --logo-height: 220px;
     --logo-x: 80px;
     --logo-y: -60px;
+
+    --font-family: sans-serif;
 
     display: grid;
     grid-template-columns: 1fr;
