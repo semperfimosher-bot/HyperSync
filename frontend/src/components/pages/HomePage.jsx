@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { apiRequest } from "../../api/client.js";
+import {
+  API_BASE,
+  apiRequest,
+} from "../../api/client.js";
+
 import * as player from "../../audioPlayer.js";
 
 import {
@@ -20,6 +24,19 @@ function HomePage({
   const [tracks, setTracks] = useState([]);
   const [catalogError, setCatalogError] =
     useState("");
+
+  const resolveArtworkUrl = (url) => {
+  if (!url) return null;
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  ) {
+    return url;
+  }
+
+  return `${API_BASE}${url.replace(/^\/api/, "")}`;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +80,9 @@ function HomePage({
     try {
       await player.playTrack(trackId, {
         artworkUrl:
-          track?.artwork_url ?? null,
+            resolveArtworkUrl(
+          track?.artwork_url,
+  ),
         title:
           track?.title ?? "",
         artist:
@@ -162,12 +181,10 @@ function HomePage({
                   <div className="home-track-card__art">
 
                     {track.artwork_url ? (
-                      <img
-                        src={
-                          track.artwork_url
-                        }
-                        alt=""
-                      />
+                     <img
+  src={resolveArtworkUrl(track.artwork_url)}
+  alt=""
+/>
                     ) : (
                       <div
                         className={
