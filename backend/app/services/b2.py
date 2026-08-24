@@ -59,10 +59,7 @@ async def delete_all_object_versions(
     deleted = 0
 
     for version in versions:
-        print(
-            f"[B2 DELETE] {version.file_name} "
-            f"id={version.id_}"
-        )
+        print(f"[B2 DELETE] {version.file_name} id={version.id_}")
 
         await asyncio.to_thread(
             version.delete,
@@ -70,9 +67,6 @@ async def delete_all_object_versions(
 
         deleted += 1
 
-    print(
-        f"[B2 DELETE] Deleted {deleted} version(s) "
-        f"for {object_key}"
-    )
+    print(f"[B2 DELETE] Deleted {deleted} version(s) for {object_key}")
 
     return deleted
