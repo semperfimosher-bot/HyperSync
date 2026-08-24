@@ -2730,7 +2730,7 @@ span svg {
     #02070d
     url("/hypersync-home-hero.png")
     center center
-    / contain
+      / 102% 102%
     no-repeat;
 
   box-shadow:

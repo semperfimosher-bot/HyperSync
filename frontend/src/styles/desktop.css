@@ -711,32 +711,34 @@
   }
 
   .home-hero-image {
-  height: 350px;
-  min-height: 350px;
-  width: 600px;
-  min-width: 100%;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  overflow: hidden;
+  min-height: 355px;
   border-radius: 12px;
   }
 
   .home-hero-image__content {
-  left: 48px;
+  left: 40px;
   bottom: 78px;
   }
 
-  .home-hero-image__welcome {
-    font-size: 11px;
-  }
-
-  .home-hero-image__user {
-  font-size: 15px;
-  }
-
   .home-track-grid {
-    grid-template-columns:
-      repeat(
-        6,
-        minmax(0, 1fr)
-      );
+  grid-template-columns:
+    repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  }
+
+  .home-hero-image {
+  width: 100%;
+  min-height: 355px;
+  }
+
+  .home-hero-image img {
+  width: 1000px;
+  height: 100%;
+  object-fit: cover;
   }
 }
 

@@ -89,55 +89,6 @@ function HomePage({
         className="home-hero-image"
         aria-label="HyperSync"
       >
-        <div className="home-hero-image__overlay" />
-
-        <div className="home-hero-image__content">
-
-          <div className="home-hero-image__welcome">
-            WELCOME BACK
-          </div>
-
-          <div className="home-hero-image__user">
-            {currentUser
-              ? greetingName
-              : "Guest"}
-          </div>
-
-          <div className="home-hero-image__actions">
-
-            <button
-              type="button"
-              className="home-hero-button home-hero-button--primary"
-              onClick={() => {
-                if (tracks.length > 0) {
-                  playTrack(
-                    tracks[0].id,
-                    tracks[0],
-                  );
-                } else {
-                  onNavigate("library");
-                }
-              }}
-            >
-              <span>▶</span>
-
-              Start Listening
-            </button>
-
-            <button
-              type="button"
-              className="home-hero-button home-hero-button--secondary"
-              onClick={() =>
-                onNavigate("library")
-              }
-            >
-              Library
-
-              <span>→</span>
-            </button>
-
-          </div>
-        </div>
 
         <div className="home-hero-image__status">
 
