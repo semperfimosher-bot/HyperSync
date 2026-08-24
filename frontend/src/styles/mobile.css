@@ -19,8 +19,6 @@
     --logo-x: 80px;
     --logo-y: -60px;
 
-    --font-family: sans-serif;
-
     display: grid;
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;
