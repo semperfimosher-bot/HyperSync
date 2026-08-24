@@ -111,12 +111,7 @@ export default function AdminUploadsPage() {
         <span>ADMINISTRATION</span>
 
         <h2>Upload Studio</h2>
-
-        <p>
-          Build a queue, review metadata,
-          and publish multiple tracks to
-          HyperSync.
-        </p>
+        
       </section>
 
       <section className="upload-studio">

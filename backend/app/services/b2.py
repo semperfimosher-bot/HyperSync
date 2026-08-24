@@ -56,41 +56,23 @@ async def delete_all_object_versions(
         file_name=object_key,
     )
 
-    deletions = []
+    deleted = 0
 
     for version in versions:
-        file_name = getattr(
-            version,
-            "file_name",
-            None,
-        ) or getattr(
-            version,
-            "fileName",
-            None,
+        print(
+            f"[B2 DELETE] {version.file_name} "
+            f"id={version.id_}"
         )
 
-        file_id = getattr(
-            version,
-            "file_id",
-            None,
-        ) or getattr(
-            version,
-            "fileId",
-            None,
+        await asyncio.to_thread(
+            version.delete,
         )
 
-        if file_name and file_id:
-            deletions.append(
-                asyncio.to_thread(
-                    bucket.delete_file_version,
-                    file_id=file_id,
-                    file_name=file_name,
-                )
-            )
+        deleted += 1
 
-    if not deletions:
-        return 0
+    print(
+        f"[B2 DELETE] Deleted {deleted} version(s) "
+        f"for {object_key}"
+    )
 
-    await asyncio.gather(*deletions)
-
-    return len(deletions)
+    return deleted

@@ -128,15 +128,8 @@ function SearchPage({
         </div>
       </section>
 
-      <section>
-        <SectionHeading
-          title={
-            normalizedQuery
-              ? `Results for “${normalizedQuery}”`
-              : "Suggested for You"
-          }
-        />
 
+      <section>
         {normalizedQuery ? (
           searchError ? (
             <div className="empty-content-card">

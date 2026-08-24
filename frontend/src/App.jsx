@@ -514,10 +514,6 @@ function AdminBotPage() {
 
         <h2>Bot Control</h2>
 
-        <p>
-          Monitor and control the HyperSync
-          automation service.
-        </p>
       </section>
 
       <section className="admin-panel">
