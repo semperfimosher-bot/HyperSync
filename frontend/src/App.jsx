@@ -1452,7 +1452,6 @@ function MobileBottomNav({
 }
 
 function PlayerBar() {
-  // subscribes to the shared audio player state
   const [state, setState] = useState(() => ({
     src: null,
     paused: true,
@@ -1471,33 +1470,74 @@ function PlayerBar() {
   const toggle = useCallback(async () => {
     try {
       await player.togglePlay();
-    } catch (e) {
-      // ignore play errors (browser may block autoplay)
+    } catch {
+      // Browser autoplay restrictions can prevent playback.
     }
   }, []);
 
   const formatTime = (t) => {
-    if (!isFinite(t) || t <= 0) return "0:00";
+    if (!isFinite(t) || t <= 0) {
+      return "0:00";
+    }
+
     const mins = Math.floor(t / 60);
-    const secs = Math.floor(t % 60).toString().padStart(2, "0");
+
+    const secs = Math.floor(t % 60)
+      .toString()
+      .padStart(2, "0");
+
     return `${mins}:${secs}`;
   };
 
-  const titleText = state.title || (state.src ? decodeURIComponent(state.src.replace(/.*\//, "")) : "Nothing playing");
-  const subtitleText = state.artist
-    ? state.artist
-    : state.src
-      ? "Now playing"
-      : "Select a real track after catalog integration";
+  const titleText =
+    state.title ||
+    (
+      state.src
+        ? decodeURIComponent(
+            state.src.replace(
+              /.*\//,
+              "",
+            ),
+          )
+        : "Nothing playing"
+    );
 
-  const canControl = Boolean(state.src);
+  const subtitleText =
+    state.artist
+      ? state.artist
+      : state.src
+        ? "Now playing"
+        : "Select a track to start listening";
+
+  const canControl =
+    Boolean(state.src);
+
+  const progressMax =
+    state.duration > 0
+      ? state.duration
+      : 1;
+
+  const progressValue =
+    Math.min(
+      Math.max(
+        state.currentTime || 0,
+        0,
+      ),
+      progressMax,
+    );
 
   return (
     <section
       className="player-bar"
-      aria-label="Player status"
+      aria-label="Player"
     >
+
+      {/* =================================================
+          LEFT - CURRENT TRACK
+          ================================================= */}
+
       <div className="player-bar__track">
+
         <TrackArtwork
           src={state.artworkUrl}
           alt={titleText}
@@ -1505,62 +1545,126 @@ function PlayerBar() {
         />
 
         <span>
+
           <strong>
             {titleText}
           </strong>
 
           <small>
-            {state.src
-              ? `${subtitleText} • ${formatTime(state.currentTime)} / ${formatTime(state.duration)}`
-              : subtitleText}
+            {subtitleText}
           </small>
+
         </span>
+
       </div>
 
-      <button
-        className="player-like"
-        type="button"
-        disabled={!canControl}
-        aria-label="Like"
-      >
-        <Icon name="heart" size={19} />
-      </button>
 
-      <div className="desktop-player-controls">
-        <button
-          type="button"
-          onClick={() => player.seekTo(0)}
-          disabled={!canControl}
-          aria-label="Previous"
-        >
-          <Icon name="previous" size={17} />
-        </button>
+      {/* =================================================
+          CENTER - CONTROLS + PROGRESS
+          ================================================= */}
 
-        <button
-          className={"desktop-player-controls__main"}
-          type="button"
-          onClick={toggle}
-          disabled={!canControl}
-          aria-label={state.paused ? "Play" : "Pause"}
-        >
-          <Icon name={state.paused ? "play" : "pause"} size={21} />
-        </button>
+      <div className="player-bar__center">
 
-        <button
-          type="button"
-          onClick={() => player.seekTo(state.duration || 0)}
-          disabled={!canControl}
-          aria-label="Next"
-        >
-          <Icon name="next" size={17} />
-        </button>
+        <div className="desktop-player-controls">
+
+          <button
+            type="button"
+            onClick={() =>
+              player.seekTo(0)
+            }
+            disabled={!canControl}
+            aria-label="Previous"
+          >
+            <Icon
+              name="previous"
+              size={17}
+            />
+          </button>
+
+
+          <button
+            className="desktop-player-controls__main"
+            type="button"
+            onClick={toggle}
+            disabled={!canControl}
+            aria-label={
+              state.paused
+                ? "Play"
+                : "Pause"
+            }
+          >
+            <Icon
+              name={
+                state.paused
+                  ? "play"
+                  : "pause"
+              }
+              size={20}
+            />
+          </button>
+
+
+          <button
+            type="button"
+            onClick={() =>
+              player.seekTo(
+                state.duration || 0,
+              )
+            }
+            disabled={!canControl}
+            aria-label="Next"
+          >
+            <Icon
+              name="next"
+              size={17}
+            />
+          </button>
+
+        </div>
+
+
+        <div className="desktop-progress">
+
+          <span>
+            {formatTime(
+              state.currentTime,
+            )}
+          </span>
+
+
+          <input
+            type="range"
+            min="0"
+            max={progressMax}
+            step="0.1"
+            value={progressValue}
+            disabled={!canControl}
+            aria-label="Playback progress"
+            onChange={(event) => {
+              const value =
+                Number(
+                  event.target.value,
+                );
+
+              player.seekTo(value);
+            }}
+          />
+
+
+          <span>
+            {formatTime(
+              state.duration,
+            )}
+          </span>
+
+        </div>
+
       </div>
 
-      <div className="desktop-progress" aria-hidden="true">
-        <span>{formatTime(state.currentTime)}</span>
-        <i />
-        <span>{formatTime(state.duration)}</span>
-      </div>
+
+      {/* =================================================
+          MOBILE CONTROL
+          ================================================= */}
 
       <button
         className="mobile-player-control"
@@ -1569,8 +1673,16 @@ function PlayerBar() {
         disabled={!canControl}
         aria-label="Playback"
       >
-        <Icon name={state.paused ? "play" : "pause"} size={19} />
+        <Icon
+          name={
+            state.paused
+              ? "play"
+              : "pause"
+          }
+          size={19}
+        />
       </button>
+
     </section>
   );
 }

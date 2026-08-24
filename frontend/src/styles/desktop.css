@@ -625,6 +625,36 @@
   }
 }
 
+  /* =====================================
+     HYPERSYNC HOME - DESKTOP
+     ===================================== */
+
+  .home-page {
+    width: min(100%, 1180px);
+    gap: 32px;
+  }
+
+  .home-hero {
+    min-height: 455px;
+    padding: 48px;
+  }
+
+  .home-track-grid {
+    grid-template-columns:
+      repeat(
+        auto-fill,
+        minmax(155px, 1fr)
+      );
+  }
+
+  .home-track-card__copy strong {
+    font-size: 11px;
+  }
+
+  .home-track-card__copy small {
+    font-size: 9px;
+  }
+
 @media (
   min-width: 980px
 ) and (
@@ -662,3 +692,339 @@
   }
 }
 
+/* =========================================================
+   HYPERSYNC CINEMATIC HOME - DESKTOP
+   ========================================================= */
+
+@media (min-width: 980px) {
+
+  .main-content {
+    padding:
+      24px
+      30px
+      105px;
+  }
+
+  .page-stack.home-page {
+    width: min(100%, 1180px);
+    gap: 28px;
+  }
+
+  .home-hero-image {
+    min-height: 470px;
+    border-radius: 25px;
+  }
+
+  .home-hero-image__content {
+    left: 48px;
+    bottom: 78px;
+  }
+
+  .home-hero-image__welcome {
+    font-size: 11px;
+  }
+
+  .home-hero-image__user {
+    font-size: 15px;
+  }
+
+  .home-track-grid {
+    grid-template-columns:
+      repeat(
+        6,
+        minmax(0, 1fr)
+      );
+  }
+
+}
+
+/* =========================================================
+   HYPERSYNC PLAYER
+   CENTER CONTROLS ABOVE PROGRESS BAR
+   ========================================================= */
+
+@media (min-width: 980px) {
+
+  .player-bar {
+    grid-template-columns:
+      minmax(250px, 0.8fr)
+      minmax(420px, 1.4fr)
+      minmax(250px, 0.8fr);
+
+    align-items: center;
+
+    gap: 20px;
+
+    padding:
+      8px
+      28px;
+  }
+
+
+  /* Current track */
+
+  .player-bar__track {
+    width: 100%;
+  }
+
+
+  /* Center stack */
+
+  .player-bar__center {
+    display: grid;
+
+    width: 100%;
+
+    max-width: 680px;
+
+    justify-self: center;
+
+    grid-template-rows:
+      38px
+      24px;
+
+    align-items: center;
+
+    gap: 2px;
+  }
+
+
+  /* Buttons ABOVE progress bar */
+
+  .desktop-player-controls {
+    display: flex;
+
+    width: 100%;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 16px;
+  }
+
+
+  .desktop-player-controls button {
+    display: grid;
+
+    width: 32px;
+    height: 32px;
+
+    place-items: center;
+
+    border:
+      1px solid
+      transparent;
+
+    border-radius: 50%;
+
+    color:
+      #608393;
+
+    background:
+      transparent;
+
+    transition:
+      color 150ms ease,
+      transform 150ms ease,
+      background 150ms ease,
+      border-color 150ms ease;
+  }
+
+
+  .desktop-player-controls
+  button:hover:not(:disabled) {
+    color:
+      #2fd5ff;
+
+    transform:
+      translateY(-1px);
+
+    background:
+      rgba(0, 151, 220, 0.08);
+  }
+
+
+  .desktop-player-controls
+  button:disabled {
+    opacity: 0.3;
+  }
+
+
+  /* BIG CENTER PLAY BUTTON */
+
+  .desktop-player-controls__main {
+    width: 40px !important;
+    height: 40px !important;
+
+    border:
+      1px solid
+      rgba(36, 207, 255, 0.7) !important;
+
+    color:
+      white !important;
+
+    background:
+      linear-gradient(
+        145deg,
+        #0078ce,
+        #00bce9
+      ) !important;
+
+    box-shadow:
+      0 0 20px
+      rgba(0, 158, 255, 0.24),
+
+      inset 0 1px
+      rgba(255, 255, 255, 0.2);
+  }
+
+
+  .desktop-player-controls__main:hover:not(:disabled) {
+    transform:
+      scale(1.06);
+  }
+
+
+  /* PROGRESS UNDER BUTTONS */
+
+  .desktop-progress {
+    display: grid;
+
+    width: 100%;
+
+    grid-template-columns:
+      34px
+      minmax(160px, 1fr)
+      34px;
+
+    align-items: center;
+
+    gap: 9px;
+  }
+
+
+  .desktop-progress > span {
+    color:
+      #617b89;
+
+    font-size: 7px;
+
+    font-variant-numeric:
+      tabular-nums;
+
+    text-align: center;
+  }
+
+
+  /* Actual interactive progress bar */
+
+  .desktop-progress input[type="range"] {
+    width: 100%;
+
+    height: 4px;
+
+    margin: 0;
+
+    appearance: none;
+
+    cursor: pointer;
+
+    border-radius: 999px;
+
+    outline: none;
+
+    background:
+      linear-gradient(
+        90deg,
+        #00bfff,
+        #0878ff
+      );
+  }
+
+
+  .desktop-progress
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+
+    border-radius: 999px;
+
+    background:
+      linear-gradient(
+        90deg,
+        #00cfff,
+        #0878ff
+      );
+  }
+
+
+  .desktop-progress
+  input[type="range"]::-webkit-slider-thumb {
+    width: 10px;
+    height: 10px;
+
+    margin-top: -3px;
+
+    appearance: none;
+
+    border:
+      2px solid
+      #d9f9ff;
+
+    border-radius: 50%;
+
+    background:
+      #00bfff;
+
+    box-shadow:
+      0 0 10px
+      rgba(0, 191, 255, 0.8);
+  }
+
+
+  .desktop-progress
+  input[type="range"]::-moz-range-track {
+    height: 4px;
+
+    border-radius: 999px;
+
+    background:
+      rgba(95, 126, 143, 0.28);
+  }
+
+
+  .desktop-progress
+  input[type="range"]::-moz-range-progress {
+    height: 4px;
+
+    border-radius: 999px;
+
+    background:
+      linear-gradient(
+        90deg,
+        #00cfff,
+        #0878ff
+      );
+  }
+
+
+  .desktop-progress
+  input[type="range"]::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+
+    border:
+      2px solid
+      #d9f9ff;
+
+    border-radius: 50%;
+
+    background:
+      #00bfff;
+
+    box-shadow:
+      0 0 10px
+      rgba(0, 191, 255, 0.8);
+  }
+
+}
