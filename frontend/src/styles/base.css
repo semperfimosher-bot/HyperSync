@@ -1,8 +1,7 @@
 :root {
   color-scheme: dark;
   font-family:
-  Cursive,
-    sans-serif;
+  'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
   color: #f6f8fb;
   background: #03070b;
   font-synthesis: none;
