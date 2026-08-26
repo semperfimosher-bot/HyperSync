@@ -38,38 +38,67 @@ function HomePage({
   return `${API_BASE}${url.replace(/^\/api/, "")}`;
   };
 
-  useEffect(() => {
-    let cancelled = false;
+useEffect(() => {
+  let cancelled = false;
 
-    async function loadTracks() {
-      try {
-        const data = await apiRequest(
-          "/catalog/tracks",
+  async function loadTracks() {
+    try {
+      const data = await apiRequest(
+        "/catalog/tracks",
+      );
+
+      if (cancelled) return;
+
+      setTracks(data || []);
+      setCatalogError("");
+    } catch (error) {
+      if (!cancelled) {
+        setTracks([]);
+
+        setCatalogError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load catalog.",
         );
-
-        if (cancelled) return;
-
-        setTracks(data || []);
-        setCatalogError("");
-      } catch (error) {
-        if (!cancelled) {
-          setTracks([]);
-
-          setCatalogError(
-            error instanceof Error
-              ? error.message
-              : "Unable to load catalog.",
-          );
-        }
       }
     }
+  }
 
-    loadTracks();
+  loadTracks();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
+
+useEffect(() => {
+  const handleTrackDeleted = (event) => {
+    const trackId = event.detail?.trackId;
+
+    if (!trackId) {
+      return;
+    }
+
+    setTracks((current) =>
+      current.filter(
+        (track) => track.id !== trackId,
+      ),
+    );
+  };
+
+  window.addEventListener(
+    "hypersync:track-deleted",
+    handleTrackDeleted,
+  );
+
+  return () => {
+    window.removeEventListener(
+      "hypersync:track-deleted",
+      handleTrackDeleted,
+    );
+  };
+}, []);
 
   const playTrack = async (
     trackId,

@@ -692,33 +692,70 @@ function AdminCatalogPage() {
   }, []);
 
   useEffect(() => {
-    loadTracks();
-  }, [loadTracks]);
+  loadTracks();
+
+  const handleTrackDeleted = (event) => {
+    const trackId = event.detail?.trackId;
+
+    if (!trackId) {
+      return;
+    }
+
+    setTracks((current) =>
+      current.filter(
+        (track) => track.id !== trackId,
+      ),
+    );
+  };
+
+  window.addEventListener(
+    "hypersync:track-deleted",
+    handleTrackDeleted,
+  );
+
+  return () => {
+    window.removeEventListener(
+      "hypersync:track-deleted",
+      handleTrackDeleted,
+    );
+  };
+}, [loadTracks]);
 
   const deleteTrack = async (trackId) => {
-    try {
-      await apiRequest(
-        `/admin/tracks/${trackId}`,
+  try {
+    await apiRequest(
+      `/admin/tracks/${trackId}`,
+      {
+        method: "DELETE",
+      },
+    );
+
+    setTracks((current) =>
+      current.filter(
+        (track) => track.id !== trackId,
+      ),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:track-deleted",
         {
-          method: "DELETE",
+          detail: {
+            trackId,
+          },
         },
-      );
+      ),
+    );
 
-      setTracks((current) =>
-        current.filter(
-          (track) => track.id !== trackId,
-        ),
-      );
-
-      setMessage("Track deleted.");
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete track.",
-      );
-    }
-  };
+    setMessage("Track deleted.");
+  } catch (error) {
+    setMessage(
+      error instanceof Error
+        ? error.message
+        : "Unable to delete track.",
+    );
+  }
+};
 
   return (
     <div className="page-stack admin-page">

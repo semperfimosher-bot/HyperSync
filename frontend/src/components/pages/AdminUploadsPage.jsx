@@ -70,29 +70,40 @@ export default function AdminUploadsPage() {
   ]);
 
   const deleteTrack = async (trackId) => {
-    try {
-      await apiRequest(
-        `/admin/tracks/${trackId}`,
-        {
-          method: "DELETE",
-        },
-      );
+  try {
+    await apiRequest(
+      `/admin/tracks/${trackId}`,
+      {
+        method: "DELETE",
+      },
+    );
 
-      setUploadedTracks(
-        (current) =>
-          current.filter(
-            (track) =>
-              track.id !== trackId,
-          ),
-      );
-    } catch (error) {
-      setCatalogMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to delete track.",
-      );
-    }
-  };
+    setUploadedTracks(
+      (current) =>
+        current.filter(
+          (track) =>
+            track.id !== trackId,
+        ),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:track-deleted",
+        {
+          detail: {
+            trackId,
+          },
+        },
+      ),
+    );
+  } catch (error) {
+    setCatalogMessage(
+      error instanceof Error
+        ? error.message
+        : "Failed to delete track.",
+    );
+  }
+};
 
   const queueProgress =
     queue.length === 0
