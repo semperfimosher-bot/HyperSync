@@ -559,18 +559,18 @@ function AdminBotPage() {
         </div>
       </section>
 
-      {message || error ? (
-        <div className="admin-alert">
-          <Icon
-            name="shield"
-            size={18}
-          />
+      {message ? (
+  <div className="admin-alert">
+    <Icon
+      name="shield"
+      size={18}
+    />
 
-        <span>
-      {message || error}
-        </span>
-        </div>
-      ) : null}
+    <span>
+      {message}
+    </span>
+  </div>
+) : null}
 
       <section className="admin-panel">
         <div className="admin-panel__heading">
@@ -671,35 +671,34 @@ function AdminBotPage() {
   );
 }
 
-function AdminCatalogPage() {
+  function AdminCatalogPage() {
   const {
     tracks,
     loading,
     error,
+    refreshCatalog,
   } = useCatalogTracks();
 
   const [message, setMessage] =
     useState("");
 
-const deleteTrack = async (trackId) => {
-  setMessage("");
+  const deleteTrack = async (trackId) => {
+    setMessage("");
 
-  try {
-    await deleteCatalogTrack(
-      trackId,
-    );
+    try {
+      await deleteCatalogTrack(trackId);
 
-    setMessage(
-      "Track permanently deleted.",
-    );
-  } catch (error) {
-    setMessage(
-      error instanceof Error
-        ? error.message
-        : "Unable to delete track.",
-    );
-  }
-};
+      setMessage(
+        "Track permanently deleted.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete track.",
+      );
+    }
+  };
 
   return (
     <div className="page-stack admin-page">
@@ -721,9 +720,9 @@ const deleteTrack = async (trackId) => {
             size={18}
           />
 
-        <span>
-      {message || error}
-        </span>
+          <span>
+            {message || error}
+          </span>
         </div>
       ) : null}
 
@@ -731,6 +730,7 @@ const deleteTrack = async (trackId) => {
         <div className="admin-panel__heading">
           <div>
             <span>CATALOG</span>
+
             <h3>Published Tracks</h3>
           </div>
 
@@ -796,11 +796,9 @@ const deleteTrack = async (trackId) => {
                 <span className="admin-track-duration">
                   {track.duration_seconds
                     ? `${Math.floor(
-                        track.duration_seconds /
-                          60,
+                        track.duration_seconds / 60,
                       )}:${String(
-                        track.duration_seconds %
-                          60,
+                        track.duration_seconds % 60,
                       ).padStart(2, "0")}`
                     : "—"}
                 </span>
@@ -823,7 +821,11 @@ const deleteTrack = async (trackId) => {
       <button
         type="button"
         className="secondary-admin-button"
-        onClick={loadTracks}
+        onClick={() =>
+          refreshCatalog({
+            force: true,
+          })
+        }
         disabled={loading}
       >
         {loading
@@ -944,18 +946,18 @@ function AdminDashboardPage() {
         </button>
       </section>
 
-      {message || error ? (
-        <div className="admin-alert">
-          <Icon
-            name="shield"
-            size={18}
-          />
+      {message ? (
+  <div className="admin-alert">
+    <Icon
+      name="shield"
+      size={18}
+    />
 
-        <span>
-      {message || error}
-        </span>
-        </div>
-      ) : null}
+    <span>
+      {message}
+    </span>
+  </div>
+) : null}
 
       <section className="admin-stat-grid">
         <AdminStatCard
@@ -1088,22 +1090,24 @@ function AdminDashboardPage() {
           </div>
 
           <button
-            type="button"
-            className="secondary-admin-button"
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "hypersync:navigate-admin-bot",
-                ),
-              );
-            }}
-          >
-            Open Bot Control
-            <Icon
-              name="chevron"
-              size={14}
-            />
-          </button>
+  type="button"
+  className="secondary-admin-button"
+  onClick={() =>
+    refreshCatalog({
+      force: true,
+    })
+  }
+  disabled={loading}
+>
+  {loading
+    ? "Refreshing..."
+    : "Refresh Catalog"}
+
+  <Icon
+    name="chevron"
+    size={14}
+  />
+</button>
         </article>
       </section>
 
@@ -1962,7 +1966,7 @@ function AuthOverlay({
           or use without account
         </button>
 
-        {message || error ? (
+        {message ? (
           <p
             className="auth-message"
             role="status"
