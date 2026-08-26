@@ -1,8 +1,11 @@
 import {
-  useCallback,
-  useEffect,
   useState,
 } from "react";
+
+import {
+  deleteCatalogTrack,
+  useCatalogTracks,
+} from "../../catalogStore.js";
 
 import { apiRequest } from "../../api/client.js";
 
@@ -13,8 +16,10 @@ import UploadQueue from "../uploads/UploadQueue.jsx";
 import useUploadQueue from "../../hooks/useUploadQueue.js";
 
 export default function AdminUploadsPage() {
-  const [uploadedTracks, setUploadedTracks] =
-    useState([]);
+  const {
+  tracks: uploadedTracks,
+  error: catalogError,
+} = useCatalogTracks();
 
   const [catalogMessage, setCatalogMessage] =
     useState("");
@@ -34,67 +39,16 @@ export default function AdminUploadsPage() {
     startUploads,
   } = useUploadQueue();
 
-  const loadCatalogTracks =
-    useCallback(async () => {
-      try {
-        const tracks =
-          await apiRequest(
-            "/catalog/tracks",
-          );
-
-        setUploadedTracks(
-          tracks || [],
-        );
-
-        setCatalogMessage("");
-      } catch (error) {
-        setCatalogMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to load catalog.",
-        );
-      }
-    }, []);
-
-  useEffect(() => {
-    loadCatalogTracks();
-  }, [loadCatalogTracks]);
-
-  useEffect(() => {
-    if (successCount > 0) {
-      loadCatalogTracks();
-    }
-  }, [
-    successCount,
-    loadCatalogTracks,
-  ]);
-
   const deleteTrack = async (trackId) => {
+  setCatalogMessage("");
+
   try {
-    await apiRequest(
-      `/admin/tracks/${trackId}`,
-      {
-        method: "DELETE",
-      },
+    await deleteCatalogTrack(
+      trackId,
     );
 
-    setUploadedTracks(
-      (current) =>
-        current.filter(
-          (track) =>
-            track.id !== trackId,
-        ),
-    );
-
-    window.dispatchEvent(
-      new CustomEvent(
-        "hypersync:track-deleted",
-        {
-          detail: {
-            trackId,
-          },
-        },
-      ),
+    setCatalogMessage(
+      "Track permanently deleted.",
     );
   } catch (error) {
     setCatalogMessage(

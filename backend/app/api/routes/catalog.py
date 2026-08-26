@@ -2,7 +2,12 @@ import asyncio
 import mimetypes
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    Response,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select
@@ -43,8 +48,21 @@ def _track_artwork_url(track: Track) -> str | None:
     response_model=list[TrackResponse],
 )
 async def list_tracks(
-    q: str | None = Query(default=None, description="Search by title, artist, or album"),
+    response: Response,
+    q: str | None = Query(
+        default=None,
+        description="Search by title, artist, or album",
+    ),
 ) -> list[TrackResponse]:
+
+    response.headers["Cache-Control"] = (
+    "no-store, no-cache, must-revalidate, max-age=0"
+)
+
+    response.headers["Pragma"] = "no-cache"
+
+    response.headers["Expires"] = "0"
+
     session_factory = get_session_factory()
 
     async with session_factory() as session:

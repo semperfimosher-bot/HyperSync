@@ -59,6 +59,10 @@ import SectionHeading from "./components/ui/SectionHeading.jsx";
 
 import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
 
+import {
+  deleteCatalogTrack,
+  useCatalogTracks,
+} from "./catalogStore.js";
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -555,14 +559,16 @@ function AdminBotPage() {
         </div>
       </section>
 
-      {message ? (
+      {message || error ? (
         <div className="admin-alert">
           <Icon
             name="shield"
             size={18}
           />
 
-          <span>{message}</span>
+        <span>
+      {message || error}
+        </span>
         </div>
       ) : null}
 
@@ -666,88 +672,26 @@ function AdminBotPage() {
 }
 
 function AdminCatalogPage() {
-  const [tracks, setTracks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
+  const {
+    tracks,
+    loading,
+    error,
+  } = useCatalogTracks();
 
-  const loadTracks = useCallback(async () => {
-    setLoading(true);
-    setMessage("");
+  const [message, setMessage] =
+    useState("");
 
-    try {
-      const data = await apiRequest(
-        "/catalog/tracks",
-      );
+const deleteTrack = async (trackId) => {
+  setMessage("");
 
-      setTracks(data || []);
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to load catalog.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-  loadTracks();
-
-  const handleTrackDeleted = (event) => {
-    const trackId = event.detail?.trackId;
-
-    if (!trackId) {
-      return;
-    }
-
-    setTracks((current) =>
-      current.filter(
-        (track) => track.id !== trackId,
-      ),
-    );
-  };
-
-  window.addEventListener(
-    "hypersync:track-deleted",
-    handleTrackDeleted,
-  );
-
-  return () => {
-    window.removeEventListener(
-      "hypersync:track-deleted",
-      handleTrackDeleted,
-    );
-  };
-}, [loadTracks]);
-
-  const deleteTrack = async (trackId) => {
   try {
-    await apiRequest(
-      `/admin/tracks/${trackId}`,
-      {
-        method: "DELETE",
-      },
+    await deleteCatalogTrack(
+      trackId,
     );
 
-    setTracks((current) =>
-      current.filter(
-        (track) => track.id !== trackId,
-      ),
+    setMessage(
+      "Track permanently deleted.",
     );
-
-    window.dispatchEvent(
-      new CustomEvent(
-        "hypersync:track-deleted",
-        {
-          detail: {
-            trackId,
-          },
-        },
-      ),
-    );
-
-    setMessage("Track deleted.");
   } catch (error) {
     setMessage(
       error instanceof Error
@@ -770,14 +714,16 @@ function AdminCatalogPage() {
         </p>
       </section>
 
-      {message ? (
+      {message || error ? (
         <div className="admin-alert">
           <Icon
             name="shield"
             size={18}
           />
 
-          <span>{message}</span>
+        <span>
+      {message || error}
+        </span>
         </div>
       ) : null}
 
@@ -998,14 +944,16 @@ function AdminDashboardPage() {
         </button>
       </section>
 
-      {message ? (
+      {message || error ? (
         <div className="admin-alert">
           <Icon
             name="shield"
             size={18}
           />
 
-          <span>{message}</span>
+        <span>
+      {message || error}
+        </span>
         </div>
       ) : null}
 
@@ -2014,7 +1962,7 @@ function AuthOverlay({
           or use without account
         </button>
 
-        {message ? (
+        {message || error ? (
           <p
             className="auth-message"
             role="status"

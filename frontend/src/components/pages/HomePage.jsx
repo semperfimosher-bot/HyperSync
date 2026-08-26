@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
-
 import {
-  API_BASE,
-  apiRequest,
-} from "../../api/client.js";
+  useCatalogTracks,
+} from "../../catalogStore.js";
+
+import { API_BASE } from "../../api/client.js";
 
 import * as player from "../../audioPlayer.js";
 
@@ -21,9 +20,10 @@ function HomePage({
   const greetingName =
     getGreetingName(currentUser);
 
-  const [tracks, setTracks] = useState([]);
-  const [catalogError, setCatalogError] =
-    useState("");
+  const {
+  tracks,
+  error: catalogError,
+} = useCatalogTracks();
 
   const resolveArtworkUrl = (url) => {
   if (!url) return null;
@@ -37,68 +37,6 @@ function HomePage({
 
   return `${API_BASE}${url.replace(/^\/api/, "")}`;
   };
-
-useEffect(() => {
-  let cancelled = false;
-
-  async function loadTracks() {
-    try {
-      const data = await apiRequest(
-        "/catalog/tracks",
-      );
-
-      if (cancelled) return;
-
-      setTracks(data || []);
-      setCatalogError("");
-    } catch (error) {
-      if (!cancelled) {
-        setTracks([]);
-
-        setCatalogError(
-          error instanceof Error
-            ? error.message
-            : "Unable to load catalog.",
-        );
-      }
-    }
-  }
-
-  loadTracks();
-
-  return () => {
-    cancelled = true;
-  };
-}, []);
-
-
-useEffect(() => {
-  const handleTrackDeleted = (event) => {
-    const trackId = event.detail?.trackId;
-
-    if (!trackId) {
-      return;
-    }
-
-    setTracks((current) =>
-      current.filter(
-        (track) => track.id !== trackId,
-      ),
-    );
-  };
-
-  window.addEventListener(
-    "hypersync:track-deleted",
-    handleTrackDeleted,
-  );
-
-  return () => {
-    window.removeEventListener(
-      "hypersync:track-deleted",
-      handleTrackDeleted,
-    );
-  };
-}, []);
 
   const playTrack = async (
     trackId,
