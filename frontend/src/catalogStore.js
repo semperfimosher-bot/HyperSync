@@ -6,6 +6,13 @@ import {
 
 import { apiRequest } from "./api/client.js";
 
+import * as player
+  from "./audioPlayer.js";
+
+import {
+  clearCachedTrack,
+  warmMedia,
+} from "./mediaCache.js";
 
 let catalogTracks = [];
 
@@ -14,7 +21,30 @@ let catalogLoaded = false;
 let catalogRequest = null;
 
 const listeners = new Set();
+const ARTWORK_CACHE_LIMIT =
+  48;
 
+
+function warmCatalogArtwork(
+  tracks,
+) {
+  tracks
+    .slice(
+      0,
+      ARTWORK_CACHE_LIMIT,
+    )
+    .forEach(
+      (track) => {
+        if (
+          track.artwork_url
+        ) {
+          void warmMedia(
+            track.artwork_url,
+          ).catch(() => {});
+        }
+      },
+    );
+}
 
 function notifyCatalogListeners() {
   for (const listener of listeners) {
@@ -67,13 +97,20 @@ export async function loadCatalog({
       },
     );
 
-    setCatalogTracks(
-      Array.isArray(tracks)
-        ? tracks
-        : [],
-    );
+    const nextTracks =
+  Array.isArray(tracks)
+    ? tracks
+    : [];
 
-    catalogLoaded = true;
+setCatalogTracks(
+  nextTracks,
+);
+
+warmCatalogArtwork(
+  nextTracks,
+);
+
+catalogLoaded = true;
 
     return catalogTracks;
   })();
@@ -134,12 +171,42 @@ export async function deleteCatalogTrack(
      */
 
     if (result?.deleted_track_id) {
-      removeCatalogTrack(
-        result.deleted_track_id,
-      );
-    }
+  removeCatalogTrack(
+    result.deleted_track_id,
+  );
+}
 
-    return result;
+const deletedTrackId =
+  result?.deleted_track_id ??
+  normalizedTrackId;
+
+
+/*
+ * Stop playback if the deleted song
+ * is currently playing.
+ */
+
+player.stopTrack(
+  deletedTrackId,
+);
+
+
+/*
+ * Remove both the cached audio and
+ * cached artwork for this song.
+ *
+ * Do this only after the backend has
+ * successfully deleted the B2 files
+ * and database row.
+ */
+
+await Promise.allSettled([
+  clearCachedTrack(
+    deletedTrackId,
+  ),
+]);
+
+return result;
 
   } catch (error) {
 

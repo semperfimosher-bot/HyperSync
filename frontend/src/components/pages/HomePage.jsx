@@ -1,4 +1,14 @@
 import {
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  getCachedObjectUrl,
+  resolveMediaUrl,
+} from "../../mediaCache.js";
+
+import {
   useCatalogTracks,
 } from "../../catalogStore.js";
 
@@ -11,6 +21,83 @@ import {
 } from "../../utils/user.js";
 
 import SectionHeading from "../ui/SectionHeading.jsx";
+
+function CachedArtwork({
+  src,
+  alt,
+}) {
+  const [displaySrc, setDisplaySrc] =
+    useState(
+      src ?? null,
+    );
+
+  useEffect(() => {
+    let cancelled =
+      false;
+
+    let objectUrl =
+      null;
+
+    setDisplaySrc(
+      src ?? null,
+    );
+
+    if (!src) {
+      return undefined;
+    }
+
+    const loadCachedArtwork =
+      async () => {
+        try {
+          const cachedUrl =
+            await getCachedObjectUrl(
+              src,
+            );
+
+          if (!cachedUrl) {
+            return;
+          }
+
+          if (cancelled) {
+            URL.revokeObjectURL(
+              cachedUrl,
+            );
+
+            return;
+          }
+
+          objectUrl =
+            cachedUrl;
+
+          setDisplaySrc(
+            cachedUrl,
+          );
+        } catch {
+          // Fall back to the normal URL.
+        }
+      };
+
+    void loadCachedArtwork();
+
+    return () => {
+      cancelled =
+        true;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(
+          objectUrl,
+        );
+      }
+    };
+  }, [src]);
+
+  return (
+    <img
+      src={displaySrc ?? src}
+      alt={alt}
+    />
+  );
+}
 
 function HomePage({
   currentUser,
@@ -73,7 +160,7 @@ function HomePage({
 
       <section
         className="home-hero-image"
-        aria-label="HyperSync"
+        aria-label="Hypersync"
       >
 
         <div className="home-hero-image__status">

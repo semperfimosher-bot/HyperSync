@@ -1,47 +1,125 @@
 import { API_BASE } from "./api/client.js";
 
-const audio = new Audio();
-let subscribers = new Set();
-let currentArtworkUrl = null;
-let currentTrackTitle = "";
-let currentTrackArtist = "";
+import {
+  getCachedObjectUrl,
+  resolveMediaUrl,
+  warmMedia,
+} from "./mediaCache.js";
+
+
+const audio =
+  new Audio();
+
+
+let subscribers =
+  new Set();
+
+
+let currentArtworkUrl =
+  null;
+
+
+let currentTrackTitle =
+  "";
+
+
+let currentTrackArtist =
+  "";
+
+
+let currentTrackId =
+  null;
+
+
+let currentObjectUrl =
+  null;
+
+
+function revokeCurrentObjectUrl() {
+  if (!currentObjectUrl) {
+    return;
+  }
+
+  URL.revokeObjectURL(
+    currentObjectUrl,
+  );
+
+  currentObjectUrl =
+    null;
+}
+
 
 function notify() {
-  const state = getState();
-  subscribers.forEach((cb) => {
-    try {
-      cb(state);
-    } catch (e) {
-      // ignore subscriber errors
-    }
-  });
+  const state =
+    getState();
+
+  subscribers.forEach(
+    (cb) => {
+      try {
+        cb(state);
+      } catch {
+        // Ignore subscriber errors.
+      }
+    },
+  );
 }
+
 
 export function subscribe(cb) {
   subscribers.add(cb);
-  // send initial state
+
   try {
     cb(getState());
-  } catch (e) {}
+  } catch {
+    // Ignore subscriber errors.
+  }
 
   return () => {
     subscribers.delete(cb);
   };
 }
 
+
 export function getState() {
   return {
-    src: audio.currentSrc || null,
-    paused: audio.paused,
-    currentTime: audio.currentTime || 0,
-    duration: isFinite(audio.duration) ? audio.duration : 0,
-    volume: audio.volume,
-    muted: audio.muted,
-    artworkUrl: currentArtworkUrl,
-    title: currentTrackTitle,
-    artist: currentTrackArtist,
+    trackId:
+      currentTrackId,
+
+    src:
+      audio.currentSrc ||
+      null,
+
+    paused:
+      audio.paused,
+
+    currentTime:
+      audio.currentTime ||
+      0,
+
+    duration:
+      Number.isFinite(
+        audio.duration,
+      )
+        ? audio.duration
+        : 0,
+
+    volume:
+      audio.volume,
+
+    muted:
+      audio.muted,
+
+    artworkUrl:
+      currentArtworkUrl,
+
+    title:
+      currentTrackTitle,
+
+    artist:
+      currentTrackArtist,
   };
 }
+
 
 function attachEvents() {
   [
@@ -53,15 +131,65 @@ function attachEvents() {
     "ended",
     "loadedmetadata",
     "error",
-  ].forEach((ev) => {
-    audio.addEventListener(ev, notify);
-  });
+  ].forEach(
+    (eventName) => {
+      audio.addEventListener(
+        eventName,
+        notify,
+      );
+    },
+  );
 }
+
 
 attachEvents();
 
-export function playTrack(trackId, meta = {}) {
-  if (!trackId) return;
+
+async function loadAudioSource(
+  url,
+) {
+  revokeCurrentObjectUrl();
+
+  const cachedObjectUrl =
+    await getCachedObjectUrl(
+      url,
+    );
+
+  if (cachedObjectUrl) {
+    currentObjectUrl =
+      cachedObjectUrl;
+
+    audio.src =
+      cachedObjectUrl;
+
+    return true;
+  }
+
+  audio.src = url;
+
+  /*
+   * Do not wait for the entire audio file
+   * before playback starts.
+   *
+   * Start playback normally and cache the
+   * complete file in the background.
+   */
+
+  void warmMedia(
+    url,
+  ).catch(() => {});
+
+  return false;
+}
+
+
+export async function playTrack(
+  trackId,
+  meta = {},
+) {
+  if (!trackId) {
+    return;
+  }
 
   const {
     artworkUrl = null,
@@ -69,24 +197,49 @@ export function playTrack(trackId, meta = {}) {
     artist = "",
   } = meta;
 
-  currentArtworkUrl = artworkUrl;
-  currentTrackTitle = title;
-  currentTrackArtist = artist;
+  currentTrackId =
+    String(trackId);
 
-  // Build URL using API_BASE; ensure no double-slash
-  const base = API_BASE.replace(/\/$/, "");
-  const url = `${base}/audio/${trackId}`;
+  currentArtworkUrl =
+    artworkUrl;
 
-  // Set src and attempt to play
-  audio.src = url;
-  audio.crossOrigin = "anonymous";
+  currentTrackTitle =
+    title;
+
+  currentTrackArtist =
+    artist;
+
+  const base =
+    API_BASE.replace(
+      /\/$/,
+      "",
+    );
+
+  const url =
+    `${base}/audio/${trackId}`;
+
+  await loadAudioSource(
+    url,
+  );
+
+  audio.crossOrigin =
+    "anonymous";
+
   audio.load();
 
-  return audio.play().then(() => getState());
+  await audio.play();
+
+  return getState();
 }
 
-export function playUrl(url, meta = {}) {
-  if (!url) return;
+
+export async function playUrl(
+  url,
+  meta = {},
+) {
+  if (!url) {
+    return;
+  }
 
   const {
     artworkUrl = null,
@@ -94,15 +247,37 @@ export function playUrl(url, meta = {}) {
     artist = "",
   } = meta;
 
-  currentArtworkUrl = artworkUrl;
-  currentTrackTitle = title;
-  currentTrackArtist = artist;
+  currentTrackId =
+    null;
 
-  audio.src = url;
-  audio.crossOrigin = "anonymous";
+  currentArtworkUrl =
+    artworkUrl;
+
+  currentTrackTitle =
+    title;
+
+  currentTrackArtist =
+    artist;
+
+  const mediaUrl =
+    resolveMediaUrl(
+      url,
+    );
+
+  await loadAudioSource(
+    mediaUrl,
+  );
+
+  audio.crossOrigin =
+    "anonymous";
+
   audio.load();
-  return audio.play().then(() => getState());
+
+  await audio.play();
+
+  return getState();
 }
+
 
 export async function togglePlay() {
   if (audio.paused) {
@@ -110,30 +285,111 @@ export async function togglePlay() {
   } else {
     audio.pause();
   }
+
   return getState();
 }
 
-export function seekTo(timeSeconds) {
-  if (typeof timeSeconds === "number" && isFinite(timeSeconds)) {
-    audio.currentTime = Math.max(0, Math.min(timeSeconds, audio.duration || timeSeconds));
+
+export function stopTrack(
+  trackId = null,
+) {
+  if (
+    trackId &&
+    String(trackId) !==
+      currentTrackId
+  ) {
+    return false;
+  }
+
+  audio.pause();
+
+  audio.removeAttribute(
+    "src",
+  );
+
+  audio.load();
+
+  revokeCurrentObjectUrl();
+
+  currentTrackId =
+    null;
+
+  currentArtworkUrl =
+    null;
+
+  currentTrackTitle =
+    "";
+
+  currentTrackArtist =
+    "";
+
+  notify();
+
+  return true;
+}
+
+
+export function seekTo(
+  timeSeconds,
+) {
+  if (
+    typeof timeSeconds ===
+      "number" &&
+    Number.isFinite(
+      timeSeconds,
+    )
+  ) {
+    audio.currentTime =
+      Math.max(
+        0,
+        Math.min(
+          timeSeconds,
+          audio.duration ||
+            timeSeconds,
+        ),
+      );
+
     notify();
   }
 }
 
+
 export function setVolume(v) {
-  audio.volume = Math.max(0, Math.min(1, v));
+  audio.volume =
+    Math.max(
+      0,
+      Math.min(
+        1,
+        v,
+      ),
+    );
+
   notify();
 }
 
-// Expose the underlying audio element for debug/testing
+
 export function _getAudioElement() {
   return audio;
 }
 
-// Convenience: attach to window in dev for manual testing
-if (typeof window !== "undefined") {
-  // avoid clobbering
-  if (!window.__HYPERSYNC_PLAYER) {
-    window.__HYPERSYNC_PLAYER = { playTrack, playUrl, togglePlay, seekTo, setVolume, getState, subscribe, _getAudioElement };
+
+if (
+  typeof window !==
+  "undefined"
+) {
+  if (
+    !window.__HYPERSYNC_PLAYER
+  ) {
+    window.__HYPERSYNC_PLAYER = {
+      playTrack,
+      playUrl,
+      togglePlay,
+      stopTrack,
+      seekTo,
+      setVolume,
+      getState,
+      subscribe,
+      _getAudioElement,
+    };
   }
 }

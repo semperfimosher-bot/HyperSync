@@ -148,7 +148,7 @@ function BrandLogo({
       </svg>
 
       <span className="brand__wordmark">
-        HYPER<span>SYNC</span>
+        HYPER<span>SYNCED</span>
       </span>
     </div>
   );
