@@ -172,6 +172,11 @@ class UserProfile(
         nullable=True,
     )
 
+    avatar_object_key: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+
     is_public: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

@@ -1,14 +1,22 @@
-from uuid import UUID
+import asyncio
+import mimetypes
+from datetime import datetime
+from uuid import UUID, uuid4
 
 from fastapi import (
     APIRouter,
+    File,
     HTTPException,
+    UploadFile,
     status,
 )
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from ...config import get_settings
+from ...database import get_session_factory
 from ...models.account import (
     ListeningEvent,
     User,
@@ -16,10 +24,15 @@ from ...models.account import (
     UserProfile,
 )
 from ...models.media import Track
+from ...services.b2 import (
+    delete_all_object_versions,
+    get_b2_bucket,
+)
 from ..dependencies import (
     CurrentUser,
     DatabaseSession,
 )
+from .audio import stream_b2_file
 
 router = APIRouter(
     prefix="/users",
@@ -54,10 +67,20 @@ class TrackSummary(BaseModel):
     album: str | None
     artwork_url: str | None = None
 
+    play_count: int
+    last_played_at: datetime
+
 
 class ArtistSummary(BaseModel):
     artist: str
     plays: int
+
+
+class UserSearchResult(BaseModel):
+    username: str
+    display_name: str
+    bio: str | None
+    avatar_url: str | None = None
 
 
 class ProfileDashboardResponse(BaseModel):
@@ -65,6 +88,7 @@ class ProfileDashboardResponse(BaseModel):
     username: str
     display_name: str
     bio: str | None
+    avatar_url: str | None = None
     is_public: bool
 
     followers_count: int
@@ -90,10 +114,16 @@ def artwork_url(
     ):
         return track.artwork_object_key
 
-    return (
-        f"/api/catalog/tracks/"
-        f"{track.id}/artwork"
-    )
+    return f"/api/catalog/tracks/{track.id}/artwork"
+
+
+def avatar_url(
+    user: User,
+) -> str | None:
+    if user.profile is None or not user.profile.avatar_object_key:
+        return None
+
+    return f"/api/users/{user.username}/avatar"
 
 
 async def build_dashboard(
@@ -153,29 +183,70 @@ async def build_dashboard(
         .select_from(ListeningEvent)
         .join(
             Track,
-            Track.id
-            == ListeningEvent.track_id,
+            Track.id == ListeningEvent.track_id,
         )
         .where(
             ListeningEvent.user_id == user.id,
         )
     )
 
-    recent_result = await session.execute(
-        select(Track)
-        .join(
-            ListeningEvent,
-            ListeningEvent.track_id
-            == Track.id,
+    recent_summary = (
+        select(
+            ListeningEvent.track_id.label(
+                "track_id",
+            ),
+            func.count(
+                ListeningEvent.id,
+            ).label(
+                "play_count",
+            ),
+            func.max(
+                ListeningEvent.listened_at,
+            ).label(
+                "last_played_at",
+            ),
         )
         .where(
             ListeningEvent.user_id == user.id,
         )
+        .group_by(
+            ListeningEvent.track_id,
+        )
+        .subquery()
+    )
+
+    recent_result = await session.execute(
+        select(
+            Track,
+            recent_summary.c.play_count,
+            recent_summary.c.last_played_at,
+        )
+        .join(
+            recent_summary,
+            recent_summary.c.track_id == Track.id,
+        )
         .order_by(
-            ListeningEvent.listened_at.desc(),
+            recent_summary.c.last_played_at.desc(),
         )
         .limit(8)
     )
+
+    recently_played = [
+        TrackSummary(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            artwork_url=artwork_url(track),
+            play_count=play_count,
+            last_played_at=last_played_at,
+        )
+        for (
+            track,
+            play_count,
+            last_played_at,
+        ) in recent_result.all()
+    ]
 
     top_artists_result = await session.execute(
         select(
@@ -186,8 +257,7 @@ async def build_dashboard(
         )
         .join(
             ListeningEvent,
-            ListeningEvent.track_id
-            == Track.id,
+            ListeningEvent.track_id == Track.id,
         )
         .where(
             ListeningEvent.user_id == user.id,
@@ -204,49 +274,26 @@ async def build_dashboard(
         .limit(5)
     )
 
-    recently_played = [
-        TrackSummary(
-            id=track.id,
-            title=track.title,
-            artist=track.artist,
-            album=track.album,
-            artwork_url=artwork_url(track),
-        )
-        for track in recent_result.scalars().all()
-    ]
-
     top_artists = [
         ArtistSummary(
             artist=artist,
             plays=plays,
         )
-        for artist, plays
-        in top_artists_result.all()
+        for artist, plays in top_artists_result.all()
     ]
 
-    total_seconds = (
-        hours_result.scalar_one()
-        or 0
-    )
+    total_seconds = hours_result.scalar_one() or 0
 
     return ProfileDashboardResponse(
         id=user.id,
         username=user.username or "",
         display_name=profile.display_name,
         bio=profile.bio,
+        avatar_url=avatar_url(user),
         is_public=profile.is_public,
-        followers_count=(
-            followers_result.scalar_one()
-            or 0
-        ),
-        following_count=(
-            following_result.scalar_one()
-            or 0
-        ),
-        tracks_played=(
-            plays_result.scalar_one()
-            or 0
-        ),
+        followers_count=(followers_result.scalar_one() or 0),
+        following_count=(following_result.scalar_one() or 0),
+        tracks_played=(plays_result.scalar_one() or 0),
         hours_listened=round(
             total_seconds / 3600,
             1,
@@ -285,22 +332,14 @@ async def update_my_profile(
         profile = UserProfile(
             user_id=user.id,
             display_name=payload.display_name.strip(),
-            bio=payload.bio.strip()
-            if payload.bio
-            else None,
+            bio=payload.bio.strip() if payload.bio else None,
         )
 
         session.add(profile)
     else:
-        profile.display_name = (
-            payload.display_name.strip()
-        )
+        profile.display_name = payload.display_name.strip()
 
-        profile.bio = (
-            payload.bio.strip()
-            if payload.bio
-            else None
-        )
+        profile.bio = payload.bio.strip() if payload.bio else None
 
     await session.commit()
 
@@ -365,9 +404,7 @@ async def record_listening(
         )
     )
 
-    track = (
-        track_result.scalar_one_or_none()
-    )
+    track = track_result.scalar_one_or_none()
 
     if track is None:
         raise HTTPException(
@@ -390,6 +427,225 @@ async def record_listening(
     }
 
 
+@router.post(
+    "/me/avatar",
+    response_model=ProfileDashboardResponse,
+)
+async def upload_my_avatar(
+    user: CurrentUser,
+    session: DatabaseSession,
+    file: UploadFile = File(...),
+):
+    if file.content_type not in {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("Profile picture must be a JPG, PNG, or WebP image."),
+        )
+
+    image_data = await file.read()
+
+    if not image_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Profile picture is empty.",
+        )
+
+    if len(image_data) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("Profile picture must be 5 MB or smaller."),
+        )
+
+    profile = user.profile
+
+    if profile is None:
+        profile = UserProfile(
+            user_id=user.id,
+            display_name=user.username or "User",
+        )
+
+        session.add(profile)
+        await session.flush()
+
+    old_object_key = profile.avatar_object_key
+
+    settings = get_settings()
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }[file.content_type]
+
+    object_key = f"{settings.b2_profile_prefix}/{user.id}/{uuid4()}.{extension}"
+
+    bucket = get_b2_bucket()
+
+    try:
+        await asyncio.to_thread(
+            bucket.upload_bytes,
+            image_data,
+            object_key,
+            content_type=file.content_type,
+        )
+
+        profile.avatar_object_key = object_key
+
+        await session.commit()
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(f"Failed to upload profile picture: {exc}"),
+        ) from exc
+
+    if old_object_key:
+        try:
+            await delete_all_object_versions(
+                bucket,
+                old_object_key,
+            )
+        except Exception:
+            pass
+
+    await session.refresh(
+        user,
+        attribute_names=["profile"],
+    )
+
+    return await build_dashboard(
+        session,
+        user,
+    )
+
+
+@router.get(
+    "/{username}/avatar",
+)
+async def get_user_avatar(
+    username: str,
+):
+    normalized = username.strip().lower()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(User)
+            .options(
+                selectinload(
+                    User.profile,
+                ),
+            )
+            .where(
+                User.username_normalized == normalized,
+                User.is_active.is_(True),
+            )
+        )
+
+        target = result.scalar_one_or_none()
+
+    if target is None or target.profile is None or not target.profile.avatar_object_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile picture not found.",
+        )
+
+    object_key = target.profile.avatar_object_key
+
+    try:
+        bucket = get_b2_bucket()
+
+        downloaded = await asyncio.to_thread(
+            bucket.download_file_by_name,
+            object_key,
+        )
+
+        content_type, _ = mimetypes.guess_type(
+            object_key,
+        )
+
+        if not content_type:
+            content_type = "image/jpeg"
+
+        return StreamingResponse(
+            stream_b2_file(
+                downloaded,
+            ),
+            media_type=content_type,
+            headers={
+                "Cache-Control": ("public, max-age=300, stale-while-revalidate=600"),
+            },
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(f"Profile picture unavailable: {exc}"),
+        ) from exc
+
+
+@router.get(
+    "/search",
+    response_model=list[UserSearchResult],
+)
+async def search_users(
+    q: str,
+    session: DatabaseSession,
+):
+    term = q.strip()
+
+    if not term:
+        return []
+
+    pattern = f"%{term}%"
+
+    result = await session.execute(
+        select(User)
+        .join(
+            UserProfile,
+            UserProfile.user_id == User.id,
+        )
+        .options(
+            selectinload(
+                User.profile,
+            ),
+        )
+        .where(
+            User.is_active.is_(True),
+            UserProfile.is_public.is_(True),
+            (
+                User.username.ilike(pattern)
+                | UserProfile.display_name.ilike(
+                    pattern,
+                )
+            ),
+        )
+        .order_by(
+            UserProfile.display_name.asc(),
+        )
+        .limit(20)
+    )
+
+    users = result.scalars().all()
+
+    return [
+        UserSearchResult(
+            username=user.username or "",
+            display_name=(user.profile.display_name if user.profile else user.username or ""),
+            bio=(user.profile.bio if user.profile else None),
+            avatar_url=avatar_url(user),
+        )
+        for user in users
+    ]
+
+
 @router.get(
     "/{username}",
     response_model=ProfileDashboardResponse,
@@ -398,10 +654,7 @@ async def get_public_profile(
     username: str,
     session: DatabaseSession,
 ):
-    normalized = (
-        username.strip()
-        .lower()
-    )
+    normalized = username.strip().lower()
 
     result = await session.execute(
         select(User)
@@ -409,19 +662,14 @@ async def get_public_profile(
             selectinload(User.profile),
         )
         .where(
-            User.username_normalized
-            == normalized,
+            User.username_normalized == normalized,
             User.is_active.is_(True),
         )
     )
 
     user = result.scalar_one_or_none()
 
-    if (
-        user is None
-        or user.profile is None
-        or not user.profile.is_public
-    ):
+    if user is None or user.profile is None or not user.profile.is_public:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Profile not found.",
@@ -441,22 +689,16 @@ async def follow_user(
     user: CurrentUser,
     session: DatabaseSession,
 ):
-    normalized = (
-        username.strip()
-        .lower()
-    )
+    normalized = username.strip().lower()
 
     result = await session.execute(
         select(User).where(
-            User.username_normalized
-            == normalized,
+            User.username_normalized == normalized,
             User.is_active.is_(True),
         )
     )
 
-    target = (
-        result.scalar_one_or_none()
-    )
+    target = result.scalar_one_or_none()
 
     if target is None:
         raise HTTPException(
@@ -472,17 +714,12 @@ async def follow_user(
 
     existing_result = await session.execute(
         select(UserFollow).where(
-            UserFollow.follower_id
-            == user.id,
-            UserFollow.following_id
-            == target.id,
+            UserFollow.follower_id == user.id,
+            UserFollow.following_id == target.id,
         )
     )
 
-    if (
-        existing_result.scalar_one_or_none()
-        is None
-    ):
+    if existing_result.scalar_one_or_none() is None:
         session.add(
             UserFollow(
                 follower_id=user.id,
@@ -505,21 +742,15 @@ async def unfollow_user(
     user: CurrentUser,
     session: DatabaseSession,
 ):
-    normalized = (
-        username.strip()
-        .lower()
-    )
+    normalized = username.strip().lower()
 
     result = await session.execute(
         select(User).where(
-            User.username_normalized
-            == normalized,
+            User.username_normalized == normalized,
         )
     )
 
-    target = (
-        result.scalar_one_or_none()
-    )
+    target = result.scalar_one_or_none()
 
     if target is None:
         raise HTTPException(
@@ -529,16 +760,12 @@ async def unfollow_user(
 
     follow_result = await session.execute(
         select(UserFollow).where(
-            UserFollow.follower_id
-            == user.id,
-            UserFollow.following_id
-            == target.id,
+            UserFollow.follower_id == user.id,
+            UserFollow.following_id == target.id,
         )
     )
 
-    follow = (
-        follow_result.scalar_one_or_none()
-    )
+    follow = follow_result.scalar_one_or_none()
 
     if follow is not None:
         await session.delete(follow)

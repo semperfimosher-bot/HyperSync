@@ -86,3 +86,34 @@ export async function unfollowUser(
     },
   );
 }
+
+export async function uploadProfileAvatar(
+  file,
+) {
+  const formData =
+    new FormData();
+
+  formData.append(
+    "file",
+    file,
+  );
+
+  return apiRequest(
+    "/users/me/avatar",
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+}
+
+
+export async function searchUsers(
+  query,
+) {
+  return apiRequest(
+    `/users/search?q=${encodeURIComponent(
+      query,
+    )}`,
+  );
+}
