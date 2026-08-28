@@ -1,6 +1,7 @@
 import asyncio
 import mimetypes
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -434,7 +435,7 @@ async def record_listening(
 async def upload_my_avatar(
     user: CurrentUser,
     session: DatabaseSession,
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File()],
 ):
     if file.content_type not in {
         "image/jpeg",

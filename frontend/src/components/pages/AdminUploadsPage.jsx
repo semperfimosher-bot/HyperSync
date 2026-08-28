@@ -76,7 +76,7 @@ export default function AdminUploadsPage() {
         <span>ADMINISTRATION</span>
 
         <h2>Upload Studio</h2>
-        
+
       </section>
 
       <section className="upload-studio">
