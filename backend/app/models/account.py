@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     false,
     func,
@@ -171,6 +172,13 @@ class UserProfile(
         nullable=True,
     )
 
+    is_public: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=true(),
+    )
+
     user: Mapped[User] = relationship(
         back_populates="profile",
     )
@@ -239,4 +247,72 @@ class UserSession(
 
     user: Mapped[User] = relationship(
         back_populates="sessions",
+    )
+
+
+class UserFollow(
+    TimestampMixin,
+    Base,
+):
+    __tablename__ = "user_follows"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "follower_id",
+            "following_id",
+            name="uq_user_follows_pair",
+        ),
+        CheckConstraint(
+            "follower_id <> following_id",
+            name="ck_user_follows_not_self",
+        ),
+    )
+
+    follower_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+
+    following_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+
+
+class ListeningEvent(
+    UUIDPrimaryKeyMixin,
+    TimestampMixin,
+    Base,
+):
+    __tablename__ = "listening_events"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    track_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "tracks.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    listened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
     )

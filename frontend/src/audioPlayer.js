@@ -1,4 +1,11 @@
-import { API_BASE } from "./api/client.js";
+import {
+  API_BASE,
+  apiRequest,
+} from "./api/client.js";
+
+import {
+  getAccessToken,
+} from "./api/storage.js";
 
 import {
   getCachedObjectUrl,
@@ -229,9 +236,25 @@ export async function playTrack(
 
   await audio.play();
 
-  return getState();
+if (
+  currentTrackId &&
+  getAccessToken()
+) {
+  void apiRequest(
+    "/users/me/listening",
+    {
+      method: "POST",
+
+      body: JSON.stringify({
+        track_id:
+          currentTrackId,
+      }),
+    },
+  ).catch(() => {});
 }
 
+return getState();
+}
 
 export async function playUrl(
   url,

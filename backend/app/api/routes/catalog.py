@@ -55,9 +55,7 @@ async def list_tracks(
     ),
 ) -> list[TrackResponse]:
 
-    response.headers["Cache-Control"] = (
-    "no-store, no-cache, must-revalidate, max-age=0"
-)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
 
     response.headers["Pragma"] = "no-cache"
 

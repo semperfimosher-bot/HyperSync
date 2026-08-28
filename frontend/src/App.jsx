@@ -1,4 +1,10 @@
 import {
+  getMyProfile,
+  updateMyProfile,
+  updatePrivacy,
+} from "./profileApi.js";
+
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -127,69 +133,204 @@ function ProfilePage({
   statusMessage,
   onStatusMessage,
 }) {
-  const greetingName =
-    getGreetingName(currentUser);
+  const [
+    profile,
+    setProfile,
+  ] = useState(null);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(
+    Boolean(currentUser),
+  );
+
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+  const [
+    editing,
+    setEditing,
+  ] = useState(false);
+
+  const [
+    displayName,
+    setDisplayName,
+  ] = useState("");
+
+  const [
+    bio,
+    setBio,
+  ] = useState("");
+
+  const [
+    saving,
+    setSaving,
+  ] = useState(false);
+
+  const loadProfile =
+    useCallback(async () => {
+      if (!currentUser) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+
+      try {
+        const data =
+          await getMyProfile();
+
+        setProfile(data);
+
+        setDisplayName(
+          data.display_name || "",
+        );
+
+        setBio(
+          data.bio || "",
+        );
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load profile.",
+        );
+      } finally {
+        setLoading(false);
+      }
+    }, [currentUser]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  const saveProfile =
+    async () => {
+      setSaving(true);
+      setError("");
+
+      try {
+        const updated =
+          await updateMyProfile({
+            displayName,
+            bio,
+          });
+
+        setProfile(updated);
+
+        setEditing(false);
+
+        onStatusMessage(
+          "Profile updated.",
+        );
+      } catch (saveError) {
+        setError(
+          saveError instanceof Error
+            ? saveError.message
+            : "Unable to save profile.",
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  const togglePrivacy =
+    async () => {
+      if (!profile) {
+        return;
+      }
+
+      try {
+        const updated =
+          await updatePrivacy(
+            !profile.is_public,
+          );
+
+        setProfile(updated);
+
+        onStatusMessage(
+          updated.is_public
+            ? "Your profile is now public."
+            : "Your profile is now private.",
+        );
+      } catch (privacyError) {
+        setError(
+          privacyError instanceof Error
+            ? privacyError.message
+            : "Unable to update privacy.",
+        );
+      }
+    };
+
+  if (!currentUser) {
+    return (
+      <div className="page-stack profile-page">
+        <section className="profile-identity">
+          <div className="profile-avatar">
+            <Icon
+              name="profile"
+              size={42}
+            />
+          </div>
+
+          <div className="profile-identity__copy">
+            <h2>Guest</h2>
+
+            <p>
+              Sign in to build your
+              HyperSynced profile.
+            </p>
+
+            <button
+              type="button"
+              onClick={onOpenAuth}
+            >
+              Sign In
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const name =
+    profile?.display_name ||
+    currentUser.display_name ||
+    currentUser.username;
+
+  const initials =
+    name
+      .split(/\s+/)
+      .map((part) =>
+        part[0],
+      )
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
 
   return (
     <div className="page-stack profile-page">
       <section className="profile-identity">
         <div className="profile-avatar-wrap">
           <div className="profile-avatar">
-            <svg
-              viewBox="0 0 100 100"
-              role="img"
-              aria-label={
-                currentUser
-                  ? `${greetingName} profile avatar`
-                  : "Guest profile avatar"
-              }
-            >
-              <defs>
-                <radialGradient id="guest-avatar-glow">
-                  <stop
-                    offset="0"
-                    stopColor="#184d70"
-                  />
-
-                  <stop
-                    offset="1"
-                    stopColor="#061018"
-                  />
-                </radialGradient>
-              </defs>
-
-              <circle
-                cx="50"
-                cy="50"
-                r="49"
-                fill="url(#guest-avatar-glow)"
-              />
-
-              <circle
-                cx="50"
-                cy="36"
-                r="17"
-                fill="none"
-                stroke="#a9d8e8"
-                strokeWidth="4"
-              />
-
-              <path
-                d={
-                  "M20 88c4-24 14-35 30-35" +
-                  "s26 11 30 35"
-                }
-                fill="none"
-                stroke="#a9d8e8"
-                strokeWidth="4"
-              />
-            </svg>
+            <strong>
+              {initials}
+            </strong>
           </div>
 
           <button
             type="button"
-            onClick={onOpenAuth}
-            aria-label="Open account options"
+            onClick={() =>
+              setEditing(
+                !editing,
+              )
+            }
+            aria-label="Edit profile"
           >
             <Icon
               name="edit"
@@ -199,124 +340,238 @@ function ProfilePage({
         </div>
 
         <div className="profile-identity__copy">
-          <h2>
-            {currentUser ? greetingName : "Guest"}
-          </h2>
+          <h2>{name}</h2>
 
           <p>
-            {currentUser
-              ? currentUser.email
-              : "Music synced to your style."}
+            @{currentUser.username}
           </p>
 
-          {currentUser ? (
-            <span className="profile-role-badge">
-              {currentUser.role === "admin"
-                ? "Administrator"
-                : "Member"}
-            </span>
+          {profile?.bio ? (
+            <small>
+              {profile.bio}
+            </small>
           ) : (
-            <button
-              type="button"
-              onClick={onOpenAuth}
-            >
-              Account required
-            </button>
+            <small>
+              Add a bio and make
+              your profile yours.
+            </small>
           )}
+
+          <span className="profile-role-badge">
+            {currentUser.role === "admin"
+              ? "Administrator"
+              : "Member"}
+          </span>
         </div>
       </section>
+
+      {editing ? (
+        <section className="bevel-panel">
+          <SectionHeading
+            title="Edit Profile"
+          />
+
+          <div className="profile-editor">
+            <label>
+              Display Name
+
+              <input
+                value={displayName}
+                maxLength={80}
+                onChange={(event) =>
+                  setDisplayName(
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              Bio
+
+              <textarea
+                value={bio}
+                maxLength={500}
+                rows={4}
+                onChange={(event) =>
+                  setBio(
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+
+            <div className="profile-editor__actions">
+              <button
+                type="button"
+                className="secondary-admin-button"
+                onClick={() =>
+                  setEditing(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="primary-action"
+                disabled={saving}
+                onClick={saveProfile}
+              >
+                {saving
+                  ? "Saving..."
+                  : "Save Profile"}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="profile-stats bevel-panel">
         <ProfileStat
           icon="music"
-          value="—"
-          label="Playlists"
+          value={
+            loading
+              ? "..."
+              : profile?.tracks_played ?? 0
+          }
+          label="Tracks Played"
         />
 
         <ProfileStat
           icon="people"
-          value="—"
+          value={
+            loading
+              ? "..."
+              : profile?.followers_count ?? 0
+          }
           label="Followers"
         />
 
         <ProfileStat
           icon="profile"
-          value="—"
+          value={
+            loading
+              ? "..."
+              : profile?.following_count ?? 0
+          }
           label="Following"
         />
 
         <ProfileStat
           icon="headphones"
-          value="—"
+          value={
+            loading
+              ? "..."
+              : `${profile?.hours_listened ?? 0}h`
+          }
           label="Hours Listened"
         />
       </section>
 
       <section>
-        <SectionHeading title="Recently Played" />
+        <SectionHeading
+          title="Recently Played"
+        />
 
-      <div className="profile-card-grid">
-          {[1, 2, 3, 4].map((variant) => (
-    <article
-      className="profile-media-card"
-      key={variant}
-    >
-      <div
-        className={`cover-placeholder cover-placeholder--${variant}`}
-        aria-hidden="true"
-      />
+        <div className="profile-card-grid">
+          {profile?.recently_played?.length
+            ? profile.recently_played.map(
+                (track) => (
+                  <article
+                    className="profile-media-card"
+                    key={track.id}
+                  >
+                    <TrackArtwork
+                      src={track.artwork_url}
+                      alt={track.title}
+                      variant={1}
+                    />
 
-      <strong>Empty slot</strong>
-      <small>No listening data</small>
-    </article>
-        ))}
-    </div>
-      </section>
+                    <strong>
+                      {track.title}
+                    </strong>
 
-      <section>
-        <SectionHeading title="Favorite Genres" />
+                    <small>
+                      {track.artist}
+                    </small>
+                  </article>
+                ),
+              )
+            : (
+              <div className="genre-empty-panel">
+                <div>
+                  <strong>
+                    Nothing played yet
+                  </strong>
 
-        <div className="genre-empty-panel">
-          <div
-            className="genre-bars"
-            aria-hidden="true"
-          >
-            {[72, 58, 44, 36, 28, 20].map(
-              (width, index) => (
-                <span
-                  key={width}
-                  style={{
-                    "--bar-width": `${width}%`,
-                    "--bar-delay":
-                      `${index * 70}ms`,
-                  }}
-                />
-              ),
+                  <p>
+                    Play a song and your
+                    listening history will
+                    appear here.
+                  </p>
+                </div>
+              </div>
             )}
-          </div>
-
-          <div>
-            <strong>
-              No genre profile yet
-            </strong>
-
-            <p>
-              Your real listening history will
-              determine these results.
-            </p>
-          </div>
         </div>
       </section>
 
       <section>
-        <SectionHeading title="Settings" />
+        <SectionHeading
+          title="Top Artists"
+        />
 
-        <div
-          className={
-            "settings-panel " +
-            "settings-panel--settings"
-          }
-        >
+        <div className="genre-empty-panel">
+          {profile?.top_artists?.length
+            ? (
+              <div className="top-artists-list">
+                {profile.top_artists.map(
+                  (
+                    artist,
+                    index,
+                  ) => (
+                    <div
+                      key={artist.artist}
+                      className="top-artist-row"
+                    >
+                      <strong>
+                        #{index + 1}
+                      </strong>
+
+                      <span>
+                        {artist.artist}
+                      </span>
+
+                      <small>
+                        {artist.plays} plays
+                      </small>
+                    </div>
+                  ),
+                )}
+              </div>
+            )
+            : (
+              <div>
+                <strong>
+                  Your taste is loading...
+                </strong>
+
+                <p>
+                  Listen to some music and
+                  your top artists will
+                  appear here.
+                </p>
+              </div>
+            )}
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading
+          title="Settings"
+        />
+
+        <div className="settings-panel settings-panel--settings">
           <SettingsRow
             icon="sun"
             label="Appearance"
@@ -329,108 +584,64 @@ function ProfilePage({
           />
 
           <SettingsRow
-            icon="volume"
-            label="Audio Quality"
-            value="Not connected"
-            onClick={() => {
-              onStatusMessage(
-                "Audio quality settings will " +
-                "activate with real playback.",
-              );
-            }}
+            icon="shield"
+            label="Privacy"
+            value={
+              profile?.is_public
+                ? "Public"
+                : "Private"
+            }
+            onClick={togglePrivacy}
           />
 
           <SettingsRow
             icon="bell"
-            label="Notifications"
-            value="Not connected"
-            onClick={() => {
-              onStatusMessage(
-                "Notifications are not connected yet.",
-              );
-            }}
-          />
-
-          <SettingsRow
-            icon="shield"
-            label="Privacy"
-            value="Pending"
-            onClick={() => {
-              onStatusMessage(
-                "Privacy controls will be added " +
-                "before account launch.",
-              );
-            }}
+            label="Listening Stats"
+            value="Live"
+            onClick={loadProfile}
           />
         </div>
       </section>
 
       <section>
-        <SectionHeading title="Account" />
+        <SectionHeading
+          title="Account"
+        />
 
-        <div
-          className={
-            "settings-panel " +
-            "settings-panel--account"
-          }
-        >
-          {currentUser ? (
-            <>
-              <SettingsRow
-                icon="profile"
-                label="Username"
-                value={currentUser.username}
-              />
+        <div className="settings-panel settings-panel--account">
+          <SettingsRow
+            icon="profile"
+            label="Username"
+            value={`@${currentUser.username}`}
+            disabled
+          />
 
-              <SettingsRow
-                icon="link"
-                label="Linked Accounts"
-                value="Unavailable"
-                onClick={() => {
-                  onStatusMessage(
-                    "Linked accounts are not " +
-                    "implemented yet.",
-                  );
-                }}
-              />
+          <SettingsRow
+            icon="edit"
+            label="Edit Profile"
+            value="Profile"
+            onClick={() =>
+              setEditing(true)
+            }
+          />
 
-              <SettingsRow
-                icon="logout"
-                label="Log Out"
-                value={greetingName}
-                onClick={onLogout}
-              />
-            </>
-          ) : (
-            <>
-              <SettingsRow
-                icon="profile"
-                label="Sign in or create account"
-                onClick={onOpenAuth}
-              />
-
-              <SettingsRow
-                icon="link"
-                label="Linked Accounts"
-                value="Unavailable"
-                onClick={() => {
-                  onStatusMessage(
-                    "Linked accounts are not " +
-                    "implemented yet.",
-                  );
-                }}
-              />
-
-              <SettingsRow
-                icon="logout"
-                label="Log Out"
-                value="Guest"
-                disabled
-              />
-            </>
-          )}
+          <SettingsRow
+            icon="logout"
+            label="Log Out"
+            value={name}
+            onClick={onLogout}
+          />
         </div>
       </section>
+
+      {error ? (
+        <p
+          className="inline-status"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
 
       {statusMessage ? (
         <p
