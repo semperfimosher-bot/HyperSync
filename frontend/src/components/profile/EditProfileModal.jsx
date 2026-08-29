@@ -337,7 +337,7 @@ export default function EditProfileModal({
               </strong>
 
               <span>
-                or choose one from your computer
+                or choose one from your device
               </span>
 
               <button

@@ -108,6 +108,7 @@ export default function ProfilePage({
   onStatusMessage,
   onSearchArtist,
   onOpenProfile,
+  onProfileUpdated,
 }) {
   const [profile, setProfile] =
     useState(null);
@@ -596,35 +597,6 @@ export default function ProfilePage({
 
           <button
             type="button"
-            onClick={
-              onToggleCompact
-            }
-          >
-            <Icon
-              name="sun"
-              size={18}
-            />
-
-            <span>
-              <strong>
-                Interface Density
-              </strong>
-
-              <small>
-                {compactMode
-                  ? "Compact"
-                  : "Comfortable"}
-              </small>
-            </span>
-
-            <Icon
-              name="chevron"
-              size={15}
-            />
-          </button>
-
-          <button
-            type="button"
             onClick={onLogout}
           >
             <Icon
@@ -668,16 +640,20 @@ export default function ProfilePage({
             setEditing(false);
           }}
           onSaved={(updated) => {
-            setProfile(updated);
+  setProfile(updated);
 
-            setAvatarVersion(
-              Date.now(),
-            );
+  setAvatarVersion(
+    Date.now(),
+  );
 
-            onStatusMessage?.(
-              "Profile updated.",
-            );
-          }}
+  onProfileUpdated?.(
+    updated,
+  );
+
+  onStatusMessage?.(
+    "Profile updated.",
+  );
+}}
         />
       ) : null}
 

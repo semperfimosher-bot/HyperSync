@@ -2899,3 +2899,77 @@ button.hs-profile-stat:hover,
     animation: none;
   }
 }
+
+.hs-avatar--header {
+  width: 34px;
+  height: 34px;
+
+  min-width: 34px;
+
+  border-radius: 50%;
+
+  border:
+    1px solid
+    rgba(84, 221, 255, 0.32);
+
+  background:
+    rgba(7, 20, 30, 0.96);
+
+  overflow: hidden;
+}
+
+
+.hs-avatar--header img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+
+  border-radius: inherit;
+}
+
+
+.hs-avatar--header
+.hs-avatar__initials {
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+
+.hs-header-avatar {
+  flex: 0 0 auto;
+}
+
+
+.mobile-profile-button {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  width: 42px;
+  height: 42px;
+
+  padding: 0;
+
+  border: 0;
+
+  border-radius: 50%;
+
+  background: transparent;
+
+  color: var(--text);
+}
+
+
+.mobile-profile-button:hover
+.hs-avatar--header,
+.desktop-profile-button:hover
+.hs-avatar--header {
+  border-color:
+    rgba(84, 221, 255, 0.8);
+
+  box-shadow:
+    0 0 14px
+    rgba(19, 158, 255, 0.24);
+}

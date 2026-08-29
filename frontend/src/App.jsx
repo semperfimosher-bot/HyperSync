@@ -935,6 +935,7 @@ function MainPage({
   currentUser,
   profileUsername,
   onOpenProfile,
+  onProfileUpdated,
   onNavigate,
   onOpenAuth,
   onLogout,
@@ -1082,6 +1083,9 @@ function MainPage({
         }
         onSearchArtist={
           onQueryChange
+        }
+        onProfileUpdated={
+          onProfileUpdated
         }
       />
     );
@@ -1763,6 +1767,32 @@ export default function App() {
     setAuthOpen(false);
   }
 
+  const handleProfileUpdated =
+  useCallback((profile) => {
+    setCurrentUser((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const updatedUser = {
+        ...current,
+
+        display_name:
+          profile.display_name ??
+          current.display_name,
+
+        avatar_url:
+          profile.avatar_url ?? null,
+      };
+
+      cacheUserProfile(
+        updatedUser,
+      );
+
+      return updatedUser;
+    });
+  }, []);
+
     const pageTitle =
     activePage ===
     "public-profile"
@@ -1919,12 +1949,12 @@ export default function App() {
 />
 
       <section className="main-workspace">
-        <MobileHeader
-          title={pageTitle}
-          onOpenAuth={() => {
-            openAuth("signin");
-          }}
-        />
+      <MobileHeader
+    title={PAGE_TITLES[activePage]}
+    currentUser={currentUser}
+    onNavigate={navigate}
+    onOpenAuth={openAuth}
+    />
 
         <DesktopTopbar
           activePage={activePage}
@@ -1943,6 +1973,9 @@ export default function App() {
             currentUser={currentUser}
             profileUsername={
               activeProfileUsername
+            }
+            onProfileUpdated={
+              handleProfileUpdated
             }
             onOpenProfile={
               openUserProfile

@@ -1,10 +1,10 @@
 import Icon from "../ui/Icon.jsx";
+import Avatar from "../profile/Avatar.jsx";
 
 import { PAGE_TITLES } from "../../constants.js";
 
 import {
   getGreetingName,
-  getUserInitial,
 } from "../../utils/user.js";
 
 
@@ -19,8 +19,6 @@ function DesktopTopbar({
   const greetingName =
     getGreetingName(currentUser);
 
-  const userInitial =
-    getUserInitial(currentUser);
 
   function handleProfileClick() {
     if (currentUser) {
@@ -31,12 +29,17 @@ function DesktopTopbar({
     onOpenAuth();
   }
 
+
   return (
     <header className="desktop-topbar">
       <div className="desktop-topbar__title">
         <span>HyperSync</span>
-        <h1>{PAGE_TITLES[activePage]}</h1>
+
+        <h1>
+          {PAGE_TITLES[activePage]}
+        </h1>
       </div>
+
 
       <label className="desktop-search">
         <Icon
@@ -49,22 +52,39 @@ function DesktopTopbar({
           value={searchQuery}
           placeholder="Search songs, artists, or albums"
           onChange={(event) => {
-            onSearchChange(event.target.value);
+            onSearchChange(
+              event.target.value,
+            );
           }}
         />
       </label>
+
 
       <button
         className="desktop-profile-button"
         type="button"
         onClick={handleProfileClick}
       >
-        <span className="avatar avatar--tiny">
-          {userInitial}
-        </span>
+        {currentUser ? (
+          <Avatar
+            src={currentUser.avatar_url}
+            name={
+              currentUser.display_name ||
+              currentUser.username
+            }
+            size="header"
+            className="hs-header-avatar"
+          />
+        ) : (
+          <span className="avatar avatar--tiny">
+            G
+          </span>
+        )}
 
         <span>
-          {currentUser ? greetingName : "Guest"}
+          {currentUser
+            ? greetingName
+            : "Guest"}
         </span>
 
         <Icon
@@ -76,4 +96,5 @@ function DesktopTopbar({
   );
 }
 
-export default DesktopTopbar
+
+export default DesktopTopbar;
