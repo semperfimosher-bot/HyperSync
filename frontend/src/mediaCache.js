@@ -152,7 +152,7 @@ export async function warmMedia(
 
             credentials: "include",
 
-            cache: "force-cache",
+            cache: "no-cache",
           },
         );
 
