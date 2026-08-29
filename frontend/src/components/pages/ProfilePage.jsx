@@ -304,20 +304,6 @@ export default function ProfilePage({
 
 
           <div className="hs-profile-actions">
-            <button
-              className="hs-primary-button"
-              type="button"
-              onClick={() => {
-                setEditing(true);
-              }}
-            >
-              <Icon
-                name="edit"
-                size={16}
-              />
-
-              Edit Profile
-            </button>
 
             {profile?.pending_requests_count >
             0 ? (
