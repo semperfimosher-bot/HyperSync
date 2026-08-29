@@ -178,6 +178,7 @@ async def get_track_artwork(track_id: UUID):
                 "Cache-Control": (
                     f"public, max-age={cache_seconds}, stale-while-revalidate={cache_seconds * 2}"
                 ),
+                "Vary": "Origin",
             },
         )
     except Exception as exc:
