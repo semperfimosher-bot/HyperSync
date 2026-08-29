@@ -12,7 +12,6 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     false,
     func,
@@ -184,6 +183,13 @@ class UserProfile(
         server_default=true(),
     )
 
+    music_activity_public: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
+
     user: Mapped[User] = relationship(
         back_populates="profile",
     )
@@ -262,11 +268,6 @@ class UserFollow(
     __tablename__ = "user_follows"
 
     __table_args__ = (
-        UniqueConstraint(
-            "follower_id",
-            "following_id",
-            name="uq_user_follows_pair",
-        ),
         CheckConstraint(
             "follower_id <> following_id",
             name="ck_user_follows_not_self",
@@ -287,6 +288,11 @@ class UserFollow(
             ondelete="CASCADE",
         ),
         primary_key=True,
+    )
+
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
 

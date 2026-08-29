@@ -1,8 +1,4 @@
-import {
-  getMyProfile,
-  updateMyProfile,
-  updatePrivacy,
-} from "./profileApi.js";
+
 
 import {
   useCallback,
@@ -61,6 +57,10 @@ import LibraryPage from "./components/pages/LibraryPage.jsx";
 
 import SearchPage from "./components/pages/SearchPage.jsx";
 
+import ProfilePage from "./components/pages/ProfilePage.jsx";
+
+import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
+
 import SectionHeading from "./components/ui/SectionHeading.jsx";
 
 import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
@@ -72,589 +72,6 @@ import {
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
-
-function ProfileStat({
-  icon,
-  value,
-  label,
-}) {
-  return (
-    <div className="profile-stat">
-      <span>
-        <Icon
-          name={icon}
-          size={18}
-        />
-      </span>
-
-      <strong>{value}</strong>
-      <small>{label}</small>
-    </div>
-  );
-}
-
-function SettingsRow({
-  icon,
-  label,
-  value,
-  onClick,
-  disabled = false,
-}) {
-  return (
-    <button
-      className="settings-row"
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <Icon
-        name={icon}
-        size={17}
-      />
-
-      <span>{label}</span>
-
-      {value ? <small>{value}</small> : null}
-
-      <Icon
-        name="chevron"
-        size={15}
-      />
-    </button>
-  );
-}
-
-function ProfilePage({
-  currentUser,
-  onOpenAuth,
-  onLogout,
-  compactMode,
-  onToggleCompact,
-  statusMessage,
-  onStatusMessage,
-}) {
-  const [
-    profile,
-    setProfile,
-  ] = useState(null);
-
-  const [
-    loading,
-    setLoading,
-  ] = useState(
-    Boolean(currentUser),
-  );
-
-  const [
-    error,
-    setError,
-  ] = useState("");
-
-  const [
-    editing,
-    setEditing,
-  ] = useState(false);
-
-  const [
-    displayName,
-    setDisplayName,
-  ] = useState("");
-
-  const [
-    bio,
-    setBio,
-  ] = useState("");
-
-  const [
-    saving,
-    setSaving,
-  ] = useState(false);
-
-  const loadProfile =
-    useCallback(async () => {
-      if (!currentUser) {
-        setProfile(null);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError("");
-
-      try {
-        const data =
-          await getMyProfile();
-
-        setProfile(data);
-
-        setDisplayName(
-          data.display_name || "",
-        );
-
-        setBio(
-          data.bio || "",
-        );
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load profile.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, [currentUser]);
-
-  useEffect(() => {
-    void loadProfile();
-  }, [loadProfile]);
-
-  const saveProfile =
-    async () => {
-      setSaving(true);
-      setError("");
-
-      try {
-        const updated =
-          await updateMyProfile({
-            displayName,
-            bio,
-          });
-
-        setProfile(updated);
-
-        setEditing(false);
-
-        onStatusMessage(
-          "Profile updated.",
-        );
-      } catch (saveError) {
-        setError(
-          saveError instanceof Error
-            ? saveError.message
-            : "Unable to save profile.",
-        );
-      } finally {
-        setSaving(false);
-      }
-    };
-
-  const togglePrivacy =
-    async () => {
-      if (!profile) {
-        return;
-      }
-
-      try {
-        const updated =
-          await updatePrivacy(
-            !profile.is_public,
-          );
-
-        setProfile(updated);
-
-        onStatusMessage(
-          updated.is_public
-            ? "Your profile is now public."
-            : "Your profile is now private.",
-        );
-      } catch (privacyError) {
-        setError(
-          privacyError instanceof Error
-            ? privacyError.message
-            : "Unable to update privacy.",
-        );
-      }
-    };
-
-  if (!currentUser) {
-    return (
-      <div className="page-stack profile-page">
-        <section className="profile-identity">
-          <div className="profile-avatar">
-            <Icon
-              name="profile"
-              size={42}
-            />
-          </div>
-
-          <div className="profile-identity__copy">
-            <h2>Guest</h2>
-
-            <p>
-              Sign in to build your
-              HyperSynced profile.
-            </p>
-
-            <button
-              type="button"
-              onClick={onOpenAuth}
-            >
-              Sign In
-            </button>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
-  const name =
-    profile?.display_name ||
-    currentUser.display_name ||
-    currentUser.username;
-
-  const initials =
-    name
-      .split(/\s+/)
-      .map((part) =>
-        part[0],
-      )
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-
-  return (
-    <div className="page-stack profile-page">
-      <section className="profile-identity">
-        <div className="profile-avatar-wrap">
-          <div className="profile-avatar">
-            <strong>
-              {initials}
-            </strong>
-          </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              setEditing(
-                !editing,
-              )
-            }
-            aria-label="Edit profile"
-          >
-            <Icon
-              name="edit"
-              size={13}
-            />
-          </button>
-        </div>
-
-        <div className="profile-identity__copy">
-          <h2>{name}</h2>
-
-          <p>
-            @{currentUser.username}
-          </p>
-
-          {profile?.bio ? (
-            <small>
-              {profile.bio}
-            </small>
-          ) : (
-            <small>
-              Add a bio and make
-              your profile yours.
-            </small>
-          )}
-
-          <span className="profile-role-badge">
-            {currentUser.role === "admin"
-              ? "Administrator"
-              : "Member"}
-          </span>
-        </div>
-      </section>
-
-      {editing ? (
-        <section className="bevel-panel">
-          <SectionHeading
-            title="Edit Profile"
-          />
-
-          <div className="profile-editor">
-            <label>
-              Display Name
-
-              <input
-                value={displayName}
-                maxLength={80}
-                onChange={(event) =>
-                  setDisplayName(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              Bio
-
-              <textarea
-                value={bio}
-                maxLength={500}
-                rows={4}
-                onChange={(event) =>
-                  setBio(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            <div className="profile-editor__actions">
-              <button
-                type="button"
-                className="secondary-admin-button"
-                onClick={() =>
-                  setEditing(false)
-                }
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                className="primary-action"
-                disabled={saving}
-                onClick={saveProfile}
-              >
-                {saving
-                  ? "Saving..."
-                  : "Save Profile"}
-              </button>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="profile-stats bevel-panel">
-        <ProfileStat
-          icon="music"
-          value={
-            loading
-              ? "..."
-              : profile?.tracks_played ?? 0
-          }
-          label="Tracks Played"
-        />
-
-        <ProfileStat
-          icon="people"
-          value={
-            loading
-              ? "..."
-              : profile?.followers_count ?? 0
-          }
-          label="Followers"
-        />
-
-        <ProfileStat
-          icon="profile"
-          value={
-            loading
-              ? "..."
-              : profile?.following_count ?? 0
-          }
-          label="Following"
-        />
-
-        <ProfileStat
-          icon="headphones"
-          value={
-            loading
-              ? "..."
-              : `${profile?.hours_listened ?? 0}h`
-          }
-          label="Hours Listened"
-        />
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Recently Played"
-        />
-
-        <div className="profile-card-grid">
-          {profile?.recently_played?.length
-            ? profile.recently_played.map(
-                (track) => (
-                  <article
-                    className="profile-media-card"
-                    key={track.id}
-                  >
-                    <TrackArtwork
-                      src={track.artwork_url}
-                      alt={track.title}
-                      variant={1}
-                    />
-
-                    <strong>
-                      {track.title}
-                    </strong>
-
-                    <small>
-                      {track.artist}
-                    </small>
-                  </article>
-                ),
-              )
-            : (
-              <div className="genre-empty-panel">
-                <div>
-                  <strong>
-                    Nothing played yet
-                  </strong>
-
-                  <p>
-                    Play a song and your
-                    listening history will
-                    appear here.
-                  </p>
-                </div>
-              </div>
-            )}
-        </div>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Top Artists"
-        />
-
-        <div className="genre-empty-panel">
-          {profile?.top_artists?.length
-            ? (
-              <div className="top-artists-list">
-                {profile.top_artists.map(
-                  (
-                    artist,
-                    index,
-                  ) => (
-                    <div
-                      key={artist.artist}
-                      className="top-artist-row"
-                    >
-                      <strong>
-                        #{index + 1}
-                      </strong>
-
-                      <span>
-                        {artist.artist}
-                      </span>
-
-                      <small>
-                        {artist.plays} plays
-                      </small>
-                    </div>
-                  ),
-                )}
-              </div>
-            )
-            : (
-              <div>
-                <strong>
-                  Your taste is loading...
-                </strong>
-
-                <p>
-                  Listen to some music and
-                  your top artists will
-                  appear here.
-                </p>
-              </div>
-            )}
-        </div>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Settings"
-        />
-
-        <div className="settings-panel settings-panel--settings">
-          <SettingsRow
-            icon="sun"
-            label="Appearance"
-            value={
-              compactMode
-                ? "Compact"
-                : "Comfortable"
-            }
-            onClick={onToggleCompact}
-          />
-
-          <SettingsRow
-            icon="shield"
-            label="Privacy"
-            value={
-              profile?.is_public
-                ? "Public"
-                : "Private"
-            }
-            onClick={togglePrivacy}
-          />
-
-          <SettingsRow
-            icon="bell"
-            label="Listening Stats"
-            value="Live"
-            onClick={loadProfile}
-          />
-        </div>
-      </section>
-
-      <section>
-        <SectionHeading
-          title="Account"
-        />
-
-        <div className="settings-panel settings-panel--account">
-          <SettingsRow
-            icon="profile"
-            label="Username"
-            value={`@${currentUser.username}`}
-            disabled
-          />
-
-          <SettingsRow
-            icon="edit"
-            label="Edit Profile"
-            value="Profile"
-            onClick={() =>
-              setEditing(true)
-            }
-          />
-
-          <SettingsRow
-            icon="logout"
-            label="Log Out"
-            value={name}
-            onClick={onLogout}
-          />
-        </div>
-      </section>
-
-      {error ? (
-        <p
-          className="inline-status"
-          role="alert"
-        >
-          {error}
-        </p>
-      ) : null}
-
-      {statusMessage ? (
-        <p
-          className="inline-status"
-          role="status"
-        >
-          {statusMessage}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function AdminBotPage() {
   const [status, setStatus] = useState("offline");
   const [message, setMessage] = useState("");
@@ -1516,6 +933,8 @@ function AdminQuickAction({
 function MainPage({
   activePage,
   currentUser,
+  profileUsername,
+  onOpenProfile,
   onNavigate,
   onOpenAuth,
   onLogout,
@@ -1526,12 +945,19 @@ function MainPage({
   statusMessage,
   onStatusMessage,
 }) {
-  const adminPage = ADMIN_NAV_ITEMS.some(
-    (item) => item.id === activePage,
-  );
+  const adminPage =
+    ADMIN_NAV_ITEMS.some(
+      (item) =>
+        item.id === activePage,
+    );
+
 
   if (adminPage) {
-    if (!isAdminUser(currentUser)) {
+    if (
+      !isAdminUser(
+        currentUser,
+      )
+    ) {
       return (
         <div className="page-stack">
           <section className="admin-page__denied">
@@ -1540,70 +966,166 @@ function MainPage({
               size={28}
             />
 
-            <h2>Admin access required</h2>
+            <h2>
+              Admin access required
+            </h2>
 
             <p>
-              This area is available only to
-              HyperSync administrators.
+              This area is available
+              only to HyperSync
+              administrators.
             </p>
           </section>
         </div>
       );
     }
 
-    if (activePage === "admin") {
-      return <AdminDashboardPage />;
+
+    if (
+      activePage === "admin"
+    ) {
+      return (
+        <AdminDashboardPage />
+      );
     }
 
-    if (activePage === "admin-bot") {
-      return <AdminBotPage />;
+
+    if (
+      activePage ===
+      "admin-bot"
+    ) {
+      return (
+        <AdminBotPage />
+      );
     }
 
-    if (activePage === "admin-uploads") {
-      return <AdminUploadsPage />;
+
+    if (
+      activePage ===
+      "admin-uploads"
+    ) {
+      return (
+        <AdminUploadsPage />
+      );
     }
 
-    if (activePage === "admin-catalog") {
-      return <AdminCatalogPage />;
+
+    if (
+      activePage ===
+      "admin-catalog"
+    ) {
+      return (
+        <AdminCatalogPage />
+      );
     }
   }
 
-  if (activePage === "search") {
+
+  if (
+    activePage === "search"
+  ) {
     return (
       <SearchPage
         query={query}
-        onQueryChange={onQueryChange}
+        onQueryChange={
+          onQueryChange
+        }
+        onOpenProfile={
+          onOpenProfile
+        }
       />
     );
   }
 
-  if (activePage === "library") {
+
+  if (
+    activePage === "library"
+  ) {
     return (
       <LibraryPage
-        onOpenAuth={onOpenAuth}
+        onOpenAuth={
+          onOpenAuth
+        }
       />
     );
   }
 
-  if (activePage === "profile") {
+
+  if (
+    activePage === "profile"
+  ) {
     return (
       <ProfilePage
-        currentUser={currentUser}
-        onOpenAuth={onOpenAuth}
-        onLogout={onLogout}
-        compactMode={compactMode}
-        onToggleCompact={onToggleCompact}
-        statusMessage={statusMessage}
-        onStatusMessage={onStatusMessage}
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={
+          onOpenAuth
+        }
+        onLogout={
+          onLogout
+        }
+        compactMode={
+          compactMode
+        }
+        onToggleCompact={
+          onToggleCompact
+        }
+        statusMessage={
+          statusMessage
+        }
+        onStatusMessage={
+          onStatusMessage
+        }
+        onOpenProfile={
+          onOpenProfile
+        }
+        onSearchArtist={
+          onQueryChange
+        }
       />
     );
   }
+
+
+  if (
+    activePage ===
+      "public-profile" &&
+    profileUsername
+  ) {
+    return (
+      <PublicProfilePage
+        username={
+          profileUsername
+        }
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={
+          onOpenAuth
+        }
+        onOpenProfile={
+          onOpenProfile
+        }
+        onSearchArtist={
+          onQueryChange
+        }
+      />
+    );
+  }
+
 
   return (
     <HomePage
-      currentUser={currentUser}
-      onNavigate={onNavigate}
-      onOpenAuth={onOpenAuth}
+      currentUser={
+        currentUser
+      }
+      onNavigate={
+        onNavigate
+      }
+      onOpenAuth={
+        onOpenAuth
+      }
     />
   );
 }
@@ -2206,6 +1728,11 @@ export default function App() {
   const [activePage, setActivePage] =
     useState("home");
 
+    const [
+    activeProfileUsername,
+    setActiveProfileUsername,
+  ] = useState("");
+
   const [searchQuery, setSearchQuery] =
     useState("");
 
@@ -2231,13 +1758,18 @@ export default function App() {
 
     setCurrentUser(null);
     setActivePage("home");
+    setActiveProfileUsername("");
     setAuthMode("signin");
     setAuthOpen(false);
   }
 
-  const pageTitle =
-    PAGE_TITLES[activePage] ??
-    "HyperSync";
+    const pageTitle =
+    activePage ===
+    "public-profile"
+      ? "Profile"
+      : PAGE_TITLES[
+          activePage
+        ] ?? "HyperSync";
 
   const appClassName = useMemo(
     () => (
@@ -2308,10 +1840,33 @@ export default function App() {
     };
   }, []);
 
-  const navigate = useCallback((page) => {
-    setActivePage(page);
-    setStatusMessage("");
-  }, []);
+  const navigate =
+    useCallback((page) => {
+      if (
+        page !==
+        "public-profile"
+      ) {
+        setActiveProfileUsername(
+          "",
+        );
+      }
+
+      setActivePage(page);
+      setStatusMessage("");
+    }, []);
+
+    const openUserProfile =
+    useCallback((username) => {
+      setActiveProfileUsername(
+        username,
+      );
+
+      setActivePage(
+        "public-profile",
+      );
+
+      setStatusMessage("");
+    }, []);
 
   const updateSearch = useCallback((value) => {
     setSearchQuery(value);
@@ -2386,6 +1941,12 @@ export default function App() {
           <MainPage
             activePage={activePage}
             currentUser={currentUser}
+            profileUsername={
+              activeProfileUsername
+            }
+            onOpenProfile={
+              openUserProfile
+            }
             onNavigate={navigate}
             onOpenAuth={() => {
               openAuth("signin");

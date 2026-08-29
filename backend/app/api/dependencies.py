@@ -134,6 +134,28 @@ CurrentUser = Annotated[
 ]
 
 
+async def get_optional_current_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(bearer_scheme),
+    ],
+    session: DatabaseSession,
+) -> User | None:
+    if credentials is None:
+        return None
+
+    return await get_current_user(
+        credentials,
+        session,
+    )
+
+
+OptionalCurrentUser = Annotated[
+    User | None,
+    Depends(get_optional_current_user),
+]
+
+
 async def require_admin(
     user: Annotated[
         User,

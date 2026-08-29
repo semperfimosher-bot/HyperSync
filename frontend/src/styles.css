@@ -1,4 +1,5 @@
 @import "./styles/base.css";
 @import "./styles/desktop.css";
 @import "./styles/mobile.css";
-@import "./styles/uploads.css"
+@import "./styles/uploads.css";
+@import "./styles/profile.css"

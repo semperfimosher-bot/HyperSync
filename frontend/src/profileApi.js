@@ -10,21 +10,17 @@ export async function getMyProfile() {
 }
 
 
-export async function updateMyProfile(
-  {
-    displayName,
-    bio,
-  },
-) {
+export async function updateMyProfile({
+  displayName,
+  bio,
+}) {
   return apiRequest(
     "/users/me/profile",
     {
       method: "PATCH",
 
       body: JSON.stringify({
-        display_name:
-          displayName,
-
+        display_name: displayName,
         bio,
       }),
     },
@@ -33,7 +29,7 @@ export async function updateMyProfile(
 
 
 export async function updatePrivacy(
-  isPublic,
+  musicActivityPublic,
 ) {
   return apiRequest(
     "/users/me/privacy",
@@ -41,8 +37,8 @@ export async function updatePrivacy(
       method: "PATCH",
 
       body: JSON.stringify({
-        is_public:
-          isPublic,
+        music_activity_public:
+          musicActivityPublic,
       }),
     },
   );
@@ -87,6 +83,7 @@ export async function unfollowUser(
   );
 }
 
+
 export async function uploadProfileAvatar(
   file,
 ) {
@@ -104,6 +101,73 @@ export async function uploadProfileAvatar(
       method: "POST",
       body: formData,
     },
+  );
+}
+
+
+export async function removeProfileAvatar() {
+  return apiRequest(
+    "/users/me/avatar",
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+
+export async function getFollowRequests() {
+  return apiRequest(
+    "/users/me/follow-requests",
+  );
+}
+
+
+export async function acceptFollowRequest(
+  username,
+) {
+  return apiRequest(
+    `/users/me/follow-requests/${encodeURIComponent(
+      username,
+    )}/accept`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+
+export async function declineFollowRequest(
+  username,
+) {
+  return apiRequest(
+    `/users/me/follow-requests/${encodeURIComponent(
+      username,
+    )}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+
+export async function getFollowers(
+  username,
+) {
+  return apiRequest(
+    `/users/${encodeURIComponent(
+      username,
+    )}/followers`,
+  );
+}
+
+
+export async function getFollowing(
+  username,
+) {
+  return apiRequest(
+    `/users/${encodeURIComponent(
+      username,
+    )}/following`,
   );
 }
 

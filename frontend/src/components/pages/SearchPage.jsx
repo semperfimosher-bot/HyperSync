@@ -9,6 +9,7 @@ import {
 
 import * as player from "../../audioPlayer.js";
 
+import Avatar from "../profile/Avatar.jsx";
 import Icon from "../ui/Icon.jsx";
 import SectionHeading from "../ui/SectionHeading.jsx";
 
@@ -18,17 +19,52 @@ import {
 } from "../../constants.js";
 
 
+function memberFor(value) {
+  if (!value) {
+    return "New member";
+  }
+
+  const days =
+    Math.max(
+      0,
+      Math.floor(
+        (
+          Date.now() -
+          new Date(value).getTime()
+        ) / 86400000,
+      ),
+    );
+
+  if (days < 30) {
+    return `${Math.max(
+      days,
+      1,
+    )}d on HyperSync`;
+  }
+
+  if (days < 365) {
+    return `${Math.max(
+      1,
+      Math.floor(days / 30),
+    )}mo on HyperSync`;
+  }
+
+  return `${Math.floor(
+    days / 365,
+  )}y on HyperSync`;
+}
+
+
 function SearchPage({
   query,
   onQueryChange,
+  onOpenProfile,
 }) {
   const normalizedQuery =
     query.trim();
 
-  const [
-    results,
-    setResults,
-  ] = useState([]);
+  const [results, setResults] =
+    useState([]);
 
   const [
     userResults,
@@ -49,7 +85,6 @@ function SearchPage({
         setResults([]);
         setUserResults([]);
         setSearchError("");
-
         return;
       }
 
@@ -82,6 +117,7 @@ function SearchPage({
 
           setSearchError("");
         }
+
       } catch (error) {
         if (!cancelled) {
           setResults([]);
@@ -96,14 +132,13 @@ function SearchPage({
       }
     }
 
-    loadResults();
+    void loadResults();
 
     return () => {
       cancelled = true;
     };
-  }, [
-    normalizedQuery,
-  ]);
+
+  }, [normalizedQuery]);
 
 
   return (
@@ -117,9 +152,7 @@ function SearchPage({
         <input
           type="search"
           value={query}
-          placeholder={
-            "Search for songs, artists, albums, or people"
-          }
+          placeholder="Search songs, artists, albums, or people"
           onChange={(event) => {
             onQueryChange(
               event.target.value,
@@ -158,7 +191,9 @@ function SearchPage({
                 </strong>
 
                 <Icon
-                  name={category.icon}
+                  name={
+                    category.icon
+                  }
                   size={31}
                 />
               </button>
@@ -207,9 +242,11 @@ function SearchPage({
                 </p>
               </div>
             </div>
+
           ) : (
             <div className="search-results-stack">
-              {userResults.length > 0 ? (
+              {userResults.length >
+              0 ? (
                 <div>
                   <SectionHeading
                     title="People"
@@ -219,44 +256,58 @@ function SearchPage({
                     {userResults.map(
                       (user) => (
                         <button
-                          className="user-search-card"
+                          className="user-search-card hs-user-result"
                           type="button"
-                          key={user.username}
+                          key={
+                            user.username
+                          }
                           onClick={() => {
-                            window.location.hash =
-                              `profile/${encodeURIComponent(
-                                user.username,
-                              )}`;
+                            onOpenProfile?.(
+                              user.username,
+                            );
                           }}
                         >
-                          {user.avatar_url ? (
-                            <img
-                              src={user.avatar_url}
-                              alt=""
-                            />
-                          ) : (
-                            <span>
-                              {user.display_name
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </span>
-                          )}
+                          <Avatar
+                            src={
+                              user.avatar_url
+                            }
+                            name={
+                              user.display_name
+                            }
+                            size="small"
+                          />
 
                           <div>
                             <strong>
-                              {user.display_name}
+                              {
+                                user.display_name
+                              }
                             </strong>
 
                             <small>
-                              @{user.username}
+                              @
+                              {
+                                user.username
+                              }
                             </small>
 
-                            {user.bio ? (
-                              <p>
-                                {user.bio}
-                              </p>
-                            ) : null}
+                            <p>
+                              {
+                                user.followers_count
+                              }
+                              {" "}
+                              followers
+                              {" • "}
+                              {memberFor(
+                                user.member_since,
+                              )}
+                            </p>
                           </div>
+
+                          <Icon
+                            name="chevron"
+                            size={16}
+                          />
                         </button>
                       ),
                     )}
@@ -283,14 +334,14 @@ function SearchPage({
                               {
                                 artworkUrl:
                                   track.artwork_url,
-
                                 title:
                                   track.title,
-
                                 artist:
                                   track.artist,
                               },
-                            ).catch(() => {});
+                            ).catch(
+                              () => {},
+                            );
                           }}
                         >
                           {track.title}
@@ -304,8 +355,10 @@ function SearchPage({
               ) : null}
 
 
-              {results.length === 0 &&
-              userResults.length === 0 ? (
+              {results.length ===
+                0 &&
+              userResults.length ===
+                0 ? (
                 <div className="search-empty-panel">
                   <Icon
                     name="search"
@@ -325,6 +378,7 @@ function SearchPage({
               ) : null}
             </div>
           )
+
         ) : (
           <div className="search-empty-panel">
             <Icon
