@@ -4,6 +4,7 @@ import {
 } from "react";
 
 import {
+  API_BASE,
   apiRequest,
 } from "../../api/client.js";
 
@@ -18,6 +19,20 @@ import {
   SEARCH_SUGGESTIONS,
 } from "../../constants.js";
 
+function resolveArtworkUrl(url) {
+  if (!url) {
+    return null;
+  }
+
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  ) {
+    return url;
+  }
+
+  return `${API_BASE}${url.replace(/^\/api/, "")}`;
+}
 
 function memberFor(value) {
   if (!value) {
@@ -317,42 +332,90 @@ function SearchPage({
 
 
               {results.length > 0 ? (
-                <div>
-                  <SectionHeading
-                    title="Music"
-                  />
+  <div>
+    <SectionHeading
+      title="Music"
+    />
 
-                  <div className="search-chips">
-                    {results.map(
-                      (track) => (
-                        <button
-                          key={track.id}
-                          type="button"
-                          onClick={() => {
-                            player.playTrack(
-                              track.id,
-                              {
-                                artworkUrl:
-                                  track.artwork_url,
-                                title:
-                                  track.title,
-                                artist:
-                                  track.artist,
-                              },
-                            ).catch(
-                              () => {},
-                            );
-                          }}
-                        >
-                          {track.title}
-                          {" — "}
-                          {track.artist}
-                        </button>
-                      ),
-                    )}
-                  </div>
+    <div className="search-music-results">
+      {results.map((track) => {
+        const artworkUrl =
+          resolveArtworkUrl(
+            track.artwork_url,
+          );
+
+        return (
+          <button
+            key={track.id}
+            className="search-music-row"
+            type="button"
+            onClick={() => {
+              player
+                .playTrack(
+                  track.id,
+                  {
+                    artworkUrl,
+                    title:
+                      track.title,
+                    artist:
+                      track.artist,
+                  },
+                )
+                .catch(() => {});
+            }}
+          >
+            <div className="search-music-row__art">
+              {artworkUrl ? (
+                <img
+                  src={artworkUrl}
+                  alt=""
+                />
+              ) : (
+                <div className="search-music-row__fallback">
+                  <Icon
+                    name="music"
+                    size={20}
+                  />
                 </div>
+              )}
+
+              <span
+                className="search-music-row__playing"
+                aria-hidden="true"
+              >
+                ▶
+              </span>
+            </div>
+
+            <div className="search-music-row__info">
+              <strong>
+                {track.title}
+              </strong>
+
+              <small>
+                {track.artist ||
+                  "Unknown artist"}
+              </small>
+
+              {track.album ? (
+                <span>
+                  {track.album}
+                </span>
               ) : null}
+            </div>
+
+            <div
+              className="search-music-row__action"
+              aria-hidden="true"
+            >
+              ▶
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+) : null}
 
 
               {results.length ===
