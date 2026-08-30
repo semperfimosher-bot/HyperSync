@@ -101,6 +101,7 @@ class ProfileDashboardResponse(BaseModel):
     id: UUID
     username: str
     display_name: str
+    role: str
     bio: str | None
     avatar_url: str | None = None
 
@@ -442,6 +443,7 @@ async def build_dashboard(
         id=user.id,
         username=user.username or "",
         display_name=profile.display_name,
+        role=user.role.value,
         bio=profile.bio,
         avatar_url=avatar_url(user),
         music_activity_public=(profile.music_activity_public),

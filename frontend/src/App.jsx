@@ -1920,8 +1920,8 @@ export default function App() {
     setCompactMode((value) => !value);
   }, []);
 
-  const handleAuthenticated = useCallback((user) => {
-    cacheUserProfile(user);
+  const handleAuthenticated =
+  useCallback((user) => {
     setCurrentUser(user);
     setActivePage("home");
     setAuthOpen(false);

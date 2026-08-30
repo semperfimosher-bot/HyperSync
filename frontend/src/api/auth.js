@@ -94,7 +94,6 @@ function buildRestoredUser(
 
     role:
       claims?.role ??
-      cached?.role ??
       profile?.role ??
       "user",
 
