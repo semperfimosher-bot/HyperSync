@@ -338,7 +338,7 @@ function SearchPage({
     />
 
     <div className="search-music-results">
-      {results.map((track) => {
+      {results.map((track, trackIndex) => {
         const artworkUrl =
           resolveArtworkUrl(
             track.artwork_url,
@@ -350,19 +350,32 @@ function SearchPage({
             className="search-music-row"
             type="button"
             onClick={() => {
-              player
-                .playTrack(
-                  track.id,
-                  {
-                    artworkUrl,
-                    title:
-                      track.title,
-                    artist:
-                      track.artist,
-                  },
-                )
-                .catch(() => {});
-            }}
+  const queue =
+    results.map(
+      (item) => ({
+        id:
+          item.id,
+
+        artworkUrl:
+          resolveArtworkUrl(
+            item.artwork_url,
+          ),
+
+        title:
+          item.title,
+
+        artist:
+          item.artist,
+      }),
+    );
+
+  player
+    .playTrackQueue(
+      queue,
+      trackIndex,
+    )
+    .catch(() => {});
+}}
           >
             <div className="search-music-row__art">
               {artworkUrl ? (

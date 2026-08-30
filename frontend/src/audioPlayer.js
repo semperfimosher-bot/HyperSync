@@ -13,6 +13,10 @@ import {
   warmMedia,
 } from "./mediaCache.js";
 
+import {
+  buildTrackQueue,
+  getNextQueueIndex,
+} from "./playerQueue.js";
 
 const audio =
   new Audio();
@@ -41,6 +45,11 @@ let currentTrackId =
 let currentObjectUrl =
   null;
 
+let currentQueue =
+  [];
+
+let currentQueueIndex =
+  -1;
 
 function revokeCurrentObjectUrl() {
   if (!currentObjectUrl) {
@@ -55,6 +64,50 @@ function revokeCurrentObjectUrl() {
     null;
 }
 
+function clearQueue() {
+  currentQueue =
+    [];
+
+  currentQueueIndex =
+    -1;
+}
+
+
+function audioUrlForTrack(
+  trackId,
+) {
+  const base =
+    API_BASE.replace(
+      /\/$/,
+      "",
+    );
+
+  return (
+    `${base}/audio/${trackId}`
+  );
+}
+
+
+function warmNextQueueTrack() {
+  const nextIndex =
+    getNextQueueIndex(
+      currentQueue,
+      currentQueueIndex,
+    );
+
+  if (nextIndex === -1) {
+    return;
+  }
+
+  const nextTrack =
+    currentQueue[nextIndex];
+
+  void warmMedia(
+    audioUrlForTrack(
+      nextTrack.id,
+    ),
+  ).catch(() => {});
+}
 
 function notify() {
   const state =
@@ -128,6 +181,45 @@ export function getState() {
 }
 
 
+async function playNextQueueTrack() {
+  const nextIndex =
+    getNextQueueIndex(
+      currentQueue,
+      currentQueueIndex,
+    );
+
+  /*
+   * End of the current queue.
+   *
+   * For now playback ends naturally.
+   *
+   * Later this is where HyperSync can
+   * request suggested tracks and append
+   * them to the queue.
+   */
+  if (nextIndex === -1) {
+    notify();
+    return;
+  }
+
+  currentQueueIndex =
+    nextIndex;
+
+  const nextTrack =
+    currentQueue[nextIndex];
+
+  try {
+    await playTrackInternal(
+      nextTrack.id,
+      nextTrack.meta,
+      true,
+    );
+  } catch {
+    notify();
+  }
+}
+
+
 function attachEvents() {
   [
     "play",
@@ -135,7 +227,6 @@ function attachEvents() {
     "timeupdate",
     "durationchange",
     "volumechange",
-    "ended",
     "loadedmetadata",
     "error",
   ].forEach(
@@ -146,8 +237,14 @@ function attachEvents() {
       );
     },
   );
-}
 
+  audio.addEventListener(
+    "ended",
+    () => {
+      void playNextQueueTrack();
+    },
+  );
+}
 
 attachEvents();
 
@@ -190,12 +287,17 @@ async function loadAudioSource(
 }
 
 
-export async function playTrack(
+async function playTrackInternal(
   trackId,
   meta = {},
+  keepQueue = false,
 ) {
   if (!trackId) {
     return;
+  }
+
+  if (!keepQueue) {
+    clearQueue();
   }
 
   const {
@@ -216,14 +318,10 @@ export async function playTrack(
   currentTrackArtist =
     artist;
 
-  const base =
-    API_BASE.replace(
-      /\/$/,
-      "",
-    );
-
   const url =
-    `${base}/audio/${trackId}`;
+    audioUrlForTrack(
+      trackId,
+    );
 
   await loadAudioSource(
     url,
@@ -236,24 +334,91 @@ export async function playTrack(
 
   await audio.play();
 
-if (
-  currentTrackId &&
-  getAccessToken()
-) {
-  void apiRequest(
-    "/users/me/listening",
-    {
-      method: "POST",
+  /*
+   * Start warming the following track
+   * as soon as the current one begins.
+   */
+  if (keepQueue) {
+    warmNextQueueTrack();
+  }
 
-      body: JSON.stringify({
-        track_id:
-          currentTrackId,
-      }),
-    },
-  ).catch(() => {});
+  if (
+    currentTrackId &&
+    getAccessToken()
+  ) {
+    void apiRequest(
+      "/users/me/listening",
+      {
+        method: "POST",
+
+        body: JSON.stringify({
+          track_id:
+            currentTrackId,
+        }),
+      },
+    ).catch(() => {});
+  }
+
+  return getState();
 }
 
-return getState();
+
+export async function playTrack(
+  trackId,
+  meta = {},
+) {
+  return playTrackInternal(
+    trackId,
+    meta,
+    false,
+  );
+}
+
+
+export async function playTrackQueue(
+  tracks,
+  startIndex = 0,
+) {
+  const queue =
+    buildTrackQueue(
+      tracks,
+    );
+
+  if (queue.length === 0) {
+    clearQueue();
+    return;
+  }
+
+  const requestedIndex =
+    Number.isInteger(startIndex)
+      ? startIndex
+      : 0;
+
+  const safeIndex =
+    Math.min(
+      Math.max(
+        requestedIndex,
+        0,
+      ),
+      queue.length - 1,
+    );
+
+  currentQueue =
+    queue;
+
+  currentQueueIndex =
+    safeIndex;
+
+  const track =
+    currentQueue[
+      currentQueueIndex
+    ];
+
+  return playTrackInternal(
+    track.id,
+    track.meta,
+    true,
+  );
 }
 
 export async function playUrl(
@@ -263,6 +428,8 @@ export async function playUrl(
   if (!url) {
     return;
   }
+
+  clearQueue();
 
   const {
     artworkUrl = null,
@@ -325,6 +492,8 @@ export function stopTrack(
   }
 
   audio.pause();
+
+  clearQueue();
 
   audio.removeAttribute(
     "src",
@@ -405,6 +574,7 @@ if (
   ) {
     window.__HYPERSYNC_PLAYER = {
       playTrack,
+      playTrackQueue,
       playUrl,
       togglePlay,
       stopTrack,
