@@ -1727,7 +1727,7 @@ function AuthOverlay({
 
 export default function App() {
   const [currentUser, setCurrentUser] =
-    useState(() => readCachedUserProfile());
+    useState(null);
 
   const [activePage, setActivePage] =
     useState("home");
@@ -2015,11 +2015,9 @@ export default function App() {
   onClose={() => {
     setAuthOpen(false);
   }}
-  onAuthenticated={(user) => {
-    cacheUserProfile(user);
-    setCurrentUser(user);
-    setActivePage("home");
-  }}
+  onAuthenticated={
+    handleAuthenticated
+  }
   onGuest={() => {
     setAuthOpen(false);
   }}

@@ -92,10 +92,10 @@ function buildRestoredUser(
     ...(cached || {}),
     ...(profile || {}),
 
-    role:
-      claims?.role ??
-      profile?.role ??
-      "user",
+  role:
+    profile?.role ??
+    claims?.role ??
+    "user",
 
     username:
       profile?.username ??
@@ -146,33 +146,45 @@ async function restoreSessionInternal() {
 
 
   if (
-    token &&
-    !isAccessTokenExpired(token)
-  ) {
-    try {
-      const profile =
-        await apiRequest(
-          "/users/me",
-        );
-
-      const user =
-        buildRestoredUser(
-          profile,
-          token,
-        );
-
-      persistRestoredSession(
-        user,
-        token,
+  token &&
+  !isAccessTokenExpired(token)
+) {
+  try {
+    const profile =
+      await apiRequest(
+        "/users/me",
       );
 
-      return user;
+    /*
+     * apiRequest may have refreshed the
+     * token automatically if the server
+     * rejected the stored token.
+     *
+     * Always read the newest token again
+     * before persisting the session.
+     */
+    const activeToken =
+      getAccessToken() ??
+      token;
 
-    } catch {
-      // Access token may have expired or
-      // the session may need refreshing.
-    }
+    const user =
+      buildRestoredUser(
+        profile,
+        activeToken,
+      );
+
+    persistRestoredSession(
+      user,
+      activeToken,
+    );
+
+    return user;
+
+  } catch {
+    // Access token may have expired or
+    // the session may need refreshing.
   }
+}
 
 
   try {
@@ -181,21 +193,19 @@ async function restoreSessionInternal() {
 
 
     if (auth.user) {
-      const user =
-        buildRestoredUser(
-          auth.user,
-          auth.access_token,
-        );
+  const user =
+    buildRestoredUser(
+      auth.user,
+      auth.access_token,
+    );
 
-      cacheUserProfile(
-        user,
-        {
-          remember,
-        },
-      );
+  persistRestoredSession(
+    user,
+    auth.access_token,
+  );
 
-      return user;
-    }
+  return user;
+}
 
 
     const profile =

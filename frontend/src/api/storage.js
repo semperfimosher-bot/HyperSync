@@ -57,7 +57,12 @@ export function readCachedUserProfile() {
 
 export function cacheUserProfile(
   user,
-  { remember = true } = {},
+  {
+    remember =
+      localStorage.getItem(
+        REMEMBER_ME_KEY,
+      ) !== "false",
+  } = {},
 ) {
   if (!user) {
     return;
