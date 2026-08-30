@@ -232,7 +232,7 @@ export default function EditProfileModal({
         <header className="hs-edit-modal__header">
           <div>
             <span className="hs-eyebrow">
-              HYPERSYNC IDENTITY
+              HYPERSYNCED IDENTITY
             </span>
 
             <h2 id="edit-profile-title">
@@ -241,7 +241,7 @@ export default function EditProfileModal({
 
             <p>
               Make your corner of
-              HyperSync unmistakably yours.
+              HyperSynced unmistakably yours.
             </p>
           </div>
 
@@ -478,7 +478,7 @@ export default function EditProfileModal({
                 </strong>
 
                 <p>
-                  Your avatar, name,
+                  Your avatar,
                   username, follower count,
                   and account age always
                   remain discoverable.

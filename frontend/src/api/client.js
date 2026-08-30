@@ -14,7 +14,7 @@ let refreshInFlight = null;
 
 export function formatApiError(detail) {
   if (!detail) {
-    return "HyperSync request failed.";
+    return "HyperSynced request failed.";
   }
 
   if (typeof detail === "string") {

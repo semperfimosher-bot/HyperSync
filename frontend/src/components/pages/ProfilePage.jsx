@@ -176,7 +176,7 @@ export default function ProfilePage({
           />
 
           <h2>
-            Your HyperSync identity
+            Your HyperSynced identity
             starts here.
           </h2>
 
@@ -254,7 +254,7 @@ export default function ProfilePage({
 
         <div className="hs-profile-hero__identity">
           <span className="hs-eyebrow">
-            YOUR HYPERSYNC PROFILE
+            YOUR HYPERSYNCED PROFILE
           </span>
 
           <h1>{name}</h1>

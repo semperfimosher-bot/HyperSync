@@ -1530,7 +1530,7 @@ function AuthOverlay({
           <h2 id="auth-title">
             {isCreate
               ? "Create your HyperSync account"
-              : "Welcome to HyperSync"}
+              : "Welcome to HyperSynced"}
           </h2>
 
           <p>

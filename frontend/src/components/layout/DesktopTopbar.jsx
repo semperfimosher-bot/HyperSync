@@ -33,7 +33,7 @@ function DesktopTopbar({
   return (
     <header className="desktop-topbar">
       <div className="desktop-topbar__title">
-        <span>HyperSync</span>
+        <span>HyperSynced</span>
 
         <h1>
           {PAGE_TITLES[activePage]}

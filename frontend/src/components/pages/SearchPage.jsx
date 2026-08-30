@@ -463,7 +463,7 @@ function SearchPage({
             />
 
             <strong>
-              Search HyperSync
+              Search Hypersynced
             </strong>
 
             <p>
