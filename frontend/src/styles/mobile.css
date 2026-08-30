@@ -1079,267 +1079,6 @@
     white-space: nowrap;
   }
 }
-  /* =========================================================
-   SEARCH — REAL MOBILE MUSIC ROWS
-   ========================================================= */
-
-@media (max-width: 699px) {
-
-  .search-music-results {
-    display: flex;
-    flex-direction: column;
-
-    width: 100%;
-
-    gap: 5px;
-  }
-
-
-  .search-music-row {
-    position: relative;
-
-    display: grid;
-
-    grid-template-columns:
-      58px
-      minmax(0, 1fr)
-      32px;
-
-    align-items: center;
-
-    gap: 11px;
-
-    width: 100%;
-    min-width: 0;
-
-    padding:
-      7px
-      9px
-      7px
-      7px;
-
-    border:
-      1px solid
-      rgba(77, 153, 198, 0.1);
-
-    border-radius: 9px;
-
-    background:
-      linear-gradient(
-        90deg,
-        rgba(7, 17, 24, 0.94),
-        rgba(4, 11, 17, 0.74)
-      );
-
-    color: var(--text);
-
-    text-align: left;
-
-    overflow: hidden;
-
-    cursor: pointer;
-
-    transition:
-      transform 130ms ease,
-      background 130ms ease,
-      border-color 130ms ease;
-  }
-
-
-  .search-music-row:active {
-    transform:
-      scale(0.985);
-
-    border-color:
-      rgba(65, 191, 244, 0.34);
-
-    background:
-      rgba(7, 23, 33, 0.96);
-  }
-
-
-  /* =========================
-     ARTWORK
-     ========================= */
-
-  .search-music-row__art {
-    position: relative;
-
-    width: 58px;
-    height: 58px;
-
-    min-width: 58px;
-
-    overflow: hidden;
-
-    border-radius: 7px;
-
-    background:
-      rgba(15, 30, 40, 0.9);
-
-    box-shadow:
-      0 5px 14px
-      rgba(0, 0, 0, 0.22);
-  }
-
-
-  .search-music-row__art img {
-    display: block;
-
-    width: 100%;
-    height: 100%;
-
-    object-fit: cover;
-
-    border-radius: inherit;
-  }
-
-
-  .search-music-row__fallback {
-    display: grid;
-
-    place-items: center;
-
-    width: 100%;
-    height: 100%;
-
-    color:
-      rgba(116, 209, 248, 0.72);
-
-    background:
-      linear-gradient(
-        145deg,
-        rgba(15, 42, 57, 0.96),
-        rgba(5, 15, 22, 0.96)
-      );
-  }
-
-  /* =========================
-     TRACK INFORMATION
-     ========================= */
-
-  .search-music-row__info {
-    display: flex;
-
-    flex-direction: column;
-
-    justify-content: center;
-
-    min-width: 0;
-
-    gap: 3px;
-  }
-
-
-  .search-music-row__info strong {
-    display: block;
-
-    width: 100%;
-    min-width: 0;
-
-    overflow: hidden;
-
-    color: var(--text);
-
-    font-size: 13px;
-    font-weight: 780;
-
-    line-height: 1.2;
-
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-
-  .search-music-row__info small {
-    display: block;
-
-    width: 100%;
-    min-width: 0;
-
-    overflow: hidden;
-
-    color:
-      rgba(156, 181, 195, 0.82);
-
-    font-size: 10px;
-    font-weight: 600;
-
-    line-height: 1.2;
-
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-
-  .search-music-row__info span {
-    display: block;
-
-    width: 100%;
-    min-width: 0;
-
-    overflow: hidden;
-
-    color:
-      rgba(102, 129, 144, 0.72);
-
-    font-size: 9px;
-
-    line-height: 1.2;
-
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-
-  /* =========================
-     RIGHT-SIDE ACTION
-     ========================= */
-
-  .search-music-row__action {
-    display: grid;
-
-    place-items: center;
-
-    justify-self: end;
-
-    width: 29px;
-    height: 29px;
-
-    border:
-      1px solid
-      rgba(70, 184, 232, 0.15);
-
-    border-radius: 50%;
-
-    background:
-      rgba(26, 155, 216, 0.07);
-
-    color:
-      rgba(124, 218, 255, 0.82);
-
-    font-size: 8px;
-
-    transition:
-      background 130ms ease,
-      border-color 130ms ease,
-      transform 130ms ease;
-  }
-
-
-  .search-music-row:active
-  .search-music-row__action {
-    transform:
-      scale(0.92);
-
-    border-color:
-      rgba(70, 197, 248, 0.38);
-
-    background:
-      rgba(29, 169, 230, 0.15);
-  }
-
-}
 
 /* =========================================================
    SEARCH MUSIC RESULTS — DESKTOP DEFAULT
@@ -1517,6 +1256,340 @@
     var(--blue-bright);
 
   font-size: 8px;
+}
+
+/* =========================================================
+   SEARCH — MOBILE MUSIC RESULTS
+   Matches the People result-row layout
+   ========================================================= */
+
+@media (max-width: 699px) {
+
+  .search-music-results {
+    display: flex;
+    flex-direction: column;
+
+    width: 100%;
+
+    gap: 5px;
+  }
+
+
+  .search-music-row {
+    position: relative;
+
+    display: grid;
+
+    grid-template-columns:
+      46px
+      minmax(0, 1fr)
+      18px;
+
+    align-items: center;
+
+    gap: 10px;
+
+    width: 100%;
+    min-width: 0;
+    min-height: 68px;
+
+    padding:
+      8px
+      10px
+      8px
+      8px;
+
+    border:
+      1px solid
+      rgba(72, 159, 201, 0.13);
+
+    border-radius: 9px;
+
+    background:
+      linear-gradient(
+        100deg,
+        rgba(7, 17, 24, 0.96),
+        rgba(4, 12, 18, 0.9)
+      );
+
+    color: inherit;
+
+    text-align: left;
+
+    overflow: hidden;
+    cursor: pointer;
+
+    transition:
+      transform 150ms ease,
+      border-color 150ms ease,
+      background 150ms ease;
+  }
+
+
+  /* Thin left accent */
+
+  .search-music-row::before {
+    position: absolute;
+
+    top: 10px;
+    bottom: 10px;
+    left: 0;
+
+    width: 2px;
+
+    border-radius:
+      0
+      2px
+      2px
+      0;
+
+    background:
+      var(--blue-bright);
+
+    opacity: 0;
+
+    content: "";
+
+    transition:
+      opacity 150ms ease;
+  }
+
+
+  .search-music-row:active {
+    transform:
+      scale(0.985);
+
+    border-color:
+      rgba(63, 190, 242, 0.32);
+
+    background:
+      rgba(11, 31, 45, 0.97);
+  }
+
+
+  .search-music-row:active::before {
+    opacity: 1;
+  }
+
+
+  /* =========================
+     ARTWORK
+     ========================= */
+
+  .search-music-row__art {
+    position: relative;
+
+    width: 46px;
+    height: 46px;
+
+    min-width: 46px;
+
+    aspect-ratio: auto;
+
+    overflow: hidden;
+
+    border:
+      1px solid
+      rgba(81, 198, 243, 0.18);
+
+    border-radius: 7px;
+
+    background:
+      rgba(15, 30, 40, 0.9);
+
+    box-shadow:
+      0 0 0 3px
+      rgba(22, 152, 214, 0.03);
+  }
+
+
+  .search-music-row__art img {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    border-radius: inherit;
+  }
+
+
+  .search-music-row__fallback {
+    display: grid;
+
+    place-items: center;
+
+    width: 100%;
+    height: 100%;
+
+    color:
+      rgba(116, 209, 248, 0.72);
+
+    background:
+      linear-gradient(
+        145deg,
+        rgba(15, 42, 57, 0.96),
+        rgba(5, 15, 22, 0.96)
+      );
+  }
+
+
+  /*
+   The whole row already plays the song.
+   Hide the extra play overlay on artwork.
+  */
+
+  .search-music-row__playing {
+    display: none;
+  }
+
+
+  /* =========================
+     SONG INFORMATION
+     ========================= */
+
+  .search-music-row__info {
+    display: flex;
+    flex-direction: column;
+
+    justify-content: center;
+
+    min-width: 0;
+
+    gap: 2px;
+
+    padding-top: 0;
+  }
+
+
+  .search-music-row__info strong {
+    display: block;
+
+    width: 100%;
+    min-width: 0;
+
+    overflow: hidden;
+
+    color:
+      rgba(235, 247, 252, 0.96);
+
+    font-size: 12px;
+    font-weight: 800;
+
+    line-height: 1.25;
+
+    letter-spacing:
+      -0.015em;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+
+  .search-music-row__info small {
+    display: block;
+
+    width: 100%;
+    min-width: 0;
+
+    overflow: hidden;
+
+    color:
+      rgba(77, 193, 240, 0.84);
+
+    font-size: 9px;
+    font-weight: 700;
+
+    line-height: 1.3;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+
+  .search-music-row__info span {
+    display: block;
+
+    width: 100%;
+    min-width: 0;
+
+    overflow: hidden;
+
+    color:
+      rgba(113, 137, 150, 0.84);
+
+    font-size: 8px;
+    font-weight: 550;
+
+    line-height: 1.3;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+
+  /* =========================
+     SIMPLE RIGHT CHEVRON
+     ========================= */
+
+  .search-music-row__action {
+    display: grid;
+
+    place-items: center;
+
+    justify-self: end;
+
+    width: 18px;
+    height: 18px;
+
+    margin: 0;
+
+    border: 0;
+    border-radius: 0;
+
+    background: transparent;
+
+    color:
+      rgba(93, 160, 190, 0.55);
+
+    font-size: 0;
+
+    transition:
+      color 150ms ease,
+      transform 150ms ease;
+  }
+
+
+  /*
+   Replace the existing play character
+   visually with the same simple
+   navigation-style chevron used by
+   People results.
+  */
+
+  .search-music-row__action::before {
+    content: "›";
+
+    font-size: 20px;
+    font-weight: 500;
+
+    line-height: 1;
+  }
+
+
+  .search-music-row:active
+  .search-music-row__action {
+    transform:
+      translateX(2px);
+
+    color:
+      var(--blue-bright);
+
+    border-color: transparent;
+
+    background: transparent;
+  }
 }
 
 /* =========================================================
