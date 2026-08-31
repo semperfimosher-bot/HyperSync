@@ -1,9 +1,8 @@
-
-
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -25,6 +24,8 @@ import {
 } from "./api/auth.js";
 
 import { apiRequest } from "./api/client.js";
+
+import { normalizeAppViewState } from "./appViewState.js";
 
 import HexBackdrop from "./components/HexBackdrop.jsx";
 
@@ -176,7 +177,7 @@ function AdminBotPage() {
 
           <div>
             <strong>
-              HyperSync Bot
+              HyperSynced Bot
             </strong>
 
             <p>
@@ -1757,15 +1758,111 @@ export default function App() {
   const [statusMessage, setStatusMessage] =
     useState("");
 
-  function handleLogout() {
-    logoutSession();
+  const searchStateTimerRef =
+    useRef(null);
 
-    setCurrentUser(null);
-    setActivePage("home");
-    setActiveProfileUsername("");
-    setAuthMode("signin");
-    setAuthOpen(false);
-  }
+  const cancelPendingSearchSave =
+  useCallback(() => {
+    if (
+      searchStateTimerRef.current
+    ) {
+      window.clearTimeout(
+        searchStateTimerRef.current,
+      );
+
+      searchStateTimerRef.current =
+        null;
+    }
+  }, []);
+
+
+const restoreSavedAppView =
+  useCallback(
+    async (user) => {
+      try {
+        const state =
+          await apiRequest(
+            "/users/me/app-state",
+          );
+
+        const restored =
+          normalizeAppViewState(
+            state,
+            user?.role,
+          );
+
+        setActivePage(
+          restored.activePage,
+        );
+
+        setSearchQuery(
+          restored.searchQuery,
+        );
+
+        setActiveProfileUsername(
+          restored.profileUsername,
+        );
+      } catch {
+        setActivePage(
+          "home",
+        );
+
+        setSearchQuery(
+          "",
+        );
+
+        setActiveProfileUsername(
+          "",
+        );
+      }
+    },
+    [],
+  );
+
+
+const persistAppView =
+  useCallback(
+    (state) => {
+      if (!currentUser) {
+        return;
+      }
+
+      void apiRequest(
+        "/users/me/app-state",
+        {
+          method:
+            "PATCH",
+
+          body:
+            JSON.stringify(
+              state,
+            ),
+        },
+      ).catch(() => {});
+    },
+    [currentUser],
+  );
+
+  useEffect(() => {
+  return () => {
+    cancelPendingSearchSave();
+  };
+}, [
+  cancelPendingSearchSave,
+]);
+
+  function handleLogout() {
+  cancelPendingSearchSave();
+
+  logoutSession();
+
+  setCurrentUser(null);
+  setActivePage("home");
+  setSearchQuery("");
+  setActiveProfileUsername("");
+  setAuthMode("signin");
+  setAuthOpen(false);
+}
 
   const handleProfileUpdated =
   useCallback((profile) => {
@@ -1824,16 +1921,21 @@ export default function App() {
     let cancelled = false;
 
     const syncSession = () => {
-      restoreSession().then((user) => {
+      restoreSession().then(async (user) => {
         if (cancelled) {
           return;
         }
 
-        if (user) {
-          setCurrentUser(user);
-          setAuthOpen(false);
-          return;
-        }
+    if (user) {
+      setCurrentUser(user);
+      setAuthOpen(false);
+
+      await restoreSavedAppView(
+      user,
+      );
+
+      return;
+      }
 
         if (!readCachedUserProfile()) {
           setCurrentUser(null);
@@ -1868,10 +1970,15 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, []);
+}, [
+  restoreSavedAppView,
+]);
 
   const navigate =
-    useCallback((page) => {
+  useCallback(
+    (page) => {
+      cancelPendingSearchSave();
+
       if (
         page !==
         "public-profile"
@@ -1881,12 +1988,37 @@ export default function App() {
         );
       }
 
-      setActivePage(page);
-      setStatusMessage("");
-    }, []);
+      setActivePage(
+        page,
+      );
+
+      setStatusMessage(
+        "",
+      );
+
+      persistAppView({
+        active_page:
+          page,
+
+        search_query:
+          searchQuery,
+
+        profile_username:
+          null,
+      });
+    },
+    [
+      cancelPendingSearchSave,
+      persistAppView,
+      searchQuery,
+    ],
+  );
 
     const openUserProfile =
-    useCallback((username) => {
+  useCallback(
+    (username) => {
+      cancelPendingSearchSave();
+
       setActiveProfileUsername(
         username,
       );
@@ -1895,17 +2027,75 @@ export default function App() {
         "public-profile",
       );
 
-      setStatusMessage("");
-    }, []);
+      setStatusMessage(
+        "",
+      );
 
-  const updateSearch = useCallback((value) => {
-    setSearchQuery(value);
-    setActivePage((currentPage) => (
-      currentPage === "search"
-        ? currentPage
-        : "search"
-    ));
-  }, []);
+      persistAppView({
+        active_page:
+          "public-profile",
+
+        search_query:
+          searchQuery,
+
+        profile_username:
+          username,
+      });
+    },
+    [
+      cancelPendingSearchSave,
+      persistAppView,
+      searchQuery,
+    ],
+  );
+
+  const updateSearch =
+  useCallback(
+    (value) => {
+      setSearchQuery(
+        value,
+      );
+
+      setActiveProfileUsername(
+        "",
+      );
+
+      setActivePage(
+        "search",
+      );
+
+      cancelPendingSearchSave();
+
+      if (!currentUser) {
+        return;
+      }
+
+      searchStateTimerRef.current =
+        window.setTimeout(
+          () => {
+            searchStateTimerRef.current =
+              null;
+
+            persistAppView({
+              active_page:
+                "search",
+
+              search_query:
+                value,
+
+              profile_username:
+                null,
+            });
+          },
+          400,
+        );
+    },
+    [
+      cancelPendingSearchSave,
+      currentUser,
+      persistAppView,
+    ],
+  );
 
   const openAuth = useCallback((mode = "signin") => {
     setAuthMode(mode);
@@ -1921,11 +2111,27 @@ export default function App() {
   }, []);
 
   const handleAuthenticated =
-  useCallback((user) => {
-    setCurrentUser(user);
-    setActivePage("home");
-    setAuthOpen(false);
-  }, []);
+  useCallback(
+    (user) => {
+      cancelPendingSearchSave();
+
+      setCurrentUser(
+        user,
+      );
+
+      setAuthOpen(
+        false,
+      );
+
+      void restoreSavedAppView(
+        user,
+      );
+    },
+    [
+      cancelPendingSearchSave,
+      restoreSavedAppView,
+    ],
+  );
 
   const closeAuth = useCallback(() => {
     setAuthOpen(false);

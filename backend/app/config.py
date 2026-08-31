@@ -46,7 +46,7 @@ def _prepare_asyncpg_url(value: str) -> str:
 
 
 class Settings(BaseSettings):
-    app_name: str = "HyperSync"
+    app_name: str = "Hypersync"
     app_version: str = "0.1.0"
     environment: Literal["development", "test", "production"] = "development"
 

@@ -79,25 +79,14 @@ def make_user_response(
 ) -> UserResponse:
     avatar_url = None
 
-    if (
-        user.profile is not None
-        and user.profile.avatar_object_key
-        and user.username
-    ):
-        avatar_url = (
-            f"/api/users/"
-            f"{user.username}/avatar"
-        )
+    if user.profile is not None and user.profile.avatar_object_key and user.username:
+        avatar_url = f"/api/users/{user.username}/avatar"
 
     return UserResponse(
         id=str(user.id),
         username=user.username or "",
         email=user.email or "",
-        display_name=(
-            user.profile.display_name
-            if user.profile
-            else user.username or ""
-        ),
+        display_name=(user.profile.display_name if user.profile else user.username or ""),
         role=user.role.value,
         account_type=user.account_type.value,
         avatar_url=avatar_url,

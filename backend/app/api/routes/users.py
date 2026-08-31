@@ -2,7 +2,11 @@ import asyncio
 import logging
 import mimetypes
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import (
+    Annotated,
+    Literal,
+    cast,
+)
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -22,8 +26,10 @@ from ...database import get_session_factory
 from ...models.account import (
     ListeningEvent,
     User,
+    UserAppState,
     UserFollow,
     UserProfile,
+    UserRole,
 )
 from ...models.media import Track
 from ...services.b2 import (
@@ -61,6 +67,63 @@ class ProfileUpdateRequest(BaseModel):
 class PrivacyUpdateRequest(BaseModel):
     music_activity_public: bool
 
+AppPage = Literal[
+    "home",
+    "search",
+    "library",
+    "profile",
+    "public-profile",
+    "admin",
+    "admin-bot",
+    "admin-uploads",
+    "admin-catalog",
+]
+
+VALID_APP_PAGES: set[AppPage] = {
+    "home",
+    "search",
+    "library",
+    "profile",
+    "public-profile",
+    "admin",
+    "admin-bot",
+    "admin-uploads",
+    "admin-catalog",
+}
+
+ADMIN_APP_PAGES: set[AppPage] = {
+    "admin",
+    "admin-bot",
+    "admin-uploads",
+    "admin-catalog",
+}
+
+
+class AppStateResponse(BaseModel):
+    active_page: AppPage
+
+    search_query: str = ""
+
+    profile_username: (
+        str | None
+    ) = None
+
+class AppStateUpdateRequest(
+    BaseModel,
+):
+    active_page: AppPage
+
+    search_query: str = Field(
+        default="",
+        max_length=200,
+    )
+
+    profile_username: (
+        str | None
+    ) = Field(
+        default=None,
+        max_length=32,
+    )
 
 class ListeningRequest(BaseModel):
     track_id: UUID
@@ -194,6 +257,83 @@ async def get_user_by_username(
 
     return result.scalar_one_or_none()
 
+def default_app_state() -> (
+    AppStateResponse
+):
+    return AppStateResponse(
+        active_page="home",
+        search_query="",
+        profile_username=None,
+    )
+
+
+async def build_app_state(
+    session: DatabaseSession,
+    user: User,
+) -> AppStateResponse:
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if state is None:
+        return default_app_state()
+
+    if (
+    state.active_page
+    not in VALID_APP_PAGES
+    ):
+        
+        return default_app_state()
+
+    active_page = cast(
+        AppPage,
+        state.active_page,
+    )
+
+    if (
+    active_page
+    in ADMIN_APP_PAGES
+    and user.role
+    != UserRole.ADMIN
+    ):
+        
+        return default_app_state()
+
+    profile_username = (
+        state.profile_username
+    )
+
+    if (
+        active_page
+        == "public-profile"
+    ):
+        if not profile_username:
+            return default_app_state()
+
+        target = (
+            await get_user_by_username(
+                session,
+                profile_username,
+            )
+        )
+
+        if target is None:
+            return default_app_state()
+
+    else:
+        profile_username = None
+
+    return AppStateResponse(
+        active_page=active_page,
+        search_query=(
+            state.search_query
+            or ""
+        ),
+        profile_username=(
+            profile_username
+        ),
+    )
 
 async def accepted_followers_count(
     session: DatabaseSession,
@@ -891,6 +1031,130 @@ async def decline_follow_request(
     return {
         "status": "declined",
     }
+
+@router.get(
+    "/me/app-state",
+    response_model=AppStateResponse,
+)
+async def get_my_app_state(
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    return await build_app_state(
+        session,
+        user,
+    )
+
+
+@router.patch(
+    "/me/app-state",
+    response_model=AppStateResponse,
+)
+async def update_my_app_state(
+    payload: AppStateUpdateRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    if (
+        payload.active_page
+        in ADMIN_APP_PAGES
+        and user.role
+        != UserRole.ADMIN
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Administrator access "
+                "is required for this page."
+            ),
+        )
+
+    profile_username = (
+        payload.profile_username.strip()
+        if payload.profile_username
+        else None
+    )
+
+    if (
+        payload.active_page
+        == "public-profile"
+    ):
+        if not profile_username:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "A profile username "
+                    "is required."
+                ),
+            )
+
+        target = (
+            await get_user_by_username(
+                session,
+                profile_username,
+            )
+        )
+
+        if target is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_404_NOT_FOUND
+                ),
+                detail=(
+                    "Profile not found."
+                ),
+            )
+
+        profile_username = (
+            target.username
+        )
+
+    else:
+        profile_username = None
+
+    app_state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if app_state is None:
+        app_state = UserAppState(
+            user_id=user.id,
+        )
+
+        session.add(
+            app_state,
+        )
+
+    app_state.active_page = (
+        payload.active_page
+    )
+
+    app_state.search_query = (
+        payload.search_query
+    )
+
+    app_state.profile_username = (
+        profile_username
+    )
+
+    await session.commit()
+
+    return AppStateResponse(
+    active_page=(
+        payload.active_page
+    ),
+    search_query=(
+        app_state.search_query
+    ),
+    profile_username=(
+        app_state.profile_username
+    ),
+)
 
 
 @router.get(

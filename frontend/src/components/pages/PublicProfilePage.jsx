@@ -235,7 +235,7 @@ export default function PublicProfilePage({
 
         <div className="hs-profile-hero__identity">
           <span className="hs-eyebrow">
-            HYPERSYNC MEMBER
+            HYPERSYNCED MEMBER
           </span>
 
           <h1>
@@ -339,7 +339,7 @@ export default function PublicProfilePage({
           </strong>
 
           <span>
-            On HyperSync
+            On HyperSynced
           </span>
         </div>
       </section>

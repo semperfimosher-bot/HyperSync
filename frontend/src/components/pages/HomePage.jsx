@@ -8,10 +8,6 @@ import {
   resolveMediaUrl,
 } from "../../mediaCache.js";
 
-import {
-  useCatalogTracks,
-} from "../../catalogStore.js";
-
 import { API_BASE } from "../../api/client.js";
 
 import * as player from "../../audioPlayer.js";
@@ -21,6 +17,14 @@ import {
 } from "../../utils/user.js";
 
 import SectionHeading from "../ui/SectionHeading.jsx";
+
+import {
+  getMyProfile,
+} from "../../profileApi.js";
+
+import {
+  getHomeRecentlyPlayed,
+} from "../../homeRecentlyPlayed.js";
 
 function CachedArtwork({
   src,
@@ -107,10 +111,95 @@ function HomePage({
   const greetingName =
     getGreetingName(currentUser);
 
-  const {
-  tracks,
-  error: catalogError,
-} = useCatalogTracks();
+  const [
+  recentlyPlayed,
+  setRecentlyPlayed,
+] = useState([]);
+
+const [
+  recentLoading,
+  setRecentLoading,
+] = useState(
+  Boolean(currentUser),
+);
+
+const [
+  recentError,
+  setRecentError,
+] = useState("");
+
+useEffect(() => {
+  let cancelled =
+    false;
+
+  async function loadRecentlyPlayed() {
+    if (!currentUser) {
+      setRecentlyPlayed(
+        [],
+      );
+
+      setRecentLoading(
+        false,
+      );
+
+      setRecentError(
+        "",
+      );
+
+      return;
+    }
+
+    setRecentLoading(
+      true,
+    );
+
+    setRecentError(
+      "",
+    );
+
+    try {
+      const profile =
+        await getMyProfile();
+
+      if (cancelled) {
+        return;
+      }
+
+      setRecentlyPlayed(
+        getHomeRecentlyPlayed(
+          profile,
+        ),
+      );
+    } catch (error) {
+      if (cancelled) {
+        return;
+      }
+
+      setRecentlyPlayed(
+        [],
+      );
+
+      setRecentError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load recently played.",
+      );
+    } finally {
+      if (!cancelled) {
+        setRecentLoading(
+          false,
+        );
+      }
+    }
+  }
+
+  void loadRecentlyPlayed();
+
+  return () => {
+    cancelled =
+      true;
+  };
+}, [currentUser]);
 
   const resolveArtworkUrl = (url) => {
   if (!url) return null;
@@ -142,8 +231,8 @@ function HomePage({
         artist:
           track?.artist ?? "",
       });
-    } catch (error) {
-      setCatalogError(
+        } catch (error) {
+      setRecentError(
         error instanceof Error
           ? error.message
           : "Playback failed.",
@@ -195,113 +284,172 @@ function HomePage({
         <SectionHeading
           title="Recently Played"
           actionLabel="View all"
-          onAction={() =>
-            onNavigate("library")
-          }
+          onAction={() => {
+  if (currentUser) {
+    onNavigate(
+      "profile",
+    );
+  } else {
+    onOpenAuth();
+  }
+}}
         />
 
-        {catalogError ? (
-          <div className="empty-content-card">
-            <div>
-              <strong>
-                Catalog unavailable
-              </strong>
+          {recentLoading ? (
 
-              <p>
-                {catalogError}
-              </p>
-            </div>
+  <div className="home-empty-state">
+
+    <div className="home-empty-state__icon">
+      ♫
+    </div>
+
+    <div>
+      <strong>
+        Loading your rotation
+      </strong>
+
+      <p>
+        Syncing your recent listening
+        history.
+      </p>
+    </div>
+
+  </div>
+
+) : recentError ? (
+
+  <div className="empty-content-card">
+
+    <div>
+      <strong>
+        Recently played unavailable
+      </strong>
+
+      <p>
+        {recentError}
+      </p>
+    </div>
+
+  </div>
+
+) : !currentUser ? (
+
+  <div className="home-empty-state">
+
+    <div className="home-empty-state__icon">
+      ♫
+    </div>
+
+    <div>
+      <strong>
+        Sign in to see your rotation
+      </strong>
+
+      <p>
+        Your listening history will
+        appear here after you sign in.
+      </p>
+    </div>
+
+  </div>
+
+) : recentlyPlayed.length > 0 ? (
+
+  <div className="home-track-grid">
+
+    {recentlyPlayed.map(
+      (track, index) => (
+
+        <button
+          key={track.id}
+          type="button"
+          className="home-track-card"
+          onClick={() =>
+            playTrack(
+              track.id,
+              track,
+            )
+          }
+        >
+
+          <div className="home-track-card__art">
+
+            {track.artwork_url ? (
+
+              <img
+                src={
+                  resolveArtworkUrl(
+                    track.artwork_url,
+                  )
+                }
+                alt=""
+              />
+
+            ) : (
+
+              <div
+                className={
+                  "home-track-card__fallback " +
+                  `home-track-card__fallback--${
+                    (index % 4) + 1
+                  }`
+                }
+              >
+                H
+              </div>
+
+            )}
+
+            <span className="home-track-card__play">
+              ▶
+            </span>
+
           </div>
-        ) : tracks.length > 0 ? (
 
-          <div className="home-track-grid">
+          <div className="home-track-card__info">
 
-            {tracks
-              .slice(0, 6)
-              .map((track, index) => (
+            <strong>
+              {track.title}
+            </strong>
 
-                <button
-                  key={track.id}
-                  type="button"
-                  className="home-track-card"
-                  onClick={() =>
-                    playTrack(
-                      track.id,
-                      track,
-                    )
-                  }
-                >
-
-                  <div className="home-track-card__art">
-
-                    {track.artwork_url ? (
-                     <img
-  src={resolveArtworkUrl(track.artwork_url)}
-  alt=""
-/>
-                    ) : (
-                      <div
-                        className={
-                          "home-track-card__fallback " +
-                          `home-track-card__fallback--${
-                            (index % 4) + 1
-                          }`
-                        }
-                      >
-                        H
-                      </div>
-                    )}
-
-                    <span className="home-track-card__play">
-                      ▶
-                    </span>
-
-                  </div>
-
-                  <div className="home-track-card__info">
-
-                    <strong>
-                      {track.title}
-                    </strong>
-
-                    <small>
-                      {track.artist}
-                    </small>
-
-                  </div>
-
-                </button>
-
-              ))}
+            <small>
+              {track.artist}
+            </small>
 
           </div>
 
-        ) : (
+        </button>
 
-          <div className="home-empty-state">
+      ),
+    )}
 
-            <div className="home-empty-state__icon">
-              ♫
-            </div>
+  </div>
 
-            <div>
-              <strong>
-                Your library is ready
-              </strong>
+) : (
 
-              <p>
-                Upload music to start
-                building your HyperSync
-                collection.
-              </p>
-            </div>
+  <div className="home-empty-state">
 
-          </div>
+    <div className="home-empty-state__icon">
+      ♫
+    </div>
 
-        )}
+    <div>
+      <strong>
+        Your rotation is waiting
+      </strong>
 
-      </section>
+      <p>
+        Start listening and your
+        recently played tracks will
+        appear here.
+      </p>
+    </div>
 
+  </div>
+
+)}
+
+     </section>
 
       {/* =====================================================
           QUICK ACTIONS
