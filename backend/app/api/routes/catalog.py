@@ -362,17 +362,44 @@ async def get_track_lyrics(
                 ]
             )
 
-            lyrics_row.plain_lyrics = (
-                fetched[
-                    "plain_lyrics"
-                ]
-            )
+            if lyrics_row.instrumental:
+                lyrics_row.plain_lyrics = (
+                    None
+                )
 
-            lyrics_row.synced_lyrics = (
-                fetched[
-                    "synced_lyrics"
-                ]
-            )
+                lyrics_row.synced_lyrics = (
+                    None
+                )
+
+            elif fetched[
+                "synced_lyrics"
+            ]:
+                lyrics_row.plain_lyrics = (
+                    None
+                )
+
+                lyrics_row.synced_lyrics = (
+                    fetched[
+                        "synced_lyrics"
+                    ]
+                )
+
+            else:
+                lyrics_row.plain_lyrics = (
+                    fetched[
+                        "plain_lyrics"
+                    ]
+                )
+
+                lyrics_row.synced_lyrics = (
+                    None
+                )
+
+        await session.commit()
+
+        return _lyrics_response(
+            lyrics_row,
+        )
 
         await session.commit()
 

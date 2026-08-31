@@ -12,6 +12,7 @@ from backend.app.database import (
 from backend.app.main import app
 from backend.app.models.media import (
     Track,
+    TrackLyrics,
 )
 
 
@@ -146,23 +147,42 @@ async def test_track_lyrics_returns_synced_result_and_caches_it(
     ), second.text
 
     assert first.json() == {
-        "status": "synced",
-        "source": "lrclib",
-        "lrclib_id": 123456,
-        "instrumental": False,
-        "plain_lyrics": (
-            "First line\n"
-            "Second line"
-        ),
-        "synced_lyrics": (
-            "[00:01.00] First line\n"
-            "[00:05.50] Second line"
-        ),
-    }
+    "status": "synced",
+    "source": "lrclib",
+    "lrclib_id": 123456,
+    "instrumental": False,
+    "plain_lyrics": None,
+    "synced_lyrics": (
+        "[00:01.00] First line\n"
+        "[00:05.50] Second line"
+    ),
+}
 
-    # First request uses LRCLIB.
+        # First request uses LRCLIB.
     # Second request must use Postgres.
     assert calls == 1
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        cached = await session.get(
+            TrackLyrics,
+            track_id,
+        )
+
+    assert cached is not None
+
+    assert (
+        cached.synced_lyrics
+        is not None
+    )
+
+    assert (
+        cached.plain_lyrics
+        is None
+    )
 
 
 @pytest.mark.asyncio
