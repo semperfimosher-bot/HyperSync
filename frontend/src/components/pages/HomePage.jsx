@@ -18,6 +18,8 @@ import {
 
 import SectionHeading from "../ui/SectionHeading.jsx";
 
+import LiveLyrics from "../lyrics/LiveLyrics.jsx";
+
 import {
   getMyProfile,
 } from "../../profileApi.js";
@@ -448,13 +450,19 @@ useEffect(() => {
   </div>
 
 )}
-
      </section>
+
+
+      {/* =====================================================
+          LIVE LYRICS
+          ===================================================== */}
+
+      <LiveLyrics />
+
 
       {/* =====================================================
           QUICK ACTIONS
           ===================================================== */}
-
       <section className="home-quick-actions">
 
         <button

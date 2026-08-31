@@ -87,6 +87,7 @@ class Settings(BaseSettings):
 
     lrclib_base_url: str = "https://lrclib.net"
     lrclib_client_name: str = "HyperSync/0.1.0 (https://hypersynced.app)"
+    lrclib_not_found_retry_hours: int = 24
 
     client_cache_hours: int = 24
 
