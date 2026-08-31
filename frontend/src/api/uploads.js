@@ -24,6 +24,50 @@ function sendUpload({
       String(item.duration || 0),
     );
 
+    const edited =
+  item.metadataEdited
+  ?? {};
+
+
+formData.append(
+  "title_edited",
+  String(
+    Boolean(
+      edited.title,
+    ),
+  ),
+);
+
+
+formData.append(
+  "artist_edited",
+  String(
+    Boolean(
+      edited.artist,
+    ),
+  ),
+);
+
+
+formData.append(
+  "album_edited",
+  String(
+    Boolean(
+      edited.album,
+    ),
+  ),
+);
+
+
+formData.append(
+  "duration_edited",
+  String(
+    Boolean(
+      edited.duration,
+    ),
+  ),
+);
+
     const xhr = new XMLHttpRequest();
 
     xhr.open(

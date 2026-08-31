@@ -712,3 +712,235 @@
     height: 220px;
   }
 }
+
+/* =========================================================
+   DESKTOP RIGHT RAIL LYRICS
+   ========================================================= */
+
+@media (min-width: 980px) {
+
+  .right-rail-panel {
+    min-height: 0;
+  }
+
+
+  .right-rail-lyrics {
+    min-height: 0;
+  }
+
+
+  /*
+   * LiveLyrics already knows how to:
+   * - fetch the current song
+   * - parse synced lyrics
+   * - follow player.currentTime
+   * - auto-scroll
+   * - seek when a line is clicked
+   *
+   * In the right rail we only need
+   * its actual lyric viewport.
+   */
+
+  .right-rail-lyrics
+  .live-lyrics {
+    overflow: visible;
+
+    border: 0;
+
+    border-radius: 0;
+
+    background: transparent;
+
+    box-shadow: none;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics::before,
+  .right-rail-lyrics
+  .live-lyrics__glow {
+    display: none;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__header {
+    display: none;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__footer {
+    display: none;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__viewport {
+    height: 330px;
+
+    border:
+      1px solid
+      rgba(
+        80,
+        161,
+        204,
+        0.12
+      );
+
+    border-radius: 11px;
+
+    background:
+      radial-gradient(
+        circle at 70% 15%,
+        rgba(
+          0,
+          157,
+          255,
+          0.08
+        ),
+        transparent 42%
+      ),
+      rgba(
+        255,
+        255,
+        255,
+        0.018
+      );
+
+    mask-image:
+      linear-gradient(
+        to bottom,
+        transparent 0,
+        black 10%,
+        black 90%,
+        transparent 100%
+      );
+
+    -webkit-mask-image:
+      linear-gradient(
+        to bottom,
+        transparent 0,
+        black 10%,
+        black 90%,
+        transparent 100%
+      );
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__lines {
+    gap: 8px;
+
+    min-height: 100%;
+
+    padding:
+      135px
+      13px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__line {
+    padding:
+      4px 2px;
+
+    font-size: 14px;
+
+    font-weight: 720;
+
+    line-height: 1.35;
+
+    letter-spacing:
+      -0.025em;
+
+    transform:
+      scale(0.97);
+
+    transform-origin:
+      left center;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__line.is-active {
+    transform:
+      translateX(7px)
+      scale(1);
+
+    color:
+      #f4fcff;
+
+    text-shadow:
+      0 0 18px
+      rgba(
+        56,
+        207,
+        255,
+        0.22
+      );
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__line.is-active::before {
+    left: -8px;
+
+    width: 2px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__plain {
+    min-height: 100%;
+
+    padding:
+      30px 16px;
+
+    font-size: 11px;
+
+    line-height: 1.75;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__state {
+    min-height: 300px;
+
+    padding:
+      20px 14px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__state-icon {
+    width: 45px;
+    height: 45px;
+
+    border-radius: 13px;
+
+    font-size: 20px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__state strong {
+    font-size: 10px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics__state p {
+    max-width: 220px;
+
+    font-size: 8px;
+  }
+
+
+  .right-rail-lyrics
+  .live-lyrics.is-idle
+  .live-lyrics__viewport {
+    height: 250px;
+  }
+
+}

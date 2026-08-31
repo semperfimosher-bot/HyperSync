@@ -18,8 +18,6 @@ import {
 
 import SectionHeading from "../ui/SectionHeading.jsx";
 
-import LiveLyrics from "../lyrics/LiveLyrics.jsx";
-
 import {
   getMyProfile,
 } from "../../profileApi.js";
@@ -451,14 +449,6 @@ useEffect(() => {
 
 )}
      </section>
-
-
-      {/* =====================================================
-          LIVE LYRICS
-          ===================================================== */}
-
-      <LiveLyrics />
-
 
       {/* =====================================================
           QUICK ACTIONS

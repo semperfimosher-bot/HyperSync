@@ -7,6 +7,7 @@ import {
 import { uploadTrack } from "../api/uploads.js";
 
 import {
+  applyManualMetadataEdit,
   createUploadItem,
 } from "../utils/audioMetadata.js";
 
@@ -72,11 +73,30 @@ export default function useUploadQueue() {
     [updateQueue],
   );
 
-  const updateMetadata = useCallback(
+  const updateMetadata =
+  useCallback(
     (id, patch) => {
-      updateItem(id, patch);
+      updateQueue(
+        (current) =>
+          current.map(
+            (item) => {
+              if (
+                item.id !== id
+              ) {
+                return item;
+              }
+
+              return (
+                applyManualMetadataEdit(
+                  item,
+                  patch,
+                )
+              );
+            },
+          ),
+      );
     },
-    [updateItem],
+    [updateQueue],
   );
 
   const removeItem = useCallback(
@@ -148,18 +168,17 @@ export default function useUploadQueue() {
       }
 
       if (
-        !item.title.trim() ||
-        !item.artist.trim() ||
-        !item.album.trim()
-      ) {
-        updateItem(id, {
-          status: "failed",
-          error:
-            "Title, artist, and album are required.",
-        });
+  !item.title.trim() ||
+  !item.artist.trim()
+) {
+  updateItem(id, {
+    status: "failed",
+    error:
+      "Title and artist are required.",
+  });
 
-        return;
-      }
+  return;
+}
 
       const controller =
         new AbortController();
