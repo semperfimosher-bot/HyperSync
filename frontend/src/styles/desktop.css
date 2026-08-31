@@ -541,6 +541,167 @@
     line-height: 1.45;
   }
 
+    .right-rail-queue {
+    display: grid;
+    min-height: 0;
+    gap: 10px;
+  }
+
+
+  .right-rail-queue__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 2px;
+  }
+
+
+  .right-rail-queue__heading span {
+    color: var(--blue);
+    font-size: 7px;
+    font-weight: 850;
+    letter-spacing: 0.15em;
+  }
+
+
+  .right-rail-queue__heading small {
+    color: #596c78;
+    font-size: 7px;
+  }
+
+
+  .right-rail-queue__rows {
+    display: grid;
+    gap: 6px;
+  }
+
+
+  .right-rail-queue-row {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns:
+      42px
+      minmax(0, 1fr)
+      16px;
+    align-items: center;
+    gap: 10px;
+    padding: 7px;
+    border:
+      1px solid
+      rgba(
+        80,
+        161,
+        204,
+        0.11
+      );
+    border-radius: 10px;
+    color: inherit;
+    background:
+      rgba(
+        255,
+        255,
+        255,
+        0.018
+      );
+    text-align: left;
+    transition:
+      border-color 140ms ease,
+      background 140ms ease,
+      transform 140ms ease;
+  }
+
+
+  .right-rail-queue-row:hover {
+    border-color:
+      rgba(
+        31,
+        190,
+        255,
+        0.28
+      );
+    background:
+      rgba(
+        0,
+        145,
+        220,
+        0.07
+      );
+    transform:
+      translateX(2px);
+  }
+
+
+  .right-rail-queue-row__art {
+    display: block;
+    width: 42px;
+    height: 42px;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+
+
+  .right-rail-queue-row__art
+  .track-artwork-shell,
+  .right-rail-queue-row__art
+  .track-artwork,
+  .right-rail-queue-row__art
+  .cover-placeholder {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+  }
+
+
+  .right-rail-queue-row__art
+  .track-artwork {
+    display: block;
+    object-fit: cover;
+  }
+
+
+  .right-rail-queue-row__copy {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+
+  .right-rail-queue-row__copy strong {
+    overflow: hidden;
+    color: #d4e7ef;
+    font-size: 9px;
+    font-weight: 760;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+
+  .right-rail-queue-row__copy small {
+    overflow: hidden;
+    color: #667a86;
+    font-size: 7px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+
+  .right-rail-queue-row > svg {
+    color: #536d79;
+    transition:
+      color 140ms ease,
+      transform 140ms ease;
+  }
+
+
+  .right-rail-queue-row:hover
+  > svg {
+    color: var(--blue);
+    transform:
+      translateX(2px);
+  }
+  
   .player-bar {
     position: static;
     grid-column: 1 / -1;

@@ -58,3 +58,64 @@ export function getNextQueueIndex(
 
   return nextIndex;
 }
+
+export function getUpcomingQueueEntries(
+  queue,
+  currentIndex,
+) {
+  if (
+    !Array.isArray(queue) ||
+    queue.length === 0
+  ) {
+    return [];
+  }
+
+  const startIndex =
+    Number.isInteger(
+      currentIndex,
+    )
+      ? Math.max(
+          currentIndex + 1,
+          0,
+        )
+      : 0;
+
+  if (
+    startIndex >=
+    queue.length
+  ) {
+    return [];
+  }
+
+  return queue
+    .slice(startIndex)
+    .map(
+      (
+        track,
+        offset,
+      ) => ({
+        queueIndex:
+          startIndex +
+          offset,
+
+        track,
+      }),
+    );
+}
+
+
+export function getQueueTrackAtIndex(
+  queue,
+  index,
+) {
+  if (
+    !Array.isArray(queue) ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= queue.length
+  ) {
+    return null;
+  }
+
+  return queue[index];
+}

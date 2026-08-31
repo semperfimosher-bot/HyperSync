@@ -7,6 +7,10 @@ import * as player
   from "../../audioPlayer.js";
 
 import {
+  getUpcomingQueueEntries,
+} from "../../playerQueue.js";
+
+import {
   normalizeRightRailTab,
 } from "../../rightRailTabs.js";
 
@@ -26,14 +30,17 @@ function DesktopRightRail() {
     state,
     setState,
   ] = useState(() => ({
-    src: null,
-    artworkUrl: null,
-    title: "",
-    artist: "",
-    paused: true,
-    currentTime: 0,
-    duration: 0,
-  }));
+  src: null,
+  artworkUrl: null,
+  title: "",
+  artist: "",
+  paused: true,
+  currentTime: 0,
+  duration: 0,
+
+  queue: [],
+  queueIndex: -1,
+}));
 
   const [
     activeTab,
@@ -64,6 +71,11 @@ function DesktopRightRail() {
       state.src,
     );
 
+  const upcomingQueue =
+  getUpcomingQueueEntries(
+    state.queue,
+    state.queueIndex,
+  );
 
   const selectTab = (
     tab,
@@ -228,20 +240,132 @@ function DesktopRightRail() {
         ) : (
 
           <div
-            className={
-              "right-rail-list"
-            }
-          >
-            <span>
-              Queue is empty
-            </span>
+  className={
+    "right-rail-queue"
+  }
+>
+  {upcomingQueue.length >
+  0 ? (
+    <>
+      <div
+        className={
+          "right-rail-queue__heading"
+        }
+      >
+        <span>
+          UP NEXT
+        </span>
 
-            <small>
-              Add tracks to your
-              queue to see them
-              here.
-            </small>
-          </div>
+        <small>
+          {
+            upcomingQueue.length
+          }{" "}
+          {upcomingQueue.length ===
+          1
+            ? "track"
+            : "tracks"}
+        </small>
+      </div>
+
+      <div
+        className={
+          "right-rail-queue__rows"
+        }
+      >
+        {upcomingQueue.map(
+          ({
+            queueIndex,
+            track,
+          }) => (
+            <button
+              type="button"
+              className={
+                "right-rail-queue-row"
+              }
+              key={
+                `${track.id}-${queueIndex}`
+              }
+              onClick={() => {
+                void player
+                  .playQueueIndex(
+                    queueIndex,
+                  )
+                  .catch(
+                    () => {},
+                  );
+              }}
+              aria-label={
+                `Play ${
+                  track.meta
+                    ?.title ||
+                  "queued track"
+                }`
+              }
+            >
+              <span
+                className={
+                  "right-rail-queue-row__art"
+                }
+              >
+                <TrackArtwork
+                  src={
+                    track.meta
+                      ?.artworkUrl
+                  }
+                  alt={
+                    track.meta
+                      ?.title ||
+                    "Track artwork"
+                  }
+                  variant={1}
+                />
+              </span>
+
+              <span
+                className={
+                  "right-rail-queue-row__copy"
+                }
+              >
+                <strong>
+                  {track.meta
+                    ?.title ||
+                    "Untitled Track"}
+                </strong>
+
+                <small>
+                  {track.meta
+                    ?.artist ||
+                    "Unknown artist"}
+                </small>
+              </span>
+
+              <Icon
+                name="chevron"
+                size={12}
+              />
+            </button>
+          ),
+        )}
+      </div>
+    </>
+  ) : (
+    <div
+      className={
+        "right-rail-list"
+      }
+    >
+      <span>
+        Queue is empty
+      </span>
+
+      <small>
+        Play a collection of
+        tracks to see what is
+        coming next.
+      </small>
+    </div>
+  )}
+</div>
 
         )}
 

@@ -16,6 +16,7 @@ import {
 import {
   buildTrackQueue,
   getNextQueueIndex,
+  getQueueTrackAtIndex,
 } from "./playerQueue.js";
 
 const audio =
@@ -177,6 +178,12 @@ export function getState() {
 
     artist:
       currentTrackArtist,
+
+    queue:
+      currentQueue,
+
+    queueIndex:
+      currentQueueIndex,
   };
 }
 
@@ -374,6 +381,38 @@ export async function playTrack(
   );
 }
 
+export async function playQueueIndex(
+  index,
+) {
+  const track =
+    getQueueTrackAtIndex(
+      currentQueue,
+      index,
+    );
+
+  if (!track) {
+    return false;
+  }
+
+  currentQueueIndex =
+    index;
+
+  try {
+    await playTrackInternal(
+      track.id,
+      track.meta,
+      true,
+    );
+
+    notify();
+
+    return true;
+  } catch (error) {
+    notify();
+
+    throw error;
+  }
+}
 
 export async function playTrackQueue(
   tracks,
@@ -575,6 +614,7 @@ if (
     window.__HYPERSYNC_PLAYER = {
       playTrack,
       playTrackQueue,
+      playQueueIndex,
       playUrl,
       togglePlay,
       stopTrack,

@@ -136,3 +136,98 @@ test(
     );
   },
 );
+
+test(
+  "getUpcomingQueueEntries returns only tracks after the current track",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    assert.equal(
+      typeof queueModule.getUpcomingQueueEntries,
+      "function",
+    );
+
+    const queue = [
+      {
+        id: "1",
+        meta: {
+          title: "Song One",
+        },
+      },
+      {
+        id: "2",
+        meta: {
+          title: "Song Two",
+        },
+      },
+      {
+        id: "3",
+        meta: {
+          title: "Song Three",
+        },
+      },
+    ];
+
+    assert.deepEqual(
+      queueModule.getUpcomingQueueEntries(
+        queue,
+        0,
+      ),
+      [
+        {
+          queueIndex: 1,
+          track: queue[1],
+        },
+        {
+          queueIndex: 2,
+          track: queue[2],
+        },
+      ],
+    );
+  },
+);
+
+
+test(
+  "getQueueTrackAtIndex safely selects a queued track",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    assert.equal(
+      typeof queueModule.getQueueTrackAtIndex,
+      "function",
+    );
+
+    const queue = [
+      { id: "1" },
+      { id: "2" },
+      { id: "3" },
+    ];
+
+    assert.equal(
+      queueModule.getQueueTrackAtIndex(
+        queue,
+        1,
+      ),
+      queue[1],
+    );
+
+    assert.equal(
+      queueModule.getQueueTrackAtIndex(
+        queue,
+        99,
+      ),
+      null,
+    );
+
+    assert.equal(
+      queueModule.getQueueTrackAtIndex(
+        queue,
+        -1,
+      ),
+      null,
+    );
+  },
+);
