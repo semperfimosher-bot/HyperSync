@@ -88,6 +88,137 @@ export function buildInitialMetadata(
   };
 }
 
+function cleanEmbeddedValue(
+  value,
+) {
+  if (
+    typeof value !== "string"
+  ) {
+    return "";
+  }
+
+  return value.trim();
+}
+
+
+export function mergeEmbeddedMetadata(
+  initialMetadata,
+  embeddedMetadata,
+) {
+  const embedded =
+    embeddedMetadata ?? {};
+
+  const edited =
+    initialMetadata
+      .metadataEdited ?? {};
+
+  const embeddedTitle =
+    cleanEmbeddedValue(
+      embedded.title,
+    );
+
+  const embeddedArtist =
+    cleanEmbeddedValue(
+      embedded.artist,
+    );
+
+  const embeddedAlbum =
+    cleanEmbeddedValue(
+      embedded.album,
+    );
+
+  return {
+    ...initialMetadata,
+
+    title:
+      !edited.title &&
+      embeddedTitle
+        ? embeddedTitle
+        : initialMetadata.title,
+
+    artist:
+      !edited.artist &&
+      embeddedArtist
+        ? embeddedArtist
+        : initialMetadata.artist,
+
+    album:
+      !edited.album &&
+      embeddedAlbum
+        ? embeddedAlbum
+        : initialMetadata.album,
+  };
+}
+
+
+export async function readEmbeddedAudioMetadata(
+  file,
+) {
+  const empty = {
+    title: "",
+    artist: "",
+    album: "",
+  };
+
+  if (!file) {
+    return empty;
+  }
+
+  try {
+    /*
+     * Dynamic import means the metadata
+     * parser only needs to load when an
+     * admin actually selects music.
+     */
+    const {
+      parseBlob,
+    } = await import(
+      "music-metadata"
+    );
+
+    const metadata =
+      await parseBlob(
+        file,
+        {
+          /*
+           * The upload preview only needs
+           * textual metadata. Artwork is
+           * still handled by the backend.
+           */
+          skipCovers: true,
+        },
+      );
+
+    const common =
+      metadata?.common ?? {};
+
+    return {
+      title:
+        cleanEmbeddedValue(
+          common.title,
+        ),
+
+      artist:
+        cleanEmbeddedValue(
+          common.artist,
+        ),
+
+      album:
+        cleanEmbeddedValue(
+          common.album,
+        ),
+    };
+  } catch {
+    /*
+     * Missing/broken tags must never
+     * prevent someone from uploading.
+     *
+     * Filename parsing remains the
+     * fallback.
+     */
+    return empty;
+  }
+}
 
 export function applyManualMetadataEdit(
   item,
@@ -191,15 +322,29 @@ function getAudioDuration(
 export async function createUploadItem(
   file,
 ) {
-  const metadata =
-    buildInitialMetadata(
-      file.name,
-    );
+  const initialMetadata =
+  buildInitialMetadata(
+    file.name,
+  );
 
-  const duration =
-    await getAudioDuration(
-      file,
-    );
+const [
+  embeddedMetadata,
+  duration,
+] = await Promise.all([
+  readEmbeddedAudioMetadata(
+    file,
+  ),
+
+  getAudioDuration(
+    file,
+  ),
+]);
+
+const metadata =
+  mergeEmbeddedMetadata(
+    initialMetadata,
+    embeddedMetadata,
+  );
 
   return {
     id:

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyManualMetadataEdit,
   buildInitialMetadata,
+  mergeEmbeddedMetadata,
 } from "./utils/audioMetadata.js";
 
 
@@ -86,6 +87,48 @@ test(
     assert.equal(
       result.metadataEdited
         .title,
+      false,
+    );
+  },
+);
+
+test(
+  "embedded metadata fills title artist and album",
+  () => {
+    const initial =
+      buildInitialMetadata(
+        "Unknown - Song.mp3",
+      );
+
+    const result =
+      mergeEmbeddedMetadata(
+        initial,
+        {
+          title: "The Meaning",
+          artist:
+            "FKi 1st & Post Malone",
+          album:
+            "First Time for Everything, Pt. 1",
+        },
+      );
+
+    assert.equal(
+      result.title,
+      "The Meaning",
+    );
+
+    assert.equal(
+      result.artist,
+      "FKi 1st & Post Malone",
+    );
+
+    assert.equal(
+      result.album,
+      "First Time for Everything, Pt. 1",
+    );
+
+    assert.equal(
+      result.metadataEdited.album,
       false,
     );
   },
