@@ -10,7 +10,6 @@ import {
 import {
   getCachedObjectUrl,
   resolveMediaUrl,
-  warmMedia,
 } from "./mediaCache.js";
 
 import {
@@ -86,28 +85,6 @@ function audioUrlForTrack(
   return (
     `${base}/audio/${trackId}`
   );
-}
-
-
-function warmNextQueueTrack() {
-  const nextIndex =
-    getNextQueueIndex(
-      currentQueue,
-      currentQueueIndex,
-    );
-
-  if (nextIndex === -1) {
-    return;
-  }
-
-  const nextTrack =
-    currentQueue[nextIndex];
-
-  void warmMedia(
-    audioUrlForTrack(
-      nextTrack.id,
-    ),
-  ).catch(() => {});
 }
 
 function notify() {
@@ -276,21 +253,18 @@ async function loadAudioSource(
     return true;
   }
 
-  audio.src = url;
+ audio.src = url;
 
-  /*
-   * Do not wait for the entire audio file
-   * before playback starts.
-   *
-   * Start playback normally and cache the
-   * complete file in the background.
-   */
+/*
+ * Stream the playing track directly.
+ *
+ * Do not start a second full-song
+ * background download. On small backend
+ * instances that creates unnecessary
+ * concurrent B2 streams and memory use.
+ */
 
-  void warmMedia(
-    url,
-  ).catch(() => {});
-
-  return false;
+return false;
 }
 
 
@@ -340,14 +314,6 @@ async function playTrackInternal(
   audio.load();
 
   await audio.play();
-
-  /*
-   * Start warming the following track
-   * as soon as the current one begins.
-   */
-  if (keepQueue) {
-    warmNextQueueTrack();
-  }
 
   if (
     currentTrackId &&
