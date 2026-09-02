@@ -42,35 +42,36 @@ test(
       ]);
 
     assert.deepEqual(
-      queue,
-      [
-        {
-          id: "1",
-          meta: {
-            artworkUrl: "one.jpg",
-            title: "Song One",
-            artist: "Artist One",
-          },
-        },
-        {
-          id: "2",
-          meta: {
-            artworkUrl: "two.jpg",
-            title: "Song Two",
-            artist: "Artist Two",
-          },
-        },
-        {
-          id: "3",
-          meta: {
-            artworkUrl: "three.jpg",
-            title: "Song Three",
-            artist: "Artist Three",
-          },
-        },
-      ],
-    );
-  },
+  queue,
+  [
+    {
+      id: "1",
+      meta: {
+        audioUrl: null,
+        artworkUrl: "one.jpg",
+        title: "Song One",
+        artist: "Artist One",
+      },
+    },
+    {
+      id: "2",
+      meta: {
+        audioUrl: null,
+        artworkUrl: "two.jpg",
+        title: "Song Two",
+        artist: "Artist Two",
+      },
+    },
+    {
+      id: "3",
+      meta: {
+        audioUrl: null,
+        artworkUrl: "three.jpg",
+        title: "Song Three",
+        artist: "Artist Three",
+      },
+    },
+  ],
 );
 
 
@@ -231,3 +232,58 @@ test(
     );
   },
 );
+
+test(
+  "queue preserves direct audio URL",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const queue =
+      queueModule.buildTrackQueue([
+        {
+          id: "123",
+          title: "Fast Song",
+          artist: "HyperSync",
+          audio_url:
+            "https://s3.example.test/audio.mp3",
+          artwork_url:
+            "https://s3.example.test/art.jpg",
+        },
+      ]);
+
+    assert.equal(
+      queue[0].meta.audioUrl,
+      "https://s3.example.test/audio.mp3",
+    );
+  },
+);
+
+
+test(
+  "audio source prefers direct URL",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    assert.equal(
+      queueModule.getTrackAudioSource(
+        "123",
+        {
+          audioUrl:
+            "https://s3.example.test/audio.mp3",
+        },
+      ),
+      "https://s3.example.test/audio.mp3",
+    );
+
+    assert.equal(
+      queueModule.getTrackAudioSource(
+        "123",
+        {},
+      ),
+      "/api/audio/123",
+    );
+  },
+);
+})

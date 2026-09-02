@@ -467,16 +467,21 @@ export default function PublicProfilePage({
                       key={track.id}
                       onClick={() => {
                         player.playTrack(
-                          track.id,
-                          {
-                            artworkUrl:
-                              track.artwork_url,
-                            title:
-                              track.title,
-                            artist:
-                              track.artist,
-                          },
-                        ).catch(
+                    track.id,
+                      {
+                    audioUrl:
+                    track.audio_url,
+
+                    artworkUrl:
+                    track.artwork_url,
+
+                    title:
+                    track.title,
+
+                    artist:
+                    track.artist,
+                  },
+                ).catch(
                           () => {},
                         );
                       }}

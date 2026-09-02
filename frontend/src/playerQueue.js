@@ -18,6 +18,11 @@ export function buildTrackQueue(
         String(track.id),
 
       meta: {
+        audioUrl:
+          track.audioUrl ??
+          track.audio_url ??
+          null,
+
         artworkUrl:
           track.artworkUrl ??
           track.artwork_url ??
@@ -118,4 +123,22 @@ export function getQueueTrackAtIndex(
   }
 
   return queue[index];
+}
+
+export function getTrackAudioSource(
+  trackId,
+  meta = {},
+) {
+  const directUrl =
+    meta.audioUrl ??
+    meta.audio_url ??
+    null;
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  return (
+    `/api/audio/${trackId}`
+  );
 }

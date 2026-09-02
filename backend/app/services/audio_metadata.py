@@ -153,9 +153,7 @@ def extract_embedded_audio_metadata(
             tags,
             "album",
         ),
-        "duration_seconds": (
-            duration_seconds
-        ),
+        "duration_seconds": (duration_seconds),
     }
 
 
@@ -171,67 +169,38 @@ def resolve_track_metadata(
     duration_edited: bool,
     embedded: EmbeddedAudioMetadata,
 ) -> ResolvedTrackMetadata:
-    submitted_title = (
-        submitted_title.strip()
-    )
+    submitted_title = submitted_title.strip()
 
-    submitted_artist = (
-        submitted_artist.strip()
-    )
+    submitted_artist = submitted_artist.strip()
 
-    submitted_album_clean = (
-        submitted_album.strip()
-        if submitted_album
-        else None
-    )
+    submitted_album_clean = submitted_album.strip() if submitted_album else None
 
     if title_edited:
         title = submitted_title
     else:
-        title = (
-            embedded["title"]
-            or submitted_title
-        )
+        title = embedded["title"] or submitted_title
 
     if artist_edited:
         artist = submitted_artist
     else:
-        artist = (
-            embedded["artist"]
-            or submitted_artist
-        )
+        artist = embedded["artist"] or submitted_artist
 
     if album_edited:
-        album = (
-            submitted_album_clean
-        )
+        album = submitted_album_clean
     else:
-        album = (
-            embedded["album"]
-            or submitted_album_clean
-        )
+        album = embedded["album"] or submitted_album_clean
 
     if duration_edited:
-        duration_seconds = (
-            submitted_duration_seconds
-        )
+        duration_seconds = submitted_duration_seconds
     else:
-        duration_seconds = (
-            embedded[
-                "duration_seconds"
-            ]
-            or submitted_duration_seconds
-        )
+        duration_seconds = embedded["duration_seconds"] or submitted_duration_seconds
 
     return {
         "title": title,
         "artist": artist,
         "album": album,
         "duration_seconds": max(
-            int(
-                duration_seconds
-                or 0
-            ),
+            int(duration_seconds or 0),
             0,
         ),
     }

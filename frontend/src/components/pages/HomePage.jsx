@@ -221,16 +221,25 @@ useEffect(() => {
     if (!trackId) return;
 
     try {
-      await player.playTrack(trackId, {
-        artworkUrl:
-            resolveArtworkUrl(
-          track?.artwork_url,
-  ),
-        title:
-          track?.title ?? "",
-        artist:
-          track?.artist ?? "",
-      });
+      await player.playTrack(
+  trackId,
+  {
+    audioUrl:
+      track?.audio_url ??
+      null,
+
+    artworkUrl:
+      resolveArtworkUrl(
+        track?.artwork_url,
+      ),
+
+    title:
+      track?.title ?? "",
+
+    artist:
+      track?.artist ?? "",
+  },
+);
         } catch (error) {
       setRecentError(
         error instanceof Error

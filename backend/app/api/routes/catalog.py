@@ -24,7 +24,10 @@ from ...models.media import (
     Track,
     TrackLyrics,
 )
-from ...services.b2 import get_b2_bucket
+from ...services.b2 import (
+    create_presigned_download_url,
+    get_b2_bucket,
+)
 from ...services.lrclib import (
     LrclibRateLimitedError,
     LrclibUnavailableError,
@@ -37,11 +40,10 @@ router = APIRouter(
     tags=["catalog"],
 )
 
-LYRICS_NEGATIVE_CACHE_EPOCH = (
-    datetime.now(
-        UTC,
-    )
+LYRICS_NEGATIVE_CACHE_EPOCH = datetime.now(
+    UTC,
 )
+
 
 class TrackResponse(BaseModel):
     id: UUID
@@ -49,16 +51,56 @@ class TrackResponse(BaseModel):
     artist: str
     album: str | None
     duration_seconds: int | None
+    audio_url: str | None = None
     artwork_url: str | None = None
 
-def _track_artwork_url(track: Track) -> str | None:
+
+def _track_audio_url(
+    track: Track,
+) -> str | None:
+    if not track.b2_object_key:
+        return None
+
+    if track.b2_object_key.startswith(
+        (
+            "http://",
+            "https://",
+        ),
+    ):
+        return track.b2_object_key
+
+    settings = get_settings()
+
+    if settings.environment != "production":
+        return f"/api/audio/{track.id}"
+
+    return create_presigned_download_url(
+        track.b2_object_key,
+    )
+
+
+def _track_artwork_url(
+    track: Track,
+) -> str | None:
     if not track.artwork_object_key:
         return None
 
-    if track.artwork_object_key.startswith(("http://", "https://")):
+    if track.artwork_object_key.startswith(
+        (
+            "http://",
+            "https://",
+        ),
+    ):
         return track.artwork_object_key
 
-    return f"/api/catalog/tracks/{track.id}/artwork"
+    settings = get_settings()
+
+    if settings.environment != "production":
+        return f"/api/catalog/tracks/{track.id}/artwork"
+
+    return create_presigned_download_url(
+        track.artwork_object_key,
+    )
 
 
 @router.get(
@@ -105,8 +147,17 @@ async def list_tracks(
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
-                duration_seconds=track.duration_seconds,
-                artwork_url=_track_artwork_url(track),
+                duration_seconds=(track.duration_seconds),
+                audio_url=(
+                    _track_audio_url(
+                        track,
+                    )
+                ),
+                artwork_url=(
+                    _track_artwork_url(
+                        track,
+                    )
+                ),
             )
             for track in tracks
         ]
@@ -116,33 +167,46 @@ async def list_tracks(
     "/tracks/{track_id}",
     response_model=TrackResponse,
 )
-async def get_track(track_id: UUID) -> TrackResponse:
+async def get_track(
+    track_id: UUID,
+) -> TrackResponse:
     session_factory = get_session_factory()
 
     async with session_factory() as session:
         result = await session.execute(
             select(Track).where(
                 Track.id == track_id,
-                Track.is_published.is_(True),
+                Track.is_published.is_(
+                    True,
+                ),
             )
         )
 
         track = result.scalar_one_or_none()
 
-        if track is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Track not found.",
-            )
-
-        return TrackResponse(
-            id=track.id,
-            title=track.title,
-            artist=track.artist,
-            album=track.album,
-            duration_seconds=track.duration_seconds,
-            artwork_url=_track_artwork_url(track),
+    if track is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Track not found.",
         )
+
+    return TrackResponse(
+        id=track.id,
+        title=track.title,
+        artist=track.artist,
+        album=track.album,
+        duration_seconds=(track.duration_seconds),
+        audio_url=(
+            _track_audio_url(
+                track,
+            )
+        ),
+        artwork_url=(
+            _track_artwork_url(
+                track,
+            )
+        ),
+    )
 
 
 LyricsStatus = Literal[
@@ -158,21 +222,16 @@ class TrackLyricsResponse(
 ):
     status: LyricsStatus
 
-    source: Literal[
-        "lrclib"
-    ] = "lrclib"
+    source: Literal["lrclib"] = "lrclib"
 
     lrclib_id: int | None = None
 
     instrumental: bool = False
 
-    plain_lyrics: (
-        str | None
-    ) = None
+    plain_lyrics: str | None = None
 
-    synced_lyrics: (
-        str | None
-    ) = None
+    synced_lyrics: str | None = None
+
 
 def _lyrics_status(
     lyrics: TrackLyrics,
@@ -196,19 +255,12 @@ def _lyrics_response(
         status=_lyrics_status(
             lyrics,
         ),
-        lrclib_id=(
-            lyrics.lrclib_id
-        ),
-        instrumental=(
-            lyrics.instrumental
-        ),
-        plain_lyrics=(
-            lyrics.plain_lyrics
-        ),
-        synced_lyrics=(
-            lyrics.synced_lyrics
-        ),
+        lrclib_id=(lyrics.lrclib_id),
+        instrumental=(lyrics.instrumental),
+        plain_lyrics=(lyrics.plain_lyrics),
+        synced_lyrics=(lyrics.synced_lyrics),
     )
+
 
 @router.get(
     "/tracks/{track_id}/lyrics",
@@ -218,18 +270,11 @@ async def get_track_lyrics(
     track_id: UUID,
     response: Response,
 ) -> TrackLyricsResponse:
-    response.headers[
-        "Cache-Control"
-    ] = (
-        "no-store, no-cache, "
-        "must-revalidate, max-age=0"
-    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
 
     settings = get_settings()
 
-    session_factory = (
-        get_session_factory()
-    )
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         result = await session.execute(
@@ -241,9 +286,7 @@ async def get_track_lyrics(
             ),
         )
 
-        track = (
-            result.scalar_one_or_none()
-        )
+        track = result.scalar_one_or_none()
 
         if track is None:
             raise HTTPException(
@@ -256,62 +299,39 @@ async def get_track_lyrics(
             track.id,
         )
 
-        if (
-            cached is not None
-            and cached.lrclib_id
-            is not None
-        ):
+        if cached is not None and cached.lrclib_id is not None:
             return _lyrics_response(
                 cached,
             )
 
         if cached is not None:
-            retry_at = (
-                cached.checked_at
-                + timedelta(
-                    hours=(
-                        settings
-                        .lrclib_not_found_retry_hours
-                    ),
-                )
+            retry_at = cached.checked_at + timedelta(
+                hours=(settings.lrclib_not_found_retry_hours),
             )
 
             now = datetime.now(
                 UTC,
             )
 
-            cache_is_from_this_run = (
-                cached.checked_at
-                >= LYRICS_NEGATIVE_CACHE_EPOCH
-            )
+            cache_is_from_this_run = cached.checked_at >= LYRICS_NEGATIVE_CACHE_EPOCH
 
-            if (
-                cache_is_from_this_run
-                and retry_at > now
-            ):
+            if cache_is_from_this_run and retry_at > now:
                 return _lyrics_response(
                     cached,
                 )
 
         try:
-            fetched = (
-                await fetch_lrclib_lyrics(
-                    title=track.title,
-                    artist=track.artist,
-                    album=track.album,
-                    duration_seconds=(
-                        track.duration_seconds
-                    ),
-                )
+            fetched = await fetch_lrclib_lyrics(
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+                duration_seconds=(track.duration_seconds),
             )
 
         except LrclibRateLimitedError as exc:
             raise HTTPException(
                 status_code=503,
-                detail=(
-                    "Lyrics service is "
-                    "temporarily rate limited."
-                ),
+                detail=("Lyrics service is temporarily rate limited."),
                 headers={
                     "Retry-After": str(
                         exc.retry_after,
@@ -322,10 +342,7 @@ async def get_track_lyrics(
         except LrclibUnavailableError as exc:
             raise HTTPException(
                 status_code=503,
-                detail=(
-                    "Lyrics service is "
-                    "temporarily unavailable."
-                ),
+                detail=("Lyrics service is temporarily unavailable."),
             ) from exc
 
         if cached is None:
@@ -339,10 +356,8 @@ async def get_track_lyrics(
         else:
             lyrics_row = cached
 
-        lyrics_row.checked_at = (
-            datetime.now(
-                UTC,
-            )
+        lyrics_row.checked_at = datetime.now(
+            UTC,
         )
 
         if fetched is None:
@@ -352,48 +367,24 @@ async def get_track_lyrics(
             lyrics_row.synced_lyrics = None
 
         else:
-            lyrics_row.lrclib_id = (
-                fetched["id"]
-            )
+            lyrics_row.lrclib_id = fetched["id"]
 
-            lyrics_row.instrumental = (
-                fetched[
-                    "instrumental"
-                ]
-            )
+            lyrics_row.instrumental = fetched["instrumental"]
 
             if lyrics_row.instrumental:
-                lyrics_row.plain_lyrics = (
-                    None
-                )
+                lyrics_row.plain_lyrics = None
 
-                lyrics_row.synced_lyrics = (
-                    None
-                )
+                lyrics_row.synced_lyrics = None
 
-            elif fetched[
-                "synced_lyrics"
-            ]:
-                lyrics_row.plain_lyrics = (
-                    None
-                )
+            elif fetched["synced_lyrics"]:
+                lyrics_row.plain_lyrics = None
 
-                lyrics_row.synced_lyrics = (
-                    fetched[
-                        "synced_lyrics"
-                    ]
-                )
+                lyrics_row.synced_lyrics = fetched["synced_lyrics"]
 
             else:
-                lyrics_row.plain_lyrics = (
-                    fetched[
-                        "plain_lyrics"
-                    ]
-                )
+                lyrics_row.plain_lyrics = fetched["plain_lyrics"]
 
-                lyrics_row.synced_lyrics = (
-                    None
-                )
+                lyrics_row.synced_lyrics = None
 
         await session.commit()
 
@@ -406,6 +397,7 @@ async def get_track_lyrics(
         return _lyrics_response(
             lyrics_row,
         )
+
 
 @router.get("/tracks/{track_id}/artwork")
 async def get_track_artwork(track_id: UUID):

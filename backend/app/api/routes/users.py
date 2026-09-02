@@ -33,6 +33,7 @@ from ...models.account import (
 )
 from ...models.media import Track
 from ...services.b2 import (
+    create_presigned_download_url,
     delete_all_object_versions,
     get_b2_bucket,
 )
@@ -66,6 +67,7 @@ class ProfileUpdateRequest(BaseModel):
 
 class PrivacyUpdateRequest(BaseModel):
     music_activity_public: bool
+
 
 AppPage = Literal[
     "home",
@@ -104,9 +106,8 @@ class AppStateResponse(BaseModel):
 
     search_query: str = ""
 
-    profile_username: (
-        str | None
-    ) = None
+    profile_username: str | None = None
+
 
 class AppStateUpdateRequest(
     BaseModel,
@@ -118,12 +119,11 @@ class AppStateUpdateRequest(
         max_length=200,
     )
 
-    profile_username: (
-        str | None
-    ) = Field(
+    profile_username: str | None = Field(
         default=None,
         max_length=32,
     )
+
 
 class ListeningRequest(BaseModel):
     track_id: UUID
@@ -134,6 +134,7 @@ class TrackSummary(BaseModel):
     title: str
     artist: str
     album: str | None
+    audio_url: str | None = None
     artwork_url: str | None = None
     play_count: int
     last_played_at: datetime
@@ -210,6 +211,30 @@ class PublicProfileResponse(BaseModel):
     top_artists: list[ArtistSummary]
 
 
+def audio_url(
+    track: Track,
+) -> str | None:
+    if not track.b2_object_key:
+        return None
+
+    if track.b2_object_key.startswith(
+        (
+            "http://",
+            "https://",
+        ),
+    ):
+        return track.b2_object_key
+
+    settings = get_settings()
+
+    if settings.environment != "production":
+        return f"/api/audio/{track.id}"
+
+    return create_presigned_download_url(
+        track.b2_object_key,
+    )
+
+
 def artwork_url(
     track: Track,
 ) -> str | None:
@@ -223,6 +248,15 @@ def artwork_url(
         ),
     ):
         return track.artwork_object_key
+
+    settings = get_settings()
+
+    if settings.environment != "production":
+        return f"/api/catalog/tracks/{track.id}/artwork"
+
+    return create_presigned_download_url(
+        track.artwork_object_key,
+    )
 
     return f"/api/catalog/tracks/{track.id}/artwork"
 
@@ -257,9 +291,8 @@ async def get_user_by_username(
 
     return result.scalar_one_or_none()
 
-def default_app_state() -> (
-    AppStateResponse
-):
+
+def default_app_state() -> AppStateResponse:
     return AppStateResponse(
         active_page="home",
         search_query="",
@@ -279,11 +312,7 @@ async def build_app_state(
     if state is None:
         return default_app_state()
 
-    if (
-    state.active_page
-    not in VALID_APP_PAGES
-    ):
-        
+    if state.active_page not in VALID_APP_PAGES:
         return default_app_state()
 
     active_page = cast(
@@ -291,31 +320,18 @@ async def build_app_state(
         state.active_page,
     )
 
-    if (
-    active_page
-    in ADMIN_APP_PAGES
-    and user.role
-    != UserRole.ADMIN
-    ):
-        
+    if active_page in ADMIN_APP_PAGES and user.role != UserRole.ADMIN:
         return default_app_state()
 
-    profile_username = (
-        state.profile_username
-    )
+    profile_username = state.profile_username
 
-    if (
-        active_page
-        == "public-profile"
-    ):
+    if active_page == "public-profile":
         if not profile_username:
             return default_app_state()
 
-        target = (
-            await get_user_by_username(
-                session,
-                profile_username,
-            )
+        target = await get_user_by_username(
+            session,
+            profile_username,
         )
 
         if target is None:
@@ -326,14 +342,10 @@ async def build_app_state(
 
     return AppStateResponse(
         active_page=active_page,
-        search_query=(
-            state.search_query
-            or ""
-        ),
-        profile_username=(
-            profile_username
-        ),
+        search_query=(state.search_query or ""),
+        profile_username=(profile_username),
     )
+
 
 async def accepted_followers_count(
     session: DatabaseSession,
@@ -527,7 +539,12 @@ async def build_dashboard(
             title=track.title,
             artist=track.artist,
             album=track.album,
-            artwork_url=artwork_url(track),
+            audio_url=audio_url(
+                track,
+            ),
+            artwork_url=artwork_url(
+                track,
+            ),
             play_count=play_count,
             last_played_at=last_played_at,
         )
@@ -1032,6 +1049,7 @@ async def decline_follow_request(
         "status": "declined",
     }
 
+
 @router.get(
     "/me/app-state",
     response_model=AppStateResponse,
@@ -1055,63 +1073,33 @@ async def update_my_app_state(
     user: CurrentUser,
     session: DatabaseSession,
 ):
-    if (
-        payload.active_page
-        in ADMIN_APP_PAGES
-        and user.role
-        != UserRole.ADMIN
-    ):
+    if payload.active_page in ADMIN_APP_PAGES and user.role != UserRole.ADMIN:
         raise HTTPException(
-            status_code=(
-                status.HTTP_403_FORBIDDEN
-            ),
-            detail=(
-                "Administrator access "
-                "is required for this page."
-            ),
+            status_code=(status.HTTP_403_FORBIDDEN),
+            detail=("Administrator access is required for this page."),
         )
 
-    profile_username = (
-        payload.profile_username.strip()
-        if payload.profile_username
-        else None
-    )
+    profile_username = payload.profile_username.strip() if payload.profile_username else None
 
-    if (
-        payload.active_page
-        == "public-profile"
-    ):
+    if payload.active_page == "public-profile":
         if not profile_username:
             raise HTTPException(
-                status_code=(
-                    status.HTTP_400_BAD_REQUEST
-                ),
-                detail=(
-                    "A profile username "
-                    "is required."
-                ),
+                status_code=(status.HTTP_400_BAD_REQUEST),
+                detail=("A profile username is required."),
             )
 
-        target = (
-            await get_user_by_username(
-                session,
-                profile_username,
-            )
+        target = await get_user_by_username(
+            session,
+            profile_username,
         )
 
         if target is None:
             raise HTTPException(
-                status_code=(
-                    status.HTTP_404_NOT_FOUND
-                ),
-                detail=(
-                    "Profile not found."
-                ),
+                status_code=(status.HTTP_404_NOT_FOUND),
+                detail=("Profile not found."),
             )
 
-        profile_username = (
-            target.username
-        )
+        profile_username = target.username
 
     else:
         profile_username = None
@@ -1130,31 +1118,19 @@ async def update_my_app_state(
             app_state,
         )
 
-    app_state.active_page = (
-        payload.active_page
-    )
+    app_state.active_page = payload.active_page
 
-    app_state.search_query = (
-        payload.search_query
-    )
+    app_state.search_query = payload.search_query
 
-    app_state.profile_username = (
-        profile_username
-    )
+    app_state.profile_username = profile_username
 
     await session.commit()
 
     return AppStateResponse(
-    active_page=(
-        payload.active_page
-    ),
-    search_query=(
-        app_state.search_query
-    ),
-    profile_username=(
-        app_state.profile_username
-    ),
-)
+        active_page=(payload.active_page),
+        search_query=(app_state.search_query),
+        profile_username=(app_state.profile_username),
+    )
 
 
 @router.get(

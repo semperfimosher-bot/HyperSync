@@ -1,5 +1,4 @@
 import {
-  API_BASE,
   apiRequest,
 } from "./api/client.js";
 
@@ -16,10 +15,14 @@ import {
   buildTrackQueue,
   getNextQueueIndex,
   getQueueTrackAtIndex,
+  getTrackAudioSource,
 } from "./playerQueue.js";
 
 const audio =
   new Audio();
+
+audio.crossOrigin =
+  "anonymous";
 
 
 let subscribers =
@@ -70,21 +73,6 @@ function clearQueue() {
 
   currentQueueIndex =
     -1;
-}
-
-
-function audioUrlForTrack(
-  trackId,
-) {
-  const base =
-    API_BASE.replace(
-      /\/$/,
-      "",
-    );
-
-  return (
-    `${base}/audio/${trackId}`
-  );
 }
 
 function notify() {
@@ -300,16 +288,17 @@ async function playTrackInternal(
     artist;
 
   const url =
-    audioUrlForTrack(
+  resolveMediaUrl(
+    getTrackAudioSource(
       trackId,
-    );
+      meta,
+    ),
+  );
 
   await loadAudioSource(
     url,
   );
 
-  audio.crossOrigin =
-    "anonymous";
 
   audio.load();
 
@@ -463,8 +452,7 @@ export async function playUrl(
     mediaUrl,
   );
 
-  audio.crossOrigin =
-    "anonymous";
+
 
   audio.load();
 

@@ -351,23 +351,26 @@ function SearchPage({
             type="button"
             onClick={() => {
   const queue =
-    results.map(
-      (item) => ({
-        id:
-          item.id,
+  results.map(
+    (item) => ({
+      id:
+        item.id,
 
-        artworkUrl:
-          resolveArtworkUrl(
-            item.artwork_url,
-          ),
+      audioUrl:
+        item.audio_url,
 
-        title:
-          item.title,
+      artworkUrl:
+        resolveArtworkUrl(
+          item.artwork_url,
+        ),
 
-        artist:
-          item.artist,
-      }),
-    );
+      title:
+        item.title,
+
+      artist:
+        item.artist,
+    }),
+  );
 
   player
     .playTrackQueue(

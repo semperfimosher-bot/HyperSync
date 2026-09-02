@@ -183,13 +183,7 @@ def _choose_search_candidate(
     )
 
     wanted_duration = (
-        float(duration_seconds)
-        if (
-            duration_seconds
-            is not None
-            and duration_seconds > 0
-        )
-        else None
+        float(duration_seconds) if (duration_seconds is not None and duration_seconds > 0) else None
     )
 
     matches: list[
@@ -219,16 +213,10 @@ def _choose_search_candidate(
         # We only accept the same normalized
         # title and artist. This prevents
         # attaching lyrics from a different song.
-        if (
-            candidate_title
-            != wanted_title
-        ):
+        if candidate_title != wanted_title:
             continue
 
-        if (
-            candidate_artist
-            != wanted_artist
-        ):
+        if candidate_artist != wanted_artist:
             continue
 
         candidate_duration = _duration(
@@ -241,10 +229,7 @@ def _choose_search_candidate(
             if candidate_duration is None:
                 continue
 
-            duration_delta = abs(
-                candidate_duration
-                - wanted_duration
-            )
+            duration_delta = abs(candidate_duration - wanted_duration)
 
             # LRCLIB recommends duration for
             # distinguishing different versions.
@@ -265,15 +250,7 @@ def _choose_search_candidate(
         # Album is useful as a tie-breaker,
         # but it should not reject an otherwise
         # exact title/artist/duration match.
-        album_penalty = (
-            0
-            if (
-                wanted_album
-                and candidate_album
-                == wanted_album
-            )
-            else 1
-        )
+        album_penalty = 0 if (wanted_album and candidate_album == wanted_album) else 1
 
         matches.append(
             (
@@ -301,11 +278,7 @@ def _choose_search_candidate(
     # Without duration, an exact album can
     # disambiguate the result.
     if wanted_album:
-        album_matches = [
-            item
-            for item in matches
-            if item[1] == 0
-        ]
+        album_matches = [item for item in matches if item[1] == 0]
 
         if len(album_matches) == 1:
             return album_matches[0][2]
@@ -334,10 +307,7 @@ def _handle_rate_limit(
         ),
     )
 
-    _blocked_until = (
-        time.monotonic()
-        + retry_after
-    )
+    _blocked_until = time.monotonic() + retry_after
 
     raise LrclibRateLimitedError(
         retry_after,
@@ -351,10 +321,7 @@ async def fetch_lrclib_lyrics(
     album: str | None,
     duration_seconds: int | None,
 ) -> LrclibLyrics | None:
-    remaining = (
-        _blocked_until
-        - time.monotonic()
-    )
+    remaining = _blocked_until - time.monotonic()
 
     if remaining > 0:
         raise LrclibRateLimitedError(
@@ -374,34 +341,18 @@ async def fetch_lrclib_lyrics(
     }
 
     if album:
-        exact_params[
-            "album_name"
-        ] = album
+        exact_params["album_name"] = album
 
-    if (
-        duration_seconds
-        is not None
-        and 1
-        <= duration_seconds
-        <= 3600
-    ):
-        exact_params[
-            "duration"
-        ] = duration_seconds
+    if duration_seconds is not None and 1 <= duration_seconds <= 3600:
+        exact_params["duration"] = duration_seconds
 
-    base_url = (
-        settings.lrclib_base_url
-        .rstrip("/")
-    )
+    base_url = settings.lrclib_base_url.rstrip("/")
 
     try:
         async with httpx.AsyncClient(
             base_url=base_url,
             headers={
-                "User-Agent": (
-                    settings
-                    .lrclib_client_name
-                ),
+                "User-Agent": (settings.lrclib_client_name),
             },
             timeout=10.0,
         ) as client:
@@ -418,15 +369,10 @@ async def fetch_lrclib_lyrics(
 
             if exact_response.status_code == 200:
                 try:
-                    exact_payload = (
-                        exact_response.json()
-                    )
+                    exact_payload = exact_response.json()
                 except ValueError as exc:
                     raise LrclibUnavailableError(
-                        (
-                            "LRCLIB returned "
-                            "invalid JSON."
-                        ),
+                        ("LRCLIB returned invalid JSON."),
                     ) from exc
 
                 if not isinstance(
@@ -434,10 +380,7 @@ async def fetch_lrclib_lyrics(
                     dict,
                 ):
                     raise LrclibUnavailableError(
-                        (
-                            "LRCLIB returned "
-                            "invalid data."
-                        ),
+                        ("LRCLIB returned invalid data."),
                     )
 
                 return _payload_to_lyrics(
@@ -467,15 +410,10 @@ async def fetch_lrclib_lyrics(
             search_response.raise_for_status()
 
             try:
-                raw_results = (
-                    search_response.json()
-                )
+                raw_results = search_response.json()
             except ValueError as exc:
                 raise LrclibUnavailableError(
-                    (
-                        "LRCLIB returned "
-                        "invalid search JSON."
-                    ),
+                    ("LRCLIB returned invalid search JSON."),
                 ) from exc
 
             if not isinstance(
@@ -483,15 +421,10 @@ async def fetch_lrclib_lyrics(
                 list,
             ):
                 raise LrclibUnavailableError(
-                    (
-                        "LRCLIB returned "
-                        "invalid search data."
-                    ),
+                    ("LRCLIB returned invalid search data."),
                 )
 
-            results: list[
-                dict[str, object]
-            ] = [
+            results: list[dict[str, object]] = [
                 item
                 for item in raw_results
                 if isinstance(
@@ -500,16 +433,12 @@ async def fetch_lrclib_lyrics(
                 )
             ]
 
-            candidate = (
-                _choose_search_candidate(
-                    results,
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    duration_seconds=(
-                        duration_seconds
-                    ),
-                )
+            candidate = _choose_search_candidate(
+                results,
+                title=title,
+                artist=artist,
+                album=album,
+                duration_seconds=(duration_seconds),
             )
 
             if candidate is None:
@@ -529,4 +458,3 @@ async def fetch_lrclib_lyrics(
         raise LrclibUnavailableError(
             "Unable to reach LRCLIB.",
         ) from exc
-    

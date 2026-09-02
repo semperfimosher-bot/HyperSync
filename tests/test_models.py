@@ -46,17 +46,11 @@ def test_sessions_do_not_store_raw_tokens() -> None:
     assert "refresh_token_hash" in column_names
     assert "refresh_token" not in column_names
 
-def test_track_lyrics_table_is_registered() -> None:
-    assert (
-        "track_lyrics"
-        in Base.metadata.tables
-    )
 
-    lyrics_table = (
-        Base.metadata.tables[
-            "track_lyrics"
-        ]
-    )
+def test_track_lyrics_table_is_registered() -> None:
+    assert "track_lyrics" in Base.metadata.tables
+
+    lyrics_table = Base.metadata.tables["track_lyrics"]
 
     expected_columns = {
         "track_id",
@@ -72,4 +66,3 @@ def test_track_lyrics_table_is_registered() -> None:
     assert expected_columns.issubset(
         lyrics_table.columns.keys(),
     )
-    

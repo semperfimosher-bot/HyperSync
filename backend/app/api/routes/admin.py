@@ -38,6 +38,7 @@ async def check_admin_access(
         "message": "Administrator access granted.",
     }
 
+
 @router.post("/tracks/upload")
 async def upload_track(
     file: Annotated[UploadFile, File(...)],
@@ -60,10 +61,7 @@ async def upload_track(
             detail="No file provided.",
         )
 
-    if (
-        not file.content_type
-        or "audio" not in file.content_type
-    ):
+    if not file.content_type or "audio" not in file.content_type:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be an audio file.",
@@ -75,43 +73,27 @@ async def upload_track(
         file_content = await file.read()
         file_size = len(file_content)
 
-        embedded_metadata = (
-            extract_embedded_audio_metadata(
-                file_content,
-            )
+        embedded_metadata = extract_embedded_audio_metadata(
+            file_content,
         )
 
-        resolved_metadata = (
-            resolve_track_metadata(
-                submitted_title=title,
-                submitted_artist=artist,
-                submitted_album=album,
-                submitted_duration_seconds=(
-                    duration_seconds
-                ),
-                title_edited=title_edited,
-                artist_edited=artist_edited,
-                album_edited=album_edited,
-                duration_edited=(
-                    duration_edited
-                ),
-                embedded=embedded_metadata,
-            )
+        resolved_metadata = resolve_track_metadata(
+            submitted_title=title,
+            submitted_artist=artist,
+            submitted_album=album,
+            submitted_duration_seconds=(duration_seconds),
+            title_edited=title_edited,
+            artist_edited=artist_edited,
+            album_edited=album_edited,
+            duration_edited=(duration_edited),
+            embedded=embedded_metadata,
         )
 
         file_ext = (
-            file.filename.split(".")[-1]
-            if (
-                file.filename
-                and "." in file.filename
-            )
-            else "wav"
+            file.filename.split(".")[-1] if (file.filename and "." in file.filename) else "wav"
         )
 
-        object_key = (
-            f"{settings.b2_audio_prefix}/"
-            f"{uuid4()}.{file_ext}"
-        )
+        object_key = f"{settings.b2_audio_prefix}/{uuid4()}.{file_ext}"
 
         artwork_data = None
         artwork_mime_type = None
@@ -134,48 +116,27 @@ async def upload_track(
                         tags,
                         "getall",
                     ):
-                        apic_frames = (
-                            tags.getall(
-                                "APIC",
-                            )
+                        apic_frames = tags.getall(
+                            "APIC",
                         )
 
                         if apic_frames:
-                            artwork_data = (
-                                apic_frames[
-                                    0
-                                ].data
-                            )
+                            artwork_data = apic_frames[0].data
 
-                            artwork_mime_type = (
-                                apic_frames[
-                                    0
-                                ].mime
-                            )
+                            artwork_mime_type = apic_frames[0].mime
 
-                    elif (
-                        "metadata_block_picture"
-                        in tags
-                    ):
-                        picture_data = (
-                            base64.b64decode(
-                                tags[
-                                    "metadata_block_picture"
-                                ][0],
-                            )
+                    elif "metadata_block_picture" in tags:
+                        picture_data = base64.b64decode(
+                            tags["metadata_block_picture"][0],
                         )
 
                         picture = Picture(
                             picture_data,
                         )
 
-                        artwork_data = (
-                            picture.data
-                        )
+                        artwork_data = picture.data
 
-                        artwork_mime_type = (
-                            picture.mime
-                        )
+                        artwork_mime_type = picture.mime
 
         except Exception:
             # Artwork extraction should
@@ -188,70 +149,33 @@ async def upload_track(
             bucket.upload_bytes,
             file_content,
             object_key,
-            content_type=(
-                file.content_type
-            ),
+            content_type=(file.content_type),
         )
 
         artwork_object_key = None
 
-        if (
-            artwork_data
-            and artwork_mime_type
-        ):
-            artwork_ext = (
-                artwork_mime_type
-                .split("/")[-1]
-                if "/" in artwork_mime_type
-                else "jpg"
-            )
+        if artwork_data and artwork_mime_type:
+            artwork_ext = artwork_mime_type.split("/")[-1] if "/" in artwork_mime_type else "jpg"
 
-            artwork_object_key = (
-                f"{settings.b2_artwork_prefix}/"
-                f"{uuid4()}.{artwork_ext}"
-            )
+            artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
 
             await asyncio.to_thread(
                 bucket.upload_bytes,
                 artwork_data,
                 artwork_object_key,
-                content_type=(
-                    artwork_mime_type
-                ),
+                content_type=(artwork_mime_type),
             )
 
         track = Track(
             id=uuid4(),
-            title=(
-                resolved_metadata[
-                    "title"
-                ]
-            ),
-            artist=(
-                resolved_metadata[
-                    "artist"
-                ]
-            ),
-            album=(
-                resolved_metadata[
-                    "album"
-                ]
-            ),
-            b2_object_key=(
-                object_key
-            ),
-            artwork_object_key=(
-                artwork_object_key
-            ),
-            mime_type=(
-                file.content_type
-            ),
+            title=(resolved_metadata["title"]),
+            artist=(resolved_metadata["artist"]),
+            album=(resolved_metadata["album"]),
+            b2_object_key=(object_key),
+            artwork_object_key=(artwork_object_key),
+            mime_type=(file.content_type),
             file_size=file_size,
-            duration_seconds=(
-                resolved_metadata[
-                    "duration_seconds"
-                ]
-            ),
+            duration_seconds=(resolved_metadata["duration_seconds"]),
             is_published=True,
         )
 
@@ -267,29 +191,18 @@ async def upload_track(
             "title": track.title,
             "artist": track.artist,
             "album": track.album,
-            "b2_object_key": (
-                object_key
-            ),
-            "artwork_object_key": (
-                artwork_object_key
-            ),
+            "b2_object_key": (object_key),
+            "artwork_object_key": (artwork_object_key),
             "file_size": file_size,
-            "duration_seconds": (
-                track.duration_seconds
-            ),
+            "duration_seconds": (track.duration_seconds),
         }
 
     except Exception as exc:
         await session.rollback()
 
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            detail=(
-                f"Upload failed: {exc}"
-            ),
+            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
+            detail=(f"Upload failed: {exc}"),
         ) from exc
 
 

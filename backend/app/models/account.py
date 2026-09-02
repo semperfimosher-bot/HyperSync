@@ -328,45 +328,36 @@ class ListeningEvent(
         index=True,
     )
 
+
 class UserAppState(
     TimestampMixin,
     Base,
 ):
-    __tablename__ = (
-        "user_app_state"
+    __tablename__ = "user_app_state"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
     )
 
-    user_id: Mapped[UUID] = (
-        mapped_column(
-            ForeignKey(
-                "users.id",
-                ondelete="CASCADE",
-            ),
-            primary_key=True,
-        )
+    active_page: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="home",
+        server_default="home",
     )
 
-    active_page: Mapped[str] = (
-        mapped_column(
-            String(32),
-            nullable=False,
-            default="home",
-            server_default="home",
-        )
+    search_query: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+        default="",
+        server_default="",
     )
 
-    search_query: Mapped[str] = (
-        mapped_column(
-            String(200),
-            nullable=False,
-            default="",
-            server_default="",
-        )
-    )
-
-    profile_username: (
-        Mapped[str | None]
-    ) = mapped_column(
+    profile_username: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
     )

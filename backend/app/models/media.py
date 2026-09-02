@@ -79,6 +79,7 @@ class Track(
         server_default="true",
     )
 
+
 class TrackLyrics(
     TimestampMixin,
     Base,
@@ -93,44 +94,33 @@ class TrackLyrics(
         primary_key=True,
     )
 
-    lrclib_id: Mapped[int | None] = (
-        mapped_column(
-            BigInteger,
-            nullable=True,
-        )
+    lrclib_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
     )
 
-    plain_lyrics: Mapped[
-        str | None
-    ] = mapped_column(
+    plain_lyrics: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    synced_lyrics: Mapped[
-        str | None
-    ] = mapped_column(
+    synced_lyrics: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    instrumental: Mapped[bool] = (
-        mapped_column(
-            Boolean,
-            nullable=False,
-            default=False,
-            server_default=false(),
-        )
+    instrumental: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
     )
 
-    checked_at: Mapped[datetime] = (
-        mapped_column(
-            DateTime(
-                timezone=True,
-            ),
-            nullable=False,
-            default=func.now,
-            server_default=func.now(),
-        )
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=False,
+        default=func.now,
+        server_default=func.now(),
     )
-    

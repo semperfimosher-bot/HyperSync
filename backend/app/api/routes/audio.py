@@ -1,6 +1,7 @@
 import asyncio
 import os
 import threading
+import unicodedata
 from pathlib import Path
 from uuid import UUID
 
@@ -133,17 +134,56 @@ def parse_range(
     return start, end
 
 
-def safe_filename(title: str) -> str:
+def safe_filename(
+    title: str,
+) -> str:
     filename = title.strip()
 
     if not filename:
         filename = "audio"
 
-    filename = filename.replace("\\", "_")
-    filename = filename.replace("/", "_")
-    filename = filename.replace('"', "_")
-    filename = filename.replace("\r", "_")
-    filename = filename.replace("\n", "_")
+    filename = filename.replace(
+        "\\",
+        "_",
+    )
+
+    filename = filename.replace(
+        "/",
+        "_",
+    )
+
+    filename = filename.replace(
+        '"',
+        "_",
+    )
+
+    filename = filename.replace(
+        "\r",
+        "_",
+    )
+
+    filename = filename.replace(
+        "\n",
+        "_",
+    )
+
+    filename = (
+        unicodedata.normalize(
+            "NFKD",
+            filename,
+        )
+        .encode(
+            "ascii",
+            "ignore",
+        )
+        .decode(
+            "ascii",
+        )
+        .strip()
+    )
+
+    if not filename:
+        filename = "audio"
 
     return f"{filename}.mp3"
 
@@ -166,6 +206,7 @@ async def stream_b2_file(
                     output,
                     allow_seeking=False,
                 )
+
         except BaseException as exc:
             error.append(exc)
 
@@ -178,6 +219,7 @@ async def stream_b2_file(
         target=download,
         daemon=True,
     )
+
     thread.start()
 
     try:
@@ -214,13 +256,22 @@ async def stream_local_file(
 ):
     with file_path.open("rb") as source:
         source.seek(start)
+
         remaining = end - start + 1
 
         while remaining > 0:
-            chunk = source.read(min(STREAM_CHUNK_SIZE, remaining))
+            chunk = source.read(
+                min(
+                    STREAM_CHUNK_SIZE,
+                    remaining,
+                )
+            )
+
             if not chunk:
                 break
+
             yield chunk
+
             remaining -= len(chunk)
 
 

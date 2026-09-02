@@ -4,15 +4,23 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from backend.app.api.routes.audio import (
+    safe_filename,
+)
 from backend.app.main import app
 
 
 @pytest.mark.asyncio
-async def test_audio_streams_locally_when_b2_is_unavailable(monkeypatch, tmp_path) -> None:
+async def test_audio_streams_locally_when_b2_is_unavailable(
+    monkeypatch,
+    tmp_path,
+) -> None:
     audio_file = tmp_path / "demo_track.wav"
+
     audio_file.write_bytes(b"RIFFdemo-audio-sample")
 
     track_id = uuid4()
+
     track = SimpleNamespace(
         id=track_id,
         title="Demo Track",
@@ -27,17 +35,28 @@ async def test_audio_streams_locally_when_b2_is_unavailable(monkeypatch, tmp_pat
             return track
 
     class FakeSession:
-        async def __aenter__(self):
+        async def __aenter__(
+            self,
+        ):
             return self
 
-        async def __aexit__(self, exc_type, exc, tb):
+        async def __aexit__(
+            self,
+            exc_type,
+            exc,
+            tb,
+        ):
             return False
 
-        async def execute(self, *args, **kwargs):
+        async def execute(
+            self,
+            *args,
+            **kwargs,
+        ):
             return FakeResult()
 
     monkeypatch.setattr(
-        "backend.app.api.routes.audio.get_session_factory",
+        ("backend.app.api.routes.audio.get_session_factory"),
         lambda: lambda: FakeSession(),
     )
 
@@ -45,20 +64,39 @@ async def test_audio_streams_locally_when_b2_is_unavailable(monkeypatch, tmp_pat
         raise RuntimeError("B2 is not configured")
 
     monkeypatch.setattr(
-        "backend.app.api.routes.audio.get_b2_bucket",
+        ("backend.app.api.routes.audio.get_b2_bucket"),
         raise_b2_error,
     )
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(
+        app=app,
+    )
+
     async with AsyncClient(
         transport=transport,
         base_url="http://test",
     ) as client:
         response = await client.get(
             f"/api/audio/{track_id}",
-            headers={"Range": "bytes=0-10"},
+            headers={
+                "Range": "bytes=0-10",
+            },
         )
 
     assert response.status_code == 206
+
     assert response.headers["Content-Type"].startswith("audio/")
+
     assert response.content.startswith(b"RIFF")
+
+
+def test_safe_filename_is_header_safe() -> None:
+    filename = safe_filename(
+        "Don’t Stop",
+    )
+
+    filename.encode(
+        "latin-1",
+    )
+
+    assert filename == "Dont Stop.mp3"
