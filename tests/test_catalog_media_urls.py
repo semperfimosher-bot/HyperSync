@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,7 @@ from backend.app.api.routes import (
     catalog as catalog_route,
 )
 from backend.app.main import app
+from backend.app.models.media import Track
 
 
 @pytest.mark.asyncio
@@ -109,3 +111,58 @@ async def test_catalog_returns_direct_signed_media_urls(
     assert payload[0]["artwork_url"] == (
         "https://s3.example.test/bucket/artwork/fast-song.jpg?X-Amz-Signature=test"
     )
+
+def test_catalog_media_urls_fall_back_when_signing_fails(
+    monkeypatch,
+) -> None:
+    track_id = uuid4()
+
+    track = cast(
+    Track,
+    SimpleNamespace(
+        id=track_id,
+        b2_object_key="audio/demo.mp3",
+        artwork_object_key="artwork/demo.jpg",
+    ),
+)
+
+    monkeypatch.setattr(
+        catalog_route,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="production",
+        ),
+    )
+
+    def fail_sign(
+        object_key: str,
+    ) -> str:
+        raise RuntimeError(
+            "B2_ENDPOINT is not configured."
+        )
+
+    monkeypatch.setattr(
+        catalog_route,
+        "create_presigned_download_url",
+        fail_sign,
+    )
+
+    assert (
+        catalog_route._track_audio_url(
+            track,
+        )
+        ==
+        f"/api/audio/{track_id}"
+    )
+
+    assert (
+        catalog_route._track_artwork_url(
+            track,
+        )
+        ==
+        (
+            "/api/catalog/tracks/"
+            f"{track_id}/artwork"
+        )
+    )
+

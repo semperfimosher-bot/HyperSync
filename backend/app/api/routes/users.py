@@ -210,7 +210,30 @@ class PublicProfileResponse(BaseModel):
     recently_played: list[TrackSummary]
     top_artists: list[ArtistSummary]
 
+def presigned_or_fallback(
+    object_key: str,
+    fallback_url: str,
+) -> str:
+    try:
+        return (
+            create_presigned_download_url(
+                object_key,
+            )
+        )
 
+    except Exception:
+        logger.exception(
+            (
+                "Unable to create "
+                "presigned profile "
+                "media URL for %s; "
+                "using API fallback."
+            ),
+            object_key,
+        )
+
+        return fallback_url
+    
 def audio_url(
     track: Track,
 ) -> str | None:
@@ -230,9 +253,10 @@ def audio_url(
     if settings.environment != "production":
         return f"/api/audio/{track.id}"
 
-    return create_presigned_download_url(
-        track.b2_object_key,
-    )
+    return presigned_or_fallback(
+    track.b2_object_key,
+    f"/api/audio/{track.id}",
+)
 
 
 def artwork_url(
@@ -254,11 +278,13 @@ def artwork_url(
     if settings.environment != "production":
         return f"/api/catalog/tracks/{track.id}/artwork"
 
-    return create_presigned_download_url(
-        track.artwork_object_key,
-    )
-
-    return f"/api/catalog/tracks/{track.id}/artwork"
+    return presigned_or_fallback(
+    track.artwork_object_key,
+    (
+        "/api/catalog/tracks/"
+        f"{track.id}/artwork"
+    ),
+)
 
 
 def avatar_url(
