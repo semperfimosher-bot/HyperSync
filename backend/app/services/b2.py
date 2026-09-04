@@ -56,6 +56,11 @@ def get_b2_s3_client():
 
     endpoint = settings.b2_endpoint.strip().rstrip("/")
 
+    print(
+    "[B2 DEBUG] endpoint=",
+    repr(endpoint),
+)
+
     if not endpoint:
         raise RuntimeError("B2_ENDPOINT is not configured.")
 
@@ -73,6 +78,13 @@ def get_b2_s3_client():
     )
 
     hostname_parts = hostname.split(".")
+
+    print(
+    "[B2 DEBUG] hostname=",
+    repr(hostname),
+    "parts=",
+    hostname_parts,
+)
 
     if (
         len(hostname_parts) < 4
