@@ -6,10 +6,7 @@ import {
   getAccessToken,
 } from "./api/storage.js";
 
-import {
-  getCachedObjectUrl,
-  resolveMediaUrl,
-} from "./mediaCache.js";
+import { resolveMediaUrl } from "./mediaCache.js";
 
 import {
   buildTrackQueue,
@@ -45,8 +42,6 @@ let currentTrackId =
   null;
 
 
-let currentObjectUrl =
-  null;
 
 let currentQueue =
   [];
@@ -54,18 +49,6 @@ let currentQueue =
 let currentQueueIndex =
   -1;
 
-function revokeCurrentObjectUrl() {
-  if (!currentObjectUrl) {
-    return;
-  }
-
-  URL.revokeObjectURL(
-    currentObjectUrl,
-  );
-
-  currentObjectUrl =
-    null;
-}
 
 function clearQueue() {
   currentQueue =
@@ -221,40 +204,11 @@ function attachEvents() {
 attachEvents();
 
 
-async function loadAudioSource(
+function loadAudioSource(
   url,
 ) {
-  revokeCurrentObjectUrl();
-
-  const cachedObjectUrl =
-    await getCachedObjectUrl(
-      url,
-    );
-
-  if (cachedObjectUrl) {
-    currentObjectUrl =
-      cachedObjectUrl;
-
-    audio.src =
-      cachedObjectUrl;
-
-    return true;
-  }
-
- audio.src = url;
-
-/*
- * Stream the playing track directly.
- *
- * Do not start a second full-song
- * background download. On small backend
- * instances that creates unnecessary
- * concurrent B2 streams and memory use.
- */
-
-return false;
+  audio.src = url;
 }
-
 
 async function playTrackInternal(
   trackId,
@@ -295,9 +249,9 @@ async function playTrackInternal(
     ),
   );
 
-  await loadAudioSource(
-    url,
-  );
+  loadAudioSource(
+  url,
+);
 
 
   audio.load();
@@ -448,9 +402,9 @@ export async function playUrl(
       url,
     );
 
-  await loadAudioSource(
-    mediaUrl,
-  );
+  loadAudioSource(
+  mediaUrl,
+);
 
 
 
@@ -493,8 +447,6 @@ export function stopTrack(
   );
 
   audio.load();
-
-  revokeCurrentObjectUrl();
 
   currentTrackId =
     null;

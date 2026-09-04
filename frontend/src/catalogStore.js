@@ -9,10 +9,7 @@ import { apiRequest } from "./api/client.js";
 import * as player
   from "./audioPlayer.js";
 
-import {
-  clearCachedTrack,
-  warmMedia,
-} from "./mediaCache.js";
+import { clearCachedTrack } from "./mediaCache.js";
 
 let catalogTracks = [];
 
@@ -21,30 +18,7 @@ let catalogLoaded = false;
 let catalogRequest = null;
 
 const listeners = new Set();
-const ARTWORK_CACHE_LIMIT =
-  48;
 
-
-function warmCatalogArtwork(
-  tracks,
-) {
-  tracks
-    .slice(
-      0,
-      ARTWORK_CACHE_LIMIT,
-    )
-    .forEach(
-      (track) => {
-        if (
-          track.artwork_url
-        ) {
-          void warmMedia(
-            track.artwork_url,
-          ).catch(() => {});
-        }
-      },
-    );
-}
 
 function notifyCatalogListeners() {
   for (const listener of listeners) {
@@ -106,9 +80,6 @@ setCatalogTracks(
   nextTracks,
 );
 
-warmCatalogArtwork(
-  nextTracks,
-);
 
 catalogLoaded = true;
 
