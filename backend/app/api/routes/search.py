@@ -818,28 +818,58 @@ async def search_hypersync(
         effective_sort,
     )
 
-    tracks = _serialize_tracks(track_rows)
-
-    people = await _search_people(
-        session,
-        parsed,
+    tracks = _serialize_tracks(
+        track_rows,
     )
 
-    artists = _artist_results(tracks)
+    artists = _artist_results(
+        tracks,
+    )
 
-    albums = _album_results(tracks)
+    albums = _album_results(
+        tracks,
+    )
+
+    should_search_people = (
+        parsed.intent == "people"
+        or (
+            parsed.intent == "general"
+            and not tracks
+        )
+    )
+
+    people = (
+        await _search_people(
+            session,
+            parsed,
+        )
+        if should_search_people
+        else []
+    )
 
     processing_ms = max(
         1,
-        int((perf_counter() - started) * 1000),
+        int(
+            (
+                perf_counter()
+                - started
+            )
+            * 1000
+        ),
     )
 
     return SearchResponse(
         query=parsed.raw,
-        interpreted_query=(parsed.term),
+        interpreted_query=(
+            parsed.term
+        ),
         intent=parsed.intent,
-        sort_mode=(effective_sort),
-        processing_ms=(processing_ms),
+        sort_mode=(
+            effective_sort
+        ),
+        processing_ms=(
+            processing_ms
+        ),
         counts=SearchCounts(
             tracks=len(tracks),
             artists=len(artists),

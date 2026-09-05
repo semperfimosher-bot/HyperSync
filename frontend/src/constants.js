@@ -59,10 +59,10 @@ export const SEARCH_CATEGORIES = [
 ];
 
 export const SEARCH_SUGGESTIONS = [
-  "Synthwave",
-  "Retrowave",
-  "Chillwave",
-  "Cyberpunk",
+  "Pop",
+  "Rock",
+  "Chill",
+  "Rap",
   "Ambient",
   "Electronic",
 ];

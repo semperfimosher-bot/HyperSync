@@ -628,154 +628,176 @@ function SearchPage({
 
       <section className="hs-search-console">
 
-        <div className="hs-search-console__grid" />
+  <div
+    className="hs-search-console__grid"
+    aria-hidden="true"
+  />
 
-        <div className="hs-search-console__heading">
+  <div
+    className={
+      "hs-search-console__ambient " +
+      "hs-search-console__ambient--one"
+    }
+    aria-hidden="true"
+  />
 
-          <div>
-            <span className="hs-search-eyebrow">
-              HYPERSYNC SEARCH CORE // ONLINE
-            </span>
-
-            <h2>
-              Search the network
-            </h2>
-
-            <p>
-              Tracks, artists, albums and people.
-              Smart matching handles partial names,
-              simple commands and close misspellings.
-            </p>
-          </div>
+  <div
+    className={
+      "hs-search-console__ambient " +
+      "hs-search-console__ambient--two"
+    }
+    aria-hidden="true"
+  />
 
 
-          <div className="hs-search-sort">
+  <div className="hs-search-console__heading">
 
-            <label
-              htmlFor="hs-search-sort-mode"
+    <div className="hs-search-console__intro">
+
+      <div className="hs-search-console__eyebrow-row">
+
+        <span className="hs-search-eyebrow">
+          <i aria-hidden="true" />
+
+          HYPERSYNC DISCOVERY
+        </span>
+
+      </div>
+
+
+      <h2>
+       Tune into something new.
+      </h2>
+
+
+      
+
+    </div>
+
+
+    <div className="hs-search-sort">
+
+      <label
+        htmlFor="hs-search-sort-mode"
+      >
+        SORT RESULTS
+      </label>
+
+      <select
+        id="hs-search-sort-mode"
+        value={sortMode}
+        disabled={!preferenceReady}
+        onChange={changeSortMode}
+      >
+        {SEARCH_SORT_OPTIONS.map(
+          (option) => (
+            <option
+              key={option.value}
+              value={option.value}
             >
-              RESULT ORDER
-            </label>
+              {option.label}
+            </option>
+          ),
+        )}
+      </select>
 
-            <select
-              id="hs-search-sort-mode"
-              value={sortMode}
-              disabled={
-                !preferenceReady
-              }
-              onChange={
-                changeSortMode
-              }
-            >
-              {SEARCH_SORT_OPTIONS.map(
-                (option) => (
-                  <option
-                    key={
-                      option.value
-                    }
-                    value={
-                      option.value
-                    }
-                  >
-                    {option.label}
-                  </option>
-                ),
-              )}
-            </select>
+      <small>
+        {preferenceStatus === "saving"
+          ? "SYNCING PREFERENCE"
+          : preferenceStatus === "synced"
+            ? "PREFERENCE SYNCED"
+            : preferenceStatus === "error"
+              ? "SYNC RETRY NEEDED"
+              : preferenceStatus === "loading"
+                ? "LOADING PREFERENCE"
+                : "GUEST DEFAULT"}
+      </small>
 
-            <small>
-              {preferenceStatus ===
-              "saving"
-                ? "SYNCING ACCOUNT..."
-                : preferenceStatus ===
-                    "synced"
-                  ? "ACCOUNT SYNCED"
-                  : preferenceStatus ===
-                      "error"
-                    ? "SYNC RETRY NEEDED"
-                    : preferenceStatus ===
-                        "loading"
-                      ? "LOADING ACCOUNT..."
-                      : "GUEST DEFAULT"}
-            </small>
+    </div>
 
-          </div>
-
-        </div>
+  </div>
 
 
-        <label className="hs-search-input">
+  <label className="hs-search-input">
 
-          <Icon
-            name="search"
-            size={22}
-          />
+    <span className="hs-search-input__icon">
+      <Icon
+        name="search"
+        size={23}
+      />
+    </span>
 
-          <input
-            type="search"
-            value={query}
-            placeholder={
-              "Search title, artist, album, " +
-              "username, or try “songs by Post Malone”"
-            }
-            autoComplete="off"
-            spellCheck="false"
-            onChange={(event) => {
-              onQueryChange(
-                event.target.value,
-              );
-            }}
-            onKeyDown={
-              handleSearchKeyDown
-            }
-          />
+    <input
+      type="search"
+      value={query}
+      placeholder={
+        "Search songs, artists, albums, or people..."
+      }
+      autoComplete="off"
+      spellCheck="false"
+      onChange={(event) => {
+        onQueryChange(
+          event.target.value,
+        );
+      }}
+      onKeyDown={
+        handleSearchKeyDown
+      }
+    />
 
-          <span
-            className={
-              loading
-                ? "hs-search-scan-dot is-active"
-                : "hs-search-scan-dot"
-            }
-            aria-hidden="true"
-          />
+    <span
+      className={
+        loading
+          ? "hs-search-scan-dot is-active"
+          : "hs-search-scan-dot"
+      }
+      aria-hidden="true"
+    />
 
-        </label>
+  </label>
 
 
-        <div className="hs-search-console__status">
+  <div className="hs-search-console__status">
 
-          <span>
-            <i
-              className={
-                loading
-                  ? "is-scanning"
-                  : ""
-              }
-            />
+    <span
+      className={
+        "hs-search-status-chip " +
+        "hs-search-status-chip--primary"
+      }
+    >
+      <i
+        className={
+          loading
+            ? "is-scanning"
+            : ""
+        }
+      />
 
-            {loading
-              ? "ANALYZING QUERY"
-              : normalizedQuery
-                ? "QUERY RESOLVED"
-                : "AWAITING INPUT"}
-          </span>
+      {loading
+        ? "SEARCHING"
+        : normalizedQuery
+          ? "RESULTS READY"
+          : "SEARCH READY"}
+    </span>
 
-          <span>
-            {normalizedQuery
-              ? `${resultTotal} SIGNALS`
-              : "INDEX READY"}
-          </span>
 
-          <span>
-            {normalizedQuery &&
-            results.processing_ms
-              ? `${results.processing_ms}ms`
-              : "LOW-LATENCY MODE"}
-          </span>
+    <span className="hs-search-status-chip">
+      {normalizedQuery
+        ? `${resultTotal} RESULTS`
+        : "MUSIC INDEX ONLINE"}
+    </span>
 
-        </div>
 
-      </section>
+    <span className="hs-search-status-chip">
+      {normalizedQuery &&
+      results.processing_ms
+        ? `${results.processing_ms}ms`
+        : "SMART MATCHING"}
+    </span>
+
+  </div>
+
+</section>
 
 
       {normalizedQuery ? (
@@ -1403,13 +1425,11 @@ function SearchPage({
           </span>
 
           <h3>
-            Start typing or send a quick command
+            Try searching for something you love, or use one of the quick commands below.
           </h3>
 
           <p>
-            Try “post”, “songs by Post Malone”,
-            “people named Shane”, “my most played”,
-            “recent songs”, or a close misspelling.
+            Try typing a song title, artist, album, or username. HyperSync will prioritize the strongest music matches first.
           </p>
 
           <div className="hs-search-quick-commands">

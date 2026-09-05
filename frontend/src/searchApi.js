@@ -6,7 +6,7 @@ import {
 export const SEARCH_SORT_OPTIONS = [
   {
     value: "smart",
-    label: "Smart / Recommended",
+    label: "Smart Search",
   },
   {
     value: "recent",
