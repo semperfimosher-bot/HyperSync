@@ -18,12 +18,8 @@ def make_track() -> tuple[
         Track,
         SimpleNamespace(
             id=track_id,
-            b2_object_key=(
-                "audio/demo.mp3"
-            ),
-            artwork_object_key=(
-                "artwork/demo.jpg"
-            ),
+            b2_object_key=("audio/demo.mp3"),
+            artwork_object_key=("artwork/demo.jpg"),
         ),
     )
 
@@ -46,11 +42,7 @@ def test_profile_media_urls_are_direct_in_production(
     def fake_sign(
         object_key: str,
     ) -> str:
-        return (
-            "https://s3.example.test/"
-            f"bucket/{object_key}"
-            "?X-Amz-Signature=test"
-        )
+        return f"https://s3.example.test/bucket/{object_key}?X-Amz-Signature=test"
 
     monkeypatch.setattr(
         users_route,
@@ -62,8 +54,7 @@ def test_profile_media_urls_are_direct_in_production(
         users_route.audio_url(
             track,
         )
-        ==
-        "https://s3.example.test/"
+        == "https://s3.example.test/"
         "bucket/audio/demo.mp3"
         "?X-Amz-Signature=test"
     )
@@ -72,8 +63,7 @@ def test_profile_media_urls_are_direct_in_production(
         users_route.artwork_url(
             track,
         )
-        ==
-        "https://s3.example.test/"
+        == "https://s3.example.test/"
         "bucket/artwork/demo.jpg"
         "?X-Amz-Signature=test"
     )
@@ -96,20 +86,12 @@ def test_profile_media_urls_use_local_api_in_development(
         users_route.audio_url(
             track,
         )
-        ==
-        f"/api/audio/{track_id}"
+        == f"/api/audio/{track_id}"
     )
 
-    assert (
-        users_route.artwork_url(
-            track,
-        )
-        ==
-        (
-            "/api/catalog/tracks/"
-            f"{track_id}/artwork"
-        )
-    )
+    assert users_route.artwork_url(
+        track,
+    ) == (f"/api/catalog/tracks/{track_id}/artwork")
 
 
 def test_profile_media_urls_fall_back_when_signing_fails(
@@ -128,9 +110,7 @@ def test_profile_media_urls_fall_back_when_signing_fails(
     def fail_sign(
         object_key: str,
     ) -> str:
-        raise RuntimeError(
-            "B2_ENDPOINT is not configured."
-        )
+        raise RuntimeError("B2_ENDPOINT is not configured.")
 
     monkeypatch.setattr(
         users_route,
@@ -142,18 +122,9 @@ def test_profile_media_urls_fall_back_when_signing_fails(
         users_route.audio_url(
             track,
         )
-        ==
-        f"/api/audio/{track_id}"
+        == f"/api/audio/{track_id}"
     )
 
-    assert (
-        users_route.artwork_url(
-            track,
-        )
-        ==
-        (
-            "/api/catalog/tracks/"
-            f"{track_id}/artwork"
-        )
-    )
-    
+    assert users_route.artwork_url(
+        track,
+    ) == (f"/api/catalog/tracks/{track_id}/artwork")

@@ -357,6 +357,13 @@ class UserAppState(
         server_default="",
     )
 
+    search_sort_mode: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="smart",
+        server_default="smart",
+    )
+
     profile_username: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,

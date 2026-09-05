@@ -7,6 +7,7 @@ from .routes import (
     bot,
     catalog,
     health,
+    search,
     users,
 )
 
@@ -37,6 +38,11 @@ api_router.include_router(
 
 api_router.include_router(
     catalog.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    search.router,
     prefix="/api",
 )
 

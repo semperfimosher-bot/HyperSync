@@ -1,23 +1,73 @@
 import {
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
 import {
   API_BASE,
-  apiRequest,
 } from "../../api/client.js";
 
-import * as player from "../../audioPlayer.js";
-
-import Avatar from "../profile/Avatar.jsx";
-import Icon from "../ui/Icon.jsx";
-import SectionHeading from "../ui/SectionHeading.jsx";
+import * as player from
+  "../../audioPlayer.js";
 
 import {
-  SEARCH_CATEGORIES,
+  getSearchPreferences,
+  saveSearchPreferences,
+  searchHypersync,
+  SEARCH_SORT_OPTIONS,
+} from "../../searchApi.js";
+
+import {
   SEARCH_SUGGESTIONS,
 } from "../../constants.js";
+
+import Avatar from
+  "../profile/Avatar.jsx";
+
+import Icon from
+  "../ui/Icon.jsx";
+
+
+const EMPTY_RESULTS = {
+  query: "",
+  interpreted_query: "",
+  intent: "general",
+  sort_mode: "smart",
+  processing_ms: 0,
+
+  counts: {
+    tracks: 0,
+    artists: 0,
+    albums: 0,
+    people: 0,
+  },
+
+  tracks: [],
+  artists: [],
+  albums: [],
+  people: [],
+};
+
+
+const FILTERS = [
+  ["all", "All"],
+  ["tracks", "Tracks"],
+  ["artists", "Artists"],
+  ["albums", "Albums"],
+  ["people", "People"],
+];
+
+
+const QUICK_COMMANDS = [
+  "my most played",
+  "recent songs",
+  ...SEARCH_SUGGESTIONS.slice(
+    0,
+    4,
+  ),
+];
+
 
 function resolveArtworkUrl(url) {
   if (!url) {
@@ -31,24 +81,28 @@ function resolveArtworkUrl(url) {
     return url;
   }
 
-  return `${API_BASE}${url.replace(/^\/api/, "")}`;
+  return `${API_BASE}${url.replace(
+    /^\/api/,
+    "",
+  )}`;
 }
+
 
 function memberFor(value) {
   if (!value) {
     return "New member";
   }
 
-  const days =
-    Math.max(
-      0,
-      Math.floor(
-        (
-          Date.now() -
-          new Date(value).getTime()
-        ) / 86400000,
-      ),
-    );
+  const days = Math.max(
+    0,
+    Math.floor(
+      (
+        Date.now() -
+        new Date(value).getTime()
+      ) /
+        86400000,
+    ),
+  );
 
   if (days < 30) {
     return `${Math.max(
@@ -70,21 +124,122 @@ function memberFor(value) {
 }
 
 
+function formatDuration(seconds) {
+  const safe = Number(seconds);
+
+  if (
+    !Number.isFinite(safe) ||
+    safe <= 0
+  ) {
+    return "--:--";
+  }
+
+  const minutes =
+    Math.floor(
+      safe / 60,
+    );
+
+  const remainder =
+    Math.floor(
+      safe % 60,
+    )
+      .toString()
+      .padStart(
+        2,
+        "0",
+      );
+
+  return (
+    `${minutes}:${remainder}`
+  );
+}
+
+
+function totalCount(counts) {
+  return (
+    Number(
+      counts?.tracks || 0
+    ) +
+    Number(
+      counts?.artists || 0
+    ) +
+    Number(
+      counts?.albums || 0
+    ) +
+    Number(
+      counts?.people || 0
+    )
+  );
+}
+
+
+function filterCount(
+  filter,
+  counts,
+) {
+  if (filter === "all") {
+    return totalCount(
+      counts
+    );
+  }
+
+  return Number(
+    counts?.[filter] || 0,
+  );
+}
+
+
 function SearchPage({
   query,
   onQueryChange,
   onOpenProfile,
+  currentUser,
 }) {
   const normalizedQuery =
     query.trim();
 
-  const [results, setResults] =
-    useState([]);
+  const [
+    sortMode,
+    setSortMode,
+  ] = useState("smart");
 
   const [
-    userResults,
-    setUserResults,
-  ] = useState([]);
+    preferenceReady,
+    setPreferenceReady,
+  ] = useState(
+    !currentUser,
+  );
+
+  const [
+    preferenceStatus,
+    setPreferenceStatus,
+  ] = useState(
+    currentUser
+      ? "loading"
+      : "guest",
+  );
+
+  const [
+    activeFilter,
+    setActiveFilter,
+  ] = useState("all");
+
+  const [
+    selectedTrackIndex,
+    setSelectedTrackIndex,
+  ] = useState(-1);
+
+  const [
+    results,
+    setResults,
+  ] = useState(
+    EMPTY_RESULTS,
+  );
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
   const [
     searchError,
@@ -92,389 +247,1195 @@ function SearchPage({
   ] = useState("");
 
 
+  /*
+   * Load the user's dropdown
+   * choice from PostgreSQL.
+   *
+   * No localStorage is used.
+   */
   useEffect(() => {
     let cancelled = false;
 
-    async function loadResults() {
-      if (!normalizedQuery) {
-        setResults([]);
-        setUserResults([]);
-        setSearchError("");
-        return;
-      }
+    if (!currentUser) {
+      setSortMode("smart");
 
-      try {
-        const [
-          tracks,
-          users,
-        ] = await Promise.all([
-          apiRequest(
-            `/catalog/tracks?q=${encodeURIComponent(
-              normalizedQuery,
-            )}`,
-          ),
+      setPreferenceReady(
+        true,
+      );
 
-          apiRequest(
-            `/users/search?q=${encodeURIComponent(
-              normalizedQuery,
-            )}`,
-          ),
-        ]);
+      setPreferenceStatus(
+        "guest",
+      );
 
-        if (!cancelled) {
-          setResults(
-            tracks || [],
-          );
-
-          setUserResults(
-            users || [],
-          );
-
-          setSearchError("");
-        }
-
-      } catch (error) {
-        if (!cancelled) {
-          setResults([]);
-          setUserResults([]);
-
-          setSearchError(
-            error instanceof Error
-              ? error.message
-              : "Unable to search.",
-          );
-        }
-      }
+      return undefined;
     }
 
-    void loadResults();
+    setPreferenceReady(false);
+
+    setPreferenceStatus(
+      "loading",
+    );
+
+    getSearchPreferences()
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSortMode(
+          data?.sort_mode ||
+            "smart",
+        );
+
+        setPreferenceStatus(
+          "synced",
+        );
+
+        setPreferenceReady(
+          true,
+        );
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setSortMode("smart");
+
+        setPreferenceStatus(
+          "error",
+        );
+
+        setPreferenceReady(
+          true,
+        );
+      });
 
     return () => {
       cancelled = true;
     };
+  }, [
+    currentUser?.username,
+  ]);
 
-  }, [normalizedQuery]);
+
+  /*
+   * Search debounce.
+   *
+   * Old SearchPage hit both
+   * endpoints immediately after
+   * every query change.
+   *
+   * We wait 220ms and abort stale
+   * searches while the user types.
+   */
+  useEffect(() => {
+    if (!preferenceReady) {
+      return undefined;
+    }
+
+    if (!normalizedQuery) {
+      setResults(
+        EMPTY_RESULTS,
+      );
+
+      setLoading(false);
+      setSearchError("");
+
+      setSelectedTrackIndex(
+        -1,
+      );
+
+      return undefined;
+    }
+
+    const controller =
+      new AbortController();
+
+    setLoading(true);
+    setSearchError("");
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          try {
+            const data =
+              await searchHypersync(
+                normalizedQuery,
+                sortMode,
+                {
+                  signal:
+                    controller.signal,
+                },
+              );
+
+            if (
+              controller.signal
+                .aborted
+            ) {
+              return;
+            }
+
+            setResults({
+              ...EMPTY_RESULTS,
+              ...(data || {}),
+
+              counts: {
+                ...EMPTY_RESULTS.counts,
+                ...(data?.counts ||
+                  {}),
+              },
+
+              tracks:
+                data?.tracks || [],
+
+              artists:
+                data?.artists || [],
+
+              albums:
+                data?.albums || [],
+
+              people:
+                data?.people || [],
+            });
+
+            setSelectedTrackIndex(
+              -1,
+            );
+
+          } catch (error) {
+            if (
+              error?.name ===
+              "AbortError"
+            ) {
+              return;
+            }
+
+            setSearchError(
+              error instanceof Error
+                ? error.message
+                : "Unable to search.",
+            );
+
+          } finally {
+            if (
+              !controller.signal
+                .aborted
+            ) {
+              setLoading(false);
+            }
+          }
+        },
+        220,
+      );
+
+    return () => {
+      window.clearTimeout(
+        timer,
+      );
+
+      controller.abort();
+    };
+
+  }, [
+    normalizedQuery,
+    preferenceReady,
+    sortMode,
+  ]);
+
+
+  const resultTotal =
+    useMemo(
+      () =>
+        totalCount(
+          results.counts,
+        ),
+      [results.counts],
+    );
+
+
+  /*
+   * IMPORTANT:
+   *
+   * No extra request happens
+   * when play is pressed.
+   *
+   * The signed B2 audio_url from
+   * /api/search is placed directly
+   * into the queue.
+   */
+  function playTrack(
+    trackIndex,
+  ) {
+    const queue =
+      results.tracks.map(
+        (track) => ({
+          id:
+            track.id,
+
+          audioUrl:
+            track.audio_url,
+
+          artworkUrl:
+            resolveArtworkUrl(
+              track.artwork_url,
+            ),
+
+          title:
+            track.title,
+
+          artist:
+            track.artist,
+        }),
+      );
+
+    void player
+      .playTrackQueue(
+        queue,
+        trackIndex,
+      )
+      .catch(() => {});
+  }
+
+
+  function handleSearchKeyDown(
+    event,
+  ) {
+    const trackCount =
+      results.tracks.length;
+
+    if (
+      event.key ===
+        "ArrowDown" &&
+      trackCount > 0
+    ) {
+      event.preventDefault();
+
+      setSelectedTrackIndex(
+        (current) =>
+          Math.min(
+            current + 1,
+            trackCount - 1,
+          ),
+      );
+
+      return;
+    }
+
+    if (
+      event.key ===
+        "ArrowUp" &&
+      trackCount > 0
+    ) {
+      event.preventDefault();
+
+      setSelectedTrackIndex(
+        (current) =>
+          Math.max(
+            current - 1,
+            0,
+          ),
+      );
+
+      return;
+    }
+
+    if (
+      event.key ===
+        "Enter" &&
+      trackCount > 0
+    ) {
+      event.preventDefault();
+
+      playTrack(
+        selectedTrackIndex >= 0
+          ? selectedTrackIndex
+          : 0,
+      );
+
+      return;
+    }
+
+    if (
+      event.key === "Escape"
+    ) {
+      onQueryChange("");
+    }
+  }
+
+
+  function changeSortMode(
+    event,
+  ) {
+    const nextMode =
+      event.target.value;
+
+    setSortMode(
+      nextMode,
+    );
+
+    if (!currentUser) {
+      setPreferenceStatus(
+        "guest",
+      );
+
+      return;
+    }
+
+    setPreferenceStatus(
+      "saving",
+    );
+
+    void saveSearchPreferences(
+      nextMode,
+    )
+      .then(() => {
+        setPreferenceStatus(
+          "synced",
+        );
+      })
+      .catch(() => {
+        setPreferenceStatus(
+          "error",
+        );
+      });
+  }
+
+
+  const topTrack =
+    results.tracks[0] || null;
+
+
+  const showTracks =
+    activeFilter === "all" ||
+    activeFilter === "tracks";
+
+  const showArtists =
+    activeFilter === "all" ||
+    activeFilter === "artists";
+
+  const showAlbums =
+    activeFilter === "all" ||
+    activeFilter === "albums";
+
+  const showPeople =
+    activeFilter === "all" ||
+    activeFilter === "people";
 
 
   return (
-    <div className="page-stack search-page">
-      <label className="mobile-search-field">
-        <Icon
-          name="search"
-          size={17}
-        />
+    <div className="page-stack hs-search-page">
 
-        <input
-          type="search"
-          value={query}
-          placeholder="Search songs, artists, albums, or people"
-          onChange={(event) => {
-            onQueryChange(
-              event.target.value,
-            );
-          }}
-        />
-      </label>
+      <section className="hs-search-console">
+
+        <div className="hs-search-console__grid" />
+
+        <div className="hs-search-console__heading">
+
+          <div>
+            <span className="hs-search-eyebrow">
+              HYPERSYNC SEARCH CORE // ONLINE
+            </span>
+
+            <h2>
+              Search the network
+            </h2>
+
+            <p>
+              Tracks, artists, albums and people.
+              Smart matching handles partial names,
+              simple commands and close misspellings.
+            </p>
+          </div>
 
 
-      <section>
-        <SectionHeading
-          title="Browse by Category"
-        />
+          <div className="hs-search-sort">
 
-        <div className="category-grid">
-          {SEARCH_CATEGORIES.map(
-            (
-              category,
-              index,
-            ) => (
-              <button
-                className={
-                  `category-card ` +
-                  `category-card--${index + 1}`
-                }
-                type="button"
-                key={category.id}
-                onClick={() => {
-                  onQueryChange(
-                    category.label,
-                  );
-                }}
-              >
-                <strong>
-                  {category.label}
-                </strong>
+            <label
+              htmlFor="hs-search-sort-mode"
+            >
+              RESULT ORDER
+            </label>
 
-                <Icon
-                  name={
-                    category.icon
+            <select
+              id="hs-search-sort-mode"
+              value={sortMode}
+              disabled={
+                !preferenceReady
+              }
+              onChange={
+                changeSortMode
+              }
+            >
+              {SEARCH_SORT_OPTIONS.map(
+                (option) => (
+                  <option
+                    key={
+                      option.value
+                    }
+                    value={
+                      option.value
+                    }
+                  >
+                    {option.label}
+                  </option>
+                ),
+              )}
+            </select>
+
+            <small>
+              {preferenceStatus ===
+              "saving"
+                ? "SYNCING ACCOUNT..."
+                : preferenceStatus ===
+                    "synced"
+                  ? "ACCOUNT SYNCED"
+                  : preferenceStatus ===
+                      "error"
+                    ? "SYNC RETRY NEEDED"
+                    : preferenceStatus ===
+                        "loading"
+                      ? "LOADING ACCOUNT..."
+                      : "GUEST DEFAULT"}
+            </small>
+
+          </div>
+
+        </div>
+
+
+        <label className="hs-search-input">
+
+          <Icon
+            name="search"
+            size={22}
+          />
+
+          <input
+            type="search"
+            value={query}
+            placeholder={
+              "Search title, artist, album, " +
+              "username, or try “songs by Post Malone”"
+            }
+            autoComplete="off"
+            spellCheck="false"
+            onChange={(event) => {
+              onQueryChange(
+                event.target.value,
+              );
+            }}
+            onKeyDown={
+              handleSearchKeyDown
+            }
+          />
+
+          <span
+            className={
+              loading
+                ? "hs-search-scan-dot is-active"
+                : "hs-search-scan-dot"
+            }
+            aria-hidden="true"
+          />
+
+        </label>
+
+
+        <div className="hs-search-console__status">
+
+          <span>
+            <i
+              className={
+                loading
+                  ? "is-scanning"
+                  : ""
+              }
+            />
+
+            {loading
+              ? "ANALYZING QUERY"
+              : normalizedQuery
+                ? "QUERY RESOLVED"
+                : "AWAITING INPUT"}
+          </span>
+
+          <span>
+            {normalizedQuery
+              ? `${resultTotal} SIGNALS`
+              : "INDEX READY"}
+          </span>
+
+          <span>
+            {normalizedQuery &&
+            results.processing_ms
+              ? `${results.processing_ms}ms`
+              : "LOW-LATENCY MODE"}
+          </span>
+
+        </div>
+
+      </section>
+
+
+      {normalizedQuery ? (
+        <>
+
+          <section className="hs-search-filterbar">
+
+            {FILTERS.map(
+              ([
+                filter,
+                label,
+              ]) => (
+                <button
+                  type="button"
+                  key={filter}
+                  className={
+                    activeFilter ===
+                    filter
+                      ? "is-active"
+                      : ""
                   }
-                  size={31}
-                />
-              </button>
-            ),
-          )}
-        </div>
-      </section>
+                  onClick={() => {
+                    setActiveFilter(
+                      filter,
+                    );
+                  }}
+                >
+                  <span>
+                    {label}
+                  </span>
+
+                  <strong>
+                    {filterCount(
+                      filter,
+                      results.counts,
+                    )}
+                  </strong>
+                </button>
+              ),
+            )}
+
+          </section>
 
 
-      <section>
-        <SectionHeading
-          title="Popular Searches"
-        />
+          {searchError ? (
+            <section className="hs-search-message hs-search-message--error">
 
-        <div className="search-chips">
-          {SEARCH_SUGGESTIONS.map(
-            (suggestion) => (
-              <button
-                type="button"
-                key={suggestion}
-                onClick={() => {
-                  onQueryChange(
-                    suggestion,
-                  );
-                }}
-              >
-                {suggestion}
-              </button>
-            ),
-          )}
-        </div>
-      </section>
+              <Icon
+                name="search"
+                size={24}
+              />
 
-
-      <section>
-        {normalizedQuery ? (
-          searchError ? (
-            <div className="empty-content-card">
               <div>
                 <strong>
-                  Search failed
+                  SEARCH CORE ERROR
                 </strong>
 
                 <p>
                   {searchError}
                 </p>
               </div>
-            </div>
 
-          ) : (
-            <div className="search-results-stack">
-              {userResults.length >
-              0 ? (
-                <div>
-                  <SectionHeading
-                    title="People"
-                  />
+            </section>
+          ) : null}
 
-                  <div className="user-search-results">
-                    {userResults.map(
-                      (user) => (
-                        <button
-                          className="user-search-card hs-user-result"
-                          type="button"
-                          key={
-                            user.username
-                          }
-                          onClick={() => {
-                            onOpenProfile?.(
-                              user.username,
-                            );
-                          }}
-                        >
-                          <Avatar
-                            src={
-                              user.avatar_url
-                            }
-                            name={
-                              user.display_name
-                            }
-                            size="small"
-                          />
 
-                          <div>
-                            <strong>
-                              {
-                                user.display_name
-                              }
-                            </strong>
+          {!searchError &&
+          !loading &&
+          resultTotal === 0 ? (
+            <section className="hs-search-message">
 
-                            <small>
-                              @
-                              {
-                                user.username
-                              }
-                            </small>
+              <Icon
+                name="search"
+                size={28}
+              />
 
-                            <p>
-                              {
-                                user.followers_count
-                              }
-                              {" "}
-                              followers
-                              {" • "}
-                              {memberFor(
-                                user.member_since,
-                              )}
-                            </p>
-                          </div>
+              <div>
+                <strong>
+                  NO SIGNALS FOUND
+                </strong>
 
-                          <Icon
-                            name="chevron"
-                            size={16}
-                          />
-                        </button>
-                      ),
-                    )}
-                  </div>
+                <p>
+                  Try another title, artist,
+                  album, username, or a shorter
+                  search phrase.
+                </p>
+              </div>
+
+            </section>
+          ) : null}
+
+
+          {!searchError &&
+          resultTotal > 0 &&
+          activeFilter === "all" &&
+          topTrack ? (
+            <section className="hs-search-top-signal">
+
+              <div className="hs-search-top-signal__label">
+                TOP SIGNAL
+              </div>
+
+              <div className="hs-search-top-signal__body">
+
+                <div className="hs-search-top-signal__art">
+
+                  {resolveArtworkUrl(
+                    topTrack.artwork_url,
+                  ) ? (
+                    <img
+                      src={
+                        resolveArtworkUrl(
+                          topTrack.artwork_url,
+                        )
+                      }
+                      alt=""
+                      fetchPriority="high"
+                    />
+                  ) : (
+                    <Icon
+                      name="music"
+                      size={34}
+                    />
+                  )}
+
                 </div>
-              ) : null}
 
 
-              {results.length > 0 ? (
-  <div>
-    <SectionHeading
-      title="Music"
-    />
+                <div className="hs-search-top-signal__copy">
 
-    <div className="search-music-results">
-      {results.map((track, trackIndex) => {
-        const artworkUrl =
-          resolveArtworkUrl(
-            track.artwork_url,
-          );
+                  <span>
+                    {topTrack.match_label}
+                  </span>
 
-        return (
-          <button
-            key={track.id}
-            className="search-music-row"
-            type="button"
-            onClick={() => {
-  const queue =
-  results.map(
-    (item) => ({
-      id:
-        item.id,
-
-      audioUrl:
-        item.audio_url,
-
-      artworkUrl:
-        resolveArtworkUrl(
-          item.artwork_url,
-        ),
-
-      title:
-        item.title,
-
-      artist:
-        item.artist,
-    }),
-  );
-
-  player
-    .playTrackQueue(
-      queue,
-      trackIndex,
-    )
-    .catch(() => {});
-}}
-          >
-            <div className="search-music-row__art">
-              {artworkUrl ? (
-                <img
-                  src={artworkUrl}
-                  alt=""
-                />
-              ) : (
-                <div className="search-music-row__fallback">
-                  <Icon
-                    name="music"
-                    size={20}
-                  />
-                </div>
-              )}
-
-              <span
-                className="search-music-row__playing"
-                aria-hidden="true"
-              >
-                ▶
-              </span>
-            </div>
-
-            <div className="search-music-row__info">
-              <strong>
-                {track.title}
-              </strong>
-
-              <small>
-                {track.artist ||
-                  "Unknown artist"}
-              </small>
-
-              {track.album ? (
-                <span>
-                  {track.album}
-                </span>
-              ) : null}
-            </div>
-
-            <div
-              className="search-music-row__action"
-              aria-hidden="true"
-            >
-              ▶
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  </div>
-) : null}
-
-
-              {results.length ===
-                0 &&
-              userResults.length ===
-                0 ? (
-                <div className="search-empty-panel">
-                  <Icon
-                    name="search"
-                    size={30}
-                  />
-
-                  <strong>
-                    No results found
-                  </strong>
+                  <h3>
+                    {topTrack.title}
+                  </h3>
 
                   <p>
-                    Try another song,
-                    artist, album, or
-                    username.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          )
+                    {topTrack.artist}
 
-        ) : (
-          <div className="search-empty-panel">
+                    {topTrack.album
+                      ? ` • ${topTrack.album}`
+                      : ""}
+                  </p>
+
+                </div>
+
+
+                <button
+                  type="button"
+                  className="hs-search-primary-action"
+                  onClick={() => {
+                    playTrack(0);
+                  }}
+                >
+                  <Icon
+                    name="play"
+                    size={18}
+                  />
+
+                  PLAY
+                </button>
+
+              </div>
+
+            </section>
+          ) : null}
+
+
+          {showTracks &&
+          results.tracks.length > 0 ? (
+
+            <section className="hs-search-section">
+
+              <div className="hs-search-section__heading">
+
+                <div>
+                  <span>
+                    AUDIO INDEX
+                  </span>
+
+                  <h3>
+                    Tracks
+                  </h3>
+                </div>
+
+                <strong>
+                  {results.counts.tracks}
+                </strong>
+
+              </div>
+
+
+              <div className="hs-search-track-list">
+
+                {results.tracks.map(
+                  (
+                    track,
+                    trackIndex,
+                  ) => {
+
+                    const artworkUrl =
+                      resolveArtworkUrl(
+                        track.artwork_url,
+                      );
+
+                    return (
+                      <button
+                        type="button"
+                        key={track.id}
+                        className={
+                          selectedTrackIndex ===
+                          trackIndex
+                            ? "hs-search-track is-selected"
+                            : "hs-search-track"
+                        }
+                        onMouseEnter={() => {
+                          setSelectedTrackIndex(
+                            trackIndex,
+                          );
+                        }}
+                        onClick={() => {
+                          playTrack(
+                            trackIndex,
+                          );
+                        }}
+                      >
+
+                        <span className="hs-search-track__rank">
+                          {String(
+                            trackIndex + 1,
+                          ).padStart(
+                            2,
+                            "0",
+                          )}
+                        </span>
+
+
+                        <span className="hs-search-track__art">
+
+                          {artworkUrl ? (
+                            <img
+                              src={artworkUrl}
+                              alt=""
+                              loading={
+                                trackIndex < 6
+                                  ? "eager"
+                                  : "lazy"
+                              }
+                              fetchPriority={
+                                trackIndex < 3
+                                  ? "high"
+                                  : "auto"
+                              }
+                            />
+                          ) : (
+                            <Icon
+                              name="music"
+                              size={20}
+                            />
+                          )}
+
+                          <i aria-hidden="true">
+                            <Icon
+                              name="play"
+                              size={15}
+                            />
+                          </i>
+
+                        </span>
+
+
+                        <span className="hs-search-track__copy">
+
+                          <strong>
+                            {track.title}
+                          </strong>
+
+                          <small>
+                            {track.artist}
+
+                            {track.album
+                              ? ` • ${track.album}`
+                              : ""}
+                          </small>
+
+                        </span>
+
+
+                        <span className="hs-search-track__signals">
+
+                          <em>
+                            {track.user_play_count > 0
+                              ? "IN YOUR ROTATION"
+                              : track.match_label}
+                          </em>
+
+                          <small>
+                            {track.global_play_count}
+                            {" "}
+                            plays
+                          </small>
+
+                        </span>
+
+
+                        <span className="hs-search-track__duration">
+                          {formatDuration(
+                            track.duration_seconds,
+                          )}
+                        </span>
+
+
+                        <span className="hs-search-track__play">
+                          <Icon
+                            name="play"
+                            size={16}
+                          />
+                        </span>
+
+                      </button>
+                    );
+                  },
+                )}
+
+              </div>
+
+            </section>
+          ) : null}
+
+
+          {showArtists &&
+          results.artists.length > 0 ? (
+
+            <section className="hs-search-section">
+
+              <div className="hs-search-section__heading">
+
+                <div>
+                  <span>
+                    ENTITY INDEX
+                  </span>
+
+                  <h3>
+                    Artists
+                  </h3>
+                </div>
+
+                <strong>
+                  {results.counts.artists}
+                </strong>
+
+              </div>
+
+
+              <div className="hs-search-entity-grid">
+
+                {results.artists.map(
+                  (artist) => (
+
+                    <button
+                      type="button"
+                      key={artist.name}
+                      className="hs-search-entity-card"
+                      onClick={() => {
+                        onQueryChange(
+                          `songs by ${artist.name}`,
+                        );
+                      }}
+                    >
+
+                      <span className="hs-search-entity-card__art">
+
+                        {resolveArtworkUrl(
+                          artist.artwork_url,
+                        ) ? (
+                          <img
+                            src={
+                              resolveArtworkUrl(
+                                artist.artwork_url,
+                              )
+                            }
+                            alt=""
+                          />
+                        ) : (
+                          <Icon
+                            name="music"
+                            size={26}
+                          />
+                        )}
+
+                      </span>
+
+                      <span>
+
+                        <small>
+                          ARTIST
+                        </small>
+
+                        <strong>
+                          {artist.name}
+                        </strong>
+
+                        <em>
+                          {artist.track_count}
+                          {" "}
+                          matching tracks
+                        </em>
+
+                      </span>
+
+                      <Icon
+                        name="chevron"
+                        size={16}
+                      />
+
+                    </button>
+                  ),
+                )}
+
+              </div>
+
+            </section>
+          ) : null}
+
+
+          {showAlbums &&
+          results.albums.length > 0 ? (
+
+            <section className="hs-search-section">
+
+              <div className="hs-search-section__heading">
+
+                <div>
+                  <span>
+                    RELEASE INDEX
+                  </span>
+
+                  <h3>
+                    Albums
+                  </h3>
+                </div>
+
+                <strong>
+                  {results.counts.albums}
+                </strong>
+
+              </div>
+
+
+              <div className="hs-search-entity-grid">
+
+                {results.albums.map(
+                  (album) => (
+
+                    <button
+                      type="button"
+                      key={
+                        `${album.artist}:${album.title}`
+                      }
+                      className="hs-search-entity-card"
+                      onClick={() => {
+                        onQueryChange(
+                          album.title,
+                        );
+                      }}
+                    >
+
+                      <span className="hs-search-entity-card__art">
+
+                        {resolveArtworkUrl(
+                          album.artwork_url,
+                        ) ? (
+                          <img
+                            src={
+                              resolveArtworkUrl(
+                                album.artwork_url,
+                              )
+                            }
+                            alt=""
+                          />
+                        ) : (
+                          <Icon
+                            name="disc"
+                            size={26}
+                          />
+                        )}
+
+                      </span>
+
+                      <span>
+
+                        <small>
+                          ALBUM
+                        </small>
+
+                        <strong>
+                          {album.title}
+                        </strong>
+
+                        <em>
+                          {album.artist}
+                        </em>
+
+                      </span>
+
+                      <Icon
+                        name="chevron"
+                        size={16}
+                      />
+
+                    </button>
+                  ),
+                )}
+
+              </div>
+
+            </section>
+          ) : null}
+
+
+          {showPeople &&
+          results.people.length > 0 ? (
+
+            <section className="hs-search-section">
+
+              <div className="hs-search-section__heading">
+
+                <div>
+                  <span>
+                    SOCIAL INDEX
+                  </span>
+
+                  <h3>
+                    People
+                  </h3>
+                </div>
+
+                <strong>
+                  {results.counts.people}
+                </strong>
+
+              </div>
+
+
+              <div className="hs-search-people-list">
+
+                {results.people.map(
+                  (person) => (
+
+                    <button
+                      type="button"
+                      className="hs-search-person"
+                      key={
+                        person.username
+                      }
+                      onClick={() => {
+                        onOpenProfile?.(
+                          person.username,
+                        );
+                      }}
+                    >
+
+                      <Avatar
+                        src={
+                          person.avatar_url
+                        }
+                        name={
+                          person.display_name
+                        }
+                        size="small"
+                      />
+
+                      <span>
+
+                        <small>
+                          {person.match_label}
+                        </small>
+
+                        <strong>
+                          {person.display_name}
+                        </strong>
+
+                        <em>
+                          @{person.username}
+                          {" • "}
+                          {person.followers_count}
+                          {" followers • "}
+                          {memberFor(
+                            person.member_since,
+                          )}
+                        </em>
+
+                      </span>
+
+                      <Icon
+                        name="chevron"
+                        size={16}
+                      />
+
+                    </button>
+                  ),
+                )}
+
+              </div>
+
+            </section>
+          ) : null}
+
+        </>
+      ) : (
+
+        <section className="hs-search-standby">
+
+          <div className="hs-search-standby__symbol">
             <Icon
               name="search"
-              size={30}
+              size={34}
             />
-
-            <strong>
-              Search Hypersynced
-            </strong>
-
-            <p>
-              Find music and people.
-            </p>
           </div>
-        )}
-      </section>
+
+          <span>
+            SEARCH ARRAY STANDBY
+          </span>
+
+          <h3>
+            Start typing or send a quick command
+          </h3>
+
+          <p>
+            Try “post”, “songs by Post Malone”,
+            “people named Shane”, “my most played”,
+            “recent songs”, or a close misspelling.
+          </p>
+
+          <div className="hs-search-quick-commands">
+
+            {QUICK_COMMANDS.map(
+              (command) => (
+
+                <button
+                  type="button"
+                  key={command}
+                  onClick={() => {
+                    onQueryChange(
+                      command,
+                    );
+                  }}
+                >
+                  {command}
+                </button>
+              ),
+            )}
+
+          </div>
+
+        </section>
+      )}
+
     </div>
   );
 }

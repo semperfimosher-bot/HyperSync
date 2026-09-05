@@ -112,19 +112,20 @@ async def test_catalog_returns_direct_signed_media_urls(
         "https://s3.example.test/bucket/artwork/fast-song.jpg?X-Amz-Signature=test"
     )
 
+
 def test_catalog_media_urls_fall_back_when_signing_fails(
     monkeypatch,
 ) -> None:
     track_id = uuid4()
 
     track = cast(
-    Track,
-    SimpleNamespace(
-        id=track_id,
-        b2_object_key="audio/demo.mp3",
-        artwork_object_key="artwork/demo.jpg",
-    ),
-)
+        Track,
+        SimpleNamespace(
+            id=track_id,
+            b2_object_key="audio/demo.mp3",
+            artwork_object_key="artwork/demo.jpg",
+        ),
+    )
 
     monkeypatch.setattr(
         catalog_route,
@@ -137,9 +138,7 @@ def test_catalog_media_urls_fall_back_when_signing_fails(
     def fail_sign(
         object_key: str,
     ) -> str:
-        raise RuntimeError(
-            "B2_ENDPOINT is not configured."
-        )
+        raise RuntimeError("B2_ENDPOINT is not configured.")
 
     monkeypatch.setattr(
         catalog_route,
@@ -151,18 +150,9 @@ def test_catalog_media_urls_fall_back_when_signing_fails(
         catalog_route._track_audio_url(
             track,
         )
-        ==
-        f"/api/audio/{track_id}"
+        == f"/api/audio/{track_id}"
     )
 
-    assert (
-        catalog_route._track_artwork_url(
-            track,
-        )
-        ==
-        (
-            "/api/catalog/tracks/"
-            f"{track_id}/artwork"
-        )
-    )
-
+    assert catalog_route._track_artwork_url(
+        track,
+    ) == (f"/api/catalog/tracks/{track_id}/artwork")

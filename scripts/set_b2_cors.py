@@ -6,9 +6,7 @@ from backend.app.services.b2 import (
 settings = get_settings()
 
 if not settings.b2_bucket_name:
-    raise RuntimeError(
-        "B2_BUCKET_NAME is not configured."
-    )
+    raise RuntimeError("B2_BUCKET_NAME is not configured.")
 
 client = get_b2_s3_client()
 
@@ -40,7 +38,4 @@ client.put_bucket_cors(
     },
 )
 
-print(
-    "B2 S3 CORS configured for "
-    "https://hypersynced.app"
-)
+print("B2 S3 CORS configured for https://hypersynced.app")

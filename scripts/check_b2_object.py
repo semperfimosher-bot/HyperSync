@@ -6,10 +6,7 @@ from backend.app.services.b2 import get_b2_s3_client
 settings = get_settings()
 client = get_b2_s3_client()
 
-key = (
-    "audio/"
-    "4659ad28-cd53-4b8a-89aa-65eedfd6fe21.mp3"
-)
+key = "audio/4659ad28-cd53-4b8a-89aa-65eedfd6fe21.mp3"
 
 try:
     response = client.head_object(
@@ -29,4 +26,3 @@ except ClientError as exc:
     print("status:", metadata.get("HTTPStatusCode"))
     print("code:", error.get("Code"))
     print("message:", error.get("Message"))
-    

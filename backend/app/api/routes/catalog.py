@@ -59,29 +59,24 @@ class TrackResponse(BaseModel):
     audio_url: str | None = None
     artwork_url: str | None = None
 
+
 def _presigned_or_fallback(
     object_key: str,
     fallback_url: str,
 ) -> str:
     try:
-        return (
-            create_presigned_download_url(
-                object_key,
-            )
+        return create_presigned_download_url(
+            object_key,
         )
 
     except Exception:
         logger.exception(
-            (
-                "Unable to create "
-                "presigned media URL "
-                "for %s; using API "
-                "fallback."
-            ),
+            ("Unable to create presigned media URL for %s; using API fallback."),
             object_key,
         )
 
         return fallback_url
+
 
 def _track_audio_url(
     track: Track,
@@ -103,9 +98,9 @@ def _track_audio_url(
         return f"/api/audio/{track.id}"
 
     return _presigned_or_fallback(
-    track.b2_object_key,
-    f"/api/audio/{track.id}",
-)
+        track.b2_object_key,
+        f"/api/audio/{track.id}",
+    )
 
 
 def _track_artwork_url(
@@ -128,12 +123,9 @@ def _track_artwork_url(
         return f"/api/catalog/tracks/{track.id}/artwork"
 
     return _presigned_or_fallback(
-    track.artwork_object_key,
-    (
-        "/api/catalog/tracks/"
-        f"{track.id}/artwork"
-    ),
-)
+        track.artwork_object_key,
+        (f"/api/catalog/tracks/{track.id}/artwork"),
+    )
 
 
 @router.get(

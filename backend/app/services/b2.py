@@ -56,7 +56,6 @@ def get_b2_s3_client():
 
     endpoint = settings.b2_endpoint.strip().rstrip("/")
 
-
     if not endpoint:
         raise RuntimeError("B2_ENDPOINT is not configured.")
 
@@ -74,7 +73,6 @@ def get_b2_s3_client():
     )
 
     hostname_parts = hostname.split(".")
-
 
     if (
         len(hostname_parts) < 4

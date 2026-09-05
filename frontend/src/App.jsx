@@ -1028,6 +1028,9 @@ function MainPage({
   ) {
     return (
       <SearchPage
+        currentUser={
+          currentUser
+        }
         query={query}
         onQueryChange={
           onQueryChange
