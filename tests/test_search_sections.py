@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes import (
     search as search_route,
@@ -522,6 +524,64 @@ def test_direct_album_does_not_put_featured_artists_in_artists() -> None:
         "Post Malone",
     }
 
+@pytest.mark.asyncio
+async def test_general_track_search_does_not_use_new_release_cutoff(
+    monkeypatch,
+):
+    class FakeDialect:
+        name = "postgresql"
+
+    class FakeBind:
+        dialect = FakeDialect()
+
+    class FakeScalars:
+        def all(self):
+            return []
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    execute_mock = AsyncMock(
+        return_value=FakeResult(),
+    )
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            get_bind=lambda: FakeBind(),
+            execute=execute_mock,
+        ),
+    )
+
+    def fail_if_called():
+        raise AssertionError(
+            "general search must not use the new-release cutoff"
+        )
+
+    monkeypatch.setattr(
+        search_route,
+        "_new_release_cutoff",
+        fail_if_called,
+    )
+
+    parsed = ParsedSearch(
+        raw="post",
+        term="post",
+        intent="general",
+        field_hint="any",
+    )
+
+    results = await (
+        search_route._load_track_candidates(
+            session,
+            parsed,
+            None,
+        )
+    )
+
+    assert results == []
+    assert execute_mock.await_count == 1
 
 @pytest.mark.asyncio
 async def test_find_people_directory_returns_all_users_alphabetically(
@@ -579,9 +639,14 @@ async def test_find_people_directory_returns_all_users_alphabetically(
         def all(self):
             return rows
 
-    session = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=FakeResult(),
+    execute_mock = AsyncMock(
+        return_value=FakeResult(),
+    )
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            execute=execute_mock,
         ),
     )
 
@@ -614,4 +679,3 @@ async def test_find_people_directory_returns_all_users_alphabetically(
         usernames,
         key=str.casefold,
     )
-    

@@ -174,27 +174,35 @@ def parse_search_query(
             "artist",
         ),
         (
-            r"^@([^\s]+)$",
-            "people",
-            "people",
-        ),
-        (
-            (
-                r"^(?:people|users?|person)"
-                r"\s+(?:named\s+)?(.+)$"
-            ),
-            "people",
-            "people",
-        ),
-        (
-            (
-                r"^find\s+"
-                r"(?:people|users?|person)"
-                r"\s+(.+)$"
-            ),
-            "people",
-            "people",
-        ),
+    r"^@([^\s]+)$",
+    "people",
+    "people",
+),
+(
+    (
+        r"^find\s+"
+        r"(?:people|users?|person)$"
+    ),
+    "people",
+    "people",
+),
+(
+    (
+        r"^(?:people|users?|person)"
+        r"\s+(?:named\s+)?(.+)$"
+    ),
+    "people",
+    "people",
+),
+(
+    (
+        r"^find\s+"
+        r"(?:people|users?|person)"
+        r"\s+(.+)$"
+    ),
+    "people",
+    "people",
+),
         (
             (
                 r"^my\s+most\s+played"

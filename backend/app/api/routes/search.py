@@ -299,37 +299,37 @@ async def _load_track_candidates(
         return []
 
     if (
-    parsed.intent
-    == "new_releases"
-    and not parsed.term
-):
+        parsed.intent
+        == "new_releases"
+        and not parsed.term
+    ):
         cutoff = (
-        _new_release_cutoff()
-    )
+            _new_release_cutoff()
+        )
 
-    result = await session.execute(
-        select(
-            Track,
+        result = await session.execute(
+            select(
+                Track,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                ),
+                Track.created_at
+                >= cutoff,
+            )
+            .order_by(
+                Track.created_at.desc(),
+                Track.title.asc(),
+            )
+            .limit(
+                NEW_RELEASE_LIMIT,
+            )
         )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.created_at
-            >= cutoff,
-        )
-        .order_by(
-            Track.created_at.desc(),
-            Track.title.asc(),
-        )
-        .limit(
-            NEW_RELEASE_LIMIT,
-        )
-    )
 
-    return list(
-        result.scalars().all()
-    )
+        return list(
+            result.scalars().all()
+        )
 
     if (
         parsed.intent
@@ -530,12 +530,6 @@ async def _load_track_candidates(
     ):
         return []
 
-    # SQLite/local compatibility only.
-    #
-    # PostgreSQL production search
-    # uses the bounded trigram query
-    # above instead of scanning a
-    # large Python candidate list.
     fuzzy_result = (
         await session.execute(
             select(
@@ -796,7 +790,6 @@ async def _search_people(
             "general",
             "people",
         }
-        or not parsed.term
     ):
         return []
 
@@ -864,6 +857,81 @@ async def _search_people(
             ),
         )
     )
+
+    if (
+        parsed.intent == "people"
+        and not parsed.term
+    ):
+        result = await session.execute(
+            base_stmt.order_by(
+                func.lower(
+                    User.username,
+                ).asc(),
+                User.username.asc(),
+            )
+        )
+
+        directory: list[
+            SearchPersonResult
+        ] = []
+
+        for (
+            found_user,
+            follower_count,
+        ) in result.all():
+            username = (
+                found_user.username
+                or ""
+            )
+
+            profile = (
+                found_user.profile
+            )
+
+            display_name = (
+                profile.display_name
+                if (
+                    profile is not None
+                    and profile.display_name
+                )
+                else username
+                or "User"
+            )
+
+            directory.append(
+                SearchPersonResult(
+                    username=username,
+                    display_name=(
+                        display_name
+                    ),
+                    avatar_url=(
+                        avatar_url(
+                            found_user,
+                        )
+                    ),
+                    followers_count=int(
+                        follower_count,
+                    ),
+                    member_since=(
+                        found_user.created_at
+                    ),
+                    match_label=(
+                        "DIRECTORY"
+                    ),
+                )
+            )
+
+        directory.sort(
+            key=lambda person: (
+                person.username.casefold(),
+                person.username,
+            )
+        )
+
+        return directory
+
+    if not parsed.term:
+        return []
 
     fields = (
         User.username,

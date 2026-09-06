@@ -10,12 +10,38 @@ from backend.app.services.search import (
 )
 
 
+def test_find_people_command_opens_people_directory():
+    parsed = parse_search_query(
+        "find people",
+    )
+
+    assert (
+        parsed.intent
+        == "people"
+    )
+
+    assert parsed.term == ""
+
+    assert (
+        parsed.field_hint
+        == "people"
+    )
+
+
 @pytest.mark.parametrize(
     (
         "query",
         "expected_intent",
     ),
     [
+        (
+            "my most played",
+            "my_most_played",
+        ),
+        (
+            "recent songs",
+            "recent",
+        ),
         (
             "top artists",
             "top_artists",
@@ -42,18 +68,6 @@ from backend.app.services.search import (
         ),
     ],
 )
-def test_find_people_command_opens_people_directory():
-    parsed = parse_search_query(
-        "find people",
-    )
-
-    assert parsed.intent == "people"
-    assert parsed.term == ""
-    assert (
-        parsed.field_hint
-        == "people"
-    )
-    
 def test_shortcut_commands_parse_to_real_intents(
     query,
     expected_intent,
@@ -73,8 +87,12 @@ def test_shortcut_commands_parse_to_real_intents(
 def test_new_releases_sort_newest_first():
     rows = [
         {
-            "title": "A Older Track",
-            "artist": "Artist A",
+            "title": (
+                "A Older Track"
+            ),
+            "artist": (
+                "Artist A"
+            ),
             "created_at": datetime(
                 2026,
                 1,
@@ -83,8 +101,12 @@ def test_new_releases_sort_newest_first():
             ),
         },
         {
-            "title": "Z Newer Track",
-            "artist": "Artist B",
+            "title": (
+                "Z Newer Track"
+            ),
+            "artist": (
+                "Artist B"
+            ),
             "created_at": datetime(
                 2026,
                 8,
@@ -108,37 +130,94 @@ def test_new_releases_sort_newest_first():
         "A Older Track",
     ]
 
-def test_plain_query_remains_general() -> None:
-    parsed = parse_search_query("shane")
 
-    assert parsed.intent == "general"
-    assert parsed.field_hint == "any"
-    assert parsed.term == "shane"
+def test_plain_query_remains_general() -> None:
+    parsed = parse_search_query(
+        "shane",
+    )
+
+    assert (
+        parsed.intent
+        == "general"
+    )
+
+    assert (
+        parsed.field_hint
+        == "any"
+    )
+
+    assert (
+        parsed.term
+        == "shane"
+    )
 
 
 @pytest.mark.parametrize(
-    ("query", "expected_term"),
+    (
+        "query",
+        "expected_term",
+    ),
     [
-        ("@shane", "shane"),
-        ("people shane", "shane"),
-        ("people named shane", "shane"),
-        ("person shane", "shane"),
-        ("user shane", "shane"),
-        ("users shane", "shane"),
-        ("find user shane", "shane"),
-        ("find person shane", "shane"),
-        ("find people shane", "shane"),
+        (
+            "@shane",
+            "shane",
+        ),
+        (
+            "people shane",
+            "shane",
+        ),
+        (
+            "people named shane",
+            "shane",
+        ),
+        (
+            "person shane",
+            "shane",
+        ),
+        (
+            "user shane",
+            "shane",
+        ),
+        (
+            "users shane",
+            "shane",
+        ),
+        (
+            "find user shane",
+            "shane",
+        ),
+        (
+            "find person shane",
+            "shane",
+        ),
+        (
+            "find people shane",
+            "shane",
+        ),
     ],
 )
 def test_people_query_shortcuts(
     query: str,
     expected_term: str,
 ) -> None:
-    parsed = parse_search_query(query)
+    parsed = parse_search_query(
+        query,
+    )
 
-    assert parsed.intent == "people"
-    assert parsed.field_hint == "people"
-    assert parsed.term == expected_term
+    assert (
+        parsed.intent
+        == "people"
+    )
+
+    assert (
+        parsed.field_hint
+        == "people"
+    )
+
+    assert (
+        parsed.term
+        == expected_term
+    )
 
 
 def test_unrelated_person_scores_zero() -> None:
@@ -195,8 +274,16 @@ def test_typo_matches_word_inside_display_name() -> None:
     )
 
     assert match.score > 0
-    assert match.tier == 1
-    assert match.label == "CLOSE MATCH"
+
+    assert (
+        match.tier
+        == 1
+    )
+
+    assert (
+        match.label
+        == "CLOSE MATCH"
+    )
 
 
 def test_typo_matches_word_inside_track_fields() -> None:
@@ -212,5 +299,14 @@ def test_typo_matches_word_inside_track_fields() -> None:
     )
 
     assert match.score > 0
-    assert match.tier == 1
-    assert match.label == "CLOSE MATCH"
+
+    assert (
+        match.tier
+        == 1
+    )
+
+    assert (
+        match.label
+        == "CLOSE MATCH"
+    )
+    
