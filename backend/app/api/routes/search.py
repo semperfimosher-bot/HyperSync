@@ -178,9 +178,7 @@ class SearchResponse(
 
     artists: list[SearchArtistResult]
 
-    collaborations: list[
-        SearchArtistResult
-    ]
+    collaborations: list[SearchArtistResult]
 
     albums: list[SearchAlbumResult]
 
@@ -213,26 +211,21 @@ async def _load_history_track_ids(
     intent: str,
 ) -> list[UUID]:
     if intent == "my_most_played":
-        ordering = (
-            func.count(
-                ListeningEvent.id,
-            ).desc()
-        )
+        ordering = func.count(
+            ListeningEvent.id,
+        ).desc()
 
     else:
-        ordering = (
-            func.max(
-                ListeningEvent.listened_at,
-            ).desc()
-        )
+        ordering = func.max(
+            ListeningEvent.listened_at,
+        ).desc()
 
     result = await session.execute(
         select(
             ListeningEvent.track_id,
         )
         .where(
-            ListeningEvent.user_id
-            == user.id,
+            ListeningEvent.user_id == user.id,
         )
         .group_by(
             ListeningEvent.track_id,
@@ -245,9 +238,7 @@ async def _load_history_track_ids(
         )
     )
 
-    return list(
-        result.scalars().all()
-    )
+    return list(result.scalars().all())
 
 
 def _is_postgresql(
@@ -255,10 +246,8 @@ def _is_postgresql(
 ) -> bool:
     bind = session.get_bind()
 
-    return (
-        bind.dialect.name
-        == "postgresql"
-    )
+    return bind.dialect.name == "postgresql"
+
 
 def _new_release_cutoff(
     now: datetime | None = None,
@@ -271,24 +260,15 @@ def _new_release_cutoff(
         )
     )
 
-    if (
-        reference.tzinfo
-        is None
-    ):
-        reference = (
-            reference.replace(
-                tzinfo=UTC,
-            )
+    if reference.tzinfo is None:
+        reference = reference.replace(
+            tzinfo=UTC,
         )
 
-    return (
-        reference
-        - timedelta(
-            days=(
-                NEW_RELEASE_WINDOW_DAYS
-            ),
-        )
+    return reference - timedelta(
+        days=(NEW_RELEASE_WINDOW_DAYS),
     )
+
 
 async def _load_track_candidates(
     session: AsyncSession,
@@ -298,14 +278,8 @@ async def _load_track_candidates(
     if parsed.intent == "people":
         return []
 
-    if (
-        parsed.intent
-        == "new_releases"
-        and not parsed.term
-    ):
-        cutoff = (
-            _new_release_cutoff()
-        )
+    if parsed.intent == "new_releases" and not parsed.term:
+        cutoff = _new_release_cutoff()
 
         result = await session.execute(
             select(
@@ -315,8 +289,7 @@ async def _load_track_candidates(
                 Track.is_published.is_(
                     True,
                 ),
-                Track.created_at
-                >= cutoff,
+                Track.created_at >= cutoff,
             )
             .order_by(
                 Track.created_at.desc(),
@@ -327,9 +300,7 @@ async def _load_track_candidates(
             )
         )
 
-        return list(
-            result.scalars().all()
-        )
+        return list(result.scalars().all())
 
     if (
         parsed.intent
@@ -342,12 +313,10 @@ async def _load_track_candidates(
         if user is None:
             return []
 
-        track_ids = (
-            await _load_history_track_ids(
-                session,
-                user,
-                parsed.intent,
-            )
+        track_ids = await _load_history_track_ids(
+            session,
+            user,
+            parsed.intent,
         )
 
         if not track_ids:
@@ -366,48 +335,30 @@ async def _load_track_candidates(
             )
         )
 
-        by_id = {
-            track.id: track
-            for track
-            in result.scalars().all()
-        }
+        by_id = {track.id: track for track in result.scalars().all()}
 
-        return [
-            by_id[track_id]
-            for track_id in track_ids
-            if track_id in by_id
-        ]
+        return [by_id[track_id] for track_id in track_ids if track_id in by_id]
 
     term = parsed.term.strip()
 
     if not term:
         return []
 
-    prefix_pattern = (
-        f"{term}%"
-    )
+    prefix_pattern = f"{term}%"
 
-    contains_pattern = (
-        f"%{term}%"
-    )
+    contains_pattern = f"%{term}%"
 
-    stmt = (
-        select(
-            Track,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-        )
+    stmt = select(
+        Track,
+    ).where(
+        Track.is_published.is_(
+            True,
+        ),
     )
 
     fields = (
-        (
-            Track.artist,
-        )
-        if parsed.field_hint
-        == "artist"
+        (Track.artist,)
+        if parsed.field_hint == "artist"
         else (
             Track.title,
             Track.artist,
@@ -456,15 +407,11 @@ async def _load_track_candidates(
             )
             == 1
         ):
-            best_similarity = (
-                similarity_scores[0]
-            )
+            best_similarity = similarity_scores[0]
 
         else:
-            best_similarity = (
-                func.greatest(
-                    *similarity_scores,
-                )
+            best_similarity = func.greatest(
+                *similarity_scores,
             )
 
         result = await session.execute(
@@ -483,15 +430,9 @@ async def _load_track_candidates(
             )
         )
 
-        return list(
-            result.scalars().all()
-        )
+        return list(result.scalars().all())
 
-    direct_pattern = (
-        prefix_pattern
-        if len(term) == 1
-        else contains_pattern
-    )
+    direct_pattern = prefix_pattern if len(term) == 1 else contains_pattern
 
     direct_conditions = [
         field.ilike(
@@ -515,43 +456,34 @@ async def _load_track_candidates(
         )
     )
 
-    direct = list(
-        result.scalars().all()
-    )
+    direct = list(result.scalars().all())
 
     if direct:
         return direct
 
-    if (
-        len(term) < 3
-        or _is_postgresql(
-            session,
-        )
+    if len(term) < 3 or _is_postgresql(
+        session,
     ):
         return []
 
-    fuzzy_result = (
-        await session.execute(
-            select(
-                Track,
+    fuzzy_result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
             )
-            .where(
-                Track.is_published.is_(
-                    True,
-                )
-            )
-            .order_by(
-                Track.created_at.desc(),
-            )
-            .limit(
-                TRACK_CANDIDATE_LIMIT,
-            )
+        )
+        .order_by(
+            Track.created_at.desc(),
+        )
+        .limit(
+            TRACK_CANDIDATE_LIMIT,
         )
     )
 
-    return list(
-        fuzzy_result.scalars().all()
-    )
+    return list(fuzzy_result.scalars().all())
 
 
 async def _global_play_counts(
@@ -600,10 +532,7 @@ async def _user_history(
         datetime | None,
     ],
 ]:
-    if (
-        user is None
-        or not track_ids
-    ):
+    if user is None or not track_ids:
         return {}
 
     result = await session.execute(
@@ -617,8 +546,7 @@ async def _user_history(
             ),
         )
         .where(
-            ListeningEvent.user_id
-            == user.id,
+            ListeningEvent.user_id == user.id,
             ListeningEvent.track_id.in_(
                 track_ids,
             ),
@@ -647,10 +575,7 @@ def _match_for_track(
     track: Track,
     parsed: ParsedSearch,
 ) -> MatchResult:
-    if (
-        parsed.intent
-        == "new_releases"
-    ):
+    if parsed.intent == "new_releases":
         return MatchResult(
             score=1,
             tier=1,
@@ -672,35 +597,26 @@ async def _build_track_rows(
     user: User | None,
     sort_mode: SearchSortMode,
 ) -> list[dict]:
-    candidates = (
-        await _load_track_candidates(
-            session,
-            parsed,
-            user,
-        )
+    candidates = await _load_track_candidates(
+        session,
+        parsed,
+        user,
     )
 
     if not candidates:
         return []
 
-    track_ids = [
-        track.id
-        for track in candidates
-    ]
+    track_ids = [track.id for track in candidates]
 
-    global_counts = (
-        await _global_play_counts(
-            session,
-            track_ids,
-        )
+    global_counts = await _global_play_counts(
+        session,
+        track_ids,
     )
 
-    user_history = (
-        await _user_history(
-            session,
-            user,
-            track_ids,
-        )
+    user_history = await _user_history(
+        session,
+        user,
+        track_ids,
     )
 
     rows: list[dict] = []
@@ -711,10 +627,7 @@ async def _build_track_rows(
             parsed,
         )
 
-        if (
-            parsed.term
-            and match.score <= 0
-        ):
+        if parsed.term and match.score <= 0:
             continue
 
         (
@@ -731,39 +644,21 @@ async def _build_track_rows(
         rows.append(
             {
                 "track": track,
-                "title": (
-                    track.title
-                ),
-                "artist": (
-                    track.artist
-                ),
-                "created_at": (
-                    track.created_at
-                ),
-                "match_score": (
-                    match.score
-                ),
-                "match_tier": (
-                    match.tier
-                ),
-                "match_label": (
-                    match.label
-                ),
-                "matched_field": (
-                    match.field
-                ),
-                "user_play_count": (
-                    user_play_count
-                ),
+                "title": (track.title),
+                "artist": (track.artist),
+                "created_at": (track.created_at),
+                "match_score": (match.score),
+                "match_tier": (match.tier),
+                "match_label": (match.label),
+                "matched_field": (match.field),
+                "user_play_count": (user_play_count),
                 "global_play_count": (
                     global_counts.get(
                         track.id,
                         0,
                     )
                 ),
-                "last_played_at": (
-                    last_played_at
-                ),
+                "last_played_at": (last_played_at),
             }
         )
 
@@ -773,24 +668,17 @@ async def _build_track_rows(
         parsed.intent,
     )
 
-    return sorted_rows[
-        :TRACK_RESULT_LIMIT
-    ]
+    return sorted_rows[:TRACK_RESULT_LIMIT]
 
 
 async def _search_people(
     session: AsyncSession,
     parsed: ParsedSearch,
-) -> list[
-    SearchPersonResult
-]:
-    if (
-        parsed.intent
-        not in {
-            "general",
-            "people",
-        }
-    ):
+) -> list[SearchPersonResult]:
+    if parsed.intent not in {
+        "general",
+        "people",
+    }:
         return []
 
     follower_counts = (
@@ -817,13 +705,9 @@ async def _search_people(
 
     term = parsed.term.strip()
 
-    prefix_pattern = (
-        f"{term}%"
-    )
+    prefix_pattern = f"{term}%"
 
-    contains_pattern = (
-        f"%{term}%"
-    )
+    contains_pattern = f"%{term}%"
 
     base_stmt = (
         select(
@@ -835,13 +719,11 @@ async def _search_people(
         )
         .outerjoin(
             UserProfile,
-            UserProfile.user_id
-            == User.id,
+            UserProfile.user_id == User.id,
         )
         .outerjoin(
             follower_counts,
-            follower_counts.c.user_id
-            == User.id,
+            follower_counts.c.user_id == User.id,
         )
         .options(
             selectinload(
@@ -858,10 +740,7 @@ async def _search_people(
         )
     )
 
-    if (
-        parsed.intent == "people"
-        and not parsed.term
-    ):
+    if parsed.intent == "people" and not parsed.term:
         result = await session.execute(
             base_stmt.order_by(
                 func.lower(
@@ -871,39 +750,26 @@ async def _search_people(
             )
         )
 
-        directory: list[
-            SearchPersonResult
-        ] = []
+        directory: list[SearchPersonResult] = []
 
         for (
             found_user,
             follower_count,
         ) in result.all():
-            username = (
-                found_user.username
-                or ""
-            )
+            username = found_user.username or ""
 
-            profile = (
-                found_user.profile
-            )
+            profile = found_user.profile
 
             display_name = (
                 profile.display_name
-                if (
-                    profile is not None
-                    and profile.display_name
-                )
-                else username
-                or "User"
+                if (profile is not None and profile.display_name)
+                else username or "User"
             )
 
             directory.append(
                 SearchPersonResult(
                     username=username,
-                    display_name=(
-                        display_name
-                    ),
+                    display_name=(display_name),
                     avatar_url=(
                         avatar_url(
                             found_user,
@@ -912,12 +778,8 @@ async def _search_people(
                     followers_count=int(
                         follower_count,
                     ),
-                    member_since=(
-                        found_user.created_at
-                    ),
-                    match_label=(
-                        "DIRECTORY"
-                    ),
+                    member_since=(found_user.created_at),
+                    match_label=("DIRECTORY"),
                 )
             )
 
@@ -974,10 +836,8 @@ async def _search_people(
                 )
             )
 
-        best_similarity = (
-            func.greatest(
-                *similarity_scores,
-            )
+        best_similarity = func.greatest(
+            *similarity_scores,
         )
 
         result = await session.execute(
@@ -998,11 +858,7 @@ async def _search_people(
         rows = result.all()
 
     else:
-        direct_pattern = (
-            prefix_pattern
-            if len(term) == 1
-            else contains_pattern
-        )
+        direct_pattern = prefix_pattern if len(term) == 1 else contains_pattern
 
         direct_conditions = [
             field.ilike(
@@ -1034,21 +890,15 @@ async def _search_people(
                 session,
             )
         ):
-            fuzzy_result = (
-                await session.execute(
-                    base_stmt
-                    .order_by(
-                        User.created_at.desc(),
-                    )
-                    .limit(
-                        PEOPLE_CANDIDATE_LIMIT,
-                    )
+            fuzzy_result = await session.execute(
+                base_stmt.order_by(
+                    User.created_at.desc(),
+                ).limit(
+                    PEOPLE_CANDIDATE_LIMIT,
                 )
             )
 
-            rows = (
-                fuzzy_result.all()
-            )
+            rows = fuzzy_result.all()
 
     scored: list[
         tuple[
@@ -1062,17 +912,9 @@ async def _search_people(
         found_user,
         follower_count,
     ) in rows:
-        username = (
-            found_user.username
-            or ""
-        )
+        username = found_user.username or ""
 
-        display_name = (
-            found_user.profile.display_name
-            if found_user.profile
-            else username
-            or "User"
-        )
+        display_name = found_user.profile.display_name if found_user.profile else username or "User"
 
         match = score_person(
             username,
@@ -1088,12 +930,8 @@ async def _search_people(
                 match.tier,
                 match.score,
                 SearchPersonResult(
-                    username=(
-                        username
-                    ),
-                    display_name=(
-                        display_name
-                    ),
+                    username=(username),
+                    display_name=(display_name),
                     avatar_url=(
                         avatar_url(
                             found_user,
@@ -1102,12 +940,8 @@ async def _search_people(
                     followers_count=int(
                         follower_count,
                     ),
-                    member_since=(
-                        found_user.created_at
-                    ),
-                    match_label=(
-                        match.label
-                    ),
+                    member_since=(found_user.created_at),
+                    match_label=(match.label),
                 ),
             )
         )
@@ -1116,94 +950,31 @@ async def _search_people(
         key=lambda item: (
             -item[0],
             -item[1],
-            -item[
-                2
-            ].followers_count,
-            item[
-                2
-            ].username.casefold(),
+            -item[2].followers_count,
+            item[2].username.casefold(),
         )
     )
 
-    return [
-        item[2]
-        for item in scored[
-            :PEOPLE_RESULT_LIMIT
-        ]
-    ]
+    return [item[2] for item in scored[:PEOPLE_RESULT_LIMIT]]
 
 
 def _serialize_tracks(
     rows: list[dict],
-) -> list[
-    SearchTrackResult
-]:
+) -> list[SearchTrackResult]:
     return [
         SearchTrackResult(
-            id=(
-                row[
-                    "track"
-                ].id
-            ),
-            title=(
-                row[
-                    "track"
-                ].title
-            ),
-            artist=(
-                row[
-                    "track"
-                ].artist
-            ),
-            album=(
-                row[
-                    "track"
-                ].album
-            ),
-            duration_seconds=(
-                row[
-                    "track"
-                ].duration_seconds
-            ),
-            audio_url=(
-                _track_audio_url(
-                    row[
-                        "track"
-                    ]
-                )
-            ),
-            artwork_url=(
-                _track_artwork_url(
-                    row[
-                        "track"
-                    ]
-                )
-            ),
-            match_label=(
-                row[
-                    "match_label"
-                ]
-            ),
-            matched_field=(
-                row[
-                    "matched_field"
-                ]
-            ),
-            user_play_count=(
-                row[
-                    "user_play_count"
-                ]
-            ),
-            global_play_count=(
-                row[
-                    "global_play_count"
-                ]
-            ),
-            last_played_at=(
-                row[
-                    "last_played_at"
-                ]
-            ),
+            id=(row["track"].id),
+            title=(row["track"].title),
+            artist=(row["track"].artist),
+            album=(row["track"].album),
+            duration_seconds=(row["track"].duration_seconds),
+            audio_url=(_track_audio_url(row["track"])),
+            artwork_url=(_track_artwork_url(row["track"])),
+            match_label=(row["match_label"]),
+            matched_field=(row["matched_field"]),
+            user_play_count=(row["user_play_count"]),
+            global_play_count=(row["global_play_count"]),
+            last_played_at=(row["last_played_at"]),
         )
         for row in rows
     ]
@@ -1253,18 +1024,14 @@ def _title_without_feature_credit(
     if not value:
         return ""
 
-    marker = (
-        _FEATURE_CONTEXT_MARKER.search(
-            value,
-        )
+    marker = _FEATURE_CONTEXT_MARKER.search(
+        value,
     )
 
     if marker is None:
         return value
 
-    return value[
-        : marker.start()
-    ].rstrip(
+    return value[: marker.start()].rstrip(
         " \t-–—:([{",
     )
 
@@ -1285,16 +1052,11 @@ def _direct_title_match(
     as a direct Deja Vu title search.
     """
 
-    if (
-        track.matched_field
-        != "title"
-    ):
+    if track.matched_field != "title":
         return None
 
-    clean_title = (
-        _title_without_feature_credit(
-            track.title,
-        )
+    clean_title = _title_without_feature_credit(
+        track.title,
     )
 
     if not clean_title:
@@ -1307,10 +1069,7 @@ def _direct_title_match(
         parsed,
     )
 
-    if (
-        match.score <= 0
-        or match.field != "title"
-    ):
+    if match.score <= 0 or match.field != "title":
         return None
 
     return match
@@ -1326,11 +1085,7 @@ def _direct_album_match(
     the query.
     """
 
-    if (
-        track.matched_field
-        != "album"
-        or not track.album
-    ):
+    if track.matched_field != "album" or not track.album:
         return None
 
     match = score_album(
@@ -1369,107 +1124,48 @@ def _is_direct_music_context(
 
 
 def _artist_results(
-    tracks: list[
-        SearchTrackResult
-    ],
+    tracks: list[SearchTrackResult],
     parsed: ParsedSearch,
-) -> list[
-    SearchArtistResult
-]:
+) -> list[SearchArtistResult]:
     artists: OrderedDict[
         str,
         SearchArtistResult,
     ] = OrderedDict()
 
     for track in tracks:
-        direct_context = (
-            _is_direct_music_context(
-                track,
-                parsed,
-            )
+        direct_context = _is_direct_music_context(
+            track,
+            parsed,
         )
 
-        primary_match = (
-            score_artist(
-                track.artist,
-                parsed,
-            )
+        primary_match = score_artist(
+            track.artist,
+            parsed,
         )
 
-        primary_key = (
-            normalize_text(
-                track.artist,
-            )
+        primary_key = normalize_text(
+            track.artist,
         )
 
-        if (
-            primary_key
-            and (
-                primary_match.score
-                > 0
-                or direct_context
-            )
-        ):
-            primary_label = (
-                primary_match.label
-                if primary_match.score
-                > 0
-                else "RELATED ARTIST"
-            )
+        if primary_key and (primary_match.score > 0 or direct_context):
+            primary_label = primary_match.label if primary_match.score > 0 else "RELATED ARTIST"
 
-            if (
-                primary_key
-                not in artists
-            ):
-                artists[
-                    primary_key
-                ] = (
-                    SearchArtistResult(
-                        name=(
-                            track.artist
-                        ),
-                        track_count=1,
-                        artwork_url=(
-                            track.artwork_url
-                        ),
-                        match_label=(
-                            primary_label
-                        ),
-                    )
+            if primary_key not in artists:
+                artists[primary_key] = SearchArtistResult(
+                    name=(track.artist),
+                    track_count=1,
+                    artwork_url=(track.artwork_url),
+                    match_label=(primary_label),
                 )
 
             else:
-                (
-                    artists[
-                        primary_key
-                    ].track_count
-                ) += 1
+                (artists[primary_key].track_count) += 1
 
-                if (
-                    not artists[
-                        primary_key
-                    ].artwork_url
-                    and track.artwork_url
-                ):
-                    artists[
-                        primary_key
-                    ].artwork_url = (
-                        track.artwork_url
-                    )
+                if not artists[primary_key].artwork_url and track.artwork_url:
+                    artists[primary_key].artwork_url = track.artwork_url
 
-                if (
-                    primary_match.score
-                    > 0
-                    and artists[
-                        primary_key
-                    ].match_label
-                    == "RELATED ARTIST"
-                ):
-                    artists[
-                        primary_key
-                    ].match_label = (
-                        primary_match.label
-                    )
+                if primary_match.score > 0 and artists[primary_key].match_label == "RELATED ARTIST":
+                    artists[primary_key].match_label = primary_match.label
 
         # Featured artists stay in the
         # Artists section only when the
@@ -1477,100 +1173,51 @@ def _artist_results(
         # matches the query. Direct song
         # expansion puts them under
         # Collaborations instead.
-        seen_featured: set[
-            str
-        ] = set()
+        seen_featured: set[str] = set()
 
-        for featured_artist in (
-            extract_featured_artists(
-                track.title,
-            )
+        for featured_artist in extract_featured_artists(
+            track.title,
         ):
-            featured_key = (
-                normalize_text(
-                    featured_artist,
-                )
+            featured_key = normalize_text(
+                featured_artist,
             )
 
-            if (
-                not featured_key
-                or featured_key
-                == primary_key
-                or featured_key
-                in seen_featured
-            ):
+            if not featured_key or featured_key == primary_key or featured_key in seen_featured:
                 continue
 
             seen_featured.add(
                 featured_key,
             )
 
-            featured_match = (
-                score_artist(
-                    featured_artist,
-                    parsed,
-                )
+            featured_match = score_artist(
+                featured_artist,
+                parsed,
             )
 
-            if (
-                featured_match.score
-                <= 0
-            ):
+            if featured_match.score <= 0:
                 continue
 
-            if (
-                featured_key
-                not in artists
-            ):
-                artists[
-                    featured_key
-                ] = (
-                    SearchArtistResult(
-                        name=(
-                            featured_artist
-                        ),
-                        track_count=1,
-                        artwork_url=(
-                            track.artwork_url
-                        ),
-                        match_label=(
-                            featured_match.label
-                        ),
-                    )
+            if featured_key not in artists:
+                artists[featured_key] = SearchArtistResult(
+                    name=(featured_artist),
+                    track_count=1,
+                    artwork_url=(track.artwork_url),
+                    match_label=(featured_match.label),
                 )
 
             else:
-                (
-                    artists[
-                        featured_key
-                    ].track_count
-                ) += 1
+                (artists[featured_key].track_count) += 1
 
-                if (
-                    not artists[
-                        featured_key
-                    ].artwork_url
-                    and track.artwork_url
-                ):
-                    artists[
-                        featured_key
-                    ].artwork_url = (
-                        track.artwork_url
-                    )
+                if not artists[featured_key].artwork_url and track.artwork_url:
+                    artists[featured_key].artwork_url = track.artwork_url
 
-    return list(
-        artists.values()
-    )
+    return list(artists.values())
 
 
 def _collaboration_results(
-    tracks: list[
-        SearchTrackResult
-    ],
+    tracks: list[SearchTrackResult],
     parsed: ParsedSearch,
-) -> list[
-    SearchArtistResult
-]:
+) -> list[SearchArtistResult]:
     if not parsed.term:
         return []
 
@@ -1599,72 +1246,39 @@ def _collaboration_results(
             name,
         )
 
-        if (
-            not key
-            or key
-            in direct_artists
-        ):
+        if not key or key in direct_artists:
             return
 
-        if (
-            key
-            not in collaborations
-        ):
-            collaborations[
-                key
-            ] = (
-                SearchArtistResult(
-                    name=name,
-                    track_count=1,
-                    artwork_url=(
-                        track.artwork_url
-                    ),
-                    match_label=(
-                        "COLLABORATION"
-                    ),
-                )
+        if key not in collaborations:
+            collaborations[key] = SearchArtistResult(
+                name=name,
+                track_count=1,
+                artwork_url=(track.artwork_url),
+                match_label=("COLLABORATION"),
             )
 
         else:
-            (
-                collaborations[
-                    key
-                ].track_count
-            ) += 1
+            (collaborations[key].track_count) += 1
 
-            if (
-                not collaborations[
-                    key
-                ].artwork_url
-                and track.artwork_url
-            ):
-                collaborations[
-                    key
-                ].artwork_url = (
-                    track.artwork_url
-                )
+            if not collaborations[key].artwork_url and track.artwork_url:
+                collaborations[key].artwork_url = track.artwork_url
 
     for track in tracks:
-        featured_artists = (
-            extract_featured_artists(
-                track.title,
-            )
+        featured_artists = extract_featured_artists(
+            track.title,
         )
 
         if not featured_artists:
             continue
 
-        primary_match = (
-            score_artist(
-                track.artist,
-                parsed,
-            )
+        primary_match = score_artist(
+            track.artist,
+            parsed,
         )
 
         matching_features = [
             featured_artist
-            for featured_artist
-            in featured_artists
+            for featured_artist in featured_artists
             if score_artist(
                 featured_artist,
                 parsed,
@@ -1672,11 +1286,9 @@ def _collaboration_results(
             > 0
         ]
 
-        direct_context = (
-            _is_direct_music_context(
-                track,
-                parsed,
-            )
+        direct_context = _is_direct_music_context(
+            track,
+            parsed,
         )
 
         # Search matched the primary
@@ -1684,13 +1296,8 @@ def _collaboration_results(
         # itself directly. Explicitly
         # credited featured artists
         # become collaborations.
-        if (
-            primary_match.score > 0
-            or direct_context
-        ):
-            for (
-                featured_artist
-            ) in featured_artists:
+        if primary_match.score > 0 or direct_context:
+            for featured_artist in featured_artists:
                 add_collaboration(
                     featured_artist,
                     track,
@@ -1705,19 +1312,13 @@ def _collaboration_results(
                 track,
             )
 
-    return list(
-        collaborations.values()
-    )
+    return list(collaborations.values())
 
 
 def _album_results(
-    tracks: list[
-        SearchTrackResult
-    ],
+    tracks: list[SearchTrackResult],
     parsed: ParsedSearch,
-) -> list[
-    SearchAlbumResult
-]:
+) -> list[SearchAlbumResult]:
     albums: OrderedDict[
         tuple[
             str,
@@ -1735,44 +1336,27 @@ def _album_results(
             parsed,
         )
 
-        artist_match = (
-            score_artist(
-                track.artist,
-                parsed,
-            )
+        artist_match = score_artist(
+            track.artist,
+            parsed,
         )
 
-        direct_context = (
-            _is_direct_music_context(
-                track,
-                parsed,
-            )
+        direct_context = _is_direct_music_context(
+            track,
+            parsed,
         )
 
-        if (
-            album_match.score <= 0
-            and artist_match.score
-            <= 0
-            and not direct_context
-        ):
+        if album_match.score <= 0 and artist_match.score <= 0 and not direct_context:
             continue
 
         if album_match.score > 0:
-            match_label = (
-                album_match.label
-            )
+            match_label = album_match.label
 
-        elif (
-            artist_match.score > 0
-        ):
-            match_label = (
-                artist_match.label
-            )
+        elif artist_match.score > 0:
+            match_label = artist_match.label
 
         else:
-            match_label = (
-                "RELATED ALBUM"
-            )
+            match_label = "RELATED ALBUM"
 
         key = (
             normalize_text(
@@ -1784,62 +1368,24 @@ def _album_results(
         )
 
         if key not in albums:
-            albums[
-                key
-            ] = (
-                SearchAlbumResult(
-                    title=(
-                        track.album
-                    ),
-                    artist=(
-                        track.artist
-                    ),
-                    track_count=1,
-                    artwork_url=(
-                        track.artwork_url
-                    ),
-                    match_label=(
-                        match_label
-                    ),
-                )
+            albums[key] = SearchAlbumResult(
+                title=(track.album),
+                artist=(track.artist),
+                track_count=1,
+                artwork_url=(track.artwork_url),
+                match_label=(match_label),
             )
 
         else:
-            (
-                albums[
-                    key
-                ].track_count
-            ) += 1
+            (albums[key].track_count) += 1
 
-            if (
-                not albums[
-                    key
-                ].artwork_url
-                and track.artwork_url
-            ):
-                albums[
-                    key
-                ].artwork_url = (
-                    track.artwork_url
-                )
+            if not albums[key].artwork_url and track.artwork_url:
+                albums[key].artwork_url = track.artwork_url
 
-            if (
-                albums[
-                    key
-                ].match_label
-                == "RELATED ALBUM"
-                and match_label
-                != "RELATED ALBUM"
-            ):
-                albums[
-                    key
-                ].match_label = (
-                    match_label
-                )
+            if albums[key].match_label == "RELATED ALBUM" and match_label != "RELATED ALBUM":
+                albums[key].match_label = match_label
 
-    return list(
-        albums.values()
-    )
+    return list(albums.values())
 
 
 def _build_top_artist_results(
@@ -1850,9 +1396,7 @@ def _build_top_artist_results(
             int,
         ]
     ],
-) -> list[
-    SearchArtistResult
-]:
+) -> list[SearchArtistResult]:
     ranked = sorted(
         rows,
         key=lambda row: (
@@ -1872,9 +1416,7 @@ def _build_top_artist_results(
                 track_count,
             ),
             artwork_url=None,
-            match_label=(
-                "TOP ARTIST"
-            ),
+            match_label=("TOP ARTIST"),
         )
         for (
             name,
@@ -1887,9 +1429,7 @@ def _build_top_artist_results(
 async def _top_artist_results(
     session: AsyncSession,
     user: User | None,
-) -> list[
-    SearchArtistResult
-]:
+) -> list[SearchArtistResult]:
     if user is None:
         return []
 
@@ -1911,12 +1451,10 @@ async def _top_artist_results(
         )
         .join(
             ListeningEvent,
-            ListeningEvent.track_id
-            == Track.id,
+            ListeningEvent.track_id == Track.id,
         )
         .where(
-            ListeningEvent.user_id
-            == user.id,
+            ListeningEvent.user_id == user.id,
             Track.is_published.is_(
                 True,
             ),
@@ -1954,10 +1492,8 @@ async def _top_artist_results(
         ) in result.all()
     ]
 
-    return (
-        _build_top_artist_results(
-            rows,
-        )
+    return _build_top_artist_results(
+        rows,
     )
 
 
@@ -1970,9 +1506,7 @@ def _build_top_album_results(
             int,
         ]
     ],
-) -> list[
-    SearchAlbumResult
-]:
+) -> list[SearchAlbumResult]:
     ranked = sorted(
         rows,
         key=lambda row: (
@@ -1996,9 +1530,7 @@ def _build_top_album_results(
                 track_count,
             ),
             artwork_url=None,
-            match_label=(
-                "TOP ALBUM"
-            ),
+            match_label=("TOP ALBUM"),
         )
         for (
             title,
@@ -2012,9 +1544,7 @@ def _build_top_album_results(
 async def _top_album_results(
     session: AsyncSession,
     user: User | None,
-) -> list[
-    SearchAlbumResult
-]:
+) -> list[SearchAlbumResult]:
     if user is None:
         return []
 
@@ -2037,12 +1567,10 @@ async def _top_album_results(
         )
         .join(
             ListeningEvent,
-            ListeningEvent.track_id
-            == Track.id,
+            ListeningEvent.track_id == Track.id,
         )
         .where(
-            ListeningEvent.user_id
-            == user.id,
+            ListeningEvent.user_id == user.id,
             Track.is_published.is_(
                 True,
             ),
@@ -2090,18 +1618,14 @@ async def _top_album_results(
         ) in result.all()
     ]
 
-    return (
-        _build_top_album_results(
-            rows,
-        )
+    return _build_top_album_results(
+        rows,
     )
 
 
 @router.get(
     "/preferences",
-    response_model=(
-        SearchPreferenceResponse
-    ),
+    response_model=(SearchPreferenceResponse),
 )
 async def get_search_preferences(
     user: CurrentUser,
@@ -2119,9 +1643,7 @@ async def get_search_preferences(
 
 @router.patch(
     "/preferences",
-    response_model=(
-        SearchPreferenceResponse
-    ),
+    response_model=(SearchPreferenceResponse),
 )
 async def update_search_preferences(
     payload: SearchPreferenceUpdate,
@@ -2142,26 +1664,16 @@ async def update_search_preferences(
             state,
         )
 
-    state.search_sort_mode = (
-        payload.sort_mode
-    )
+    state.search_sort_mode = payload.sort_mode
 
     await session.commit()
 
-    return (
-        SearchPreferenceResponse(
-            sort_mode=(
-                payload.sort_mode
-            )
-        )
-    )
+    return SearchPreferenceResponse(sort_mode=(payload.sort_mode))
 
 
 @router.get(
     "",
-    response_model=(
-        SearchResponse
-    ),
+    response_model=(SearchResponse),
 )
 async def search_hypersync(
     session: DatabaseSession,
@@ -2187,8 +1699,7 @@ async def search_hypersync(
 
     effective_sort = (
         sort_mode
-        if sort_mode
-        in SEARCH_SORT_MODES
+        if sort_mode in SEARCH_SORT_MODES
         else await _saved_sort_mode(
             session,
             user,
@@ -2200,9 +1711,7 @@ async def search_hypersync(
             query="",
             interpreted_query="",
             intent="general",
-            sort_mode=(
-                effective_sort
-            ),
+            sort_mode=(effective_sort),
             processing_ms=0,
             counts=SearchCounts(
                 tracks=0,
@@ -2218,28 +1727,21 @@ async def search_hypersync(
             people=[],
         )
 
-    track_rows = (
-        await _build_track_rows(
-            session,
-            parsed,
-            user,
-            effective_sort,
-        )
+    track_rows = await _build_track_rows(
+        session,
+        parsed,
+        user,
+        effective_sort,
     )
 
     tracks = _serialize_tracks(
         track_rows,
     )
 
-    if (
-        parsed.intent
-        == "top_artists"
-    ):
-        artists = (
-            await _top_artist_results(
-                session,
-                user,
-            )
+    if parsed.intent == "top_artists":
+        artists = await _top_artist_results(
+            session,
+            user,
         )
 
     else:
@@ -2248,22 +1750,15 @@ async def search_hypersync(
             parsed,
         )
 
-    collaborations = (
-        _collaboration_results(
-            tracks,
-            parsed,
-        )
+    collaborations = _collaboration_results(
+        tracks,
+        parsed,
     )
 
-    if (
-        parsed.intent
-        == "top_albums"
-    ):
-        albums = (
-            await _top_album_results(
-                session,
-                user,
-            )
+    if parsed.intent == "top_albums":
+        albums = await _top_album_results(
+            session,
+            user,
         )
 
     else:
@@ -2272,13 +1767,10 @@ async def search_hypersync(
             parsed,
         )
 
-    should_search_people = (
-        parsed.intent
-        in {
-            "general",
-            "people",
-        }
-    )
+    should_search_people = parsed.intent in {
+        "general",
+        "people",
+    }
 
     people = (
         await _search_people(
@@ -2291,31 +1783,15 @@ async def search_hypersync(
 
     processing_ms = max(
         1,
-        int(
-            (
-                perf_counter()
-                - started
-            )
-            * 1000
-        ),
+        int((perf_counter() - started) * 1000),
     )
 
     return SearchResponse(
-        query=(
-            parsed.raw
-        ),
-        interpreted_query=(
-            parsed.term
-        ),
-        intent=(
-            parsed.intent
-        ),
-        sort_mode=(
-            effective_sort
-        ),
-        processing_ms=(
-            processing_ms
-        ),
+        query=(parsed.raw),
+        interpreted_query=(parsed.term),
+        intent=(parsed.intent),
+        sort_mode=(effective_sort),
+        processing_ms=(processing_ms),
         counts=SearchCounts(
             tracks=len(
                 tracks,
@@ -2333,19 +1809,9 @@ async def search_hypersync(
                 people,
             ),
         ),
-        tracks=(
-            tracks
-        ),
-        artists=(
-            artists
-        ),
-        collaborations=(
-            collaborations
-        ),
-        albums=(
-            albums
-        ),
-        people=(
-            people
-        ),
+        tracks=(tracks),
+        artists=(artists),
+        collaborations=(collaborations),
+        albums=(albums),
+        people=(people),
     )

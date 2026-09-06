@@ -1,7 +1,10 @@
+import asyncio
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
 
+from backend.app import main as main_module
 from backend.app.api.routes import health as health_route
 from backend.app.main import app
 
@@ -32,6 +35,112 @@ async def test_live_health() -> None:
 
     assert response.status_code == 200
     assert response.json()["api"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_lifespan_warms_database_before_serving(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_demo_data() -> None:
+        calls.append("demo")
+
+    async def fake_database_check() -> None:
+        calls.append("database")
+
+    async def fake_close_database() -> None:
+        calls.append("close")
+
+    monkeypatch.setattr(
+        main_module,
+        "ensure_demo_data",
+        fake_demo_data,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "check_database",
+        fake_database_check,
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "close_database",
+        fake_close_database,
+    )
+
+    async with main_module.lifespan(app):
+        assert calls == [
+            "demo",
+            "database",
+        ]
+
+    assert calls == [
+        "demo",
+        "database",
+        "close",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lifespan_keeps_database_warm(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    database_checks = 0
+
+    second_check_happened = asyncio.Event()
+
+    async def fake_demo_data() -> None:
+        return None
+
+    async def fake_database_check() -> None:
+        nonlocal database_checks
+
+        database_checks += 1
+
+        if database_checks >= 2:
+            second_check_happened.set()
+
+    async def fake_close_database() -> None:
+        return None
+
+    monkeypatch.setattr(
+        main_module,
+        "ensure_demo_data",
+        fake_demo_data,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "check_database",
+        fake_database_check,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "close_database",
+        fake_close_database,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "DATABASE_KEEPALIVE_SECONDS",
+        0.01,
+        raising=False,
+    )
+
+    async with main_module.lifespan(app):
+        try:
+            await asyncio.wait_for(
+                second_check_happened.wait(),
+                timeout=0.2,
+            )
+        except TimeoutError:
+            pass
+
+        assert database_checks >= 2
 
 
 @pytest.mark.asyncio

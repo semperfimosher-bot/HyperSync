@@ -15,17 +15,11 @@ def test_find_people_command_opens_people_directory():
         "find people",
     )
 
-    assert (
-        parsed.intent
-        == "people"
-    )
+    assert parsed.intent == "people"
 
     assert parsed.term == ""
 
-    assert (
-        parsed.field_hint
-        == "people"
-    )
+    assert parsed.field_hint == "people"
 
 
 @pytest.mark.parametrize(
@@ -76,10 +70,7 @@ def test_shortcut_commands_parse_to_real_intents(
         query,
     )
 
-    assert (
-        parsed.intent
-        == expected_intent
-    )
+    assert parsed.intent == expected_intent
 
     assert parsed.term == ""
 
@@ -87,12 +78,8 @@ def test_shortcut_commands_parse_to_real_intents(
 def test_new_releases_sort_newest_first():
     rows = [
         {
-            "title": (
-                "A Older Track"
-            ),
-            "artist": (
-                "Artist A"
-            ),
+            "title": ("A Older Track"),
+            "artist": ("Artist A"),
             "created_at": datetime(
                 2026,
                 1,
@@ -101,12 +88,8 @@ def test_new_releases_sort_newest_first():
             ),
         },
         {
-            "title": (
-                "Z Newer Track"
-            ),
-            "artist": (
-                "Artist B"
-            ),
+            "title": ("Z Newer Track"),
+            "artist": ("Artist B"),
             "created_at": datetime(
                 2026,
                 8,
@@ -122,10 +105,7 @@ def test_new_releases_sort_newest_first():
         "new_releases",
     )
 
-    assert [
-        row["title"]
-        for row in ordered
-    ] == [
+    assert [row["title"] for row in ordered] == [
         "Z Newer Track",
         "A Older Track",
     ]
@@ -136,20 +116,11 @@ def test_plain_query_remains_general() -> None:
         "shane",
     )
 
-    assert (
-        parsed.intent
-        == "general"
-    )
+    assert parsed.intent == "general"
 
-    assert (
-        parsed.field_hint
-        == "any"
-    )
+    assert parsed.field_hint == "any"
 
-    assert (
-        parsed.term
-        == "shane"
-    )
+    assert parsed.term == "shane"
 
 
 @pytest.mark.parametrize(
@@ -204,20 +175,11 @@ def test_people_query_shortcuts(
         query,
     )
 
-    assert (
-        parsed.intent
-        == "people"
-    )
+    assert parsed.intent == "people"
 
-    assert (
-        parsed.field_hint
-        == "people"
-    )
+    assert parsed.field_hint == "people"
 
-    assert (
-        parsed.term
-        == expected_term
-    )
+    assert parsed.term == expected_term
 
 
 def test_unrelated_person_scores_zero() -> None:
@@ -275,15 +237,9 @@ def test_typo_matches_word_inside_display_name() -> None:
 
     assert match.score > 0
 
-    assert (
-        match.tier
-        == 1
-    )
+    assert match.tier == 1
 
-    assert (
-        match.label
-        == "CLOSE MATCH"
-    )
+    assert match.label == "CLOSE MATCH"
 
 
 def test_typo_matches_word_inside_track_fields() -> None:
@@ -300,13 +256,6 @@ def test_typo_matches_word_inside_track_fields() -> None:
 
     assert match.score > 0
 
-    assert (
-        match.tier
-        == 1
-    )
+    assert match.tier == 1
 
-    assert (
-        match.label
-        == "CLOSE MATCH"
-    )
-    
+    assert match.label == "CLOSE MATCH"

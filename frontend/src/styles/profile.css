@@ -2797,13 +2797,60 @@ button.hs-profile-stat:hover,
 
 
   .hs-recent-grid {
-    gap: 7px;
-  }
+  grid-template-columns:
+    1fr;
+
+  gap: 7px;
+}
 
 
-  .hs-recent-card {
-    padding: 7px;
-  }
+.hs-recent-card {
+  display: grid;
+
+  grid-template-columns:
+    64px
+    minmax(0, 1fr);
+
+  grid-template-rows:
+    auto
+    auto;
+
+  align-items: center;
+
+  column-gap: 10px;
+  row-gap: 2px;
+
+  padding: 7px;
+}
+
+
+.hs-recent-card__art {
+  grid-column: 1;
+  grid-row:
+    1 / 3;
+
+  width: 64px;
+
+  margin-bottom: 0;
+}
+
+
+.hs-recent-card > strong {
+  grid-column: 2;
+  grid-row: 1;
+
+  align-self: end;
+}
+
+
+.hs-recent-card > span {
+  grid-column: 2;
+  grid-row: 2;
+
+  align-self: start;
+
+  margin-top: 0;
+}
 
 
   .hs-artist-row {

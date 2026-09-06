@@ -1,0 +1,143 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 96 96"
+>
+  <defs>
+    <linearGradient
+      id="metal-left"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="0"
+    >
+      <stop
+        offset="0"
+        stop-color="#252d34"
+      />
+      <stop
+        offset=".34"
+        stop-color="#f2f6f8"
+      />
+      <stop
+        offset=".63"
+        stop-color="#7f8991"
+      />
+      <stop
+        offset="1"
+        stop-color="#1b2228"
+      />
+    </linearGradient>
+
+    <linearGradient
+      id="metal-right"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="0"
+    >
+      <stop
+        offset="0"
+        stop-color="#11171c"
+      />
+      <stop
+        offset=".38"
+        stop-color="#d9e1e5"
+      />
+      <stop
+        offset=".68"
+        stop-color="#6e7880"
+      />
+      <stop
+        offset="1"
+        stop-color="#f4f7f9"
+      />
+    </linearGradient>
+
+    <linearGradient
+      id="bolt"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="1"
+    >
+      <stop
+        offset="0"
+        stop-color="#c8fbff"
+      />
+      <stop
+        offset=".25"
+        stop-color="#22ddff"
+      />
+      <stop
+        offset=".58"
+        stop-color="#008cef"
+      />
+      <stop
+        offset="1"
+        stop-color="#003a8d"
+      />
+    </linearGradient>
+
+    <filter
+      id="glow"
+      x="-80%"
+      y="-80%"
+      width="260%"
+      height="260%"
+    >
+      <feGaussianBlur
+        stdDeviation="3"
+        result="blur"
+      />
+
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect
+    width="96"
+    height="96"
+    rx="18"
+    fill="#03070b"
+  />
+
+  <circle
+    cx="48"
+    cy="48"
+    r="36"
+    fill="#006cff"
+    opacity=".08"
+  />
+
+  <g transform="translate(10 4)">
+    <path
+      d="M5 8h18v26h20L30 51h-7v29H5z"
+      fill="url(#metal-left)"
+      stroke="#f5f8fa"
+      stroke-opacity=".42"
+    />
+
+    <path
+      d="M71 8H53v25H33l13 17h7v30h18z"
+      fill="url(#metal-right)"
+      stroke="#f5f8fa"
+      stroke-opacity=".38"
+    />
+
+    <path
+      d="M51 1 17 47h17L20 87l42-52H45z"
+      fill="url(#bolt)"
+      filter="url(#glow)"
+    />
+
+    <path
+      d="M49 5 22 43h17L26 78l31-39H40z"
+      fill="none"
+      stroke="#d6f7ff"
+      stroke-opacity=".58"
+    />
+  </g>
+</svg>

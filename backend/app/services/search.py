@@ -95,37 +95,23 @@ def extract_featured_artists(
     found: list[str] = []
     seen: set[str] = set()
 
-    for match in (
-        _FEATURED_ARTIST_PATTERN.finditer(
-            title,
-        )
+    for match in _FEATURED_ARTIST_PATTERN.finditer(
+        title,
     ):
-        credit = (
-            match.group(1)
-            .strip()
-        )
+        credit = match.group(1).strip()
 
-        names = (
-            _FEATURED_ARTIST_SPLIT_PATTERN.split(
-                credit,
-            )
+        names = _FEATURED_ARTIST_SPLIT_PATTERN.split(
+            credit,
         )
 
         for name in names:
-            cleaned = name.strip(
-                " .()[]{}"
+            cleaned = name.strip(" .()[]{}")
+
+            normalized = normalize_text(
+                cleaned,
             )
 
-            normalized = (
-                normalize_text(
-                    cleaned,
-                )
-            )
-
-            if (
-                not normalized
-                or normalized in seen
-            ):
+            if not normalized or normalized in seen:
                 continue
 
             seen.add(
@@ -174,35 +160,35 @@ def parse_search_query(
             "artist",
         ),
         (
-    r"^@([^\s]+)$",
-    "people",
-    "people",
-),
-(
-    (
-        r"^find\s+"
-        r"(?:people|users?|person)$"
-    ),
-    "people",
-    "people",
-),
-(
-    (
-        r"^(?:people|users?|person)"
-        r"\s+(?:named\s+)?(.+)$"
-    ),
-    "people",
-    "people",
-),
-(
-    (
-        r"^find\s+"
-        r"(?:people|users?|person)"
-        r"\s+(.+)$"
-    ),
-    "people",
-    "people",
-),
+            r"^@([^\s]+)$",
+            "people",
+            "people",
+        ),
+        (
+            (
+                r"^find\s+"
+                r"(?:people|users?|person)$"
+            ),
+            "people",
+            "people",
+        ),
+        (
+            (
+                r"^(?:people|users?|person)"
+                r"\s+(?:named\s+)?(.+)$"
+            ),
+            "people",
+            "people",
+        ),
+        (
+            (
+                r"^find\s+"
+                r"(?:people|users?|person)"
+                r"\s+(.+)$"
+            ),
+            "people",
+            "people",
+        ),
         (
             (
                 r"^my\s+most\s+played"
@@ -253,14 +239,7 @@ def parse_search_query(
         if not match:
             continue
 
-        term = (
-            (
-                match.group(1)
-                if match.lastindex
-                else ""
-            )
-            or ""
-        )
+        term = (match.group(1) if match.lastindex else "") or ""
 
         return ParsedSearch(
             raw=raw,
@@ -293,16 +272,10 @@ def _score_value(
         term,
     )
 
-    if (
-        not normalized_value
-        or not normalized_term
-    ):
+    if not normalized_value or not normalized_term:
         return 0, 0, ""
 
-    if (
-        normalized_value
-        == normalized_term
-    ):
+    if normalized_value == normalized_term:
         return (
             1000,
             4,
@@ -318,10 +291,7 @@ def _score_value(
             "STRONG MATCH",
         )
 
-    if (
-        normalized_term
-        in normalized_value
-    ):
+    if normalized_term in normalized_value:
         return (
             600,
             2,
@@ -336,13 +306,9 @@ def _score_value(
         ).ratio()
     ]
 
-    value_words = (
-        normalized_value.split()
-    )
+    value_words = normalized_value.split()
 
-    term_words = (
-        normalized_term.split()
-    )
+    term_words = normalized_term.split()
 
     if len(term_words) == 1:
         similarities.extend(
@@ -354,10 +320,7 @@ def _score_value(
             for word in value_words
         )
 
-    elif (
-        len(value_words)
-        >= len(term_words)
-    ):
+    elif len(value_words) >= len(term_words):
         window_size = len(
             term_words,
         )
@@ -366,19 +329,9 @@ def _score_value(
             SequenceMatcher(
                 None,
                 normalized_term,
-                " ".join(
-                    value_words[
-                        index
-                        : index
-                        + window_size
-                    ]
-                ),
+                " ".join(value_words[index : index + window_size]),
             ).ratio()
-            for index in range(
-                len(value_words)
-                - window_size
-                + 1
-            )
+            for index in range(len(value_words) - window_size + 1)
         )
 
     similarity = max(
@@ -387,11 +340,7 @@ def _score_value(
 
     if similarity >= 0.72:
         return (
-            250
-            + int(
-                similarity
-                * 200
-            ),
+            250 + int(similarity * 200),
             1,
             "CLOSE MATCH",
         )
@@ -413,10 +362,7 @@ def score_track(
             field="history",
         )
 
-    if (
-        parsed.field_hint
-        == "artist"
-    ):
+    if parsed.field_hint == "artist":
         fields = (
             (
                 "artist",
@@ -528,10 +474,7 @@ def score_album(
     album: str | None,
     parsed: ParsedSearch,
 ) -> MatchResult:
-    if (
-        not parsed.term
-        or not album
-    ):
+    if not parsed.term or not album:
         return MatchResult(
             score=0,
             tier=0,
@@ -674,10 +617,7 @@ def sort_track_rows(
             ),
         )
 
-    if (
-        intent
-        == "my_most_played"
-    ):
+    if intent == "my_most_played":
         return sorted(
             rows,
             key=lambda row: (
@@ -747,10 +687,7 @@ def sort_track_rows(
             ),
         )
 
-    if (
-        mode
-        == "alphabetical"
-    ):
+    if mode == "alphabetical":
         return sorted(
             rows,
             key=lambda row: (
