@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -19,8 +20,12 @@ import {
 } from "../../searchApi.js";
 
 import {
-  SEARCH_SUGGESTIONS,
+  SEARCH_QUICK_COMMANDS,
 } from "../../constants.js";
+
+import {
+  pickTopSignal,
+} from "../../searchTopSignal.js";
 
 import Avatar from
   "../profile/Avatar.jsx";
@@ -39,12 +44,14 @@ const EMPTY_RESULTS = {
   counts: {
     tracks: 0,
     artists: 0,
+    collaborations: 0,
     albums: 0,
     people: 0,
   },
 
   tracks: [],
   artists: [],
+  collaborations: [],
   albums: [],
   people: [],
 };
@@ -54,20 +61,13 @@ const FILTERS = [
   ["all", "All"],
   ["tracks", "Tracks"],
   ["artists", "Artists"],
+  [
+    "collaborations",
+    "Collaborations",
+  ],
   ["albums", "Albums"],
   ["people", "People"],
 ];
-
-
-const QUICK_COMMANDS = [
-  "my most played",
-  "recent songs",
-  ...SEARCH_SUGGESTIONS.slice(
-    0,
-    4,
-  ),
-];
-
 
 function resolveArtworkUrl(url) {
   if (!url) {
@@ -164,6 +164,9 @@ function totalCount(counts) {
       counts?.artists || 0
     ) +
     Number(
+      counts?.collaborations || 0
+    ) +
+    Number(
       counts?.albums || 0
     ) +
     Number(
@@ -188,6 +191,46 @@ function filterCount(
   );
 }
 
+function SearchEntityPanel({
+  eyebrow,
+  title,
+  count,
+  modifier,
+  children,
+}) {
+  return (
+    <section
+      className={
+        "hs-search-section " +
+        "hs-search-discovery-panel " +
+        modifier
+      }
+    >
+      <div className="hs-search-section__heading">
+
+        <div>
+          <span>
+            {eyebrow}
+          </span>
+
+          <h3>
+            {title}
+          </h3>
+        </div>
+
+        <strong>
+          {count}
+        </strong>
+
+      </div>
+
+      <div className="hs-search-entity-grid">
+        {children}
+      </div>
+
+    </section>
+  );
+}
 
 function SearchPage({
   query,
@@ -230,6 +273,18 @@ function SearchPage({
   ] = useState(-1);
 
   const [
+  currentTrackId,
+  setCurrentTrackId,
+  ] = useState(
+  () =>
+    player.getState()?.trackId
+      ? String(
+          player.getState().trackId,
+        )
+      : null,
+  );
+
+  const [
     results,
     setResults,
   ] = useState(
@@ -245,6 +300,9 @@ function SearchPage({
     searchError,
     setSearchError,
   ] = useState("");
+
+  const searchInputRef =
+  useRef(null);
 
 
   /*
@@ -317,6 +375,20 @@ function SearchPage({
   }, [
     currentUser?.username,
   ]);
+
+  useEffect(() => {
+  return player.subscribe(
+    (nextState) => {
+      setCurrentTrackId(
+        nextState?.trackId
+          ? String(
+              nextState.trackId,
+            )
+          : null,
+      );
+    },
+  );
+}, []);
 
 
   /*
@@ -392,6 +464,10 @@ function SearchPage({
               artists:
                 data?.artists || [],
 
+              collaborations:
+                data?.collaborations ||
+                [],
+
               albums:
                 data?.albums || [],
 
@@ -453,6 +529,32 @@ function SearchPage({
       [results.counts],
     );
 
+    function runQuickCommand(
+  command,
+) {
+  setActiveFilter(
+    command.filter,
+  );
+
+  setSelectedTrackIndex(
+    -1,
+  );
+
+  onQueryChange(
+    command.query,
+  );
+
+  if (command.focus) {
+    window.requestAnimationFrame(
+      () => {
+        searchInputRef
+          .current
+          ?.focus();
+      },
+    );
+  }
+}
+
 
   /*
    * IMPORTANT:
@@ -497,6 +599,53 @@ function SearchPage({
       .catch(() => {});
   }
 
+  function activateTopSignal() {
+  if (!topSignal) {
+    return;
+  }
+
+  if (
+    topSignal.actionType ===
+    "play"
+  ) {
+    playTrack(
+      topSignal.trackIndex,
+    );
+
+    return;
+  }
+
+  if (
+    topSignal.actionType ===
+    "artist"
+  ) {
+    onQueryChange(
+      `songs by ${topSignal.item.name}`,
+    );
+
+    return;
+  }
+
+  if (
+    topSignal.actionType ===
+    "album"
+  ) {
+    onQueryChange(
+      topSignal.item.title,
+    );
+
+    return;
+  }
+
+  if (
+    topSignal.actionType ===
+    "person"
+  ) {
+    onOpenProfile?.(
+      topSignal.item.username,
+    );
+  }
+}
 
   function handleSearchKeyDown(
     event,
@@ -602,25 +751,276 @@ function SearchPage({
   }
 
 
-  const topTrack =
-    results.tracks[0] || null;
+  const topSignal =
+  useMemo(
+    () =>
+      pickTopSignal(
+        results,
+      ),
+    [results],
+  );
 
 
   const showTracks =
     activeFilter === "all" ||
     activeFilter === "tracks";
 
-  const showArtists =
-    activeFilter === "all" ||
-    activeFilter === "artists";
-
-  const showAlbums =
-    activeFilter === "all" ||
-    activeFilter === "albums";
-
   const showPeople =
     activeFilter === "all" ||
     activeFilter === "people";
+
+
+  const artistPanel =
+    results.artists.length > 0 ? (
+
+      <SearchEntityPanel
+        eyebrow="ENTITY INDEX"
+        title="Artists"
+        count={
+          results.counts.artists
+        }
+        modifier={
+          "hs-search-discovery-panel--artists"
+        }
+      >
+
+        {results.artists.map(
+          (artist) => (
+
+            <button
+              type="button"
+              key={artist.name}
+              className="hs-search-entity-card"
+              onClick={() => {
+                onQueryChange(
+                  `songs by ${artist.name}`,
+                );
+              }}
+            >
+
+              <span className="hs-search-entity-card__art">
+
+                {resolveArtworkUrl(
+                  artist.artwork_url,
+                ) ? (
+                  <img
+                    src={
+                      resolveArtworkUrl(
+                        artist.artwork_url,
+                      )
+                    }
+                    alt=""
+                  />
+                ) : (
+                  <Icon
+                    name="music"
+                    size={26}
+                  />
+                )}
+
+              </span>
+
+              <span>
+
+                <small>
+                  ARTIST
+                </small>
+
+                <strong>
+                  {artist.name}
+                </strong>
+
+                <em>
+                  {artist.track_count}
+                  {" "}
+                  matching tracks
+                </em>
+
+              </span>
+
+              <Icon
+                name="chevron"
+                size={16}
+              />
+
+            </button>
+          ),
+        )}
+
+      </SearchEntityPanel>
+
+    ) : null;
+
+
+  const collaborationPanel =
+    results.collaborations.length >
+    0 ? (
+
+      <SearchEntityPanel
+        eyebrow="RELATION INDEX"
+        title="Collaborations"
+        count={
+          results.counts
+            .collaborations
+        }
+        modifier={
+          "hs-search-discovery-panel--collaborations"
+        }
+      >
+
+        {results.collaborations.map(
+          (collaboration) => (
+
+            <button
+              type="button"
+              key={
+                collaboration.name
+              }
+              className="hs-search-entity-card"
+              onClick={() => {
+                onQueryChange(
+                  `songs by ${collaboration.name}`,
+                );
+              }}
+            >
+
+              <span className="hs-search-entity-card__art">
+
+                {resolveArtworkUrl(
+                  collaboration.artwork_url,
+                ) ? (
+                  <img
+                    src={
+                      resolveArtworkUrl(
+                        collaboration.artwork_url,
+                      )
+                    }
+                    alt=""
+                  />
+                ) : (
+                  <Icon
+                    name="music"
+                    size={26}
+                  />
+                )}
+
+              </span>
+
+              <span>
+
+                <small>
+                  COLLABORATION
+                </small>
+
+                <strong>
+                  {collaboration.name}
+                </strong>
+
+                <em>
+                  {
+                    collaboration
+                      .track_count
+                  }
+                  {" "}
+                  matching tracks
+                </em>
+
+              </span>
+
+              <Icon
+                name="chevron"
+                size={16}
+              />
+
+            </button>
+          ),
+        )}
+
+      </SearchEntityPanel>
+
+    ) : null;
+
+
+  const albumPanel =
+    results.albums.length > 0 ? (
+
+      <SearchEntityPanel
+        eyebrow="RELEASE INDEX"
+        title="Albums"
+        count={
+          results.counts.albums
+        }
+        modifier={
+          "hs-search-discovery-panel--albums"
+        }
+      >
+
+        {results.albums.map(
+          (album) => (
+
+            <button
+              type="button"
+              key={
+                `${album.artist}:${album.title}`
+              }
+              className="hs-search-entity-card"
+              onClick={() => {
+                onQueryChange(
+                  album.title,
+                );
+              }}
+            >
+
+              <span className="hs-search-entity-card__art">
+
+                {resolveArtworkUrl(
+                  album.artwork_url,
+                ) ? (
+                  <img
+                    src={
+                      resolveArtworkUrl(
+                        album.artwork_url,
+                      )
+                    }
+                    alt=""
+                  />
+                ) : (
+                  <Icon
+                    name="disc"
+                    size={26}
+                  />
+                )}
+
+              </span>
+
+              <span>
+
+                <small>
+                  ALBUM
+                </small>
+
+                <strong>
+                  {album.title}
+                </strong>
+
+                <em>
+                  {album.artist}
+                </em>
+
+              </span>
+
+              <Icon
+                name="chevron"
+                size={16}
+              />
+
+            </button>
+          ),
+        )}
+
+      </SearchEntityPanel>
+
+    ) : null;
 
 
   return (
@@ -728,11 +1128,15 @@ function SearchPage({
     </span>
 
     <input
+      ref={searchInputRef}
       type="search"
       value={query}
       placeholder={
-        "Search songs, artists, albums, or people..."
-      }
+  activeFilter === "people" &&
+  !normalizedQuery
+    ? "Search people by name or @username..."
+    : "Search songs, artists, albums, or people..."
+}
       autoComplete="off"
       spellCheck="false"
       onChange={(event) => {
@@ -881,8 +1285,7 @@ function SearchPage({
 
                 <p>
                   Try another title, artist,
-                  album, username, or a shorter
-                  search phrase.
+                  album, or username.
                 </p>
               </div>
 
@@ -890,37 +1293,61 @@ function SearchPage({
           ) : null}
 
 
-          {!searchError &&
+                    {!searchError &&
           resultTotal > 0 &&
           activeFilter === "all" &&
-          topTrack ? (
+          topSignal ? (
+
             <section className="hs-search-top-signal">
 
               <div className="hs-search-top-signal__label">
                 TOP SIGNAL
               </div>
 
+
               <div className="hs-search-top-signal__body">
 
                 <div className="hs-search-top-signal__art">
 
-                  {resolveArtworkUrl(
-                    topTrack.artwork_url,
+                  {topSignal.type ===
+                  "person" ? (
+
+                    <Avatar
+                      src={
+                        topSignal.avatarUrl
+                      }
+                      name={
+                        topSignal.title
+                      }
+                      size="small"
+                    />
+
+                  ) : resolveArtworkUrl(
+                    topSignal.artworkUrl,
                   ) ? (
+
                     <img
                       src={
                         resolveArtworkUrl(
-                          topTrack.artwork_url,
+                          topSignal.artworkUrl,
                         )
                       }
                       alt=""
                       fetchPriority="high"
                     />
+
                   ) : (
+
                     <Icon
-                      name="music"
+                      name={
+                        topSignal.type ===
+                        "album"
+                          ? "disc"
+                          : "music"
+                      }
                       size={34}
                     />
+
                   )}
 
                 </div>
@@ -929,19 +1356,15 @@ function SearchPage({
                 <div className="hs-search-top-signal__copy">
 
                   <span>
-                    {topTrack.match_label}
+                    {topSignal.label}
                   </span>
 
                   <h3>
-                    {topTrack.title}
+                    {topSignal.title}
                   </h3>
 
                   <p>
-                    {topTrack.artist}
-
-                    {topTrack.album
-                      ? ` • ${topTrack.album}`
-                      : ""}
+                    {topSignal.subtitle}
                   </p>
 
                 </div>
@@ -950,21 +1373,28 @@ function SearchPage({
                 <button
                   type="button"
                   className="hs-search-primary-action"
-                  onClick={() => {
-                    playTrack(0);
-                  }}
+                  onClick={
+                    activateTopSignal
+                  }
                 >
+
                   <Icon
-                    name="play"
+                    name={
+                      topSignal.actionIcon
+                    }
                     size={18}
                   />
 
-                  PLAY
+                  {
+                    topSignal.actionLabel
+                  }
+
                 </button>
 
               </div>
 
             </section>
+
           ) : null}
 
 
@@ -1005,27 +1435,46 @@ function SearchPage({
                         track.artwork_url,
                       );
 
+                    const isCurrentTrack =
+                      activeFilter === "all" &&
+                      currentTrackId !== null &&
+                      String(track.id) ===
+                        currentTrackId;
+
                     return (
                       <button
                         type="button"
                         key={track.id}
-                        className={
-                          selectedTrackIndex ===
-                          trackIndex
-                            ? "hs-search-track is-selected"
-                            : "hs-search-track"
-                        }
+                        className={[
+                        "hs-search-track",
+
+                        selectedTrackIndex ===
+                        trackIndex
+                        ? "is-selected"
+                        : "",
+
+                        isCurrentTrack
+                        ? "is-current-track"
+                        : "",
+                        ]
+                        .filter(Boolean)
+                        .join(" ")}
                         onMouseEnter={() => {
-                          setSelectedTrackIndex(
-                            trackIndex,
-                          );
+                        setSelectedTrackIndex(
+                        trackIndex,
+                        );
+                        }}
+                        onMouseLeave={() => {
+                        setSelectedTrackIndex(
+                        -1,
+                        );
                         }}
                         onClick={() => {
-                          playTrack(
-                            trackIndex,
-                          );
+                        playTrack(
+                        trackIndex,
+                        );
                         }}
-                      >
+                        >
 
                         <span className="hs-search-track__rank">
                           {String(
@@ -1130,194 +1579,59 @@ function SearchPage({
           ) : null}
 
 
-          {showArtists &&
-          results.artists.length > 0 ? (
+                    {activeFilter === "all" &&
+          (
+            artistPanel ||
+            collaborationPanel ||
+            albumPanel
+          ) ? (
 
-            <section className="hs-search-section">
+            <div className="hs-search-discovery-shell">
 
-              <div className="hs-search-section__heading">
+              <div
+                className="hs-search-discovery-mobile-head"
+                aria-hidden="true"
+              >
+                <span>
+                  DISCOVERY DECK
+                </span>
 
-                <div>
-                  <span>
-                    ENTITY INDEX
-                  </span>
+                <small>
+                  SWIPE TO EXPLORE
+                  {" "}
+                  →
+                </small>
+              </div>
 
-                  <h3>
-                    Artists
-                  </h3>
-                </div>
+              <div className="hs-search-discovery-grid">
 
-                <strong>
-                  {results.counts.artists}
-                </strong>
+                {artistPanel}
+
+                {collaborationPanel}
+
+                {albumPanel}
 
               </div>
 
+            </div>
 
-              <div className="hs-search-entity-grid">
-
-                {results.artists.map(
-                  (artist) => (
-
-                    <button
-                      type="button"
-                      key={artist.name}
-                      className="hs-search-entity-card"
-                      onClick={() => {
-                        onQueryChange(
-                          `songs by ${artist.name}`,
-                        );
-                      }}
-                    >
-
-                      <span className="hs-search-entity-card__art">
-
-                        {resolveArtworkUrl(
-                          artist.artwork_url,
-                        ) ? (
-                          <img
-                            src={
-                              resolveArtworkUrl(
-                                artist.artwork_url,
-                              )
-                            }
-                            alt=""
-                          />
-                        ) : (
-                          <Icon
-                            name="music"
-                            size={26}
-                          />
-                        )}
-
-                      </span>
-
-                      <span>
-
-                        <small>
-                          ARTIST
-                        </small>
-
-                        <strong>
-                          {artist.name}
-                        </strong>
-
-                        <em>
-                          {artist.track_count}
-                          {" "}
-                          matching tracks
-                        </em>
-
-                      </span>
-
-                      <Icon
-                        name="chevron"
-                        size={16}
-                      />
-
-                    </button>
-                  ),
-                )}
-
-              </div>
-
-            </section>
           ) : null}
 
 
-          {showAlbums &&
-          results.albums.length > 0 ? (
-
-            <section className="hs-search-section">
-
-              <div className="hs-search-section__heading">
-
-                <div>
-                  <span>
-                    RELEASE INDEX
-                  </span>
-
-                  <h3>
-                    Albums
-                  </h3>
-                </div>
-
-                <strong>
-                  {results.counts.albums}
-                </strong>
-
-              </div>
+          {activeFilter === "artists"
+            ? artistPanel
+            : null}
 
 
-              <div className="hs-search-entity-grid">
+          {activeFilter ===
+          "collaborations"
+            ? collaborationPanel
+            : null}
 
-                {results.albums.map(
-                  (album) => (
 
-                    <button
-                      type="button"
-                      key={
-                        `${album.artist}:${album.title}`
-                      }
-                      className="hs-search-entity-card"
-                      onClick={() => {
-                        onQueryChange(
-                          album.title,
-                        );
-                      }}
-                    >
-
-                      <span className="hs-search-entity-card__art">
-
-                        {resolveArtworkUrl(
-                          album.artwork_url,
-                        ) ? (
-                          <img
-                            src={
-                              resolveArtworkUrl(
-                                album.artwork_url,
-                              )
-                            }
-                            alt=""
-                          />
-                        ) : (
-                          <Icon
-                            name="disc"
-                            size={26}
-                          />
-                        )}
-
-                      </span>
-
-                      <span>
-
-                        <small>
-                          ALBUM
-                        </small>
-
-                        <strong>
-                          {album.title}
-                        </strong>
-
-                        <em>
-                          {album.artist}
-                        </em>
-
-                      </span>
-
-                      <Icon
-                        name="chevron"
-                        size={16}
-                      />
-
-                    </button>
-                  ),
-                )}
-
-              </div>
-
-            </section>
-          ) : null}
+          {activeFilter === "albums"
+            ? albumPanel
+            : null}
 
 
           {showPeople &&
@@ -1425,7 +1739,7 @@ function SearchPage({
           </span>
 
           <h3>
-            Try searching for something you love, or use one of the quick commands below.
+            Try searching for something you love or use one of the quick commands below.
           </h3>
 
           <p>
@@ -1434,22 +1748,21 @@ function SearchPage({
 
           <div className="hs-search-quick-commands">
 
-            {QUICK_COMMANDS.map(
-              (command) => (
-
-                <button
-                  type="button"
-                  key={command}
-                  onClick={() => {
-                    onQueryChange(
-                      command,
-                    );
-                  }}
-                >
-                  {command}
-                </button>
-              ),
-            )}
+            {SEARCH_QUICK_COMMANDS.map(
+  (command) => (
+    <button
+      type="button"
+      key={command.id}
+      onClick={() => {
+        runQuickCommand(
+          command,
+        );
+      }}
+    >
+      {command.label}
+    </button>
+  ),
+)}
 
           </div>
 

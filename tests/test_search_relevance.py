@@ -15,8 +15,41 @@ from backend.app.security.passwords import (
 )
 
 
+async def _add_registered_user(
+    session,
+    *,
+    username: str,
+    display_name: str,
+) -> User:
+    user = User(
+        id=uuid4(),
+        username=username,
+        username_normalized=username.casefold(),
+        email=f"{username}@example.com",
+        password_hash=hash_password(
+            "search-test-pass",
+        ),
+        account_type="registered",
+        is_active=True,
+    )
+
+    session.add(user)
+    await session.flush()
+
+    session.add(
+        UserProfile(
+            user_id=user.id,
+            display_name=display_name,
+            bio="Search relevance test profile",
+            is_public=True,
+        )
+    )
+
+    return user
+
+
 @pytest.mark.asyncio
-async def test_general_music_search_hides_people_when_music_matches() -> None:
+async def test_general_search_returns_music_and_people() -> None:
     run_id = uuid4().hex[:8]
 
     query = f"Signal {run_id}"
@@ -25,29 +58,10 @@ async def test_general_music_search_hides_people_when_music_matches() -> None:
     session_factory = get_session_factory()
 
     async with session_factory() as session:
-        user = User(
-            id=uuid4(),
+        await _add_registered_user(
+            session,
             username=username,
-            username_normalized=username,
-            email=f"{username}@example.com",
-            password_hash=hash_password(
-                "search-test-pass",
-            ),
-            account_type="registered",
-            is_active=True,
-        )
-
-        session.add(user)
-
-        await session.flush()
-
-        session.add(
-            UserProfile(
-                user_id=user.id,
-                display_name=f"{query} Listener",
-                bio="Search relevance test profile",
-                is_public=True,
-            )
+            display_name=f"{query} Listener",
         )
 
         session.add(
@@ -56,9 +70,7 @@ async def test_general_music_search_hides_people_when_music_matches() -> None:
                 title=query,
                 artist="HyperSync Test Artist",
                 album="Search Test Album",
-                b2_object_key=(
-                    f"audio/search-relevance-{run_id}.mp3"
-                ),
+                b2_object_key=(f"audio/search-relevance-{run_id}.mp3"),
                 mime_type="audio/mpeg",
                 file_size=4096,
                 duration_seconds=180,
@@ -88,17 +100,13 @@ async def test_general_music_search_hides_people_when_music_matches() -> None:
 
     payload = response.json()
 
-    assert any(
-        track["title"] == query
-        for track in payload["tracks"]
-    )
+    assert any(track["title"] == query for track in payload["tracks"])
 
-    assert payload["people"] == []
-    assert payload["counts"]["people"] == 0
+    assert any(person["username"] == username for person in payload["people"])
 
 
 @pytest.mark.asyncio
-async def test_explicit_people_search_still_returns_people() -> None:
+async def test_explicit_people_search_returns_people_only() -> None:
     run_id = uuid4().hex[:8]
 
     display_name = f"Person {run_id}"
@@ -107,28 +115,23 @@ async def test_explicit_people_search_still_returns_people() -> None:
     session_factory = get_session_factory()
 
     async with session_factory() as session:
-        user = User(
-            id=uuid4(),
+        await _add_registered_user(
+            session,
             username=username,
-            username_normalized=username,
-            email=f"{username}@example.com",
-            password_hash=hash_password(
-                "search-test-pass",
-            ),
-            account_type="registered",
-            is_active=True,
+            display_name=display_name,
         )
 
-        session.add(user)
-
-        await session.flush()
-
         session.add(
-            UserProfile(
-                user_id=user.id,
-                display_name=display_name,
-                bio="Explicit people search test",
-                is_public=True,
+            Track(
+                id=uuid4(),
+                title=display_name,
+                artist="People Intent Test",
+                album="People Intent Album",
+                b2_object_key=(f"audio/people-intent-{run_id}.mp3"),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
             )
         )
 
@@ -145,7 +148,7 @@ async def test_explicit_people_search_still_returns_people() -> None:
         response = await client.get(
             "/api/search",
             params={
-                "q": f"people named {display_name}",
+                "q": f"people {display_name}",
                 "sort": "smart",
             },
         )
@@ -156,8 +159,61 @@ async def test_explicit_people_search_still_returns_people() -> None:
 
     assert payload["tracks"] == []
 
-    assert any(
-        person["username"] == username
-        for person in payload["people"]
+    assert any(person["username"] == username for person in payload["people"])
+
+
+@pytest.mark.asyncio
+async def test_music_specific_search_does_not_return_people() -> None:
+    run_id = uuid4().hex[:8]
+
+    artist_name = f"Artist {run_id}"
+    username = f"artist-person-{run_id}"
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        await _add_registered_user(
+            session,
+            username=username,
+            display_name=artist_name,
+        )
+
+        session.add(
+            Track(
+                id=uuid4(),
+                title=f"Song {run_id}",
+                artist=artist_name,
+                album="Music Intent Album",
+                b2_object_key=(f"audio/music-intent-{run_id}.mp3"),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
     )
-    
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/search",
+            params={
+                "q": f"songs by {artist_name}",
+                "sort": "smart",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+
+    assert any(track["artist"] == artist_name for track in payload["tracks"])
+
+    assert payload["people"] == []

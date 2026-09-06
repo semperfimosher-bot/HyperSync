@@ -20,6 +20,9 @@ SearchIntent = Literal[
     "people",
     "my_most_played",
     "recent",
+    "top_artists",
+    "top_albums",
+    "new_releases",
 ]
 
 
@@ -31,6 +34,25 @@ SEARCH_SORT_MODES: tuple[
     "recent",
     "alphabetical",
     "artist",
+)
+
+_FEATURED_ARTIST_PATTERN = re.compile(
+    (
+        r"\b"
+        r"(?:feat(?:uring)?|ft)"
+        r"\.?\s+"
+        r"([^)\]\}]+)"
+    ),
+    flags=re.IGNORECASE,
+)
+
+_FEATURED_ARTIST_SPLIT_PATTERN = re.compile(
+    (
+        r"\s*"
+        r"(?:,|&|\band\b|\bx\b)"
+        r"\s*"
+    ),
+    flags=re.IGNORECASE,
 )
 
 
@@ -62,6 +84,61 @@ def normalize_text(
         return ""
 
     return " ".join(value.casefold().split())
+
+
+def extract_featured_artists(
+    title: str | None,
+) -> tuple[str, ...]:
+    if not title:
+        return ()
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    for match in (
+        _FEATURED_ARTIST_PATTERN.finditer(
+            title,
+        )
+    ):
+        credit = (
+            match.group(1)
+            .strip()
+        )
+
+        names = (
+            _FEATURED_ARTIST_SPLIT_PATTERN.split(
+                credit,
+            )
+        )
+
+        for name in names:
+            cleaned = name.strip(
+                " .()[]{}"
+            )
+
+            normalized = (
+                normalize_text(
+                    cleaned,
+                )
+            )
+
+            if (
+                not normalized
+                or normalized in seen
+            ):
+                continue
+
+            seen.add(
+                normalized,
+            )
+
+            found.append(
+                cleaned,
+            )
+
+    return tuple(
+        found,
+    )
 
 
 def normalize_sort_mode(
@@ -97,7 +174,24 @@ def parse_search_query(
             "artist",
         ),
         (
-            r"^people\s+named\s+(.+)$",
+            r"^@([^\s]+)$",
+            "people",
+            "people",
+        ),
+        (
+            (
+                r"^(?:people|users?|person)"
+                r"\s+(?:named\s+)?(.+)$"
+            ),
+            "people",
+            "people",
+        ),
+        (
+            (
+                r"^find\s+"
+                r"(?:people|users?|person)"
+                r"\s+(.+)$"
+            ),
             "people",
             "people",
         ),
@@ -117,6 +211,24 @@ def parse_search_query(
             "recent",
             "any",
         ),
+        (
+            r"^(?:my\s+)?top\s+artists?$",
+            "top_artists",
+            "any",
+        ),
+        (
+            r"^(?:my\s+)?top\s+albums?$",
+            "top_albums",
+            "any",
+        ),
+        (
+            (
+                r"^(?:new\s+releases?"
+                r"|new\s+music)$"
+            ),
+            "new_releases",
+            "any",
+        ),
     )
 
     for (
@@ -133,7 +245,14 @@ def parse_search_query(
         if not match:
             continue
 
-        term = (match.group(1) if match.lastindex else "") or ""
+        term = (
+            (
+                match.group(1)
+                if match.lastindex
+                else ""
+            )
+            or ""
+        )
 
         return ParsedSearch(
             raw=raw,
@@ -158,43 +277,113 @@ def _score_value(
     int,
     str,
 ]:
-    normalized_value = normalize_text(value)
+    normalized_value = normalize_text(
+        value,
+    )
 
-    normalized_term = normalize_text(term)
+    normalized_term = normalize_text(
+        term,
+    )
 
-    if not normalized_value or not normalized_term:
+    if (
+        not normalized_value
+        or not normalized_term
+    ):
         return 0, 0, ""
 
-    if normalized_value == normalized_term:
+    if (
+        normalized_value
+        == normalized_term
+    ):
         return (
             1000,
             4,
             "EXACT MATCH",
         )
 
-    if normalized_value.startswith(normalized_term):
+    if normalized_value.startswith(
+        normalized_term,
+    ):
         return (
             800,
             3,
             "STRONG MATCH",
         )
 
-    if normalized_term in normalized_value:
+    if (
+        normalized_term
+        in normalized_value
+    ):
         return (
             600,
             2,
             "MATCH",
         )
 
-    similarity = SequenceMatcher(
-        None,
-        normalized_term,
-        normalized_value,
-    ).ratio()
+    similarities = [
+        SequenceMatcher(
+            None,
+            normalized_term,
+            normalized_value,
+        ).ratio()
+    ]
+
+    value_words = (
+        normalized_value.split()
+    )
+
+    term_words = (
+        normalized_term.split()
+    )
+
+    if len(term_words) == 1:
+        similarities.extend(
+            SequenceMatcher(
+                None,
+                normalized_term,
+                word,
+            ).ratio()
+            for word in value_words
+        )
+
+    elif (
+        len(value_words)
+        >= len(term_words)
+    ):
+        window_size = len(
+            term_words,
+        )
+
+        similarities.extend(
+            SequenceMatcher(
+                None,
+                normalized_term,
+                " ".join(
+                    value_words[
+                        index
+                        : index
+                        + window_size
+                    ]
+                ),
+            ).ratio()
+            for index in range(
+                len(value_words)
+                - window_size
+                + 1
+            )
+        )
+
+    similarity = max(
+        similarities,
+    )
 
     if similarity >= 0.72:
         return (
-            250 + int(similarity * 200),
+            250
+            + int(
+                similarity
+                * 200
+            ),
             1,
             "CLOSE MATCH",
         )
@@ -216,7 +405,10 @@ def score_track(
             field="history",
         )
 
-    if parsed.field_hint == "artist":
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
         fields = (
             (
                 "artist",
@@ -224,6 +416,7 @@ def score_track(
                 40,
             ),
         )
+
     else:
         fields = (
             (
@@ -286,6 +479,83 @@ def score_track(
     return best
 
 
+def score_artist(
+    artist: str,
+    parsed: ParsedSearch,
+) -> MatchResult:
+    if not parsed.term:
+        return MatchResult(
+            score=0,
+            tier=0,
+            label="",
+            field="",
+        )
+
+    (
+        score,
+        tier,
+        label,
+    ) = _score_value(
+        artist,
+        parsed.term,
+    )
+
+    if score <= 0:
+        return MatchResult(
+            score=0,
+            tier=0,
+            label="",
+            field="",
+        )
+
+    return MatchResult(
+        score=score + 40,
+        tier=tier,
+        label=label,
+        field="artist",
+    )
+
+
+def score_album(
+    album: str | None,
+    parsed: ParsedSearch,
+) -> MatchResult:
+    if (
+        not parsed.term
+        or not album
+    ):
+        return MatchResult(
+            score=0,
+            tier=0,
+            label="",
+            field="",
+        )
+
+    (
+        score,
+        tier,
+        label,
+    ) = _score_value(
+        album,
+        parsed.term,
+    )
+
+    if score <= 0:
+        return MatchResult(
+            score=0,
+            tier=0,
+            label="",
+            field="",
+        )
+
+    return MatchResult(
+        score=score + 20,
+        tier=tier,
+        label=label,
+        field="album",
+    )
+
+
 def score_person(
     username: str,
     display_name: str,
@@ -331,6 +601,9 @@ def score_person(
             parsed.term,
         )
 
+        if score <= 0:
+            continue
+
         candidate = MatchResult(
             score=score + bonus,
             tier=tier,
@@ -369,7 +642,34 @@ def sort_track_rows(
     mode: SearchSortMode,
     intent: SearchIntent,
 ) -> list[dict]:
-    if intent == "my_most_played":
+    if intent == "new_releases":
+        return sorted(
+            rows,
+            key=lambda row: (
+                -_timestamp(
+                    row.get(
+                        "created_at",
+                    )
+                ),
+                str(
+                    row.get(
+                        "title",
+                        "",
+                    )
+                ).casefold(),
+                str(
+                    row.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold(),
+            ),
+        )
+
+    if (
+        intent
+        == "my_most_played"
+    ):
         return sorted(
             rows,
             key=lambda row: (
@@ -407,8 +707,17 @@ def sort_track_rows(
         return sorted(
             rows,
             key=lambda row: (
-                (row.get("last_played_at") is None),
-                -_timestamp(row.get("last_played_at")),
+                (
+                    row.get(
+                        "last_played_at",
+                    )
+                    is None
+                ),
+                -_timestamp(
+                    row.get(
+                        "last_played_at",
+                    )
+                ),
                 -int(
                     row.get(
                         "match_tier",
@@ -430,7 +739,10 @@ def sort_track_rows(
             ),
         )
 
-    if mode == "alphabetical":
+    if (
+        mode
+        == "alphabetical"
+    ):
         return sorted(
             rows,
             key=lambda row: (
@@ -517,7 +829,9 @@ def sort_track_rows(
                     0,
                 )
             ),
-            -smart_score(row),
+            -smart_score(
+                row,
+            ),
             str(
                 row.get(
                     "title",
