@@ -5,20 +5,20 @@ import {
 
 export const SEARCH_SORT_OPTIONS = [
   {
-    value: "smart",
-    label: "Smart Search",
-  },
-  {
-    value: "recent",
-    label: "Recently listened",
-  },
-  {
     value: "alphabetical",
     label: "Alphabetical",
   },
   {
     value: "artist",
     label: "Artist",
+  },
+  {
+    value: "recent",
+    label: "Recently listened",
+  },
+  {
+    value: "smart",
+    label: "Smart Search",
   },
 ];
 

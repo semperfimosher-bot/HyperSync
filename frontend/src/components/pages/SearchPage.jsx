@@ -24,6 +24,10 @@ import {
 } from "../../constants.js";
 
 import {
+  alphabetizeSearchResults,
+} from "../../searchAlphabetical.js";
+
+import {
   pickTopSignal,
 } from "../../searchTopSignal.js";
 
@@ -59,14 +63,14 @@ const EMPTY_RESULTS = {
 
 const FILTERS = [
   ["all", "All"],
-  ["tracks", "Tracks"],
+  ["albums", "Albums"],
   ["artists", "Artists"],
   [
     "collaborations",
     "Collaborations",
   ],
-  ["albums", "Albums"],
   ["people", "People"],
+  ["tracks", "Tracks"],
 ];
 
 function resolveArtworkUrl(url) {
@@ -519,6 +523,15 @@ function SearchPage({
     sortMode,
   ]);
 
+  const alphabeticalResults =
+  useMemo(
+    () =>
+      alphabetizeSearchResults(
+        results,
+      ),
+    [results],
+  );
+
 
   const resultTotal =
     useMemo(
@@ -570,7 +583,7 @@ function SearchPage({
     trackIndex,
   ) {
     const queue =
-      results.tracks.map(
+  alphabeticalResults.tracks.map(
         (track) => ({
           id:
             track.id,
@@ -651,7 +664,7 @@ function SearchPage({
     event,
   ) {
     const trackCount =
-      results.tracks.length;
+  alphabeticalResults.tracks.length;
 
     if (
       event.key ===
@@ -755,9 +768,9 @@ function SearchPage({
   useMemo(
     () =>
       pickTopSignal(
-        results,
+        alphabeticalResults,
       ),
-    [results],
+    [alphabeticalResults],
   );
 
 
@@ -771,7 +784,7 @@ function SearchPage({
 
 
   const artistPanel =
-    results.artists.length > 0 ? (
+    alphabeticalResults.artists.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="ENTITY INDEX"
@@ -784,7 +797,7 @@ function SearchPage({
         }
       >
 
-        {results.artists.map(
+        {alphabeticalResults.artists.map(
           (artist) => (
 
             <button
@@ -853,7 +866,7 @@ function SearchPage({
 
 
   const collaborationPanel =
-    results.collaborations.length >
+    alphabeticalResults.collaborations.length >
     0 ? (
 
       <SearchEntityPanel
@@ -868,7 +881,7 @@ function SearchPage({
         }
       >
 
-        {results.collaborations.map(
+        {alphabeticalResults.collaborations.map(
           (collaboration) => (
 
             <button
@@ -942,7 +955,7 @@ function SearchPage({
 
 
   const albumPanel =
-    results.albums.length > 0 ? (
+    alphabeticalResults.albums.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="RELEASE INDEX"
@@ -955,7 +968,7 @@ function SearchPage({
         }
       >
 
-        {results.albums.map(
+        {alphabeticalResults.albums.map(
           (album) => (
 
             <button
@@ -1399,7 +1412,7 @@ function SearchPage({
 
 
           {showTracks &&
-          results.tracks.length > 0 ? (
+alphabeticalResults.tracks.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -1605,11 +1618,11 @@ function SearchPage({
 
               <div className="hs-search-discovery-grid">
 
+                {albumPanel}
+
                 {artistPanel}
 
                 {collaborationPanel}
-
-                {albumPanel}
 
               </div>
 
@@ -1635,7 +1648,7 @@ function SearchPage({
 
 
           {showPeople &&
-          results.people.length > 0 ? (
+          alphabeticalResults.people.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -1660,7 +1673,7 @@ function SearchPage({
 
               <div className="hs-search-people-list">
 
-                {results.people.map(
+                {alphabeticalResults.people.map(
                   (person) => (
 
                     <button

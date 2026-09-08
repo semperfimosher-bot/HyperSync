@@ -81,9 +81,23 @@ export const PAGE_TITLES = {
 
 export const SEARCH_QUICK_COMMANDS = [
   {
+    id: "find-people",
+    label: "Find People",
+    query: "",
+    filter: "people",
+    focus: true,
+  },
+  {
     id: "most-played",
     label: "Most Played",
     query: "my most played",
+    filter: "tracks",
+    focus: false,
+  },
+  {
+    id: "new-releases",
+    label: "New Releases",
+    query: "new releases",
     filter: "tracks",
     focus: false,
   },
@@ -95,13 +109,6 @@ export const SEARCH_QUICK_COMMANDS = [
     focus: false,
   },
   {
-    id: "top-artists",
-    label: "Top Artists",
-    query: "top artists",
-    filter: "artists",
-    focus: false,
-  },
-  {
     id: "top-albums",
     label: "Top Albums",
     query: "top albums",
@@ -109,17 +116,10 @@ export const SEARCH_QUICK_COMMANDS = [
     focus: false,
   },
   {
-    id: "find-people",
-    label: "Find People",
-    query: "",
-    filter: "people",
-    focus: true,
-  },
-  {
-    id: "new-releases",
-    label: "New Releases",
-    query: "new releases",
-    filter: "tracks",
+    id: "top-artists",
+    label: "Top Artists",
+    query: "top artists",
+    filter: "artists",
     focus: false,
   },
 ];
