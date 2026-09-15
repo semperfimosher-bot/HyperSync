@@ -238,6 +238,18 @@ useEffect(() => {
 
     artist:
       track?.artist ?? "",
+
+    mimeType:
+      track?.mime_type ??
+      null,
+
+    fileSize:
+      track?.file_size ??
+      null,
+
+    mediaVersion:
+      track?.media_version ??
+      null,
   },
 );
         } catch (error) {

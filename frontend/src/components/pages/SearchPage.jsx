@@ -1437,7 +1437,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
               <div className="hs-search-track-list">
 
-                {results.tracks.map(
+                {alphabeticalResults.tracks.map(
                   (
                     track,
                     trackIndex,

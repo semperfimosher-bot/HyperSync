@@ -26,6 +26,10 @@ test(
           title: "Song One",
           artist: "Artist One",
           artworkUrl: "one.jpg",
+          mime_type: "audio/mpeg",
+          file_size: 5_000_000,
+          media_version:
+            "media-version-one",
         },
         {
           id: 2,
@@ -51,6 +55,10 @@ test(
         artworkUrl: "one.jpg",
         title: "Song One",
         artist: "Artist One",
+        mimeType: "audio/mpeg",
+        fileSize: 5_000_000,
+        mediaVersion:
+          "media-version-one",
       },
     },
     {
@@ -60,6 +68,9 @@ test(
         artworkUrl: "two.jpg",
         title: "Song Two",
         artist: "Artist Two",
+        mimeType: null,
+        fileSize: null,
+        mediaVersion: null,
       },
     },
     {
@@ -69,6 +80,9 @@ test(
         artworkUrl: "three.jpg",
         title: "Song Three",
         artist: "Artist Three",
+        mimeType: null,
+        fileSize: null,
+        mediaVersion: null,
       },
     },
   ],
@@ -287,3 +301,28 @@ test(
   },
 );
 })
+
+test(
+  "controlled playback uses stable media identity instead of a signed audio URL",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    assert.equal(
+      queueModule.getTrackAudioSource(
+        "track 123",
+        {
+          audioUrl:
+            "https://signed.example/audio?token=changing",
+          mediaVersion:
+            "version/abc",
+        },
+        {
+          useStableMediaRoute:
+            true,
+        },
+      ),
+      "/__hypersync/media/track%20123/version%2Fabc",
+    );
+  },
+);

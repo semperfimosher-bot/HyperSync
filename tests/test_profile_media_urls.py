@@ -1,10 +1,15 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.app.api.routes import (
     users as users_route,
 )
+from backend.app.models.account import User
 from backend.app.models.media import Track
 
 
@@ -128,3 +133,158 @@ def test_profile_media_urls_fall_back_when_signing_fails(
     assert users_route.artwork_url(
         track,
     ) == (f"/api/catalog/tracks/{track_id}/artwork")
+
+
+def test_profile_track_summary_exposes_media_cache_metadata() -> None:
+    summary = users_route.TrackSummary(
+        id=uuid4(),
+        title="Fast Song",
+        artist="HyperSync",
+        album="Direct B2",
+        audio_url=("https://media.example.test/audio/fast-song.mp3"),
+        artwork_url=None,
+        mime_type="audio/mpeg",
+        file_size=5_000_000,
+        media_version="media-version-test",
+        play_count=1,
+        last_played_at=datetime.now(
+            UTC,
+        ),
+    )
+
+    assert (
+        getattr(
+            summary,
+            "mime_type",
+            None,
+        )
+        == "audio/mpeg"
+    )
+
+    assert (
+        getattr(
+            summary,
+            "file_size",
+            None,
+        )
+        == 5_000_000
+    )
+
+    assert (
+        getattr(
+            summary,
+            "media_version",
+            None,
+        )
+        == "media-version-test"
+    )
+
+
+@pytest.mark.asyncio
+async def test_profile_dashboard_populates_media_cache_metadata() -> None:
+    track_id = uuid4()
+
+    track = SimpleNamespace(
+        id=track_id,
+        title="Fast Song",
+        artist="HyperSync",
+        album="Direct B2",
+        duration_seconds=180,
+        mime_type="audio/mpeg",
+        file_size=5_000_000,
+        b2_object_key=("https://media.example.test/audio/fast-song.mp3"),
+        artwork_object_key=None,
+    )
+
+    now = datetime.now(
+        UTC,
+    )
+
+    class FakeResult:
+        def __init__(
+            self,
+            *,
+            scalar=0,
+            rows=None,
+        ) -> None:
+            self.scalar = scalar
+            self.rows = rows if rows is not None else []
+
+        def scalar_one(self):
+            return self.scalar
+
+        def all(self):
+            return self.rows
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.results = iter(
+                [
+                    FakeResult(scalar=0),
+                    FakeResult(scalar=0),
+                    FakeResult(scalar=0),
+                    FakeResult(scalar=1),
+                    FakeResult(scalar=180),
+                    FakeResult(
+                        rows=[
+                            (
+                                track,
+                                1,
+                                now,
+                            )
+                        ],
+                    ),
+                    FakeResult(rows=[]),
+                ]
+            )
+
+        async def execute(
+            self,
+            _statement,
+        ):
+            return next(
+                self.results,
+            )
+
+    user = cast(
+        User,
+        SimpleNamespace(
+            id=uuid4(),
+            username="listener",
+            created_at=now,
+            role=SimpleNamespace(
+                value="user",
+            ),
+            profile=SimpleNamespace(
+                display_name="Listener",
+                bio=None,
+                music_activity_public=True,
+                avatar_object_key=None,
+            ),
+        ),
+    )
+
+    session = cast(
+        AsyncSession,
+        FakeSession(),
+    )
+
+    dashboard = await users_route.build_dashboard(
+        session,
+        user,
+    )
+
+    assert (
+        len(
+            dashboard.recently_played,
+        )
+        == 1
+    )
+
+    recent = dashboard.recently_played[0]
+
+    assert recent.mime_type == ("audio/mpeg")
+
+    assert recent.file_size == (5_000_000)
+
+    assert recent.media_version is not None

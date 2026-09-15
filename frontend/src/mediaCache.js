@@ -28,6 +28,14 @@ export function resolveMediaUrl(url) {
   }
 
   if (
+    url.startsWith(
+      "/__hypersync/media/",
+    )
+  ) {
+    return url;
+  }
+
+  if (
     url.startsWith("http://") ||
     url.startsWith("https://")
   ) {

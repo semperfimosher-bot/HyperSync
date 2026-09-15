@@ -12,8 +12,12 @@ import {
   buildTrackQueue,
   getNextQueueIndex,
   getQueueTrackAtIndex,
-  getTrackAudioSource,
 } from "./playerQueue.js";
+
+import {
+  prepareTrackAudioSource,
+  recordTrackPlayback,
+} from "./mediaPlayback.js";
 
 const audio =
   new Audio();
@@ -241,14 +245,26 @@ async function playTrackInternal(
   currentTrackArtist =
     artist;
 
-  const url =
-  resolveMediaUrl(
-    getTrackAudioSource(
+  const useStableMediaRoute =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
+  const audioSource =
+    await prepareTrackAudioSource(
       trackId,
       meta,
-    ),
-  );
+      {
+        useStableMediaRoute,
+      },
+    );
 
+  const url =
+    resolveMediaUrl(
+      audioSource,
+    );
   loadAudioSource(
   url,
 );
@@ -257,6 +273,16 @@ async function playTrackInternal(
   audio.load();
 
   await audio.play();
+
+    try {
+    await recordTrackPlayback(
+      trackId,
+      meta,
+    );
+  } catch {
+    // Cache-retention bookkeeping
+    // must never interrupt playback.
+  }
 
   if (
     currentTrackId &&

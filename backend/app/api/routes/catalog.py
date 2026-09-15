@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import mimetypes
 from datetime import (
@@ -58,6 +59,9 @@ class TrackResponse(BaseModel):
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    media_version: str | None = None
 
 
 def _presigned_or_fallback(
@@ -128,6 +132,19 @@ def _track_artwork_url(
     )
 
 
+def _track_media_version(
+    track: Track,
+) -> str | None:
+    if not track.b2_object_key:
+        return None
+
+    return hashlib.sha256(
+        track.b2_object_key.encode(
+            "utf-8",
+        ),
+    ).hexdigest()
+
+
 @router.get(
     "/tracks",
     response_model=list[TrackResponse],
@@ -173,6 +190,13 @@ async def list_tracks(
                 artist=track.artist,
                 album=track.album,
                 duration_seconds=(track.duration_seconds),
+                mime_type=(track.mime_type),
+                file_size=(track.file_size),
+                media_version=(
+                    _track_media_version(
+                        track,
+                    )
+                ),
                 audio_url=(
                     _track_audio_url(
                         track,
@@ -221,6 +245,13 @@ async def get_track(
         artist=track.artist,
         album=track.album,
         duration_seconds=(track.duration_seconds),
+        mime_type=(track.mime_type),
+        file_size=(track.file_size),
+        media_version=(
+            _track_media_version(
+                track,
+            )
+        ),
         audio_url=(
             _track_audio_url(
                 track,

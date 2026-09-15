@@ -57,6 +57,7 @@ from ..dependencies import (
 from .catalog import (
     _track_artwork_url,
     _track_audio_url,
+    _track_media_version,
 )
 from .users import avatar_url
 
@@ -104,6 +105,10 @@ class SearchTrackResult(
 
     audio_url: str | None = None
     artwork_url: str | None = None
+
+    mime_type: str | None = None
+    file_size: int | None = None
+    media_version: str | None = None
 
     match_label: str
     matched_field: str
@@ -970,6 +975,13 @@ def _serialize_tracks(
             duration_seconds=(row["track"].duration_seconds),
             audio_url=(_track_audio_url(row["track"])),
             artwork_url=(_track_artwork_url(row["track"])),
+            mime_type=(row["track"].mime_type),
+            file_size=(row["track"].file_size),
+            media_version=(
+                _track_media_version(
+                    row["track"],
+                )
+            ),
             match_label=(row["match_label"]),
             matched_field=(row["matched_field"]),
             user_play_count=(row["user_play_count"]),

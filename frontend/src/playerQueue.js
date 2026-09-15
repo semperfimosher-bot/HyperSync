@@ -28,6 +28,21 @@ export function buildTrackQueue(
           track.artwork_url ??
           null,
 
+        mimeType:
+          track.mimeType ??
+          track.mime_type ??
+          null,
+
+        fileSize:
+          track.fileSize ??
+          track.file_size ??
+          null,
+
+        mediaVersion:
+          track.mediaVersion ??
+          track.media_version ??
+          null,
+
         title:
           track.title ??
           "",
@@ -128,7 +143,47 @@ export function getQueueTrackAtIndex(
 export function getTrackAudioSource(
   trackId,
   meta = {},
+  options = {},
 ) {
+  const mediaVersion =
+    meta.mediaVersion ??
+    meta.media_version ??
+    null;
+
+  const normalizedTrackId =
+    trackId === null ||
+    trackId === undefined
+      ? ""
+      : String(
+          trackId,
+        ).trim();
+
+  const normalizedMediaVersion =
+    mediaVersion === null ||
+    mediaVersion === undefined
+      ? ""
+      : String(
+          mediaVersion,
+        ).trim();
+
+  if (
+    options.useStableMediaRoute ===
+      true &&
+    normalizedTrackId &&
+    normalizedMediaVersion
+  ) {
+    return (
+      "/__hypersync/media/" +
+      encodeURIComponent(
+        normalizedTrackId,
+      ) +
+      "/" +
+      encodeURIComponent(
+        normalizedMediaVersion,
+      )
+    );
+  }
+
   const directUrl =
     meta.audioUrl ??
     meta.audio_url ??

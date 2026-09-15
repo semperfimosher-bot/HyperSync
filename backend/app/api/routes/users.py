@@ -43,6 +43,7 @@ from ..dependencies import (
     OptionalCurrentUser,
 )
 from .audio import stream_b2_file
+from .catalog import _track_media_version
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,11 @@ class TrackSummary(BaseModel):
     album: str | None
     audio_url: str | None = None
     artwork_url: str | None = None
+
+    mime_type: str | None = None
+    file_size: int | None = None
+    media_version: str | None = None
+
     play_count: int
     last_played_at: datetime
 
@@ -562,6 +568,13 @@ async def build_dashboard(
             ),
             artwork_url=artwork_url(
                 track,
+            ),
+            mime_type=track.mime_type,
+            file_size=track.file_size,
+            media_version=(
+                _track_media_version(
+                    track,
+                )
             ),
             play_count=play_count,
             last_played_at=last_played_at,
