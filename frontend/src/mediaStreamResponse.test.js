@@ -380,3 +380,262 @@ test(
     );
   },
 );
+
+test(
+  "cold media stream forwards network bytes before the full cache chunk finishes downloading",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const mediaStreamResponse =
+      await loadMediaStreamResponseModule();
+
+    const chunkSize =
+      mediaStore.MEDIA_CHUNK_SIZE;
+
+    const prefixSize =
+      4 * 1024;
+
+    const trackId =
+      "progressive-cold-track";
+
+    const mediaVersion =
+      "progressive-cold-version";
+
+    const fileSize =
+      chunkSize;
+
+    await mediaStore.saveMediaRecord(
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize,
+        state:
+          "NONE",
+      }),
+    );
+
+    let releaseRemainder;
+
+    const remainderGate =
+      new Promise(
+        (resolve) => {
+          releaseRemainder =
+            resolve;
+        },
+      );
+
+    let markPrefixRead;
+
+    const prefixRead =
+      new Promise(
+        (resolve) => {
+          markPrefixRead =
+            resolve;
+        },
+      );
+
+    let networkPullCount =
+      0;
+
+    const response =
+      mediaStreamResponse.createMediaRangeStreamResponse({
+        trackId,
+        mediaVersion,
+        byteStart:
+          0,
+        byteEnd:
+          fileSize - 1,
+        fileSize,
+        mimeType:
+          "audio/mpeg",
+
+        fetchChunk:
+          async ({
+            byteStart,
+            byteEnd,
+          }) => {
+            assert.equal(
+              byteStart,
+              0,
+            );
+
+            assert.equal(
+              byteEnd,
+              chunkSize - 1,
+            );
+
+            const body =
+              new ReadableStream({
+                async pull(
+                  controller,
+                ) {
+                  networkPullCount +=
+                    1;
+
+                  if (
+                    networkPullCount ===
+                    1
+                  ) {
+                    const prefix =
+                      new Uint8Array(
+                        prefixSize,
+                      );
+
+                    prefix.fill(
+                      0x11,
+                    );
+
+                    controller.enqueue(
+                      prefix,
+                    );
+
+                    markPrefixRead();
+
+                    return;
+                  }
+
+                  await remainderGate;
+
+                  const remainder =
+                    new Uint8Array(
+                      chunkSize -
+                        prefixSize,
+                    );
+
+                  remainder.fill(
+                    0x22,
+                  );
+
+                  controller.enqueue(
+                    remainder,
+                  );
+
+                  controller.close();
+                },
+              });
+
+            return new Response(
+              body,
+              {
+                status:
+                  206,
+
+                headers: {
+                  "Content-Length":
+                    String(
+                      chunkSize,
+                    ),
+
+                  "Content-Range":
+                    `bytes 0-${
+                      chunkSize - 1
+                    }/${fileSize}`,
+
+                  "Content-Type":
+                    "audio/mpeg",
+                },
+              },
+            );
+          },
+      });
+
+    const reader =
+      response.body.getReader();
+
+    let firstReadSettled =
+      false;
+
+    const firstReadPromise =
+      reader.read().then(
+        (result) => {
+          firstReadSettled =
+            true;
+
+          return result;
+        },
+      );
+
+    await prefixRead;
+
+    await new Promise(
+      (resolve) => {
+        setTimeout(
+          resolve,
+          0,
+        );
+      },
+    );
+
+    const settledBeforeRemainder =
+      firstReadSettled;
+
+    releaseRemainder();
+
+    const first =
+      await firstReadPromise;
+
+    let streamedBytes =
+      first.done
+        ? 0
+        : first.value.byteLength;
+
+    while (true) {
+      const next =
+        await reader.read();
+
+      if (next.done) {
+        break;
+      }
+
+      streamedBytes +=
+        next.value.byteLength;
+    }
+
+    assert.equal(
+      settledBeforeRemainder,
+      true,
+      "audio should receive the first network bytes before the rest of the 256 KiB chunk arrives",
+    );
+
+    assert.equal(
+      first.done,
+      false,
+    );
+
+    assert.equal(
+      first.value.byteLength,
+      prefixSize,
+    );
+
+    assert.equal(
+      first.value[0],
+      0x11,
+    );
+
+    assert.equal(
+      streamedBytes,
+      chunkSize,
+    );
+
+    const cachedChunk =
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      );
+
+    assert.ok(
+      cachedChunk,
+    );
+
+    assert.equal(
+      cachedChunk.byteLength,
+      chunkSize,
+    );
+  },
+);

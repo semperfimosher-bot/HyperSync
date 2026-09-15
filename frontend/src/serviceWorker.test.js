@@ -797,7 +797,7 @@ test(
 );
 
 test(
-  "open-ended media request is served lazily through bounded cache chunks",
+  "open-ended cold media request coalesces cache chunks into bounded network windows",
   async () => {
     const mediaStore =
       await import(
@@ -810,14 +810,34 @@ test(
     const chunkSize =
       mediaStore.MEDIA_CHUNK_SIZE;
 
+    /*
+     * Persistent storage remains
+     * 256 KiB per chunk.
+     *
+     * Cold network transfer should
+     * coalesce 8 of those chunks into
+     * one 2 MiB request.
+     */
+    const networkWindowSize =
+      chunkSize * 8;
+
     const trackId =
-      "open-ended-track";
+      "windowed-cold-track";
 
     const mediaVersion =
-      "open-ended-version";
+      "windowed-cold-version";
 
+    /*
+     * Ten cache chunks total:
+     *
+     * first network window:
+     * chunks 0 through 7
+     *
+     * second network window:
+     * chunks 8 through 9
+     */
     const fileSize =
-      chunkSize * 2;
+      chunkSize * 10;
 
     await mediaStore.saveMediaRecord(
       mediaStore.createMediaRecord({
@@ -848,6 +868,7 @@ test(
     const response =
       await serviceWorker.handleMediaRequest(
         request,
+
         async (
           networkRequest,
         ) => {
@@ -860,28 +881,25 @@ test(
             rangeHeader,
           );
 
-          let byteStart =
-            0;
-
-          let byteEnd =
-            fileSize - 1;
-
           const boundedMatch =
             /^bytes=(\d+)-(\d+)$/.exec(
               rangeHeader ?? "",
             );
 
-          if (boundedMatch) {
-            byteStart =
-              Number(
-                boundedMatch[1],
-              );
+          assert.ok(
+            boundedMatch,
+            "cold media network requests must use bounded byte ranges",
+          );
 
-            byteEnd =
-              Number(
-                boundedMatch[2],
-              );
-          }
+          const byteStart =
+            Number(
+              boundedMatch[1],
+            );
+
+          const byteEnd =
+            Number(
+              boundedMatch[2],
+            );
 
           const bytes =
             new Uint8Array(
@@ -890,6 +908,12 @@ test(
                 1,
             );
 
+          /*
+           * Fill each network window
+           * differently so we can later
+           * prove that both windows made
+           * it through correctly.
+           */
           bytes.fill(
             requestedRanges.length,
           );
@@ -899,19 +923,23 @@ test(
             {
               status:
                 206,
+
               headers: {
                 "Content-Length":
                   String(
                     bytes.byteLength,
                   ),
+
                 "Content-Range":
                   `bytes ${byteStart}-${byteEnd}/${fileSize}`,
+
                 "Content-Type":
                   "audio/mpeg",
               },
             },
           );
         },
+
         "/api",
       );
 
@@ -920,62 +948,104 @@ test(
       206,
     );
 
+    /*
+     * Streaming is lazy:
+     * merely creating the response
+     * should not start network IO.
+     */
     assert.deepEqual(
       requestedRanges,
       [],
     );
 
-    const reader =
-      response.body.getReader();
-
-    const first =
-      await reader.read();
-
-    assert.equal(
-      first.done,
-      false,
-    );
+    const streamedBytes =
+      new Uint8Array(
+        await response.arrayBuffer(),
+      );
 
     assert.equal(
-      first.value.byteLength,
-      chunkSize,
+      streamedBytes.byteLength,
+      fileSize,
     );
 
+    /*
+     * Ten cache chunks should require
+     * only TWO physical network requests.
+     */
     assert.deepEqual(
       requestedRanges,
       [
-        `bytes=0-${chunkSize - 1}`,
+        `bytes=0-${
+          networkWindowSize - 1
+        }`,
+
+        `bytes=${networkWindowSize}-${
+          fileSize - 1
+        }`,
       ],
     );
 
-    const second =
-      await reader.read();
-
+    /*
+     * First network window was filled
+     * with 0x01.
+     */
     assert.equal(
-      second.done,
-      false,
+      streamedBytes[0],
+      0x01,
     );
 
     assert.equal(
-      second.value.byteLength,
-      chunkSize,
-    );
-
-    assert.deepEqual(
-      requestedRanges,
-      [
-        `bytes=0-${chunkSize - 1}`,
-        `bytes=${chunkSize}-${fileSize - 1}`,
+      streamedBytes[
+        networkWindowSize - 1
       ],
+      0x01,
     );
 
-    const finished =
-      await reader.read();
+    /*
+     * Second network window was filled
+     * with 0x02.
+     */
+    assert.equal(
+      streamedBytes[
+        networkWindowSize
+      ],
+      0x02,
+    );
 
     assert.equal(
-      finished.done,
-      true,
+      streamedBytes[
+        fileSize - 1
+      ],
+      0x02,
     );
+
+    /*
+     * The larger NETWORK requests must
+     * still be split back into our
+     * normal 256 KiB persistent chunks.
+     */
+    for (
+      let chunkIndex = 0;
+      chunkIndex < 10;
+      chunkIndex += 1
+    ) {
+      const storedChunk =
+        await mediaStore.getMediaChunk(
+          trackId,
+          mediaVersion,
+          chunkIndex,
+        );
+
+      assert.ok(
+        storedChunk,
+        `cache chunk ${chunkIndex} should be persisted`,
+      );
+
+      assert.equal(
+        storedChunk.byteLength,
+        chunkSize,
+      );
+    }
 
     const firstStoredChunk =
       await mediaStore.getMediaChunk(
@@ -984,19 +1054,39 @@ test(
         0,
       );
 
-    const secondStoredChunk =
+    const eighthStoredChunk =
       await mediaStore.getMediaChunk(
         trackId,
         mediaVersion,
-        1,
+        7,
       );
 
-    assert.ok(
-      firstStoredChunk,
+    const ninthStoredChunk =
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        8,
+      );
+
+    assert.equal(
+      new Uint8Array(
+        firstStoredChunk.data,
+      )[0],
+      0x01,
     );
 
-    assert.ok(
-      secondStoredChunk,
+    assert.equal(
+      new Uint8Array(
+        eighthStoredChunk.data,
+      )[0],
+      0x01,
+    );
+
+    assert.equal(
+      new Uint8Array(
+        ninthStoredChunk.data,
+      )[0],
+      0x02,
     );
   },
 );

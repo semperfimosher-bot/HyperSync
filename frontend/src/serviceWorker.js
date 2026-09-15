@@ -13,6 +13,7 @@ import {
 
 import {
   createMediaRangeStreamResponse,
+  MEDIA_NETWORK_WINDOW_SIZE,
 } from "./mediaStreamResponse.js";
 
 const MEDIA_ROUTE_PREFIX =
@@ -282,6 +283,9 @@ export async function handleMediaRequest(
         mimeType:
           mediaRecord.mimeType ??
           "application/octet-stream",
+
+        networkWindowSize:
+          MEDIA_NETWORK_WINDOW_SIZE,
 
         fetchChunk:
           async ({
