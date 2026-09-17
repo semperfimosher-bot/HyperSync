@@ -106,6 +106,8 @@ def get_b2_s3_client():
 
 def create_presigned_download_url(
     object_key: str,
+    *,
+    ttl_seconds: int | None = None,
 ) -> str:
     if object_key.startswith(
         (
@@ -118,18 +120,31 @@ def create_presigned_download_url(
     settings = get_settings()
 
     if not settings.b2_bucket_name:
-        raise RuntimeError("B2_BUCKET_NAME is not configured.")
+        raise RuntimeError(
+            "B2_BUCKET_NAME is not configured.",
+        )
 
-    ttl = max(
-        int(settings.b2_presigned_url_ttl_seconds),
-        60,
+    configured_ttl = (
+        settings.b2_presigned_url_ttl_seconds
+        if ttl_seconds is None
+        else ttl_seconds
+    )
+
+    ttl = min(
+        max(
+            int(configured_ttl),
+            60,
+        ),
+        7 * 24 * 60 * 60,
     )
 
     return get_b2_s3_client().generate_presigned_url(
         "get_object",
         Params={
-            "Bucket": settings.b2_bucket_name,
-            "Key": object_key,
+            "Bucket":
+                settings.b2_bucket_name,
+            "Key":
+                object_key,
         },
         ExpiresIn=ttl,
     )

@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     b2_artwork_prefix: str = "artwork"
     b2_profile_prefix: str = "profiles"
     b2_presigned_url_ttl_seconds: int = 86400
+    b2_media_source_ttl_seconds: int = 300
 
     local_temp_root: str = "storage/temporary"
     local_upload_root: str = "storage/uploads"

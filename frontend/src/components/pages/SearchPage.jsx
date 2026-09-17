@@ -584,25 +584,37 @@ function SearchPage({
   ) {
     const queue =
   alphabeticalResults.tracks.map(
-        (track) => ({
-          id:
-            track.id,
+    (track) => ({
+      id:
+        track.id,
 
-          audioUrl:
-            track.audio_url,
+      audioUrl:
+        track.audio_url,
 
-          artworkUrl:
-            resolveArtworkUrl(
-              track.artwork_url,
-            ),
+      artworkUrl:
+        resolveArtworkUrl(
+          track.artwork_url,
+        ),
 
-          title:
-            track.title,
+      mimeType:
+        track.mime_type ??
+        null,
 
-          artist:
-            track.artist,
-        }),
-      );
+      fileSize:
+        track.file_size ??
+        null,
+
+      mediaVersion:
+        track.media_version ??
+        null,
+
+      title:
+        track.title,
+
+      artist:
+        track.artist,
+    }),
+  );
 
     void player
       .playTrackQueue(

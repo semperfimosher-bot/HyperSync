@@ -6,7 +6,9 @@ import {
   getAccessToken,
 } from "./api/storage.js";
 
-import { resolveMediaUrl } from "./mediaCache.js";
+import {
+  resolveMediaUrl,
+} from "./mediaCache.js";
 
 import {
   buildTrackQueue,
@@ -18,6 +20,13 @@ import {
   prepareTrackAudioSource,
   recordTrackPlayback,
 } from "./mediaPlayback.js";
+
+import {
+  beginPlaybackSession,
+  cancelActivePlaybackSession,
+  isPlaybackSessionCurrent,
+} from "./player/playbackSession.js";
+
 
 const audio =
   new Audio();
@@ -33,18 +42,14 @@ let subscribers =
 let currentArtworkUrl =
   null;
 
-
 let currentTrackTitle =
   "";
-
 
 let currentTrackArtist =
   "";
 
-
 let currentTrackId =
   null;
-
 
 
 let currentQueue =
@@ -52,6 +57,13 @@ let currentQueue =
 
 let currentQueueIndex =
   -1;
+
+
+let playbackPhase =
+  "idle";
+
+let playbackError =
+  null;
 
 
 function clearQueue() {
@@ -62,6 +74,19 @@ function clearQueue() {
     -1;
 }
 
+
+function setPlaybackPhase(
+  phase,
+  error = null,
+) {
+  playbackPhase =
+    phase;
+
+  playbackError =
+    error;
+}
+
+
 function notify() {
   const state =
     getState();
@@ -71,24 +96,33 @@ function notify() {
       try {
         cb(state);
       } catch {
-        // Ignore subscriber errors.
+        // Subscriber failures must never
+        // interrupt playback.
       }
     },
   );
 }
 
 
-export function subscribe(cb) {
-  subscribers.add(cb);
+export function subscribe(
+  cb,
+) {
+  subscribers.add(
+    cb,
+  );
 
   try {
-    cb(getState());
+    cb(
+      getState(),
+    );
   } catch {
     // Ignore subscriber errors.
   }
 
   return () => {
-    subscribers.delete(cb);
+    subscribers.delete(
+      cb,
+    );
   };
 }
 
@@ -104,6 +138,12 @@ export function getState() {
 
     paused:
       audio.paused,
+
+    phase:
+      playbackPhase,
+
+    error:
+      playbackError,
 
     currentTime:
       audio.currentTime ||
@@ -147,16 +187,10 @@ async function playNextQueueTrack() {
       currentQueueIndex,
     );
 
-  /*
-   * End of the current queue.
-   *
-   * For now playback ends naturally.
-   *
-   * Later this is where HyperSync can
-   * request suggested tracks and append
-   * them to the queue.
-   */
-  if (nextIndex === -1) {
+  if (
+    nextIndex ===
+    -1
+  ) {
     notify();
     return;
   }
@@ -165,7 +199,9 @@ async function playNextQueueTrack() {
     nextIndex;
 
   const nextTrack =
-    currentQueue[nextIndex];
+    currentQueue[
+      nextIndex
+    ];
 
   try {
     await playTrackInternal(
@@ -180,14 +216,125 @@ async function playNextQueueTrack() {
 
 
 function attachEvents() {
-  [
+  audio.addEventListener(
+    "loadstart",
+    () => {
+      if (currentTrackId) {
+        setPlaybackPhase(
+          "loading",
+        );
+      }
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
+    "playing",
+    () => {
+      setPlaybackPhase(
+        "playing",
+      );
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
     "play",
+    () => {
+      if (
+        playbackPhase !==
+        "playing"
+      ) {
+        setPlaybackPhase(
+          "loading",
+        );
+      }
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
     "pause",
+    () => {
+      if (
+        currentTrackId ||
+        audio.currentSrc
+      ) {
+        setPlaybackPhase(
+          "paused",
+        );
+      }
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
+    "waiting",
+    () => {
+      if (!audio.paused) {
+        setPlaybackPhase(
+          "buffering",
+        );
+      }
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
+    "stalled",
+    () => {
+      if (!audio.paused) {
+        setPlaybackPhase(
+          "buffering",
+        );
+      }
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
+    "seeking",
+    () => {
+      setPlaybackPhase(
+        "buffering",
+      );
+
+      notify();
+    },
+  );
+
+
+  audio.addEventListener(
+    "seeked",
+    () => {
+      setPlaybackPhase(
+        audio.paused
+          ? "paused"
+          : "playing",
+      );
+
+      notify();
+    },
+  );
+
+
+  [
     "timeupdate",
     "durationchange",
     "volumechange",
     "loadedmetadata",
-    "error",
   ].forEach(
     (eventName) => {
       audio.addEventListener(
@@ -197,6 +344,21 @@ function attachEvents() {
     },
   );
 
+
+  audio.addEventListener(
+    "error",
+    () => {
+      setPlaybackPhase(
+        "error",
+        audio.error?.message ??
+          "Audio playback failed.",
+      );
+
+      notify();
+    },
+  );
+
+
   audio.addEventListener(
     "ended",
     () => {
@@ -205,28 +367,22 @@ function attachEvents() {
   );
 }
 
+
 attachEvents();
 
 
 function loadAudioSource(
   url,
 ) {
-  audio.src = url;
+  audio.src =
+    url;
 }
 
-async function playTrackInternal(
+
+function applyTrackMetadata(
   trackId,
-  meta = {},
-  keepQueue = false,
+  meta,
 ) {
-  if (!trackId) {
-    return;
-  }
-
-  if (!keepQueue) {
-    clearQueue();
-  }
-
   const {
     artworkUrl = null,
     title = "",
@@ -234,7 +390,9 @@ async function playTrackInternal(
   } = meta;
 
   currentTrackId =
-    String(trackId);
+    String(
+      trackId,
+    );
 
   currentArtworkUrl =
     artworkUrl;
@@ -245,6 +403,50 @@ async function playTrackInternal(
   currentTrackArtist =
     artist;
 
+  setPlaybackPhase(
+    "loading",
+  );
+
+  notify();
+}
+
+
+async function playTrackInternal(
+  trackId,
+  meta = {},
+  keepQueue = false,
+) {
+  if (!trackId) {
+    return null;
+  }
+
+
+  const session =
+    beginPlaybackSession(
+      trackId,
+    );
+
+
+  if (!keepQueue) {
+    clearQueue();
+  }
+
+
+  /*
+   * Updating the metadata immediately
+   * gives the UI instant feedback after
+   * the user selects a song.
+   *
+   * The playback session prevents an
+   * older async request from later
+   * taking ownership of the player.
+   */
+  applyTrackMetadata(
+    trackId,
+    meta,
+  );
+
+
   const useStableMediaRoute =
     Boolean(
       globalThis.navigator
@@ -252,54 +454,173 @@ async function playTrackInternal(
         ?.controller,
     );
 
-  const audioSource =
-    await prepareTrackAudioSource(
-      trackId,
-      meta,
-      {
-        useStableMediaRoute,
-      },
+
+  let audioSource;
+
+  try {
+    audioSource =
+      await prepareTrackAudioSource(
+        trackId,
+        meta,
+        {
+          useStableMediaRoute,
+        },
+      );
+  } catch (error) {
+    if (
+      !isPlaybackSessionCurrent(
+        session,
+      )
+    ) {
+      return null;
+    }
+
+    setPlaybackPhase(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Unable to prepare playback.",
     );
+
+    notify();
+
+    throw error;
+  }
+
+
+  /*
+   * A newer song was selected while
+   * this one was preparing.
+   *
+   * From this point onward the stale
+   * request is not allowed to touch the
+   * shared Audio element.
+   */
+  if (
+    !isPlaybackSessionCurrent(
+      session,
+    )
+  ) {
+    return null;
+  }
+
 
   const url =
     resolveMediaUrl(
       audioSource,
     );
-  loadAudioSource(
-  url,
-);
 
+
+  if (!url) {
+    const error =
+      new Error(
+        "Unable to resolve the track audio source.",
+      );
+
+    setPlaybackPhase(
+      "error",
+      error.message,
+    );
+
+    notify();
+
+    throw error;
+  }
+
+
+  loadAudioSource(
+    url,
+  );
 
   audio.load();
 
-  await audio.play();
 
-    try {
-    await recordTrackPlayback(
-      trackId,
-      meta,
+  try {
+    await audio.play();
+  } catch (error) {
+    /*
+     * Changing audio.src for a newer
+     * playback request may reject the
+     * previous play() promise.
+     *
+     * That is expected. A stale request
+     * must quietly disappear rather than
+     * turning into a visible player error.
+     */
+    if (
+      !isPlaybackSessionCurrent(
+        session,
+      )
+    ) {
+      return null;
+    }
+
+    setPlaybackPhase(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Unable to start playback.",
     );
-  } catch {
-    // Cache-retention bookkeeping
-    // must never interrupt playback.
+
+    notify();
+
+    throw error;
   }
 
+
   if (
-    currentTrackId &&
+    !isPlaybackSessionCurrent(
+      session,
+    )
+  ) {
+    return null;
+  }
+
+
+  /*
+   * Cache-retention bookkeeping must not
+   * block or break successful playback.
+   */
+  void recordTrackPlayback(
+    trackId,
+    meta,
+  ).catch(
+    () => {},
+  );
+
+
+  /*
+   * IMPORTANT:
+   *
+   * Use this playback request's immutable
+   * trackId, never the mutable global
+   * currentTrackId.
+   *
+   * Otherwise a rapid A → B selection
+   * could record B for A's old request.
+   */
+  if (
     getAccessToken()
   ) {
     void apiRequest(
       "/users/me/listening",
       {
-        method: "POST",
+        method:
+          "POST",
 
-        body: JSON.stringify({
-          track_id:
-            currentTrackId,
-        }),
+        body:
+          JSON.stringify({
+            track_id:
+              String(
+                trackId,
+              ),
+          }),
       },
-    ).catch(() => {});
+    ).catch(
+      () => {},
+    );
   }
+
 
   return getState();
 }
@@ -316,6 +637,7 @@ export async function playTrack(
   );
 }
 
+
 export async function playQueueIndex(
   index,
 ) {
@@ -329,25 +651,30 @@ export async function playQueueIndex(
     return false;
   }
 
+
   currentQueueIndex =
     index;
 
+
   try {
-    await playTrackInternal(
-      track.id,
-      track.meta,
-      true,
-    );
+    const state =
+      await playTrackInternal(
+        track.id,
+        track.meta,
+        true,
+      );
 
     notify();
 
-    return true;
+    return state ??
+      false;
   } catch (error) {
     notify();
 
     throw error;
   }
 }
+
 
 export async function playTrackQueue(
   tracks,
@@ -358,15 +685,26 @@ export async function playTrackQueue(
       tracks,
     );
 
-  if (queue.length === 0) {
+
+  if (
+    queue.length ===
+    0
+  ) {
+    cancelActivePlaybackSession();
+
     clearQueue();
-    return;
+
+    return null;
   }
 
+
   const requestedIndex =
-    Number.isInteger(startIndex)
+    Number.isInteger(
+      startIndex,
+    )
       ? startIndex
       : 0;
+
 
   const safeIndex =
     Math.min(
@@ -374,8 +712,10 @@ export async function playTrackQueue(
         requestedIndex,
         0,
       ),
-      queue.length - 1,
+      queue.length -
+        1,
     );
+
 
   currentQueue =
     queue;
@@ -383,10 +723,12 @@ export async function playTrackQueue(
   currentQueueIndex =
     safeIndex;
 
+
   const track =
     currentQueue[
       currentQueueIndex
     ];
+
 
   return playTrackInternal(
     track.id,
@@ -395,21 +737,31 @@ export async function playTrackQueue(
   );
 }
 
+
 export async function playUrl(
   url,
   meta = {},
 ) {
   if (!url) {
-    return;
+    return null;
   }
 
+
+  const session =
+    beginPlaybackSession(
+      null,
+    );
+
+
   clearQueue();
+
 
   const {
     artworkUrl = null,
     title = "",
     artist = "",
   } = meta;
+
 
   currentTrackId =
     null;
@@ -423,20 +775,68 @@ export async function playUrl(
   currentTrackArtist =
     artist;
 
+
+  setPlaybackPhase(
+    "loading",
+  );
+
+  notify();
+
+
   const mediaUrl =
     resolveMediaUrl(
       url,
     );
 
+
+  if (
+    !isPlaybackSessionCurrent(
+      session,
+    )
+  ) {
+    return null;
+  }
+
+
   loadAudioSource(
-  mediaUrl,
-);
-
-
+    mediaUrl,
+  );
 
   audio.load();
 
-  await audio.play();
+
+  try {
+    await audio.play();
+  } catch (error) {
+    if (
+      !isPlaybackSessionCurrent(
+        session,
+      )
+    ) {
+      return null;
+    }
+
+    setPlaybackPhase(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Unable to start playback.",
+    );
+
+    notify();
+
+    throw error;
+  }
+
+
+  if (
+    !isPlaybackSessionCurrent(
+      session,
+    )
+  ) {
+    return null;
+  }
+
 
   return getState();
 }
@@ -444,6 +844,12 @@ export async function playUrl(
 
 export async function togglePlay() {
   if (audio.paused) {
+    setPlaybackPhase(
+      "loading",
+    );
+
+    notify();
+
     await audio.play();
   } else {
     audio.pause();
@@ -464,15 +870,22 @@ export function stopTrack(
     return false;
   }
 
+
+  cancelActivePlaybackSession();
+
+
   audio.pause();
 
+
   clearQueue();
+
 
   audio.removeAttribute(
     "src",
   );
 
   audio.load();
+
 
   currentTrackId =
     null;
@@ -486,7 +899,14 @@ export function stopTrack(
   currentTrackArtist =
     "";
 
+
+  setPlaybackPhase(
+    "idle",
+  );
+
+
   notify();
+
 
   return true;
 }
@@ -496,36 +916,43 @@ export function seekTo(
   timeSeconds,
 ) {
   if (
-    typeof timeSeconds ===
-      "number" &&
-    Number.isFinite(
+    typeof timeSeconds !==
+      "number" ||
+    !Number.isFinite(
       timeSeconds,
     )
   ) {
-    audio.currentTime =
-      Math.max(
-        0,
-        Math.min(
-          timeSeconds,
-          audio.duration ||
-            timeSeconds,
-        ),
-      );
-
-    notify();
+    return;
   }
+
+
+  audio.currentTime =
+    Math.max(
+      0,
+      Math.min(
+        timeSeconds,
+        audio.duration ||
+          timeSeconds,
+      ),
+    );
+
+
+  notify();
 }
 
 
-export function setVolume(v) {
+export function setVolume(
+  value,
+) {
   audio.volume =
     Math.max(
       0,
       Math.min(
         1,
-        v,
+        value,
       ),
     );
+
 
   notify();
 }
@@ -538,23 +965,20 @@ export function _getAudioElement() {
 
 if (
   typeof window !==
-  "undefined"
+  "undefined" &&
+  !window.__HYPERSYNC_PLAYER
 ) {
-  if (
-    !window.__HYPERSYNC_PLAYER
-  ) {
-    window.__HYPERSYNC_PLAYER = {
-      playTrack,
-      playTrackQueue,
-      playQueueIndex,
-      playUrl,
-      togglePlay,
-      stopTrack,
-      seekTo,
-      setVolume,
-      getState,
-      subscribe,
-      _getAudioElement,
-    };
-  }
+  window.__HYPERSYNC_PLAYER = {
+    playTrack,
+    playTrackQueue,
+    playQueueIndex,
+    playUrl,
+    togglePlay,
+    stopTrack,
+    seekTo,
+    setVolume,
+    getState,
+    subscribe,
+    _getAudioElement,
+  };
 }
