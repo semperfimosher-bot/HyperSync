@@ -27,12 +27,21 @@ import {
   isPlaybackSessionCurrent,
 } from "./player/playbackSession.js";
 
+import {
+  clearPersistedPlayerState,
+  readPersistedPlayerState,
+  writePersistedPlayerState,
+} from "./playerPersistence.js";
+
 
 const audio =
   new Audio();
 
 audio.crossOrigin =
   "anonymous";
+
+audio.preload =
+  "auto";
 
 
 let subscribers =
@@ -51,6 +60,35 @@ let currentTrackArtist =
 let currentTrackId =
   null;
 
+let currentTrackMeta =
+  null;
+
+
+/*
+ * When the application is refreshed,
+ * this contains the position that the
+ * restored song should return to.
+ */
+let restoredTimeSeconds =
+  0;
+
+
+/*
+ * Prevent multiple callers from trying
+ * to rebuild the same audio source at
+ * the same time.
+ */
+let sourcePreparationPromise =
+  null;
+
+
+/*
+ * timeupdate can fire many times per
+ * second. Do not hammer localStorage.
+ */
+let lastPersistenceWriteAt =
+  0;
+
 
 let currentQueue =
   [];
@@ -65,6 +103,120 @@ let playbackPhase =
 let playbackError =
   null;
 
+
+function normalizeTrackMeta(
+  meta = {},
+) {
+  return {
+    audioUrl:
+      meta.audioUrl ??
+      meta.audio_url ??
+      null,
+
+    artworkUrl:
+      meta.artworkUrl ??
+      meta.artwork_url ??
+      null,
+
+    mimeType:
+      meta.mimeType ??
+      meta.mime_type ??
+      null,
+
+    fileSize:
+      meta.fileSize ??
+      meta.file_size ??
+      null,
+
+    mediaVersion:
+      meta.mediaVersion ??
+      meta.media_version ??
+      null,
+
+    title:
+      meta.title ??
+      "",
+
+    artist:
+      meta.artist ??
+      "",
+  };
+}
+
+
+function getSafeCurrentTime() {
+  return Number.isFinite(
+    audio.currentTime,
+  )
+    ? Math.max(
+        audio.currentTime,
+        0,
+      )
+    : 0;
+}
+
+
+function persistPlayerState({
+  force = false,
+  currentTime =
+    getSafeCurrentTime(),
+} = {}) {
+  if (
+    !currentTrackId ||
+    !currentTrackMeta
+  ) {
+    return;
+  }
+
+  const now =
+    Date.now();
+
+  if (
+    !force &&
+    now -
+      lastPersistenceWriteAt <
+      1000
+  ) {
+    return;
+  }
+
+  lastPersistenceWriteAt =
+    now;
+
+  writePersistedPlayerState({
+    trackId:
+      currentTrackId,
+
+    meta:
+      currentTrackMeta,
+
+    currentTime:
+      Number.isFinite(
+        currentTime,
+      )
+        ? Math.max(
+            currentTime,
+            0,
+          )
+        : 0,
+
+    volume:
+      audio.volume,
+
+    muted:
+      audio.muted,
+  });
+}
+
+
+function hasAudioSource() {
+  return Boolean(
+    audio.currentSrc ||
+    audio.getAttribute(
+      "src",
+    ),
+  );
+}
 
 function clearQueue() {
   currentQueue =
@@ -260,20 +412,25 @@ function attachEvents() {
 
 
   audio.addEventListener(
-    "pause",
-    () => {
-      if (
-        currentTrackId ||
-        audio.currentSrc
-      ) {
-        setPlaybackPhase(
-          "paused",
-        );
-      }
+  "pause",
+  () => {
+    if (
+      currentTrackId ||
+      audio.currentSrc
+    ) {
+      setPlaybackPhase(
+        "paused",
+      );
+    }
 
-      notify();
-    },
-  );
+    persistPlayerState({
+      force:
+        true,
+    });
+
+    notify();
+  },
+);
 
 
   audio.addEventListener(
@@ -344,6 +501,23 @@ function attachEvents() {
     },
   );
 
+    audio.addEventListener(
+    "timeupdate",
+    () => {
+      persistPlayerState();
+    },
+  );
+
+
+  audio.addEventListener(
+    "volumechange",
+    () => {
+      persistPlayerState({
+        force:
+          true,
+      });
+    },
+  );
 
   audio.addEventListener(
     "error",
@@ -369,6 +543,7 @@ function attachEvents() {
 
 
 attachEvents();
+restorePersistedPlayerState();
 
 
 function loadAudioSource(
@@ -379,33 +554,400 @@ function loadAudioSource(
 }
 
 
+async function ensureCurrentTrackSource() {
+  /*
+   * If a restore is already preparing
+   * the source, a fast Play click should
+   * wait for that same operation.
+   */
+  if (
+    sourcePreparationPromise
+  ) {
+    return sourcePreparationPromise;
+  }
+
+  if (
+    hasAudioSource() ||
+    !currentTrackId ||
+    !currentTrackMeta
+  ) {
+    return null;
+  }
+
+
+  const requestedTrackId =
+    currentTrackId;
+
+  const requestedMeta =
+    currentTrackMeta;
+
+  const requestedTime =
+    restoredTimeSeconds;
+
+
+  const session =
+    beginPlaybackSession(
+      requestedTrackId,
+    );
+
+
+  sourcePreparationPromise =
+    (async () => {
+      const useStableMediaRoute =
+        Boolean(
+          globalThis.navigator
+            ?.serviceWorker
+            ?.controller,
+        );
+
+
+      const audioSource =
+        await prepareTrackAudioSource(
+          requestedTrackId,
+          requestedMeta,
+          {
+            useStableMediaRoute,
+          },
+        );
+
+
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        ) ||
+        currentTrackId !==
+          requestedTrackId
+      ) {
+        return null;
+      }
+
+
+      const url =
+        resolveMediaUrl(
+          audioSource,
+        );
+
+
+      if (!url) {
+        throw new Error(
+          "Unable to restore the track audio source.",
+        );
+      }
+
+
+      loadAudioSource(
+        url,
+      );
+
+
+      /*
+       * If we have a saved position,
+       * wait until seeking is legal before
+       * resolving. That prevents a very
+       * quick Play click from briefly
+       * starting at 0:00.
+       */
+      if (
+        requestedTime >
+        0
+      ) {
+        await new Promise(
+          (
+            resolve,
+            reject,
+          ) => {
+            const cleanup =
+              () => {
+                audio.removeEventListener(
+                  "loadedmetadata",
+                  handleLoaded,
+                );
+
+                audio.removeEventListener(
+                  "error",
+                  handleError,
+                );
+              };
+
+
+            const handleLoaded =
+              () => {
+                cleanup();
+
+                if (
+                  !isPlaybackSessionCurrent(
+                    session,
+                  )
+                ) {
+                  resolve();
+                  return;
+                }
+
+                const maximum =
+                  Number.isFinite(
+                    audio.duration,
+                  )
+                    ? audio.duration
+                    : requestedTime;
+
+                try {
+                  audio.currentTime =
+                    Math.max(
+                      0,
+                      Math.min(
+                        requestedTime,
+                        maximum,
+                      ),
+                    );
+                } catch {
+                  // Some browsers may reject
+                  // an early seek. Playback
+                  // can still continue.
+                }
+
+                resolve();
+              };
+
+
+            const handleError =
+              () => {
+                cleanup();
+
+                reject(
+                  new Error(
+                    "Unable to preload the restored track.",
+                  ),
+                );
+              };
+
+
+            audio.addEventListener(
+              "loadedmetadata",
+              handleLoaded,
+              {
+                once:
+                  true,
+              },
+            );
+
+            audio.addEventListener(
+              "error",
+              handleError,
+              {
+                once:
+                  true,
+              },
+            );
+
+
+            audio.load();
+
+
+            if (
+              audio.readyState >=
+              1
+            ) {
+              handleLoaded();
+            }
+          },
+        );
+
+      } else {
+        audio.load();
+      }
+
+
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        ) ||
+        currentTrackId !==
+          requestedTrackId
+      ) {
+        return null;
+      }
+
+
+      setPlaybackPhase(
+        "paused",
+      );
+
+      notify();
+
+      return getState();
+    })()
+      .finally(() => {
+        sourcePreparationPromise =
+          null;
+      });
+
+
+  return sourcePreparationPromise;
+}
+
+
+function restorePersistedPlayerState() {
+  const saved =
+    readPersistedPlayerState();
+
+  if (
+    !saved?.trackId
+  ) {
+    return;
+  }
+
+
+  const meta =
+    normalizeTrackMeta(
+      saved.meta,
+    );
+
+
+  currentTrackId =
+    String(
+      saved.trackId,
+    );
+
+  currentTrackMeta =
+    meta;
+
+  currentArtworkUrl =
+    meta.artworkUrl;
+
+  currentTrackTitle =
+    meta.title;
+
+  currentTrackArtist =
+    meta.artist;
+
+
+  const savedTime =
+    Number(
+      saved.currentTime,
+    );
+
+  restoredTimeSeconds =
+    Number.isFinite(
+      savedTime,
+    )
+      ? Math.max(
+          savedTime,
+          0,
+        )
+      : 0;
+
+
+  const savedVolume =
+    Number(
+      saved.volume,
+    );
+
+  if (
+    Number.isFinite(
+      savedVolume,
+    )
+  ) {
+    audio.volume =
+      Math.max(
+        0,
+        Math.min(
+          1,
+          savedVolume,
+        ),
+      );
+  }
+
+
+  if (
+    typeof saved.muted ===
+    "boolean"
+  ) {
+    audio.muted =
+      saved.muted;
+  }
+
+
+  /*
+   * A restored player is ALWAYS paused.
+   * Browsers should never auto-resume
+   * music after a refresh.
+   */
+  setPlaybackPhase(
+    "paused",
+  );
+
+  notify();
+
+
+  /*
+   * Start rebuilding/loading the media
+   * immediately, but do NOT call play().
+   */
+  void ensureCurrentTrackSource()
+    .catch(() => {
+      /*
+       * Keep the restored bar usable even
+       * if preload temporarily fails.
+       * togglePlay() will retry.
+       */
+      if (
+        currentTrackId
+      ) {
+        setPlaybackPhase(
+          "paused",
+        );
+
+        notify();
+      }
+    });
+}
+
+
 function applyTrackMetadata(
   trackId,
   meta,
 ) {
-  const {
-    artworkUrl = null,
-    title = "",
-    artist = "",
-  } = meta;
+  const normalizedMeta =
+    normalizeTrackMeta(
+      meta,
+    );
 
   currentTrackId =
     String(
       trackId,
     );
 
+  currentTrackMeta =
+    normalizedMeta;
+
   currentArtworkUrl =
-    artworkUrl;
+    normalizedMeta.artworkUrl;
 
   currentTrackTitle =
-    title;
+    normalizedMeta.title;
 
   currentTrackArtist =
-    artist;
+    normalizedMeta.artist;
+
+  restoredTimeSeconds =
+    0;
 
   setPlaybackPhase(
     "loading",
   );
+
+  /*
+   * Save the selected track immediately.
+   * This means even an immediate refresh
+   * still restores the player bar.
+   */
+  persistPlayerState({
+    force:
+      true,
+
+    currentTime:
+      0,
+  });
 
   notify();
 }
@@ -766,6 +1308,14 @@ export async function playUrl(
   currentTrackId =
     null;
 
+  currentTrackMeta =
+  null;
+
+  restoredTimeSeconds =
+  0;
+
+  clearPersistedPlayerState();
+
   currentArtworkUrl =
     artworkUrl;
 
@@ -844,6 +1394,24 @@ export async function playUrl(
 
 export async function togglePlay() {
   if (audio.paused) {
+    /*
+     * Normally this has already been
+     * preloaded during restoration.
+     *
+     * If the user clicks extremely fast,
+     * or preload previously failed,
+     * prepare it now.
+     */
+    await ensureCurrentTrackSource();
+
+
+    if (
+      !hasAudioSource()
+    ) {
+      return getState();
+    }
+
+
     setPlaybackPhase(
       "loading",
     );
@@ -851,9 +1419,41 @@ export async function togglePlay() {
     notify();
 
     await audio.play();
+
   } else {
     audio.pause();
   }
+
+
+  return getState();
+}
+
+
+export function pausePlayback() {
+  if (
+    !audio.paused
+  ) {
+    audio.pause();
+  }
+
+
+  if (
+    currentTrackId ||
+    hasAudioSource()
+  ) {
+    setPlaybackPhase(
+      "paused",
+    );
+  }
+
+
+  persistPlayerState({
+    force:
+      true,
+  });
+
+
+  notify();
 
   return getState();
 }
@@ -887,17 +1487,25 @@ export function stopTrack(
   audio.load();
 
 
-  currentTrackId =
-    null;
+currentTrackId =
+  null;
 
-  currentArtworkUrl =
-    null;
+currentTrackMeta =
+  null;
 
-  currentTrackTitle =
-    "";
+currentArtworkUrl =
+  null;
 
-  currentTrackArtist =
-    "";
+currentTrackTitle =
+  "";
+
+currentTrackArtist =
+  "";
+
+restoredTimeSeconds =
+  0;
+
+clearPersistedPlayerState();
 
 
   setPlaybackPhase(
@@ -936,6 +1544,10 @@ export function seekTo(
       ),
     );
 
+  persistPlayerState({
+    force:
+      true,
+  });
 
   notify();
 }
@@ -953,6 +1565,10 @@ export function setVolume(
       ),
     );
 
+  persistPlayerState({
+    force:
+      true,
+  });
 
   notify();
 }
@@ -973,6 +1589,7 @@ if (
     playTrackQueue,
     playQueueIndex,
     playUrl,
+    pausePlayback,
     togglePlay,
     stopTrack,
     seekTo,

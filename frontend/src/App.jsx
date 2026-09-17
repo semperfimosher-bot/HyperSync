@@ -1857,6 +1857,13 @@ const persistAppView =
   function handleLogout() {
   cancelPendingSearchSave();
 
+  /*
+   * Keep the song/source/player bar,
+   * but always leave it paused when the
+   * account logs out.
+   */
+  player.pausePlayback();
+
   logoutSession();
 
   setCurrentUser(null);
