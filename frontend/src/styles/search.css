@@ -4364,3 +4364,49 @@ button.is-active strong {
     height: 28px;
   }
 }
+
+/* Force mobile track columns into the correct positions */
+@media (max-width: 720px) {
+  .hs-search-track {
+    grid-template-columns:
+      42px
+      minmax(0, 1fr)
+      34px
+      30px !important;
+
+    column-gap: 10px;
+  }
+
+  .hs-search-track__rank {
+    display: none !important;
+  }
+
+  .hs-search-track__signals,
+  .hs-search-track__duration {
+    display: none !important;
+  }
+
+  .hs-search-track__art {
+    grid-column: 1 !important;
+
+    width: 42px;
+    height: 42px;
+  }
+
+  .hs-search-track__copy {
+    grid-column: 2 !important;
+
+    min-width: 0;
+
+    /* actually moves the title away from the artwork */
+    padding-left: 8px;
+  }
+
+  .hs-search-track__download {
+    grid-column: 3 !important;
+  }
+
+  .hs-search-track__play {
+    grid-column: 4 !important;
+  }
+}
