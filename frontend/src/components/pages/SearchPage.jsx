@@ -533,7 +533,17 @@ function SearchPage({
     sortMode,
   ]);
 
-  useEffect(() => {
+  const alphabeticalResults =
+  useMemo(
+    () =>
+      alphabetizeSearchResults(
+        results,
+      ),
+    [results],
+  );
+
+
+useEffect(() => {
   let cancelled =
     false;
 
@@ -622,15 +632,6 @@ function SearchPage({
 }, [
   alphabeticalResults.tracks,
 ]);
-
-  const alphabeticalResults =
-  useMemo(
-    () =>
-      alphabetizeSearchResults(
-        results,
-      ),
-    [results],
-  );
 
 
   const resultTotal =
