@@ -13,6 +13,11 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
+  downloadTrackForOffline,
+  isTrackDownloaded,
+} from "../../offlineDownloads.js";
+
+import {
   getSearchPreferences,
   saveSearchPreferences,
   searchHypersync,
@@ -305,6 +310,11 @@ function SearchPage({
     setSearchError,
   ] = useState("");
 
+  const [
+    downloadStates,
+    setDownloadStates,
+  ] = useState({});
+
   const searchInputRef =
   useRef(null);
 
@@ -523,6 +533,96 @@ function SearchPage({
     sortMode,
   ]);
 
+  useEffect(() => {
+  let cancelled =
+    false;
+
+
+  async function loadDownloadStates() {
+    const entries =
+      await Promise.all(
+        alphabeticalResults.tracks.map(
+          async (track) => {
+            try {
+              const downloaded =
+                await isTrackDownloaded(
+                  track,
+                );
+
+              return [
+                String(
+                  track.id,
+                ),
+                downloaded,
+              ];
+            } catch {
+              return [
+                String(
+                  track.id,
+                ),
+                false,
+              ];
+            }
+          },
+        ),
+      );
+
+
+    if (cancelled) {
+      return;
+    }
+
+
+    setDownloadStates(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+
+        for (
+          const [
+            trackId,
+            downloaded,
+          ] of entries
+        ) {
+          if (
+            downloaded &&
+            next[trackId]?.status !==
+              "downloading"
+          ) {
+            next[trackId] = {
+              status:
+                "downloaded",
+
+              progress:
+                1,
+
+              error:
+                "",
+            };
+          }
+        }
+
+
+        return next;
+      },
+    );
+  }
+
+
+  void loadDownloadStates();
+
+
+  return () => {
+    cancelled =
+      true;
+  };
+
+}, [
+  alphabeticalResults.tracks,
+]);
+
   const alphabeticalResults =
   useMemo(
     () =>
@@ -568,6 +668,98 @@ function SearchPage({
   }
 }
 
+async function downloadTrack(
+  track,
+) {
+  const trackId =
+    String(
+      track.id,
+    );
+
+
+  setDownloadStates(
+    (current) => ({
+      ...current,
+
+      [trackId]: {
+        status:
+          "downloading",
+
+        progress:
+          0,
+
+        error:
+          "",
+      },
+    }),
+  );
+
+
+  try {
+    await downloadTrackForOffline(
+      track,
+      {
+        onProgress: ({
+          progress,
+        }) => {
+          setDownloadStates(
+            (current) => ({
+              ...current,
+
+              [trackId]: {
+                status:
+                  "downloading",
+
+                progress,
+
+                error:
+                  "",
+              },
+            }),
+          );
+        },
+      },
+    );
+
+
+    setDownloadStates(
+      (current) => ({
+        ...current,
+
+        [trackId]: {
+          status:
+            "downloaded",
+
+          progress:
+            1,
+
+          error:
+            "",
+        },
+      }),
+    );
+
+  } catch (error) {
+    setDownloadStates(
+      (current) => ({
+        ...current,
+
+        [trackId]: {
+          status:
+            "error",
+
+          progress:
+            0,
+
+          error:
+            error instanceof Error
+              ? error.message
+              : "Download failed.",
+        },
+      }),
+    );
+  }
+}
 
   /*
    * IMPORTANT:
@@ -1466,12 +1658,50 @@ alphabeticalResults.tracks.length > 0 ? (
                       String(track.id) ===
                         currentTrackId;
 
+                    const downloadState =
+  downloadStates[
+    String(
+      track.id,
+    )
+  ] ?? {
+    status:
+      "idle",
+
+    progress:
+      0,
+
+    error:
+      "",
+  };
+
+
+const isDownloading =
+  downloadState.status ===
+  "downloading";
+
+
+const isDownloaded =
+  downloadState.status ===
+  "downloaded";
+
+
+const downloadPercent =
+  Math.round(
+    (
+      downloadState.progress ??
+      0
+    ) *
+      100,
+  );
+
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={track.id}
+                        role="button"
+                        tabIndex={0}
                         className={[
                         "hs-search-track",
+                      
 
                         selectedTrackIndex ===
                         trackIndex
@@ -1499,7 +1729,21 @@ alphabeticalResults.tracks.length > 0 ? (
                         trackIndex,
                         );
                         }}
-                        >
+                        onKeyDown={(event) => {
+                        if (
+                        event.key ===
+                        "Enter" ||
+                        event.key ===
+                        " "
+                        ) {
+                        event.preventDefault();
+
+                        playTrack(
+                        trackIndex,
+                        );
+                      }
+                    }}
+                      >
 
                         <span className="hs-search-track__rank">
                           {String(
@@ -1585,6 +1829,74 @@ alphabeticalResults.tracks.length > 0 ? (
                           )}
                         </span>
 
+                        <button
+  type="button"
+  className={[
+    "hs-search-track__download",
+
+    isDownloading
+      ? "is-downloading"
+      : "",
+
+    isDownloaded
+      ? "is-downloaded"
+      : "",
+
+    downloadState.status ===
+      "error"
+      ? "has-error"
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ")}
+  title={
+    isDownloaded
+      ? "Available offline"
+      : isDownloading
+        ? `Downloading ${downloadPercent}%`
+        : downloadState.status ===
+            "error"
+          ? downloadState.error
+          : "Download for offline playback"
+  }
+  aria-label={
+    isDownloaded
+      ? `${track.title} is downloaded`
+      : isDownloading
+        ? `Downloading ${track.title}: ${downloadPercent}%`
+        : `Download ${track.title}`
+  }
+  disabled={
+    isDownloading ||
+    isDownloaded
+  }
+  onClick={(event) => {
+    event.stopPropagation();
+
+    void downloadTrack(
+      track,
+    );
+  }}
+  onKeyDown={(event) => {
+    event.stopPropagation();
+  }}
+>
+  {isDownloading ? (
+    <span className="hs-search-track__download-progress">
+      {downloadPercent}
+    </span>
+  ) : (
+    <Icon
+      name={
+        isDownloaded
+          ? "downloaded"
+          : "download"
+      }
+      size={16}
+    />
+  )}
+</button>
+
 
                         <span className="hs-search-track__play">
                           <Icon
@@ -1593,7 +1905,7 @@ alphabeticalResults.tracks.length > 0 ? (
                           />
                         </span>
 
-                      </button>
+                      </div>
                     );
                   },
                 )}

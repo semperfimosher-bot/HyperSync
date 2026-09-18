@@ -139,6 +139,26 @@ const Icon = memo(function Icon({
       </>
     ),
 
+    download: (
+  <>
+    <path d="M12 3v11" />
+    <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+    <path d="M5 20h14" />
+  </>
+),
+
+downloaded: (
+  <>
+    <circle
+      cx="12"
+      cy="12"
+      r="9"
+    />
+
+    <path d="m8 12 2.5 2.5L16 9" />
+  </>
+),
+
     previous: (
       <>
         <path d="M7 6v12" />

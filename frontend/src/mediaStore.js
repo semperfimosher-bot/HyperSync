@@ -1099,3 +1099,182 @@ export async function cleanupExpiredMedia(
     },
   );
 }
+
+export async function getPinnedMediaRecords() {
+  const database =
+    await openMediaDatabase();
+
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          MEDIA_RECORD_STORE,
+          "readonly",
+        );
+
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_RECORD_STORE,
+          )
+          .getAll();
+
+
+      request.onsuccess =
+        () => {
+          const records =
+            Array.isArray(
+              request.result,
+            )
+              ? request.result
+              : [];
+
+
+          resolve(
+            records.filter(
+              (record) =>
+                record.state ===
+                "PINNED",
+            ),
+          );
+        };
+
+
+      request.onerror =
+        () => {
+          reject(
+            request.error ??
+              new Error(
+                "Unable to read downloaded tracks.",
+              ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function removeDownloadedMedia(
+  trackId,
+  mediaVersion,
+) {
+  const mediaKey =
+    buildMediaCacheKey(
+      trackId,
+      mediaVersion,
+    );
+
+
+  if (!mediaKey) {
+    return false;
+  }
+
+
+  const database =
+    await openMediaDatabase();
+
+
+  await new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          [
+            MEDIA_RECORD_STORE,
+            MEDIA_CHUNK_STORE,
+          ],
+          "readwrite",
+        );
+
+
+      const mediaStore =
+        transaction.objectStore(
+          MEDIA_RECORD_STORE,
+        );
+
+
+      const chunkStore =
+        transaction.objectStore(
+          MEDIA_CHUNK_STORE,
+        );
+
+
+      const mediaKeyIndex =
+        chunkStore.index(
+          "mediaKey",
+        );
+
+
+      mediaStore.delete(
+        mediaKey,
+      );
+
+
+      const cursorRequest =
+        mediaKeyIndex.openCursor(
+          mediaKey,
+        );
+
+
+      cursorRequest.onsuccess =
+        () => {
+          const cursor =
+            cursorRequest.result;
+
+
+          if (!cursor) {
+            return;
+          }
+
+
+          cursor.delete();
+
+          cursor.continue();
+        };
+
+
+      cursorRequest.onerror =
+        () => {
+          transaction.abort();
+        };
+
+
+      transaction.oncomplete =
+        () => {
+          resolve();
+        };
+
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to remove downloaded media.",
+              ),
+          );
+        };
+
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Downloaded-media removal was aborted.",
+              ),
+          );
+        };
+    },
+  );
+
+
+  return true;
+}

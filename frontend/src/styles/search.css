@@ -4118,3 +4118,249 @@ button.is-active strong {
   }
 
 }
+
+/* ============================================================
+   SEARCH TRACK DOWNLOAD BUTTON
+   ============================================================ */
+
+
+/*
+ * Add one extra grid column for
+ * the offline-download control.
+ */
+.hs-search-track {
+  grid-template-columns:
+    28px
+    46px
+    minmax(0, 1fr)
+    minmax(112px, auto)
+    44px
+    34px
+    31px;
+}
+
+
+.hs-search-track__download {
+  position: relative;
+
+  display: grid;
+
+  width: 30px;
+  height: 30px;
+
+  place-items: center;
+
+  justify-self: end;
+
+  padding: 0;
+
+  border:
+    1px solid
+    rgba(78, 173, 206, 0.13);
+
+  border-radius: 6px;
+
+  color: #537b8c;
+
+  background:
+    rgba(255, 255, 255, 0.015);
+
+  cursor: pointer;
+
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+
+.hs-search-track__download:hover:not(:disabled) {
+  border-color:
+    rgba(77, 227, 255, 0.42);
+
+  color: #6ce8ff;
+
+  background:
+    rgba(38, 186, 223, 0.075);
+
+  transform:
+    translateY(-1px);
+}
+
+
+.hs-search-track__download:active:not(:disabled) {
+  transform:
+    translateY(0);
+}
+
+
+.hs-search-track__download:focus-visible {
+  outline:
+    1px solid
+    rgba(77, 227, 255, 0.65);
+
+  outline-offset:
+    2px;
+}
+
+
+/*
+ * While the song is downloading.
+ */
+.hs-search-track__download.is-downloading {
+  border-color:
+    rgba(77, 227, 255, 0.38);
+
+  color: #70eaff;
+
+  background:
+    rgba(38, 186, 223, 0.08);
+
+  cursor: progress;
+
+  box-shadow:
+    inset 0 0 0 1px
+    rgba(77, 227, 255, 0.04);
+}
+
+
+/*
+ * Song is fully downloaded and
+ * PINNED for offline playback.
+ */
+.hs-search-track__download.is-downloaded {
+  border-color:
+    rgba(79, 226, 255, 0.38);
+
+  color: #73edff;
+
+  background:
+    rgba(31, 189, 224, 0.09);
+
+  cursor: default;
+
+  box-shadow:
+    0 0 10px
+    rgba(40, 194, 230, 0.08);
+}
+
+
+/*
+ * Download failed.
+ */
+.hs-search-track__download.has-error {
+  border-color:
+    rgba(255, 110, 110, 0.36);
+
+  color: #ff9292;
+
+  background:
+    rgba(255, 80, 80, 0.055);
+}
+
+
+/*
+ * Percentage displayed while
+ * downloading: 24, 58, 93, etc.
+ */
+.hs-search-track__download-progress {
+  display: block;
+
+  min-width: 20px;
+
+  color: currentColor;
+
+  font:
+    700 6px
+    "JetBrains Mono",
+    monospace;
+
+  line-height: 1;
+
+  text-align: center;
+}
+
+
+/*
+ * Keep disabled controls from receiving
+ * the browser's default washed-out style.
+ */
+.hs-search-track__download:disabled {
+  opacity: 1;
+}
+
+
+/*
+ * Make the download control slightly
+ * brighter when its track row is hovered.
+ */
+.hs-search-track:hover
+.hs-search-track__download:not(.is-downloaded),
+
+.hs-search-track.is-selected
+.hs-search-track__download:not(.is-downloaded) {
+  border-color:
+    rgba(77, 227, 255, 0.26);
+
+  color: #61cfe7;
+}
+
+
+/*
+ * Do not let the normal track-row hover
+ * treatment overpower downloaded state.
+ */
+.hs-search-track:hover
+.hs-search-track__download.is-downloaded,
+
+.hs-search-track.is-selected
+.hs-search-track__download.is-downloaded {
+  border-color:
+    rgba(79, 226, 255, 0.48);
+
+  color: #7cefff;
+}
+
+
+/* ============================================================
+   MOBILE DOWNLOAD BUTTON
+   ============================================================ */
+
+@media (max-width: 720px) {
+  .hs-search-track {
+    grid-template-columns:
+      22px
+      42px
+      minmax(0, 1fr)
+      34px
+      30px;
+  }
+
+
+  /*
+   * Hide less-important desktop data
+   * so the download button has room.
+   */
+  .hs-search-track__signals {
+    display: none;
+  }
+
+
+  .hs-search-track__duration {
+    display: none;
+  }
+
+
+  .hs-search-track__download {
+    width: 28px;
+    height: 28px;
+  }
+
+
+  .hs-search-track__play {
+    width: 28px;
+    height: 28px;
+  }
+}
