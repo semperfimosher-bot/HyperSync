@@ -327,3 +327,40 @@ export async function downloadTrackForOffline(
 
   return pinnedRecord;
 }
+
+export async function isTrackDownloaded(
+  track,
+) {
+  const trackId =
+    track?.id
+      ? String(
+          track.id,
+        )
+      : null;
+
+  const mediaVersion =
+    track?.media_version ??
+    track?.mediaVersion ??
+    null;
+
+
+  if (
+    !trackId ||
+    !mediaVersion
+  ) {
+    return false;
+  }
+
+
+  const record =
+    await getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+
+
+  return (
+    record?.state ===
+    "PINNED"
+  );
+}
