@@ -935,6 +935,9 @@ function MainPage({
   activePage,
   currentUser,
   profileUsername,
+  playlistToOpen,
+  onOpenPlaylist,
+  onPlaylistOpened,
   onOpenProfile,
   onProfileUpdated,
   onNavigate,
@@ -1028,17 +1031,25 @@ function MainPage({
   ) {
     return (
       <SearchPage
-        currentUser={
-          currentUser
-        }
-        query={query}
-        onQueryChange={
-          onQueryChange
-        }
-        onOpenProfile={
-          onOpenProfile
-        }
-      />
+  currentUser={
+    currentUser
+  }
+  query={
+    query
+  }
+  onQueryChange={
+    onQueryChange
+  }
+  onOpenProfile={
+    onOpenProfile
+  }
+  onOpenPlaylist={
+    onOpenPlaylist
+  }
+  onOpenAuth={
+    onOpenAuth
+  }
+/>
     );
   }
 
@@ -1048,13 +1059,19 @@ function MainPage({
 ) {
   return (
     <LibraryPage
-      currentUser={
-        currentUser
-      }
-      onOpenAuth={
-        onOpenAuth
-      }
-    />
+  currentUser={
+    currentUser
+  }
+  onOpenAuth={
+    onOpenAuth
+  }
+  initialPlaylistId={
+    playlistToOpen
+  }
+  onInitialPlaylistHandled={
+    onPlaylistOpened
+  }
+/>
   );
 }
 
@@ -1747,6 +1764,11 @@ export default function App() {
   const [searchQuery, setSearchQuery] =
     useState("");
 
+  const [
+  playlistToOpen,
+  setPlaylistToOpen,
+  ] = useState(null);
+
   const [authOpen, setAuthOpen] =
     useState(
       () => (
@@ -2027,6 +2049,39 @@ const persistAppView =
     ],
   );
 
+  const openPlaylistFromSearch =
+  useCallback(
+    (playlistId) => {
+      if (!playlistId) {
+        return;
+      }
+
+      setPlaylistToOpen(
+        String(
+          playlistId,
+        ),
+      );
+
+      navigate(
+        "library",
+      );
+    },
+    [
+      navigate,
+    ],
+  );
+
+
+const clearPlaylistToOpen =
+  useCallback(
+    () => {
+      setPlaylistToOpen(
+        null,
+      );
+    },
+    [],
+  );
+
     const openUserProfile =
   useCallback(
     (username) => {
@@ -2190,6 +2245,17 @@ const persistAppView =
           <MainPage
             activePage={activePage}
             currentUser={currentUser}
+            playlistToOpen={
+            playlistToOpen
+            }
+
+            onOpenPlaylist={
+            openPlaylistFromSearch
+            }
+
+            onPlaylistOpened={
+            clearPlaylistToOpen
+            }
             profileUsername={
               activeProfileUsername
             }

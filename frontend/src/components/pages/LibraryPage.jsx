@@ -39,6 +39,11 @@ import TrackActionMenu from
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
+import {
+  downloadTrackForOffline,
+  isTrackDownloaded,
+} from "../../offlineDownloads.js";
+
 function resolveArtworkUrl(
   url,
 ) {
@@ -149,6 +154,8 @@ function PlaylistSkeleton() {
 function LibraryPage({
   currentUser,
   onOpenAuth,
+  initialPlaylistId = null,
+  onInitialPlaylistHandled,
 }) {
   const trackActionMenu =
   useTrackActionMenu();
@@ -246,6 +253,13 @@ function LibraryPage({
     false,
   );
 
+  const [
+  playlistDownload,
+  setPlaylistDownload,
+] = useState({
+  status: "idle",
+  progress: 0,
+});
 
   const isRegistered =
     currentUser?.account_type ===
@@ -314,6 +328,74 @@ function LibraryPage({
     if (!createOpen) {
       return undefined;
     }
+
+    useEffect(() => {
+  if (
+    !initialPlaylistId
+  ) {
+    return undefined;
+  }
+
+  let cancelled =
+    false;
+
+  async function loadInitialPlaylist() {
+    setOpeningPlaylistId(
+      initialPlaylistId,
+    );
+
+    setError("");
+
+    try {
+      const playlist =
+        await getPlaylist(
+          initialPlaylistId,
+        );
+
+      if (cancelled) {
+        return;
+      }
+
+      setSelectedPlaylist(
+        playlist,
+      );
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    } catch (requestError) {
+      if (cancelled) {
+        return;
+      }
+
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to open playlist.",
+      );
+    } finally {
+      if (!cancelled) {
+        setOpeningPlaylistId(
+          null,
+        );
+
+        onInitialPlaylistHandled?.();
+      }
+    }
+  }
+
+  void loadInitialPlaylist();
+
+  return () => {
+    cancelled =
+      true;
+  };
+}, [
+  initialPlaylistId,
+  onInitialPlaylistHandled,
+]);
 
     const previousOverflow =
       document.body.style.overflow;
@@ -701,6 +783,107 @@ function LibraryPage({
     }
   }
 
+  async function downloadPlaylist() {
+  const tracks =
+    selectedPlaylist?.tracks ??
+    [];
+
+  if (
+    tracks.length === 0 ||
+    playlistDownload.status ===
+      "downloading"
+  ) {
+    return;
+  }
+
+  setError("");
+
+  setPlaylistDownload({
+    status:
+      "downloading",
+
+    progress:
+      0,
+  });
+
+  try {
+    const total =
+      tracks.length;
+
+    for (
+      let index = 0;
+      index < total;
+      index += 1
+    ) {
+      const track =
+        tracks[index];
+
+      const alreadyDownloaded =
+        await isTrackDownloaded(
+          track,
+        );
+
+      if (
+        alreadyDownloaded
+      ) {
+        setPlaylistDownload({
+          status:
+            "downloading",
+
+          progress:
+            (index + 1) /
+            total,
+        });
+
+        continue;
+      }
+
+      await downloadTrackForOffline(
+        track,
+        {
+          onProgress: ({
+            progress,
+          }) => {
+            setPlaylistDownload({
+              status:
+                "downloading",
+
+              progress:
+                (
+                  index +
+                  progress
+                ) /
+                total,
+            });
+          },
+        },
+      );
+    }
+
+    setPlaylistDownload({
+      status:
+        "downloaded",
+
+      progress:
+        1,
+    });
+  } catch (requestError) {
+    setPlaylistDownload({
+      status:
+        "error",
+
+      progress:
+        0,
+    });
+
+    setError(
+      requestError
+        instanceof Error
+        ? requestError.message
+        : "Unable to download playlist.",
+    );
+  }
+}
 
   function playPlaylist(
     startIndex = 0,
@@ -812,6 +995,14 @@ function LibraryPage({
     );
   }
 
+  const playlistDownloadPercent =
+  Math.round(
+    (
+      playlistDownload.progress ??
+      0
+    ) *
+      100,
+  );
 
   if (selectedPlaylist) {
     const artwork =
@@ -917,6 +1108,43 @@ function LibraryPage({
       Play
     </button>
 
+    <button
+  type="button"
+  className={
+    playlistDownload.status ===
+      "downloaded"
+      ? "library-action-button is-active"
+      : "library-action-button"
+  }
+  disabled={
+    selectedPlaylist.tracks.length ===
+      0 ||
+    playlistDownload.status ===
+      "downloading"
+  }
+  onClick={() => {
+    void downloadPlaylist();
+  }}
+>
+  <Icon
+    name={
+      playlistDownload.status ===
+        "downloaded"
+        ? "check"
+        : "download"
+    }
+    size={15}
+  />
+
+  {playlistDownload.status ===
+  "downloading"
+    ? `Downloading ${playlistDownloadPercent}%`
+    : playlistDownload.status ===
+        "downloaded"
+      ? "Downloaded"
+      : "Download"}
+</button>
+
 
     {!selectedPlaylist.is_owner ? (
       <button
@@ -941,24 +1169,41 @@ function LibraryPage({
         />
 
         {selectedPlaylist.is_saved
-          ? "Saved"
-          : "Save"}
+  ? "In Library"
+  : "Add to Library"}
       </button>
     ) : null}
 
 
-    {selectedPlaylist.is_owner ? (
-      <button
-        type="button"
-        className="library-action-button library-action-button--danger"
-        disabled={actionBusy}
-        onClick={() => {
-          void handleDeletePlaylist();
-        }}
-      >
-        Delete
-      </button>
-    ) : null}
+    {!selectedPlaylist.is_owner ? (
+  <button
+    type="button"
+    className={
+      selectedPlaylist.is_saved
+        ? "library-action-button is-active"
+        : "library-action-button"
+    }
+    disabled={
+      actionBusy
+    }
+    onClick={() => {
+      void toggleSavedPlaylist();
+    }}
+  >
+    <Icon
+      name={
+        selectedPlaylist.is_saved
+          ? "check"
+          : "plus"
+      }
+      size={16}
+    />
+
+    {selectedPlaylist.is_saved
+      ? "In Library"
+      : "Add to Library"}
+  </button>
+) : null}
 
   </div>
 
@@ -986,6 +1231,43 @@ function LibraryPage({
             Play
           </button>
 
+          <button
+  type="button"
+  className={
+    playlistDownload.status ===
+      "downloaded"
+      ? "library-action-button is-active"
+      : "library-action-button"
+  }
+  disabled={
+    selectedPlaylist.tracks.length ===
+      0 ||
+    playlistDownload.status ===
+      "downloading"
+  }
+  onClick={() => {
+    void downloadPlaylist();
+  }}
+>
+  <Icon
+    name={
+      playlistDownload.status ===
+        "downloaded"
+        ? "check"
+        : "download"
+    }
+    size={15}
+  />
+
+  {playlistDownload.status ===
+  "downloading"
+    ? `Downloading ${playlistDownloadPercent}%`
+    : playlistDownload.status ===
+        "downloaded"
+      ? "Downloaded"
+      : "Download"}
+</button>
+
 
           {!selectedPlaylist.is_owner ? (
             <button
@@ -1012,8 +1294,8 @@ function LibraryPage({
               />
 
               {selectedPlaylist.is_saved
-                ? "Saved"
-                : "Save"}
+  ? "In Library"
+  : "Add to Library"}
             </button>
           ) : null}
 

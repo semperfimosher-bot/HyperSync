@@ -48,6 +48,12 @@ import TrackActionMenu from
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
+import {
+  getPlaylist,
+  savePlaylist,
+  unsavePlaylist,
+} from "../../playlistApi.js";
+
 
 const EMPTY_RESULTS = {
   query: "",
@@ -268,6 +274,34 @@ function SearchPage({
 
   const normalizedQuery =
     query.trim();
+
+  const [
+  openedPlaylist,
+  setOpenedPlaylist,
+] = useState(null);
+
+const [
+  playlistOpeningId,
+  setPlaylistOpeningId,
+] = useState(null);
+
+const [
+  playlistError,
+  setPlaylistError,
+] = useState("");
+
+const [
+  playlistActionBusy,
+  setPlaylistActionBusy,
+] = useState(false);
+
+const [
+  playlistDownload,
+  setPlaylistDownload,
+] = useState({
+  status: "idle",
+  progress: 0,
+});
 
   const [
     sortMode,
@@ -988,6 +1022,275 @@ async function downloadTrack(
       });
   }
 
+  async function openSearchPlaylist(
+  playlistId,
+) {
+  if (
+    !playlistId ||
+    playlistOpeningId
+  ) {
+    return;
+  }
+
+  setPlaylistOpeningId(
+    String(playlistId),
+  );
+
+  setPlaylistError("");
+
+  try {
+    const playlist =
+      await getPlaylist(
+        playlistId,
+      );
+
+    setOpenedPlaylist(
+      playlist,
+    );
+
+    setPlaylistDownload({
+      status: "idle",
+      progress: 0,
+    });
+  } catch (error) {
+    setPlaylistError(
+      error instanceof Error
+        ? error.message
+        : "Unable to open playlist.",
+    );
+  } finally {
+    setPlaylistOpeningId(
+      null,
+    );
+  }
+}
+
+
+function closeSearchPlaylist() {
+  setOpenedPlaylist(
+    null,
+  );
+
+  setPlaylistError("");
+
+  setPlaylistDownload({
+    status: "idle",
+    progress: 0,
+  });
+}
+
+
+function playOpenedPlaylist(
+  startIndex = 0,
+) {
+  const tracks =
+    openedPlaylist?.tracks ??
+    [];
+
+  if (!tracks.length) {
+    return;
+  }
+
+  const queue =
+    tracks.map(
+      (track) => ({
+        id:
+          track.id,
+
+        audioUrl:
+          track.audio_url,
+
+        artworkUrl:
+          resolveArtworkUrl(
+            track.artwork_url,
+          ),
+
+        mimeType:
+          track.mime_type ??
+          null,
+
+        fileSize:
+          track.file_size ??
+          null,
+
+        mediaVersion:
+          track.media_version ??
+          null,
+
+        title:
+          track.title,
+
+        artist:
+          track.artist,
+      }),
+    );
+
+  void player
+    .playTrackQueue(
+      queue,
+      startIndex,
+    )
+    .catch(
+      () => {},
+    );
+}
+
+
+async function toggleOpenedPlaylistSaved() {
+  if (
+    !openedPlaylist ||
+    playlistActionBusy
+  ) {
+    return;
+  }
+
+  if (!currentUser) {
+    onOpenAuth?.();
+
+    return;
+  }
+
+  const shouldSave =
+    !openedPlaylist.is_saved;
+
+  setPlaylistActionBusy(
+    true,
+  );
+
+  setPlaylistError("");
+
+  setOpenedPlaylist(
+    (current) => ({
+      ...current,
+      is_saved:
+        shouldSave,
+    }),
+  );
+
+  try {
+    if (shouldSave) {
+      await savePlaylist(
+        openedPlaylist.id,
+      );
+    } else {
+      await unsavePlaylist(
+        openedPlaylist.id,
+      );
+    }
+  } catch (error) {
+    setOpenedPlaylist(
+      (current) => ({
+        ...current,
+        is_saved:
+          !shouldSave,
+      }),
+    );
+
+    setPlaylistError(
+      error instanceof Error
+        ? error.message
+        : "Unable to update your library.",
+    );
+  } finally {
+    setPlaylistActionBusy(
+      false,
+    );
+  }
+}
+
+
+async function downloadOpenedPlaylist() {
+  const tracks =
+    openedPlaylist?.tracks ??
+    [];
+
+  if (
+    !tracks.length ||
+    playlistDownload.status ===
+      "downloading"
+  ) {
+    return;
+  }
+
+  setPlaylistError("");
+
+  setPlaylistDownload({
+    status:
+      "downloading",
+    progress:
+      0,
+  });
+
+  try {
+    for (
+      let index = 0;
+      index < tracks.length;
+      index += 1
+    ) {
+      const track =
+        tracks[index];
+
+      const downloaded =
+        await isTrackDownloaded(
+          track,
+        );
+
+      if (!downloaded) {
+        await downloadTrackForOffline(
+          track,
+          {
+            onProgress: ({
+              progress,
+            }) => {
+              setPlaylistDownload({
+                status:
+                  "downloading",
+
+                progress:
+                  (
+                    index +
+                    progress
+                  ) /
+                  tracks.length,
+              });
+            },
+          },
+        );
+      }
+
+      setPlaylistDownload({
+        status:
+          "downloading",
+
+        progress:
+          (
+            index + 1
+          ) /
+          tracks.length,
+      });
+    }
+
+    setPlaylistDownload({
+      status:
+        "downloaded",
+      progress:
+        1,
+    });
+  } catch (error) {
+    setPlaylistDownload({
+      status:
+        "error",
+      progress:
+        0,
+    });
+
+    setPlaylistError(
+      error instanceof Error
+        ? error.message
+        : "Unable to download playlist.",
+    );
+  }
+}
 
   const topSignal =
   useMemo(
@@ -998,6 +1301,14 @@ async function downloadTrack(
     [alphabeticalResults],
   );
 
+  const playlistDownloadPercent =
+  Math.round(
+    (
+      playlistDownload.progress ??
+      0
+    ) *
+      100,
+  );
 
   const showTracks =
     activeFilter === "all" ||
@@ -1558,10 +1869,10 @@ async function downloadTrack(
                         tabIndex={0}
                         className="hs-search-track"
                         onClick={() => {
-                          onOpenPlaylist?.(
-                            playlist.id,
-                          );
-                        }}
+                        void openSearchPlaylist(
+                        playlist.id,
+                        );
+                      }}
                         onKeyDown={(
                           event,
                         ) => {
@@ -1573,8 +1884,8 @@ async function downloadTrack(
                           ) {
                             event.preventDefault();
 
-                            onOpenPlaylist?.(
-                              playlist.id,
+                            void openSearchPlaylist(
+                            playlist.id,
                             );
                           }
                         }}
@@ -1626,7 +1937,7 @@ async function downloadTrack(
                           </strong>
 
                           <small>
-                            HyperSync
+                            HyperSynced
                           </small>
 
                         </span>
@@ -2176,6 +2487,407 @@ const downloadPercent =
         </section>
       )}
 
+      {openedPlaylist ? (
+  <div
+    className="hs-search-playlist-backdrop"
+    role="presentation"
+    onMouseDown={(
+      event,
+    ) => {
+      if (
+        event.target ===
+        event.currentTarget
+      ) {
+        closeSearchPlaylist();
+      }
+    }}
+  >
+
+    <section
+      className="hs-search-playlist-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={
+        openedPlaylist.title
+      }
+    >
+
+      <div className="hs-search-playlist-modal__topbar">
+
+        <div>
+          <span>
+            GENERATED PLAYLIST
+          </span>
+
+          <strong>
+            HyperSync
+          </strong>
+        </div>
+
+        <button
+          type="button"
+          aria-label="Close playlist"
+          onClick={
+            closeSearchPlaylist
+          }
+        >
+          <Icon
+            name="close"
+            size={18}
+          />
+        </button>
+
+      </div>
+
+
+      <section className="library-detail-hero">
+
+        <div className="library-detail-art">
+
+          {resolveArtworkUrl(
+            openedPlaylist.artwork_url,
+          ) ? (
+            <img
+              src={
+                resolveArtworkUrl(
+                  openedPlaylist.artwork_url,
+                )
+              }
+              alt=""
+            />
+          ) : (
+            <div className="library-detail-art__fallback">
+              <Icon
+                name="playlist"
+                size={32}
+              />
+            </div>
+          )}
+
+        </div>
+
+
+        <div className="library-detail-info">
+
+          <span className="library-detail-eyebrow">
+            HYPERSYNC PLAYLIST
+          </span>
+
+          <h1>
+            {openedPlaylist.title}
+          </h1>
+
+          {openedPlaylist.description ? (
+            <p>
+              {
+                openedPlaylist.description
+              }
+            </p>
+          ) : null}
+
+
+          <div className="library-detail-meta">
+
+            <strong>
+              {
+                openedPlaylist.owner_username ||
+                "HyperSync"
+              }
+            </strong>
+
+            <span>
+              {
+                openedPlaylist.track_count
+              }
+              {" "}
+              {
+                openedPlaylist.track_count ===
+                1
+                  ? "track"
+                  : "tracks"
+              }
+            </span>
+
+          </div>
+
+        </div>
+
+
+        <div className="library-detail-hero__actions">
+
+          <button
+            type="button"
+            className="library-play-action"
+            disabled={
+              !openedPlaylist
+                .tracks
+                ?.length
+            }
+            onClick={() => {
+              playOpenedPlaylist(
+                0,
+              );
+            }}
+          >
+            <Icon
+              name="play"
+              size={16}
+            />
+
+            Play
+          </button>
+
+
+          <button
+            type="button"
+            className={
+              playlistDownload.status ===
+                "downloaded"
+                ? "library-action-button is-active"
+                : "library-action-button"
+            }
+            disabled={
+              !openedPlaylist
+                .tracks
+                ?.length ||
+              playlistDownload.status ===
+                "downloading"
+            }
+            onClick={() => {
+              void downloadOpenedPlaylist();
+            }}
+          >
+            <Icon
+              name={
+                playlistDownload.status ===
+                  "downloaded"
+                  ? "check"
+                  : "download"
+              }
+              size={15}
+            />
+
+            {playlistDownload.status ===
+            "downloading"
+              ? `Downloading ${playlistDownloadPercent}%`
+              : playlistDownload.status ===
+                  "downloaded"
+                ? "Downloaded"
+                : "Download"}
+          </button>
+
+
+          {!openedPlaylist.is_owner ? (
+            <button
+              type="button"
+              className={
+                openedPlaylist.is_saved
+                  ? "library-action-button is-active"
+                  : "library-action-button"
+              }
+              disabled={
+                playlistActionBusy
+              }
+              onClick={() => {
+                void toggleOpenedPlaylistSaved();
+              }}
+            >
+              <Icon
+                name={
+                  openedPlaylist.is_saved
+                    ? "check"
+                    : "plus"
+                }
+                size={15}
+              />
+
+              {openedPlaylist.is_saved
+                ? "In Library"
+                : "Add to Library"}
+            </button>
+          ) : null}
+
+        </div>
+
+      </section>
+
+
+      {playlistError ? (
+        <div className="library-inline-error">
+          {playlistError}
+        </div>
+      ) : null}
+
+
+      <section className="library-detail-tracks">
+
+        <div className="hs-search-section__heading">
+
+          <div>
+            <span>
+              PLAYLIST CONTENT
+            </span>
+
+            <h3>
+              Tracks
+            </h3>
+          </div>
+
+          <strong>
+            {
+              openedPlaylist
+                .tracks
+                ?.length ??
+              0
+            }
+          </strong>
+
+        </div>
+
+
+        <div className="library-track-list">
+
+          <div className="library-track-header">
+
+            <span>
+              #
+            </span>
+
+            <span>
+              Title
+            </span>
+
+            <span>
+              Album
+            </span>
+
+            <span>
+              Time
+            </span>
+
+            <span />
+
+          </div>
+
+
+          {openedPlaylist
+            .tracks
+            .map(
+              (
+                track,
+                trackIndex,
+              ) => {
+
+                const artwork =
+                  resolveArtworkUrl(
+                    track.artwork_url,
+                  );
+
+                return (
+                  <div
+                    className="library-track-row"
+                    key={
+                      track.playlist_track_id ??
+                      track.id
+                    }
+                    {...trackActionMenu.getTriggerProps(
+                      track,
+                    )}
+                  >
+
+                    <span className="library-track-index">
+                      {
+                        trackIndex +
+                        1
+                      }
+                    </span>
+
+
+                    <button
+                      type="button"
+                      className="library-track-main"
+                      onClick={() => {
+                        playOpenedPlaylist(
+                          trackIndex,
+                        );
+                      }}
+                    >
+
+                      <span className="library-track-art">
+
+                        {artwork ? (
+                          <img
+                            src={
+                              artwork
+                            }
+                            alt=""
+                          />
+                        ) : (
+                          <Icon
+                            name="music"
+                            size={16}
+                          />
+                        )}
+
+                        <span className="library-track-play">
+                          <Icon
+                            name="play"
+                            size={13}
+                          />
+                        </span>
+
+                      </span>
+
+
+                      <span className="library-track-copy">
+
+                        <strong>
+                          {
+                            track.title
+                          }
+                        </strong>
+
+                        <small>
+                          {
+                            track.artist
+                          }
+                        </small>
+
+                      </span>
+
+                    </button>
+
+
+                    <span className="library-track-album">
+                      {
+                        track.album ||
+                        "—"
+                      }
+                    </span>
+
+
+                    <span className="library-track-duration">
+                      {formatDuration(
+                        track.duration_seconds,
+                      )}
+                    </span>
+
+
+                    <span />
+
+                  </div>
+                );
+              },
+            )}
+
+        </div>
+
+      </section>
+
+    </section>
+
+  </div>
+) : null}
 
       <TrackActionMenu
         menu={
