@@ -1279,6 +1279,59 @@ export async function playTrackQueue(
   );
 }
 
+export function addTrackToQueue(
+  track,
+) {
+  const entries =
+    buildTrackQueue([
+      track,
+    ]);
+
+  const entry =
+    entries[0];
+
+  if (!entry) {
+    return false;
+  }
+
+  /*
+   * If a song is already playing outside
+   * a queue, turn the current song into
+   * the first queue item before adding
+   * the new song.
+   */
+  if (
+    currentQueue.length === 0 &&
+    currentTrackId &&
+    currentTrackMeta
+  ) {
+    currentQueue = [
+      {
+        id:
+          String(
+            currentTrackId,
+          ),
+
+        meta: {
+          ...currentTrackMeta,
+        },
+      },
+
+      entry,
+    ];
+
+    currentQueueIndex = 0;
+  } else {
+    currentQueue = [
+      ...currentQueue,
+      entry,
+    ];
+  }
+
+  notify();
+
+  return true;
+}
 
 export async function playUrl(
   url,
@@ -1587,6 +1640,7 @@ if (
   window.__HYPERSYNC_PLAYER = {
     playTrack,
     playTrackQueue,
+    addTrackToQueue,
     playQueueIndex,
     playUrl,
     pausePlayback,

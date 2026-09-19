@@ -1044,16 +1044,19 @@ function MainPage({
 
 
   if (
-    activePage === "library"
-  ) {
-    return (
-      <LibraryPage
-        onOpenAuth={
-          onOpenAuth
-        }
-      />
-    );
-  }
+  activePage === "library"
+) {
+  return (
+    <LibraryPage
+      currentUser={
+        currentUser
+      }
+      onOpenAuth={
+        onOpenAuth
+      }
+    />
+  );
+}
 
 
   if (

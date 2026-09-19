@@ -42,6 +42,12 @@ import Avatar from
 import Icon from
   "../ui/Icon.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
+
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
 
 const EMPTY_RESULTS = {
   query: "",
@@ -245,8 +251,12 @@ function SearchPage({
   query,
   onQueryChange,
   onOpenProfile,
+  onOpenAuth,
   currentUser,
 }) {
+  const trackActionMenu =
+  useTrackActionMenu();
+
   const normalizedQuery =
     query.trim();
 
@@ -1700,6 +1710,9 @@ const downloadPercent =
                         key={track.id}
                         role="button"
                         tabIndex={0}
+                        {...trackActionMenu.getTriggerProps(
+                        track,
+                        )}
                         className={[
                         "hs-search-track",
                       
@@ -2101,11 +2114,26 @@ const downloadPercent =
     </button>
   ),
 )}
-
           </div>
-
         </section>
       )}
+
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
+
 
     </div>
   );

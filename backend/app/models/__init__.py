@@ -10,6 +10,11 @@ from .media import (
     Track,
     TrackLyrics,
 )
+from .playlist import (
+    Playlist,
+    PlaylistTrack,
+    SavedPlaylist,
+)
 
 __all__ = [
     "AccountType",
@@ -20,4 +25,7 @@ __all__ = [
     "UserProfile",
     "UserRole",
     "UserSession",
+    "Playlist",
+    "PlaylistTrack",
+    "SavedPlaylist",
 ]

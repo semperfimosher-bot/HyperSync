@@ -8,6 +8,7 @@ from .routes import (
     catalog,
     health,
     media,
+    playlists,
     search,
     users,
 )
@@ -59,5 +60,10 @@ api_router.include_router(
 
 api_router.include_router(
     bot.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    playlists.router,
     prefix="/api",
 )

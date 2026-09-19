@@ -65,66 +65,38 @@ async def get_media_source(
         max_length=128,
     ),
 ) -> MediaSourceResponse:
-    response.headers[
-        "Cache-Control"
-    ] = (
-        "no-store, "
-        "no-cache, "
-        "must-revalidate"
-    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
 
-    session_factory = (
-        get_session_factory()
-    )
+    session_factory = get_session_factory()
 
-    async with (
-        session_factory()
-        as session
-    ):
+    async with session_factory() as session:
         result = await session.execute(
             select(
                 Track,
             ).where(
-                Track.id
-                == track_id,
+                Track.id == track_id,
                 Track.is_published.is_(
                     True,
                 ),
             ),
         )
 
-        track = (
-            result.scalar_one_or_none()
-        )
+        track = result.scalar_one_or_none()
 
     if track is None:
         raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-            ),
+            status_code=(status.HTTP_404_NOT_FOUND),
             detail="Track not found.",
         )
 
-    current_version = (
-        media_version_for_track(
-            track,
-        )
+    current_version = media_version_for_track(
+        track,
     )
 
-    if (
-        not current_version
-        or version
-        != current_version
-    ):
+    if not current_version or version != current_version:
         raise HTTPException(
-            status_code=(
-                status.HTTP_409_CONFLICT
-            ),
-            detail=(
-                "The requested media "
-                "version is no longer "
-                "current."
-            ),
+            status_code=(status.HTTP_409_CONFLICT),
+            detail=("The requested media version is no longer current."),
         )
 
     file_size = track.file_size
@@ -137,51 +109,31 @@ async def get_media_source(
         or file_size <= 0
     ):
         raise HTTPException(
-            status_code=(
-                status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            detail=(
-                "Track media metadata "
-                "is unavailable."
-            ),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Track media metadata is unavailable."),
         )
 
     settings = get_settings()
 
     ttl = max(
-        int(
-            settings
-            .b2_presigned_url_ttl_seconds
-        ),
+        int(settings.b2_presigned_url_ttl_seconds),
         60,
     )
 
     try:
-        url = (
-            create_presigned_download_url(
-                track.b2_object_key,
-            )
+        url = create_presigned_download_url(
+            track.b2_object_key,
         )
 
     except Exception as exc:
         logger.exception(
-            (
-                "Unable to authorize "
-                "direct media source "
-                "for track %s."
-            ),
+            ("Unable to authorize direct media source for track %s."),
             track.id,
         )
 
         raise HTTPException(
-            status_code=(
-                status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            detail=(
-                "Direct media delivery "
-                "is temporarily "
-                "unavailable."
-            ),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Direct media delivery is temporarily unavailable."),
             headers={
                 "Retry-After": "2",
             },
@@ -189,13 +141,8 @@ async def get_media_source(
 
     return MediaSourceResponse(
         url=url,
-        media_version=(
-            current_version
-        ),
-        mime_type=(
-            track.mime_type
-            or "application/octet-stream"
-        ),
+        media_version=(current_version),
+        mime_type=(track.mime_type or "application/octet-stream"),
         file_size=file_size,
         expires_in_seconds=ttl,
     )

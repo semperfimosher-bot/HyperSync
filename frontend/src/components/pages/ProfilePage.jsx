@@ -393,9 +393,6 @@ export default function ProfilePage({
             </h2>
           </div>
 
-          <span>
-            Grouped by track
-          </span>
         </header>
 
 
