@@ -57,18 +57,20 @@ const EMPTY_RESULTS = {
   processing_ms: 0,
 
   counts: {
-    tracks: 0,
-    artists: 0,
-    collaborations: 0,
-    albums: 0,
-    people: 0,
-  },
+  tracks: 0,
+  artists: 0,
+  collaborations: 0,
+  albums: 0,
+  people: 0,
+  playlists: 0,
+},
 
   tracks: [],
   artists: [],
   collaborations: [],
   albums: [],
   people: [],
+  playlists: [],
 };
 
 
@@ -81,6 +83,7 @@ const FILTERS = [
     "Collaborations",
   ],
   ["people", "People"],
+  ["playlists", "Playlists"],
   ["tracks", "Tracks"],
 ];
 
@@ -170,22 +173,27 @@ function formatDuration(seconds) {
 }
 
 
-function totalCount(counts) {
+function totalCount(
+  counts,
+) {
   return (
     Number(
-      counts?.tracks || 0
+      counts?.tracks || 0,
     ) +
     Number(
-      counts?.artists || 0
+      counts?.artists || 0,
     ) +
     Number(
-      counts?.collaborations || 0
+      counts?.collaborations || 0,
     ) +
     Number(
-      counts?.albums || 0
+      counts?.albums || 0,
     ) +
     Number(
-      counts?.people || 0
+      counts?.people || 0,
+    ) +
+    Number(
+      counts?.playlists || 0,
     )
   );
 }
@@ -251,6 +259,7 @@ function SearchPage({
   query,
   onQueryChange,
   onOpenProfile,
+  onOpenPlaylist,
   onOpenAuth,
   currentUser,
 }) {
@@ -478,8 +487,7 @@ function SearchPage({
 
               counts: {
                 ...EMPTY_RESULTS.counts,
-                ...(data?.counts ||
-                  {}),
+                ...(data?.counts || {}),
               },
 
               tracks:
@@ -489,14 +497,16 @@ function SearchPage({
                 data?.artists || [],
 
               collaborations:
-                data?.collaborations ||
-                [],
+                data?.collaborations || [],
 
               albums:
                 data?.albums || [],
 
               people:
                 data?.people || [],
+
+              playlists:
+                data?.playlists || [],
             });
 
             setSelectedTrackIndex(
@@ -997,6 +1007,9 @@ async function downloadTrack(
     activeFilter === "all" ||
     activeFilter === "people";
 
+  const showPlaylists =
+    activeFilter === "all" ||
+    activeFilter === "playlists";
 
   const artistPanel =
     alphabeticalResults.artists.length > 0 ? (
@@ -1496,128 +1509,173 @@ async function downloadTrack(
           ) : null}
 
 
-          {!searchError &&
-          !loading &&
-          resultTotal === 0 ? (
-            <section className="hs-search-message">
+                    {showPlaylists &&
+          results.playlists?.length > 0 ? (
 
-              <Icon
-                name="search"
-                size={28}
-              />
+            <section className="hs-search-section">
 
-              <div>
-                <strong>
-                  NO SIGNALS FOUND
-                </strong>
+              <div className="hs-search-section__heading">
 
-                <p>
-                  Try another title, artist,
-                  album, or username.
-                </p>
-              </div>
-
-            </section>
-          ) : null}
-
-
-                    {!searchError &&
-          resultTotal > 0 &&
-          activeFilter === "all" &&
-          topSignal ? (
-
-            <section className="hs-search-top-signal">
-
-              <div className="hs-search-top-signal__label">
-                TOP SIGNAL
-              </div>
-
-
-              <div className="hs-search-top-signal__body">
-
-                <div className="hs-search-top-signal__art">
-
-                  {topSignal.type ===
-                  "person" ? (
-
-                    <Avatar
-                      src={
-                        topSignal.avatarUrl
-                      }
-                      name={
-                        topSignal.title
-                      }
-                      size="small"
-                    />
-
-                  ) : resolveArtworkUrl(
-                    topSignal.artworkUrl,
-                  ) ? (
-
-                    <img
-                      src={
-                        resolveArtworkUrl(
-                          topSignal.artworkUrl,
-                        )
-                      }
-                      alt=""
-                      fetchPriority="high"
-                    />
-
-                  ) : (
-
-                    <Icon
-                      name={
-                        topSignal.type ===
-                        "album"
-                          ? "disc"
-                          : "music"
-                      }
-                      size={34}
-                    />
-
-                  )}
-
-                </div>
-
-
-                <div className="hs-search-top-signal__copy">
-
+                <div>
                   <span>
-                    {topSignal.label}
+                    PLAYLIST INDEX
                   </span>
 
                   <h3>
-                    {topSignal.title}
+                    Playlists
                   </h3>
-
-                  <p>
-                    {topSignal.subtitle}
-                  </p>
-
                 </div>
 
-
-                <button
-                  type="button"
-                  className="hs-search-primary-action"
-                  onClick={
-                    activateTopSignal
-                  }
-                >
-
-                  <Icon
-                    name={
-                      topSignal.actionIcon
-                    }
-                    size={18}
-                  />
-
+                <strong>
                   {
-                    topSignal.actionLabel
+                    results.counts
+                      .playlists
                   }
+                </strong>
 
-                </button>
+              </div>
+
+
+              <div className="hs-search-track-list">
+
+                {results.playlists.map(
+                  (
+                    playlist,
+                    playlistIndex,
+                  ) => {
+
+                    const artworkUrl =
+                      resolveArtworkUrl(
+                        playlist.artwork_url,
+                      );
+
+                    return (
+                      <div
+                        key={
+                          playlist.id
+                        }
+                        role="button"
+                        tabIndex={0}
+                        className="hs-search-track"
+                        onClick={() => {
+                          onOpenPlaylist?.(
+                            playlist.id,
+                          );
+                        }}
+                        onKeyDown={(
+                          event,
+                        ) => {
+                          if (
+                            event.key ===
+                              "Enter" ||
+                            event.key ===
+                              " "
+                          ) {
+                            event.preventDefault();
+
+                            onOpenPlaylist?.(
+                              playlist.id,
+                            );
+                          }
+                        }}
+                      >
+
+                        <span className="hs-search-track__rank">
+                          {String(
+                            playlistIndex +
+                              1,
+                          ).padStart(
+                            2,
+                            "0",
+                          )}
+                        </span>
+
+
+                        <span className="hs-search-track__art">
+
+                          {artworkUrl ? (
+                            <img
+                              src={
+                                artworkUrl
+                              }
+                              alt=""
+                            />
+                          ) : (
+                            <Icon
+                              name="playlist"
+                              size={20}
+                            />
+                          )}
+
+                          <i aria-hidden="true">
+                            <Icon
+                              name="chevron"
+                              size={15}
+                            />
+                          </i>
+
+                        </span>
+
+
+                        <span className="hs-search-track__copy">
+
+                          <strong>
+                            {
+                              playlist.title
+                            }
+                          </strong>
+
+                          <small>
+                            HyperSync
+                          </small>
+
+                        </span>
+
+
+                        <span className="hs-search-track__signals">
+
+                          <em>
+                            {
+                              playlist.match_label ||
+                              "GENERATED PLAYLIST"
+                            }
+                          </em>
+
+                          <small>
+                            {
+                              playlist.track_count
+                            }
+                            {" "}
+                            tracks
+                          </small>
+
+                        </span>
+
+
+                        <span className="hs-search-track__duration">
+                          {
+                            playlist.track_count
+                          }
+                        </span>
+
+
+                        <span
+                          className="hs-search-track__download hs-search-playlist-spacer"
+                          aria-hidden="true"
+                        />
+
+
+                        <span className="hs-search-track__play">
+                          <Icon
+                            name="chevron"
+                            size={16}
+                          />
+                        </span>
+
+                      </div>
+                    );
+                  },
+                )}
 
               </div>
 

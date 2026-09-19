@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -35,12 +37,12 @@ class Playlist(
         ),
     )
 
-    owner_id: Mapped[UUID] = mapped_column(
+    owner_id: Mapped[UUID | None] = mapped_column(
         ForeignKey(
             "users.id",
             ondelete="CASCADE",
         ),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
@@ -60,6 +62,35 @@ class Playlist(
         default="private",
         server_default="private",
         index=True,
+    )
+
+    generated_key: Mapped[str | None] = mapped_column(
+        String(96),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
+    generated_query: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+    )
+
+    generated_kind: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    generator_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=True,
     )
 
 

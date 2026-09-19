@@ -4410,3 +4410,8 @@ button.is-active strong {
     grid-column: 4 !important;
   }
 }
+
+.hs-search-playlist-spacer {
+  visibility: hidden;
+  pointer-events: none;
+}

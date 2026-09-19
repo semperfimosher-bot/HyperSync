@@ -135,7 +135,7 @@ class PlaylistSummaryResponse(
 
     visibility: str
 
-    owner_id: UUID
+    owner_id: UUID | None
 
     owner_username: str
 
@@ -192,13 +192,31 @@ def can_view_playlist(
     playlist: Playlist,
     viewer: User | None,
 ) -> bool:
-    if viewer is not None and playlist.owner_id == viewer.id:
+    if (
+        viewer is not None
+        and playlist.owner_id
+        == viewer.id
+    ):
         return True
 
-    return playlist.visibility in {
-        "public",
-        "unlisted",
-    }
+    if (
+        playlist.visibility
+        in {
+            "public",
+            "unlisted",
+        }
+    ):
+        return True
+
+    if (
+        playlist.visibility
+        == "generated"
+        and playlist.owner_id
+        is None
+    ):
+        return True
+
+    return False
 
 
 async def require_playlist_owner(
@@ -243,13 +261,19 @@ async def playlist_owner_username(
     session: DatabaseSession,
     playlist: Playlist,
 ) -> str:
+    if playlist.owner_id is None:
+        return "HyperSync"
+
     owner = await session.get(
         User,
         playlist.owner_id,
     )
 
-    if owner is None or not owner.username:
-        return "User"
+    if (
+        owner is None
+        or not owner.username
+    ):
+        return "HyperSync"
 
     return owner.username
 

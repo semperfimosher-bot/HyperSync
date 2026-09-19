@@ -6212,3 +6212,192 @@ button > span:nth-child(2) {
       translateY(0);
   }
 }
+
+.hs-search-playlist-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      auto-fill,
+      minmax(150px, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.hs-search-playlist {
+  min-width: 0;
+
+  padding: 0;
+
+  overflow: hidden;
+
+  border:
+    1px solid
+    rgba(80, 164, 211, 0.13);
+
+  border-radius: 12px;
+
+  color: inherit;
+
+  background:
+    rgba(4, 12, 19, 0.82);
+
+  text-align: left;
+
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.hs-search-playlist:hover {
+  transform:
+    translateY(-3px);
+
+  border-color:
+    rgba(30, 202, 255, 0.38);
+
+  box-shadow:
+    0 14px 28px
+    rgba(0, 0, 0, 0.24);
+}
+
+.hs-search-playlist__art {
+  position: relative;
+
+  display: grid;
+
+  aspect-ratio: 1;
+
+  place-items: center;
+
+  overflow: hidden;
+
+  color: #45d2ff;
+
+  background:
+    linear-gradient(
+      145deg,
+      #073b5b,
+      #02080e
+    );
+}
+
+.hs-search-playlist__art img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+
+  transition:
+    transform 200ms ease;
+}
+
+.hs-search-playlist:hover
+.hs-search-playlist__art img {
+  transform:
+    scale(1.05);
+}
+
+.hs-search-playlist__art i {
+  position: absolute;
+
+  right: 8px;
+  bottom: 8px;
+
+  display: grid;
+
+  width: 31px;
+  height: 31px;
+
+  place-items: center;
+
+  border-radius: 50%;
+
+  color: white;
+
+  background:
+    linear-gradient(
+      135deg,
+      #007bd4,
+      #00c8ff
+    );
+
+  opacity: 0;
+
+  transform:
+    translateY(5px);
+
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.hs-search-playlist:hover
+.hs-search-playlist__art i {
+  opacity: 1;
+
+  transform:
+    translateY(0);
+}
+
+.hs-search-playlist__copy {
+  display: grid;
+
+  min-width: 0;
+
+  gap: 3px;
+
+  padding: 9px;
+}
+
+.hs-search-playlist__copy small {
+  color:
+    #31c9f5;
+
+  font-size: 5.5px;
+
+  font-weight: 800;
+
+  letter-spacing:
+    0.08em;
+}
+
+.hs-search-playlist__copy strong {
+  overflow: hidden;
+
+  color:
+    #d9edf4;
+
+  font-size: 8px;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+}
+
+.hs-search-playlist__copy em {
+  overflow: hidden;
+
+  color:
+    #667d88;
+
+  font-size: 6px;
+
+  font-style: normal;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .hs-search-playlist-grid {
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
+  }
+}

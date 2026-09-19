@@ -34,6 +34,14 @@ from ...models.account import (
     UserProfile,
 )
 from ...models.media import Track
+from ...models.playlist import (
+    Playlist,
+    PlaylistTrack,
+)
+from ...services.generated_playlists import (
+    MIN_GENERATED_TRACKS,
+    ensure_artist_playlist,
+)
 from ...services.search import (
     SEARCH_SORT_MODES,
     MatchResult,
@@ -66,7 +74,6 @@ router = APIRouter(
     tags=["search"],
 )
 
-
 TRACK_CANDIDATE_LIMIT = 80
 TRACK_RESULT_LIMIT = 40
 
@@ -80,6 +87,24 @@ TOP_ENTITY_LIMIT = 20
 NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
 
+class SearchPlaylistResult(
+    BaseModel,
+):
+    id: UUID
+
+    title: str
+
+    description: str | None
+
+    track_count: int
+
+    artwork_url: str | None = None
+
+    owner_username: str
+
+    visibility: str
+
+    match_label: str
 
 class SearchPreferenceResponse(
     BaseModel,
@@ -164,6 +189,7 @@ class SearchCounts(
     collaborations: int
     albums: int
     people: int
+    playlists: int
 
 
 class SearchResponse(
@@ -189,6 +215,98 @@ class SearchResponse(
 
     people: list[SearchPersonResult]
 
+    playlists: list[
+    SearchPlaylistResult
+    ]
+
+async def _serialize_search_playlist(
+    session: AsyncSession,
+    playlist: Playlist,
+) -> SearchPlaylistResult:
+    count_result = (
+        await session.execute(
+            select(
+                func.count(
+                    PlaylistTrack.id,
+                )
+            )
+            .where(
+                PlaylistTrack.playlist_id
+                == playlist.id,
+            )
+        )
+    )
+
+    track_count = int(
+        count_result.scalar_one()
+        or 0
+    )
+
+    artwork_result = (
+        await session.execute(
+            select(
+                Track,
+            )
+            .join(
+                PlaylistTrack,
+                PlaylistTrack.track_id
+                == Track.id,
+            )
+            .where(
+                PlaylistTrack.playlist_id
+                == playlist.id,
+                Track.is_published.is_(
+                    True,
+                ),
+            )
+            .order_by(
+                PlaylistTrack.position.asc(),
+            )
+            .limit(
+                1,
+            )
+        )
+    )
+
+    artwork_track = (
+        artwork_result.scalars()
+        .first()
+    )
+
+    return SearchPlaylistResult(
+        id=playlist.id,
+
+        title=playlist.title,
+
+        description=(
+            playlist.description
+        ),
+
+        track_count=(
+            track_count
+        ),
+
+        artwork_url=(
+            _track_artwork_url(
+                artwork_track,
+            )
+            if artwork_track
+            is not None
+            else None
+        ),
+
+        owner_username=(
+            "HyperSync"
+        ),
+
+        visibility=(
+            playlist.visibility
+        ),
+
+        match_label=(
+            "GENERATED PLAYLIST"
+        ),
+    )
 
 async def _saved_sort_mode(
     session: AsyncSession,
@@ -1326,6 +1444,60 @@ def _collaboration_results(
 
     return list(collaborations.values())
 
+def _generated_artist_name(
+    artists: list[
+        SearchArtistResult
+    ],
+    parsed: ParsedSearch,
+) -> str | None:
+    candidates: list[
+        tuple[
+            int,
+            int,
+            int,
+            str,
+        ]
+    ] = []
+
+    for artist in artists:
+        if (
+            artist.track_count <
+            MIN_GENERATED_TRACKS
+        ):
+            continue
+
+        match = score_artist(
+            artist.name,
+            parsed,
+        )
+
+        # Exact or strong prefix match.
+        #
+        # "Morgan Wallen"
+        # "Morgan"
+        # "songs by Morgan Wallen"
+        #
+        # all work.
+        if match.tier < 3:
+            continue
+
+        candidates.append(
+            (
+                match.tier,
+                match.score,
+                artist.track_count,
+                artist.name,
+            )
+        )
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        reverse=True,
+    )
+
+    return candidates[0][3]
 
 def _album_results(
     tracks: list[SearchTrackResult],
@@ -1723,7 +1895,9 @@ async def search_hypersync(
             query="",
             interpreted_query="",
             intent="general",
-            sort_mode=(effective_sort),
+            sort_mode=(
+                effective_sort
+            ),
             processing_ms=0,
             counts=SearchCounts(
                 tracks=0,
@@ -1731,29 +1905,46 @@ async def search_hypersync(
                 collaborations=0,
                 albums=0,
                 people=0,
+                playlists=0,
             ),
             tracks=[],
             artists=[],
             collaborations=[],
             albums=[],
             people=[],
+            playlists=[],
         )
 
-    track_rows = await _build_track_rows(
-        session,
-        parsed,
-        user,
-        effective_sort,
+    track_rows = (
+        await _build_track_rows(
+            session,
+            parsed,
+            user,
+            effective_sort,
+        )
     )
 
     tracks = _serialize_tracks(
         track_rows,
     )
 
-    if parsed.intent == "top_artists":
-        artists = await _top_artist_results(
-            session,
-            user,
+    # Playlists must always exist,
+    # regardless of which search
+    # intent is active.
+
+    playlists: list[
+        SearchPlaylistResult
+    ] = []
+
+    if (
+        parsed.intent
+        == "top_artists"
+    ):
+        artists = (
+            await _top_artist_results(
+                session,
+                user,
+            )
         )
 
     else:
@@ -1762,15 +1953,22 @@ async def search_hypersync(
             parsed,
         )
 
-    collaborations = _collaboration_results(
-        tracks,
-        parsed,
+    collaborations = (
+        _collaboration_results(
+            tracks,
+            parsed,
+        )
     )
 
-    if parsed.intent == "top_albums":
-        albums = await _top_album_results(
-            session,
-            user,
+    if (
+        parsed.intent
+        == "top_albums"
+    ):
+        albums = (
+            await _top_album_results(
+                session,
+                user,
+            )
         )
 
     else:
@@ -1779,10 +1977,13 @@ async def search_hypersync(
             parsed,
         )
 
-    should_search_people = parsed.intent in {
-        "general",
-        "people",
-    }
+    should_search_people = (
+        parsed.intent
+        in {
+            "general",
+            "people",
+        }
+    )
 
     people = (
         await _search_people(
@@ -1793,17 +1994,76 @@ async def search_hypersync(
         else []
     )
 
+        # Generated playlist lookup.
+    #
+    # Example:
+    #
+    # Morgan Wallen
+    # -> resolve Morgan Wallen artist
+    # -> fetch existing generated playlist
+    # -> create it once if missing
+
+    if (
+        parsed.intent
+        in {
+            "general",
+            "tracks_by_artist",
+            "albums_by_artist",
+        }
+    ):
+        generated_artist = (
+            _generated_artist_name(
+                artists,
+                parsed,
+            )
+        )
+
+        if generated_artist:
+            generated_playlist = (
+                await ensure_artist_playlist(
+                    session,
+                    generated_artist,
+                )
+            )
+
+            if (
+                generated_playlist
+                is not None
+            ):
+                playlists.append(
+                    await _serialize_search_playlist(
+                        session,
+                        generated_playlist,
+                    )
+                )
+
     processing_ms = max(
         1,
-        int((perf_counter() - started) * 1000),
+        int(
+            (
+                perf_counter()
+                - started
+            )
+            * 1000
+        ),
     )
 
     return SearchResponse(
-        query=(parsed.raw),
-        interpreted_query=(parsed.term),
-        intent=(parsed.intent),
-        sort_mode=(effective_sort),
-        processing_ms=(processing_ms),
+        query=(
+            parsed.raw
+        ),
+        interpreted_query=(
+            parsed.term
+        ),
+        intent=(
+            parsed.intent
+        ),
+        sort_mode=(
+            effective_sort
+        ),
+        processing_ms=(
+            processing_ms
+        ),
         counts=SearchCounts(
             tracks=len(
                 tracks,
@@ -1820,10 +2080,26 @@ async def search_hypersync(
             people=len(
                 people,
             ),
+            playlists=len(
+                playlists,
+            ),
         ),
-        tracks=(tracks),
-        artists=(artists),
-        collaborations=(collaborations),
-        albums=(albums),
-        people=(people),
+        tracks=(
+            tracks
+        ),
+        artists=(
+            artists
+        ),
+        collaborations=(
+            collaborations
+        ),
+        albums=(
+            albums
+        ),
+        people=(
+            people
+        ),
+        playlists=(
+            playlists
+        ),
     )
