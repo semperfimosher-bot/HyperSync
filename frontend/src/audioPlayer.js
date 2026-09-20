@@ -1469,26 +1469,16 @@ async function playTrackInternal(
   return getState();
 }
 
-
 export async function playTrack(
   trackId,
   meta = {},
 ) {
   const state =
-  await playTrackInternal(
-    track.id,
-    track.meta,
-    true,
-  );
-
-
-void ensureAutoplayQueue()
-  .catch(
-    () => {},
-  );
-
-
-return state;
+    await playTrackInternal(
+      trackId,
+      meta,
+      false,
+    );
 
 
   void ensureAutoplayQueue({
@@ -1501,7 +1491,6 @@ return state;
 
   return state;
 }
-
 
 export async function playQueueIndex(
   index,
@@ -1529,21 +1518,25 @@ export async function playQueueIndex(
         true,
       );
 
+
     notify();
-  void ensureAutoplayQueue()
-  .catch(
-    () => {},
-  );
+
+
+    void ensureAutoplayQueue()
+      .catch(
+        () => {},
+      );
+
 
     return state ??
       false;
+
   } catch (error) {
     notify();
 
     throw error;
   }
 }
-
 
 export async function playTrackQueue(
   tracks,
@@ -1581,9 +1574,12 @@ export async function playTrackQueue(
         requestedIndex,
         0,
       ),
-      queue.length -
-        1,
+      queue.length - 1,
     );
+
+
+  queueRevision +=
+    1;
 
 
   currentQueue =
@@ -1594,18 +1590,26 @@ export async function playTrackQueue(
 
 
   const track =
-    queueRevision +=
-    1;
     currentQueue[
       currentQueueIndex
     ];
 
 
-  return playTrackInternal(
-    track.id,
-    track.meta,
-    true,
-  );
+  const state =
+    await playTrackInternal(
+      track.id,
+      track.meta,
+      true,
+    );
+
+
+  void ensureAutoplayQueue()
+    .catch(
+      () => {},
+    );
+
+
+  return state;
 }
 
 export function addTrackToQueue(
