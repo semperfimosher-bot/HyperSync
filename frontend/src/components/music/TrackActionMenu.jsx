@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useState,
 } from "react";
 
@@ -208,54 +207,6 @@ export default function TrackActionMenu({
   ]);
 
 
-  const position =
-    useMemo(
-      () => {
-        if (
-          !menu ||
-          menu.mode ===
-            "mobile"
-        ) {
-          return undefined;
-        }
-
-        const width = 250;
-        const estimatedHeight =
-          playlistMode
-            ? 460
-            : 390;
-
-        return {
-          left:
-            Math.max(
-              8,
-              Math.min(
-                menu.x,
-                window.innerWidth -
-                  width -
-                  8,
-              ),
-            ),
-
-          top:
-            Math.max(
-              8,
-              Math.min(
-                menu.y,
-                window.innerHeight -
-                  estimatedHeight -
-                  8,
-              ),
-            ),
-        };
-      },
-      [
-        menu,
-        playlistMode,
-      ],
-    );
-
-
   if (
     !menu ||
     !track
@@ -450,17 +401,14 @@ export default function TrackActionMenu({
     >
 
       <div
-        role="menu"
-        className="track-action-menu"
-        style={
-          position
-        }
-        onPointerDown={(
-          event,
-        ) => {
-          event.stopPropagation();
-        }}
-      >
+  role="menu"
+  className="track-action-menu"
+  onPointerDown={(
+    event,
+  ) => {
+    event.stopPropagation();
+  }}
+>
 
         <div className="track-action-menu__track">
 

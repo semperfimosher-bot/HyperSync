@@ -30,7 +30,7 @@ from .search import normalize_text
 
 GENERATOR_VERSION = 1
 
-MIN_GENERATED_TRACKS = 0
+MIN_GENERATED_TRACKS = 2
 
 MAX_GENERATED_TRACKS = 500
 

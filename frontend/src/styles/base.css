@@ -5795,10 +5795,23 @@ button.is-active span {
   position: fixed;
   inset: 0;
   z-index: 180;
+
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: center;
+
+  padding:
+    calc(
+      env(safe-area-inset-top) +
+      12px
+    )
+    8px
+    8px;
 }
 
 .track-action-menu {
-  position: fixed;
+  position: relative;
 
   display: grid;
 
@@ -6137,21 +6150,22 @@ button > span:nth-child(2) {
 
 .track-action-layer.is-mobile
 .track-action-menu {
-  top: auto !important;
-  right: 8px;
-  bottom:
-    calc(
-      var(--nav-mobile-height) +
-      9px +
-      env(safe-area-inset-bottom)
-    );
-  left: 8px !important;
+  position: relative;
 
-  width: auto;
+  top: auto !important;
+  right: auto;
+  bottom: auto;
+  left: auto !important;
+
+  width:
+    min(
+      420px,
+      100%
+    );
 
   max-height:
     min(
-      68vh,
+      72vh,
       520px
     );
 
