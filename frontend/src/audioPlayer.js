@@ -96,6 +96,17 @@ let currentQueue =
 let currentQueueIndex =
   -1;
 
+const AUTOPLAY_REFILL_THRESHOLD =
+  2;
+
+const AUTOPLAY_BATCH_SIZE =
+  8;
+
+let queueRevision =
+  0;
+
+let autoplayFill =
+  null;
 
 let playbackPhase =
   "idle";
@@ -224,8 +235,262 @@ function clearQueue() {
 
   currentQueueIndex =
     -1;
+
+  queueRevision +=
+    1;
 }
 
+function upcomingQueueCount() {
+  if (
+    currentQueueIndex < 0
+  ) {
+    return 0;
+  }
+
+  return Math.max(
+    currentQueue.length -
+      currentQueueIndex -
+      1,
+    0,
+  );
+}
+
+
+function ensureCurrentTrackInQueue() {
+  if (
+    currentQueue.length > 0 ||
+    !currentTrackId ||
+    !currentTrackMeta
+  ) {
+    return;
+  }
+
+  currentQueue = [
+    {
+      id:
+        String(
+          currentTrackId,
+        ),
+
+      meta: {
+        ...currentTrackMeta,
+      },
+    },
+  ];
+
+  currentQueueIndex =
+    0;
+}
+
+
+function appendAutoplayTracks(
+  tracks,
+) {
+  const incoming =
+    buildTrackQueue(
+      tracks,
+    );
+
+  if (!incoming.length) {
+    return 0;
+  }
+
+  const existing =
+    new Set(
+      currentQueue.map(
+        (entry) =>
+          String(
+            entry.id,
+          ),
+      ),
+    );
+
+
+  const unique =
+    incoming.filter(
+      (entry) => {
+        const id =
+          String(
+            entry.id,
+          );
+
+        if (
+          existing.has(
+            id,
+          )
+        ) {
+          return false;
+        }
+
+        existing.add(
+          id,
+        );
+
+        return true;
+      },
+    );
+
+
+  if (!unique.length) {
+    return 0;
+  }
+
+
+  currentQueue = [
+    ...currentQueue,
+    ...unique,
+  ];
+
+  notify();
+
+  return unique.length;
+}
+
+
+async function ensureAutoplayQueue({
+  force = false,
+} = {}) {
+  if (!currentTrackId) {
+    return 0;
+  }
+
+
+  ensureCurrentTrackInQueue();
+
+
+  if (
+    !force &&
+    upcomingQueueCount() >
+      AUTOPLAY_REFILL_THRESHOLD
+  ) {
+    return 0;
+  }
+
+
+  const revision =
+    queueRevision;
+
+
+  if (
+    autoplayFill?.revision ===
+    revision
+  ) {
+    return autoplayFill.promise;
+  }
+
+
+  /*
+   * Exclude all upcoming tracks plus
+   * roughly the previous 24 songs.
+   *
+   * We intentionally do not exclude
+   * everything forever, otherwise a
+   * smaller catalog would eventually
+   * run out completely.
+   */
+  const exclusionStart =
+    Math.max(
+      0,
+      currentQueueIndex -
+        24,
+    );
+
+
+  const excludeTrackIds =
+    currentQueue
+      .slice(
+        exclusionStart,
+      )
+      .map(
+        (entry) =>
+          String(
+            entry.id,
+          ),
+      )
+      .slice(
+        -100,
+      );
+
+
+  let requestPromise;
+
+
+  requestPromise =
+    (async () => {
+      try {
+        const tracks =
+          await apiRequest(
+            "/recommendations/autoplay",
+            {
+              method:
+                "POST",
+
+              body:
+                JSON.stringify({
+                  current_track_id:
+                    String(
+                      currentTrackId,
+                    ),
+
+                  exclude_track_ids:
+                    excludeTrackIds,
+
+                  limit:
+                    AUTOPLAY_BATCH_SIZE,
+                }),
+            },
+          );
+
+
+        /*
+         * The user selected a completely
+         * different song/playlist while
+         * recommendations were loading.
+         */
+        if (
+          revision !==
+          queueRevision
+        ) {
+          return 0;
+        }
+
+
+        return appendAutoplayTracks(
+          Array.isArray(
+            tracks,
+          )
+            ? tracks
+            : [],
+        );
+
+      } catch {
+        /*
+         * Autoplay failure should never
+         * break ordinary playback.
+         */
+        return 0;
+
+      } finally {
+        if (
+          autoplayFill?.promise ===
+          requestPromise
+        ) {
+          autoplayFill =
+            null;
+        }
+      }
+    })();
+
+
+  autoplayFill = {
+    revision,
+    promise:
+      requestPromise,
+  };
+
+
+  return requestPromise;
+}
 
 function setPlaybackPhase(
   phase,
@@ -333,27 +598,54 @@ export function getState() {
 
 
 async function playNextQueueTrack() {
-  const nextIndex =
+  let nextIndex =
     getNextQueueIndex(
       currentQueue,
       currentQueueIndex,
     );
 
+
+  /*
+   * Safety net.
+   *
+   * Normally recommendations are already
+   * waiting before the final song ends.
+   * If they are not, fetch them now.
+   */
   if (
-    nextIndex ===
-    -1
+    nextIndex === -1
+  ) {
+    await ensureAutoplayQueue({
+      force:
+        true,
+    });
+
+    nextIndex =
+      getNextQueueIndex(
+        currentQueue,
+        currentQueueIndex,
+      );
+  }
+
+
+  if (
+    nextIndex === -1
   ) {
     notify();
+
     return;
   }
 
+
   currentQueueIndex =
     nextIndex;
+
 
   const nextTrack =
     currentQueue[
       nextIndex
     ];
+
 
   try {
     await playTrackInternal(
@@ -361,6 +653,16 @@ async function playNextQueueTrack() {
       nextTrack.meta,
       true,
     );
+
+
+    /*
+     * Refill BEFORE we hit the end.
+     */
+    void ensureAutoplayQueue()
+      .catch(
+        () => {},
+      );
+
   } catch {
     notify();
   }
@@ -1172,11 +1474,32 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
-  return playTrackInternal(
-    trackId,
-    meta,
-    false,
+  const state =
+  await playTrackInternal(
+    track.id,
+    track.meta,
+    true,
   );
+
+
+void ensureAutoplayQueue()
+  .catch(
+    () => {},
+  );
+
+
+return state;
+
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
+
+
+  return state;
 }
 
 
@@ -1207,6 +1530,10 @@ export async function playQueueIndex(
       );
 
     notify();
+  void ensureAutoplayQueue()
+  .catch(
+    () => {},
+  );
 
     return state ??
       false;
@@ -1267,6 +1594,8 @@ export async function playTrackQueue(
 
 
   const track =
+    queueRevision +=
+    1;
     currentQueue[
       currentQueueIndex
     ];

@@ -9,6 +9,7 @@ from .routes import (
     health,
     media,
     playlists,
+    recommendations,
     search,
     users,
 )
@@ -45,6 +46,11 @@ api_router.include_router(
 
 api_router.include_router(
     media.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    recommendations.router,
     prefix="/api",
 )
 

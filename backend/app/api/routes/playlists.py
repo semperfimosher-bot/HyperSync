@@ -194,29 +194,20 @@ def can_view_playlist(
 ) -> bool:
     if (
         viewer is not None
-        and playlist.owner_id
-        == viewer.id
+        and playlist.owner_id == viewer.id
     ):
         return True
 
     if (
-        playlist.visibility
-        in {
-            "public",
-            "unlisted",
-        }
+        playlist.visibility == "generated"
+        and playlist.owner_id is None
     ):
         return True
 
-    if (
-        playlist.visibility
-        == "generated"
-        and playlist.owner_id
-        is None
-    ):
-        return True
-
-    return False
+    return playlist.visibility in {
+        "public",
+        "unlisted",
+    }
 
 
 async def require_playlist_owner(
@@ -273,7 +264,7 @@ async def playlist_owner_username(
         owner is None
         or not owner.username
     ):
-        return "HyperSync"
+        return "User"
 
     return owner.username
 
@@ -593,11 +584,12 @@ async def get_saved_playlists(
         .where(
             SavedPlaylist.user_id == user.id,
             Playlist.visibility.in_(
-                (
-                    "public",
-                    "unlisted",
-                ),
-            ),
+    (
+        "public",
+        "unlisted",
+        "generated",
+    ),
+),
         )
         .order_by(
             SavedPlaylist.created_at.desc(),
@@ -1039,14 +1031,24 @@ async def save_playlist(
             "status": "owned",
         }
 
-    if playlist.visibility not in {
+    is_global_generated = (
+    playlist.visibility == "generated"
+    and playlist.owner_id is None
+)
+
+    if (
+    playlist.visibility not in {
         "public",
         "unlisted",
-    }:
+    }
+    and not is_global_generated
+):
         raise HTTPException(
-            status_code=(status.HTTP_404_NOT_FOUND),
-            detail=("Playlist not found."),
-        )
+        status_code=(
+            status.HTTP_404_NOT_FOUND
+        ),
+        detail="Playlist not found.",
+    )
 
     existing = await session.get(
         SavedPlaylist,

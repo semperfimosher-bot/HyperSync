@@ -470,62 +470,7 @@ useEffect(() => {
 
 )}
      </section>
-
-      {/* =====================================================
-          QUICK ACTIONS
-          ===================================================== */}
-      <section className="home-quick-actions">
-
-        <button
-          type="button"
-          onClick={() =>
-            onNavigate("search")
-          }
-        >
-          <span>
-            ⌕
-          </span>
-
-          <div>
-            <strong>
-              Search your music
-            </strong>
-
-            <small>
-              Find songs, artists, and albums.
-            </small>
-          </div>
-
-          <b>→</b>
-        </button>
-
-
-        <button
-          type="button"
-          onClick={() =>
-            onNavigate("library")
-          }
-        >
-          <span>
-            ♫
-          </span>
-
-          <div>
-            <strong>
-              Open your library
-            </strong>
-
-            <small>
-              Browse your complete collection.
-            </small>
-          </div>
-
-          <b>→</b>
-        </button>
-
-      </section>
-
-    </div>
+           </div>
   );
 }
 

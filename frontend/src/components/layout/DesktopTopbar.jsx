@@ -50,7 +50,7 @@ function DesktopTopbar({
         <input
           type="search"
           value={searchQuery}
-          placeholder="Search songs, artists, or albums"
+          placeholder="Search songs, artists, albums or people..."
           onChange={(event) => {
             onSearchChange(
               event.target.value,

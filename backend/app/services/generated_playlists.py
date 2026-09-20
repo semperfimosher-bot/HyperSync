@@ -231,7 +231,7 @@ async def ensure_artist_playlist(
 
             description=(
                 "Automatically generated "
-                "from the HyperSync catalog."
+                "from thecatalog."
             ),
 
             visibility="generated",

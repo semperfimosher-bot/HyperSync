@@ -554,7 +554,7 @@ async def build_dashboard(
         .order_by(
             recent_summary.c.last_played_at.desc(),
         )
-        .limit(8)
+        .limit(12)
     )
 
     recently_played = [
