@@ -28,9 +28,6 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
-import SectionHeading from
-  "../ui/SectionHeading.jsx";
-
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
@@ -134,41 +131,46 @@ function formatTrackDuration(
 }
 
 
-function PlaylistSkeleton() {
-  return (
-    <div className="library-card library-card--skeleton">
-      <div className="library-card__art library-skeleton" />
-
-      <div className="library-card__body">
-        <span className="library-skeleton library-skeleton--title" />
-
-        <span className="library-skeleton library-skeleton--meta" />
-      </div>
-    </div>
-  );
-}
-
-
 function LibraryPage({
   currentUser,
   onOpenAuth,
   initialPlaylistId = null,
   onInitialPlaylistHandled,
+  resetToken = 0,
 }) {
   const trackActionMenu =
   useTrackActionMenu();
+  const [
+  currentTrackId,
+  setCurrentTrackId,
+] = useState(
+  () =>
+    player.getState()?.trackId
+      ? String(
+          player.getState().trackId,
+        )
+      : null,
+);
+
+
+useEffect(() => {
+  return player.subscribe(
+    (nextState) => {
+      setCurrentTrackId(
+        nextState?.trackId
+          ? String(
+              nextState.trackId,
+            )
+          : null,
+      );
+    },
+  );
+}, []);
   const [
     activeTab,
     setActiveTab,
   ] = useState(
     "Playlists",
-  );
-
-  const [
-    playlistView,
-    setPlaylistView,
-  ] = useState(
-    "mine",
   );
 
   const [
@@ -187,6 +189,25 @@ function LibraryPage({
   ] = useState(
     null,
   );
+
+  useEffect(() => {
+  setSelectedPlaylist(
+    null,
+  );
+
+  setOpeningPlaylistId(
+    null,
+  );
+
+  setError("");
+
+  setPlaylistDownload({
+    status: "idle",
+    progress: 0,
+  });
+}, [
+  resetToken,
+]);
 
   const [
     loading,
@@ -323,11 +344,6 @@ function LibraryPage({
 
 
   useEffect(() => {
-    if (!createOpen) {
-      return undefined;
-    }
-
-    useEffect(() => {
   if (
     !initialPlaylistId
   ) {
@@ -395,41 +411,49 @@ function LibraryPage({
   onInitialPlaylistHandled,
 ]);
 
-    const previousOverflow =
-      document.body.style.overflow;
 
-    document.body.style.overflow =
-      "hidden";
+useEffect(() => {
+  if (!createOpen) {
+    return undefined;
+  }
 
-    function handleKeyDown(
-      event,
+  const previousOverflow =
+    document.body.style.overflow;
+
+  document.body.style.overflow =
+    "hidden";
+
+  function handleKeyDown(
+    event,
+  ) {
+    if (
+      event.key === "Escape" &&
+      !creating
     ) {
-      if (
-        event.key === "Escape" &&
-        !creating
-      ) {
-        setCreateOpen(false);
-      }
+      setCreateOpen(
+        false,
+      );
     }
+  }
 
-    window.addEventListener(
+  window.addEventListener(
+    "keydown",
+    handleKeyDown,
+  );
+
+  return () => {
+    document.body.style.overflow =
+      previousOverflow;
+
+    window.removeEventListener(
       "keydown",
       handleKeyDown,
     );
-
-    return () => {
-      document.body.style.overflow =
-        previousOverflow;
-
-      window.removeEventListener(
-        "keydown",
-        handleKeyDown,
-      );
-    };
-  }, [
-    createOpen,
-    creating,
-  ]);
+  };
+}, [
+  createOpen,
+  creating,
+]);
 
 
   async function openPlaylist(
@@ -508,10 +532,6 @@ function LibraryPage({
           playlist,
           ...current,
         ],
-      );
-
-      setPlaylistView(
-        "mine",
       );
 
       setCreateTitle("");
@@ -883,59 +903,133 @@ function LibraryPage({
   }
 
 
-  const visiblePlaylists =
-    playlistView === "saved"
-      ? savedPlaylists
-      : ownedPlaylists;
+  const visiblePlaylists = [
+  ...ownedPlaylists,
 
+  ...savedPlaylists.filter(
+    (savedPlaylist) =>
+      !ownedPlaylists.some(
+        (ownedPlaylist) =>
+          ownedPlaylist.id ===
+          savedPlaylist.id,
+      ),
+  ),
+];
 
   if (!isRegistered) {
-    return (
-      <div className="page-stack library-page library-page--polished">
+  return (
+    <div className="page-stack hs-search-page hs-library-page">
 
-        <section className="library-welcome">
+      <section className="hs-search-console hs-library-console">
 
-          <div className="library-welcome__icon">
-            <Icon
-              name="library"
-              size={28}
-            />
-          </div>
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-          <div>
-            <span>
-              YOUR LIBRARY
-            </span>
+        <div
+          className={
+            "hs-search-console__ambient " +
+            "hs-search-console__ambient--one"
+          }
+          aria-hidden="true"
+        />
+
+        <div
+          className={
+            "hs-search-console__ambient " +
+            "hs-search-console__ambient--two"
+          }
+          aria-hidden="true"
+        />
+
+
+        <div className="hs-search-console__heading">
+
+          <div className="hs-search-console__intro">
+
+            <div className="hs-search-console__eyebrow-row">
+
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+
+                HYPERSYNCED LIBRARY
+              </span>
+
+            </div>
+
 
             <h2>
-              Keep your music together.
+              Keep your music together
             </h2>
 
-            <p>
-              Create playlists, save collections,
-              and sync them across HyperSync.
-            </p>
           </div>
+
 
           <button
             type="button"
-            className="library-primary-action"
+            className="hs-search-primary-action"
             onClick={
               onOpenAuth
             }
           >
-            Sign in
             <Icon
-              name="chevron"
-              size={14}
+              name="library"
+              size={16}
             />
+
+            Sign in
           </button>
 
-        </section>
+        </div>
 
-      </div>
-    );
-  }
+
+        <div className="hs-search-console__status">
+
+          <span
+            className={
+              "hs-search-status-chip " +
+              "hs-search-status-chip--primary"
+            }
+          >
+            <i />
+
+            ACCOUNT REQUIRED
+          </span>
+
+
+          <span className="hs-search-status-chip">
+            PLAYLIST SYNC
+          </span>
+
+
+          <span className="hs-search-status-chip">
+            CLOUD LIBRARY
+          </span>
+
+        </div>
+
+      </section>
+
+
+      <section className="hs-search-message">
+
+        <div>
+          <strong>
+            Sign in to use your Library
+          </strong>
+
+          <p>
+            Create playlists, save collections,
+            and keep them synced across HyperSync.
+          </p>
+        </div>
+
+      </section>
+
+    </div>
+  );
+}
 
   const playlistDownloadPercent =
   Math.round(
@@ -947,311 +1041,236 @@ function LibraryPage({
   );
 
   if (selectedPlaylist) {
-    const artwork =
-      resolveArtworkUrl(
-        selectedPlaylist.artwork_url,
-      );
+  const artwork =
+    resolveArtworkUrl(
+      selectedPlaylist.artwork_url,
+    );
 
-    return (
-      <div className="page-stack library-page library-page--polished">
+  return (
+    <div className="page-stack hs-search-page hs-library-page">
 
-        <button
-          type="button"
-          className="library-detail-back"
-          onClick={() => {
-            setSelectedPlaylist(
-              null,
-            );
-          }}
-        >
-          <span>
-            ←
-          </span>
+      <section className="hs-search-playlist-view">
 
-          Library
-        </button>
-
-
-        <section className="library-detail-hero">
-
-  <div className="library-detail-art">
-
-    {artwork ? (
-      <img
-        src={artwork}
-        alt=""
-      />
-    ) : (
-      <div className="library-detail-art__fallback">
-        <Icon
-          name="playlist"
-          size={32}
-        />
-      </div>
-    )}
-
-  </div>
-
-
-  <div className="library-detail-info">
-
-    <span className="library-detail-eyebrow">
-      {selectedPlaylist.visibility}
-      {" "}
-      playlist
-    </span>
-
-    <h1>
-      {selectedPlaylist.title}
-    </h1>
-
-    <div className="library-detail-meta">
-
-      <strong>
-        {selectedPlaylist.owner_username}
-      </strong>
-
-      <span>
-        {selectedPlaylist.track_count}
-        {" "}
-        {selectedPlaylist.track_count === 1
-          ? "track"
-          : "tracks"}
-      </span>
-
-      <span>
-        {formatDuration(
-          selectedPlaylist.total_duration_seconds,
-        )}
-      </span>
-
-    </div>
-
-  </div>
-
-
-  <div className="library-detail-hero__actions">
-
-    <button
-      type="button"
-      className="library-play-action"
-      disabled={
-        selectedPlaylist.tracks.length === 0
-      }
-      onClick={() => {
-        playPlaylist(0);
-      }}
-    >
-      <Icon
-        name="play"
-        size={16}
-      />
-
-      Play
-    </button>
-
-    <button
-  type="button"
-  className={
-    playlistDownload.status ===
-      "downloaded"
-      ? "library-action-button is-active"
-      : "library-action-button"
-  }
-  disabled={
-    selectedPlaylist.tracks.length ===
-      0 ||
-    playlistDownload.status ===
-      "downloading"
-  }
-  onClick={() => {
-    void downloadPlaylist();
-  }}
->
-  <Icon
-    name={
-      playlistDownload.status ===
-        "downloaded"
-        ? "check"
-        : "download"
-    }
-    size={15}
-  />
-
-  {playlistDownload.status ===
-  "downloading"
-    ? `Downloading ${playlistDownloadPercent}%`
-    : playlistDownload.status ===
-        "downloaded"
-      ? "Downloaded"
-      : "Download"}
-</button>
-
-
-    {!selectedPlaylist.is_owner ? (
-      <button
-        type="button"
-        className={
-          selectedPlaylist.is_saved
-            ? "library-action-button is-active"
-            : "library-action-button"
-        }
-        disabled={actionBusy}
-        onClick={() => {
-          void toggleSavedPlaylist();
-        }}
-      >
-        <Icon
-          name={
-            selectedPlaylist.is_saved
-              ? "check"
-              : "plus"
-          }
-          size={15}
-        />
-
-        {selectedPlaylist.is_saved
-  ? "In Library"
-  : "Add to Library"}
-      </button>
-    ) : null}
-
-  </div>
-
-</section>
-
-
-        <section className="library-detail-actions">
+        <div className="hs-search-playlist-view__nav">
 
           <button
             type="button"
-            className="library-play-action"
-            disabled={
-              selectedPlaylist.tracks.length ===
-              0
-            }
+            className="hs-search-playlist-back"
             onClick={() => {
-              playPlaylist(0);
+              setSelectedPlaylist(
+                null,
+              );
             }}
           >
             <Icon
-              name="play"
-              size={17}
+              name="chevron"
+              size={15}
             />
 
-            Play
+            Back to Library
           </button>
 
-          <button
-  type="button"
-  className={
-    playlistDownload.status ===
-      "downloaded"
-      ? "library-action-button is-active"
-      : "library-action-button"
-  }
-  disabled={
-    selectedPlaylist.tracks.length ===
-      0 ||
-    playlistDownload.status ===
-      "downloading"
-  }
-  onClick={() => {
-    void downloadPlaylist();
-  }}
->
-  <Icon
-    name={
-      playlistDownload.status ===
-        "downloaded"
-        ? "check"
-        : "download"
-    }
-    size={15}
-  />
-
-  {playlistDownload.status ===
-  "downloading"
-    ? `Downloading ${playlistDownloadPercent}%`
-    : playlistDownload.status ===
-        "downloaded"
-      ? "Downloaded"
-      : "Download"}
-</button>
+        </div>
 
 
-          {!selectedPlaylist.is_owner ? (
-            <button
-              type="button"
-              className={
-                selectedPlaylist.is_saved
-                  ? "library-action-button is-active"
-                  : "library-action-button"
-              }
-              disabled={
-                actionBusy
-              }
-              onClick={() => {
-                void toggleSavedPlaylist();
-              }}
-            >
-              <Icon
-                name={
-                  selectedPlaylist.is_saved
-                    ? "check"
-                    : "plus"
+        <section className="hs-search-playlist-view__hero">
+
+          <div className="hs-search-playlist-view__art">
+
+            {artwork ? (
+              <img
+                src={
+                  artwork
                 }
-                size={16}
+                alt=""
               />
+            ) : (
+              <div className="hs-search-playlist-view__fallback">
+                <Icon
+                  name="playlist"
+                  size={32}
+                />
+              </div>
+            )}
 
-              {selectedPlaylist.is_saved
-  ? "In Library"
-  : "Add to Library"}
-            </button>
-          ) : null}
+          </div>
 
 
-          {selectedPlaylist.is_owner ? (
-            <button
-              type="button"
-              className="library-action-button library-action-button--danger"
-              disabled={
-                actionBusy
-              }
-              onClick={() => {
-                void handleDeletePlaylist();
-              }}
-            >
-              Delete
-            </button>
-          ) : null}
+          <div className="hs-search-playlist-view__copy">
+
+            <span>
+              {String(
+                selectedPlaylist.visibility ||
+                  "playlist",
+              ).toUpperCase()}
+              {" PLAYLIST"}
+            </span>
+
+
+            <h2>
+              {selectedPlaylist.title}
+            </h2>
+
+
+            {selectedPlaylist.description ? (
+              <p>
+                {selectedPlaylist.description}
+              </p>
+            ) : null}
+
+
+            <small>
+              {selectedPlaylist.owner_username ||
+                "HyperSync"}
+
+              {" • "}
+
+              {selectedPlaylist.track_count}
+
+              {" "}
+
+              {selectedPlaylist.track_count ===
+              1
+                ? "track"
+                : "tracks"}
+
+              {" • "}
+
+              {formatDuration(
+                selectedPlaylist.total_duration_seconds,
+              )}
+            </small>
+
+
+            <div className="hs-search-playlist-view__actions">
+
+              <button
+                type="button"
+                className="hs-search-playlist-primary"
+                disabled={
+                  selectedPlaylist.tracks.length ===
+                  0
+                }
+                onClick={() => {
+                  playPlaylist(
+                    0,
+                  );
+                }}
+              >
+                <Icon
+                  name="play"
+                  size={15}
+                />
+
+                Play
+              </button>
+
+
+              <button
+                type="button"
+                className="hs-search-playlist-action"
+                disabled={
+                  selectedPlaylist.tracks.length ===
+                    0 ||
+                  playlistDownload.status ===
+                    "downloading"
+                }
+                onClick={() => {
+                  void downloadPlaylist();
+                }}
+              >
+                <Icon
+                  name={
+                    playlistDownload.status ===
+                      "downloaded"
+                      ? "check"
+                      : "download"
+                  }
+                  size={14}
+                />
+
+                {playlistDownload.status ===
+                "downloading"
+                  ? `${playlistDownloadPercent}%`
+                  : playlistDownload.status ===
+                      "downloaded"
+                    ? "Downloaded"
+                    : "Download"}
+              </button>
+
+
+              {selectedPlaylist.is_owner ? (
+                <button
+                  type="button"
+                  className={
+                    "hs-search-playlist-action " +
+                    "hs-library-danger-action"
+                  }
+                  disabled={
+                    actionBusy
+                  }
+                  onClick={() => {
+                    void handleDeletePlaylist();
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null}
+
+            </div>
+
+          </div>
 
         </section>
 
 
         {error ? (
-          <div className="library-inline-error">
-            {error}
-          </div>
+          <section className="hs-search-message hs-search-message--error">
+
+            <div>
+              <strong>
+                PLAYLIST ERROR
+              </strong>
+
+              <p>
+                {error}
+              </p>
+            </div>
+
+          </section>
         ) : null}
 
 
-        <section className="library-detail-tracks">
+        <section className="hs-search-section">
 
-          <SectionHeading
-            title="Tracks"
-          />
+          <div className="hs-search-section__heading">
+
+            <div>
+              <span>
+                PLAYLIST CONTENT
+              </span>
+
+              <h3>
+                Tracks
+              </h3>
+            </div>
+
+            <strong>
+              {selectedPlaylist.tracks.length}
+            </strong>
+
+          </div>
+
 
           {selectedPlaylist.tracks.length ===
           0 ? (
-            <div className="home-empty-state">
 
-              <div className="home-empty-state__icon">
-                <Icon
-                  name="music"
-                  size={22}
-                />
-              </div>
+            <div className="hs-library-empty">
+
+              <Icon
+                name="music"
+                size={22}
+              />
 
               <div>
                 <strong>
@@ -1265,32 +1284,12 @@ function LibraryPage({
               </div>
 
             </div>
+
           ) : (
-            <div className="library-track-list">
 
-  <div className="library-track-header">
+            <div className="hs-search-track-list">
 
-    <span>
-      #
-    </span>
-
-    <span>
-      Title
-    </span>
-
-    <span>
-      Album
-    </span>
-
-    <span>
-      Time
-    </span>
-
-    <span />
-
-  </div>
-
-  {selectedPlaylist.tracks.map(
+              {selectedPlaylist.tracks.map(
                 (
                   track,
                   trackIndex,
@@ -1300,75 +1299,128 @@ function LibraryPage({
                       track.artwork_url,
                     );
 
+                  const isCurrentTrack =
+                    currentTrackId !== null &&
+                    String(
+                      track.id,
+                    ) ===
+                      currentTrackId;
+
                   return (
                     <div
-                      className="library-track-row"
                       key={
                         track.playlist_track_id
                       }
-                    >
+                      role="button"
+                      tabIndex={0}
+                      {...trackActionMenu.getTriggerProps(
+                        track,
+                      )}
+                      className={[
+                        "hs-search-track",
+                        "hs-library-track-row",
 
-                      <span className="library-track-index">
-                        {trackIndex + 1}
-                      </span>
+                        selectedPlaylist.is_owner
+                          ? "is-owner"
+                          : "",
 
+                        isCurrentTrack
+                          ? "is-current-track"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      onClick={() => {
+                        playPlaylist(
+                          trackIndex,
+                        );
+                      }}
+                      onKeyDown={(
+                        event,
+                      ) => {
+                        if (
+                          event.key ===
+                            "Enter" ||
+                          event.key ===
+                            " "
+                        ) {
+                          event.preventDefault();
 
-                      <button
-                        type="button"
-                        className="library-track-main"
-                        onClick={() => {
                           playPlaylist(
                             trackIndex,
                           );
-                        }}
-                      >
+                        }
+                      }}
+                    >
 
-                        <span className="library-track-art">
-
-                          {trackArtwork ? (
-                            <img
-                              src={
-                                trackArtwork
-                              }
-                              alt=""
-                            />
-                          ) : (
-                            <Icon
-                              name="music"
-                              size={16}
-                            />
-                          )}
-
-                          <span className="library-track-play">
-                            <Icon
-                              name="play"
-                              size={13}
-                            />
-                          </span>
-
-                        </span>
-
-
-                        <span className="library-track-copy">
-
-                          <strong>
-                            {track.title}
-                          </strong>
-
-                          <small>
-                            {track.artist}
-                          </small>
-
-                        </span>
-
-                      </button>
-
-                      <span className="library-track-album">
-                          {track.album || "—"}
+                      <span className="hs-search-track__rank">
+                        {String(
+                          trackIndex + 1,
+                        ).padStart(
+                          2,
+                          "0",
+                        )}
                       </span>
 
 
-                      <span className="library-track-duration">
+                      <span className="hs-search-track__art">
+
+                        {trackArtwork ? (
+                          <img
+                            src={
+                              trackArtwork
+                            }
+                            alt=""
+                          />
+                        ) : (
+                          <Icon
+                            name="music"
+                            size={20}
+                          />
+                        )}
+
+                        <i aria-hidden="true">
+                          <Icon
+                            name="play"
+                            size={15}
+                          />
+                        </i>
+
+                      </span>
+
+
+                      <span className="hs-search-track__copy">
+
+                        <strong>
+                          {track.title}
+                        </strong>
+
+                        <small>
+                          {track.artist}
+
+                          {track.album
+                            ? ` • ${track.album}`
+                            : ""}
+                        </small>
+
+                      </span>
+
+
+                      <span className="hs-search-track__signals">
+
+                        <em>
+                          PLAYLIST TRACK
+                        </em>
+
+                        <small>
+                          {track.album ||
+                            selectedPlaylist.title}
+                        </small>
+
+                      </span>
+
+
+                      <span className="hs-search-track__duration">
                         {formatTrackDuration(
                           track.duration_seconds,
                         )}
@@ -1376,16 +1428,29 @@ function LibraryPage({
 
 
                       {selectedPlaylist.is_owner ? (
-                        <div className="library-track-actions">
+
+                        <div
+                          className="hs-library-track-actions"
+                          onClick={(
+                            event,
+                          ) => {
+                            event.stopPropagation();
+                          }}
+                        >
 
                           <button
                             type="button"
                             title="Move up"
                             disabled={
                               actionBusy ||
-                              trackIndex === 0
+                              trackIndex ===
+                                0
                             }
-                            onClick={() => {
+                            onClick={(
+                              event,
+                            ) => {
+                              event.stopPropagation();
+
                               void moveTrack(
                                 trackIndex,
                                 -1,
@@ -1394,6 +1459,7 @@ function LibraryPage({
                           >
                             ↑
                           </button>
+
 
                           <button
                             type="button"
@@ -1404,7 +1470,11 @@ function LibraryPage({
                                 selectedPlaylist.tracks.length -
                                   1
                             }
-                            onClick={() => {
+                            onClick={(
+                              event,
+                            ) => {
+                              event.stopPropagation();
+
                               void moveTrack(
                                 trackIndex,
                                 1,
@@ -1414,13 +1484,18 @@ function LibraryPage({
                             ↓
                           </button>
 
+
                           <button
                             type="button"
                             title="Remove"
                             disabled={
                               actionBusy
                             }
-                            onClick={() => {
+                            onClick={(
+                              event,
+                            ) => {
+                              event.stopPropagation();
+
                               void handleRemoveTrack(
                                 track.playlist_track_id,
                               );
@@ -1430,8 +1505,16 @@ function LibraryPage({
                           </button>
 
                         </div>
+
                       ) : (
-                        <span />
+
+                        <span className="hs-search-track__play">
+                          <Icon
+                            name="play"
+                            size={16}
+                          />
+                        </span>
+
                       )}
 
                     </div>
@@ -1440,52 +1523,89 @@ function LibraryPage({
               )}
 
             </div>
+
           )}
 
-          </section>
+        </section>
+
+      </section>
 
 
-        <TrackActionMenu
-          menu={
-            trackActionMenu.menu
-          }
-          onClose={
-            trackActionMenu.closeMenu
-          }
-          currentUser={
-            currentUser
-          }
-          onRequireAuth={
-            onOpenAuth
-          }
-        />
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
 
-
-      </div>
-    );
-  }
-
+    </div>
+  );
+}
 
   return (
-    <div className="page-stack library-page library-page--polished">
+  <div className="page-stack hs-search-page hs-library-page">
 
-      <section className="library-topbar">
+    <section className="hs-search-console hs-library-console">
 
-        <div>
-          <span>
-            YOUR COLLECTION
-          </span>
+      <div
+        className="hs-search-console__grid"
+        aria-hidden="true"
+      />
 
-          <h1>
-            Library
-          </h1>
+      <div
+        className={
+          "hs-search-console__ambient " +
+          "hs-search-console__ambient--one"
+        }
+        aria-hidden="true"
+      />
+
+      <div
+        className={
+          "hs-search-console__ambient " +
+          "hs-search-console__ambient--two"
+        }
+        aria-hidden="true"
+      />
+
+
+      <div className="hs-search-console__heading">
+
+        <div className="hs-search-console__intro">
+
+          <div className="hs-search-console__eyebrow-row">
+
+            <span className="hs-search-eyebrow">
+              <i aria-hidden="true" />
+
+              HYPERSYNCED LIBRARY
+            </span>
+
+          </div>
+
+
+          <h2>
+            Your music, all in one place
+          </h2>
+
         </div>
+
 
         <button
           type="button"
-          className="library-primary-action"
+          className="hs-search-primary-action"
           onClick={() => {
-            setCreateOpen(true);
+            setCreateOpen(
+              true,
+            );
           }}
         >
           <Icon
@@ -1496,11 +1616,11 @@ function LibraryPage({
           New Playlist
         </button>
 
-      </section>
+      </div>
 
 
       <div
-        className="library-tabs"
+        className="hs-search-filterbar"
         role="tablist"
       >
 
@@ -1509,20 +1629,37 @@ function LibraryPage({
             <button
               type="button"
               role="tab"
-              key={tab}
+              key={
+                tab
+              }
               aria-selected={
-                activeTab === tab
+                activeTab ===
+                tab
               }
               className={
-                activeTab === tab
+                activeTab ===
+                tab
                   ? "is-active"
                   : ""
               }
               onClick={() => {
-                setActiveTab(tab);
+                setActiveTab(
+                  tab,
+                );
               }}
             >
-              {tab}
+
+              <span>
+                {tab}
+              </span>
+
+
+              {tab === "Playlists" ? (
+              <strong>
+                {visiblePlaylists.length}
+              </strong>
+            ) : null}
+
             </button>
           ),
         )}
@@ -1530,257 +1667,301 @@ function LibraryPage({
       </div>
 
 
-      {error ? (
-        <div className="library-inline-error">
-          {error}
+      <div className="hs-search-console__status">
+
+        <span
+          className={
+            "hs-search-status-chip " +
+            "hs-search-status-chip--primary"
+          }
+        >
+          <i />
+        </span>
+
+
+        <span className="hs-search-status-chip">
+          {ownedPlaylists.length}
+          {" OWNED"}
+        </span>
+
+
+        <span className="hs-search-status-chip">
+          {savedPlaylists.length}
+          {" SAVED"}
+        </span>
+
+      </div>
+
+    </section>
+
+
+    {error ? (
+      <section className="hs-search-message hs-search-message--error">
+
+        <div>
+          <strong>
+            LIBRARY ERROR
+          </strong>
+
+          <p>
+            {error}
+          </p>
         </div>
-      ) : null}
+
+      </section>
+    ) : null}
 
 
-      {activeTab !== "Playlists" ? (
-        <div className="home-empty-state">
+    {activeTab !== "Playlists" ? (
 
-          <div className="home-empty-state__icon">
-            <Icon
-              name={
-                activeTab === "Artists"
-                  ? "people"
-                  : activeTab === "Albums"
-                    ? "disc"
-                    : "music"
-              }
-              size={22}
-            />
-          </div>
+      <section className="hs-search-message">
+
+        <div>
+          <strong>
+            {activeTab} are coming next
+          </strong>
+
+          <p>
+            Playlists are live first. Saved
+            albums, artists, and liked songs can
+            use this same Library interface.
+          </p>
+        </div>
+
+      </section>
+
+    ) : (
+
+      <section className="hs-search-section hs-library-collection">
+
+        <div className="hs-search-section__heading">
 
           <div>
-            <strong>
-              {activeTab} are coming next
-            </strong>
+            <span>
+              LIBRARY CONTENT
+            </span>
 
-            <p>
-              Playlists are live first. We can
-              connect saved albums, artists, and
-              liked songs into this same library.
-            </p>
+            <h3>
+              Playlists
+            </h3>
           </div>
+
+          <strong>
+            {visiblePlaylists.length}
+          </strong>
 
         </div>
-      ) : (
-        <>
 
-          <div className="library-view-switcher">
 
-            <button
-              type="button"
-              className={
-                playlistView === "mine"
-                  ? "is-active"
-                  : ""
-              }
-              onClick={() => {
-                setPlaylistView(
-                  "mine",
-                );
-              }}
-            >
-              Your Playlists
+        {loading ? (
 
-              <span>
-                {ownedPlaylists.length}
-              </span>
-            </button>
+          <div className="hs-library-loading">
 
-            <button
-              type="button"
-              className={
-                playlistView === "saved"
-                  ? "is-active"
-                  : ""
-              }
-              onClick={() => {
-                setPlaylistView(
-                  "saved",
-                );
-              }}
-            >
-              Saved
+            <span className="library-spinner" />
 
-              <span>
-                {savedPlaylists.length}
-              </span>
-            </button>
+            <span>
+              Loading playlists...
+            </span>
 
           </div>
 
+        ) : visiblePlaylists.length ===
+          0 ? (
 
-          <section className="library-playlist-section">
+          <div className="hs-library-empty">
 
-            <SectionHeading
-              title={
-                playlistView === "mine"
-                  ? "Your Playlists"
-                  : "Saved Playlists"
-              }
+            <Icon
+              name="playlist"
+              size={22}
             />
 
+            <div>
+              <strong>
+  Your Library is empty
+</strong>
 
-            {loading ? (
-              <div className="library-card-grid">
+<p>
+  Create a playlist or add a generated
+  playlist and it will appear here.
+</p>
+            </div>
 
-                {Array.from({
-                  length: 6,
-                }).map(
-                  (
-                    _,
-                    index,
-                  ) => (
-                    <PlaylistSkeleton
-                      key={index}
-                    />
-                  ),
-                )}
+          </div>
 
-              </div>
-            ) : visiblePlaylists.length ===
-              0 ? (
-              <div className="home-empty-state">
+        ) : (
 
-                <div className="home-empty-state__icon">
-                  <Icon
-                    name="playlist"
-                    size={22}
-                  />
-                </div>
+          <div className="hs-search-track-list">
 
-                <div>
-                  <strong>
-                    {playlistView === "mine"
-                      ? "Create your first playlist"
-                      : "Nothing saved yet"}
-                  </strong>
+            {visiblePlaylists.map(
+              (
+                playlist,
+                index,
+              ) => {
+                const artwork =
+                  resolveArtworkUrl(
+                    playlist.artwork_url,
+                  );
 
-                  <p>
-                    {playlistView === "mine"
-                      ? "Create a collection, then add songs directly from Search."
-                      : "Public playlists you save will show up here."}
-                  </p>
-                </div>
+                const opening =
+                  openingPlaylistId ===
+                  playlist.id;
 
-              </div>
-            ) : (
-              <div className="library-card-grid">
+                return (
+                  <div
+                    key={
+                      playlist.id
+                    }
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={
+                      Boolean(
+                        openingPlaylistId,
+                      )
+                    }
+                    className={[
+                      "hs-search-track",
+                      "hs-library-playlist-row",
 
-                {visiblePlaylists.map(
-                  (
-                    playlist,
-                    index,
-                  ) => {
-                    const artwork =
-                      resolveArtworkUrl(
-                        playlist.artwork_url,
-                      );
+                      opening
+                        ? "is-opening"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => {
+                      if (
+                        !openingPlaylistId
+                      ) {
+                        void openPlaylist(
+                          playlist.id,
+                        );
+                      }
+                    }}
+                    onKeyDown={(
+                      event,
+                    ) => {
+                      if (
+                        (
+                          event.key ===
+                            "Enter" ||
+                          event.key ===
+                            " "
+                        ) &&
+                        !openingPlaylistId
+                      ) {
+                        event.preventDefault();
 
-                    const opening =
-                      openingPlaylistId ===
-                      playlist.id;
+                        void openPlaylist(
+                          playlist.id,
+                        );
+                      }
+                    }}
+                  >
 
-                    return (
-                      <button
-                        type="button"
-                        className={
-                          opening
-                            ? "library-card is-opening"
-                            : "library-card"
-                        }
-                        key={
-                          playlist.id
-                        }
-                        disabled={
-                          Boolean(
-                            openingPlaylistId,
-                          )
-                        }
-                        onClick={() => {
-                          void openPlaylist(
-                            playlist.id,
-                          );
-                        }}
-                      >
-
-                        <span className="library-card__art">
-
-                          {artwork ? (
-                            <img
-                              src={artwork}
-                              alt=""
-                            />
-                          ) : (
-                            <span
-                              className={
-                                "library-card__fallback " +
-                                `library-card__fallback--${
-                                  (index % 4) + 1
-                                }`
-                              }
-                            >
-                              <Icon
-                                name="playlist"
-                                size={30}
-                              />
-                            </span>
-                          )}
+                    <span className="hs-search-track__rank">
+                      {String(
+                        index + 1,
+                      ).padStart(
+                        2,
+                        "0",
+                      )}
+                    </span>
 
 
-                          <span className="library-card__play">
+                    <span className="hs-search-track__art">
 
-                            {opening ? (
-                              <span className="library-spinner" />
-                            ) : (
-                              <Icon
-                                name="play"
-                                size={15}
-                              />
-                            )}
+                      {artwork ? (
+                        <img
+                          src={
+                            artwork
+                          }
+                          alt=""
+                        />
+                      ) : (
+                        <Icon
+                          name="playlist"
+                          size={20}
+                        />
+                      )}
 
-                          </span>
+                      <i aria-hidden="true">
+                        <Icon
+                          name="play"
+                          size={15}
+                        />
+                      </i>
 
-                        </span>
+                    </span>
 
 
-                        <span className="library-card__body">
+                    <span className="hs-search-track__copy">
 
-                          <strong>
-                            {playlist.title}
-                          </strong>
+                      <strong>
+                        {playlist.title}
+                      </strong>
 
-                          <small>
-                            {playlist.track_count}
-                            {" "}
-                            {playlist.track_count === 1
-                              ? "track"
-                              : "tracks"}
+                      <small>
+                        {playlist.owner_username ||
+                          currentUser?.username ||
+                          "HyperSync"}
+                      </small>
 
-                            {" • "}
+                    </span>
 
-                            {playlist.visibility}
-                          </small>
 
-                        </span>
+                    <span className="hs-search-track__signals">
 
-                      </button>
-                    );
-                  },
-                )}
+                      <em>
+                        {String(
+                          playlist.visibility ||
+                            "playlist",
+                        ).toUpperCase()}
+                      </em>
 
-              </div>
+                      <small>
+                        {playlist.track_count}
+                        {" "}
+                        {playlist.track_count ===
+                        1
+                          ? "track"
+                          : "tracks"}
+                      </small>
+
+                    </span>
+
+
+                    <span className="hs-search-track__duration">
+                      {formatDuration(
+                        playlist.total_duration_seconds,
+                      )}
+                    </span>
+
+
+                    <span className="hs-search-track__play">
+
+                      {opening ? (
+                        <span className="library-spinner" />
+                      ) : (
+                        <Icon
+                          name="chevron"
+                          size={16}
+                        />
+                      )}
+
+                    </span>
+
+                  </div>
+                );
+              },
             )}
 
-          </section>
+          </div>
 
-        </>
-      )}
+        )}
 
+      </section>
+
+    )}
 
       {createOpen ? (
         <div
@@ -1794,13 +1975,15 @@ function LibraryPage({
                 event.currentTarget &&
               !creating
             ) {
-              setCreateOpen(false);
+              setCreateOpen(
+                false,
+              );
             }
           }}
         >
 
           <form
-            className="library-modal"
+            className="library-modal hs-library-modal"
             onSubmit={
               handleCreatePlaylist
             }
@@ -1818,13 +2001,16 @@ function LibraryPage({
                 </h2>
               </div>
 
+
               <button
                 type="button"
                 disabled={
                   creating
                 }
                 onClick={() => {
-                  setCreateOpen(false);
+                  setCreateOpen(
+                    false,
+                  );
                 }}
               >
                 <Icon
@@ -1925,20 +2111,23 @@ function LibraryPage({
 
               <button
                 type="button"
-                className="library-modal-secondary"
+                className="hs-search-playlist-action"
                 disabled={
                   creating
                 }
                 onClick={() => {
-                  setCreateOpen(false);
+                  setCreateOpen(
+                    false,
+                  );
                 }}
               >
                 Cancel
               </button>
 
+
               <button
                 type="submit"
-                className="library-primary-action"
+                className="hs-search-playlist-primary"
                 disabled={
                   creating ||
                   !createTitle.trim()
@@ -1959,6 +2148,7 @@ function LibraryPage({
     </div>
   );
 }
+
 
 
 export default LibraryPage;

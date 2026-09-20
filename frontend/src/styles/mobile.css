@@ -2012,7 +2012,7 @@
         minmax(0, 1fr)
       ) !important;
 
-    gap: 13px !important;
+    gap: 18px !important;
 
     width: calc(100% - 26px) !important;
     max-width: 340px !important;

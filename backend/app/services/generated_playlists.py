@@ -30,9 +30,9 @@ from .search import normalize_text
 
 GENERATOR_VERSION = 1
 
-MIN_GENERATED_TRACKS = 3
+MIN_GENERATED_TRACKS = 0
 
-MAX_GENERATED_TRACKS = 50
+MAX_GENERATED_TRACKS = 500
 
 
 def artist_cache_key(

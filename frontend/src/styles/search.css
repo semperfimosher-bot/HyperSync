@@ -4889,3 +4889,528 @@ button.is-active strong {
     font-size: 8px;
   }
 }
+
+/* =========================================================
+   LIBRARY — SEARCH UI
+   Library deliberately inherits the exact Search palette,
+   typography, rows, panels and interaction language.
+   ========================================================= */
+
+.hs-library-page {
+  width: 100%;
+}
+
+
+/* =========================================================
+   LIBRARY CONSOLE
+   ========================================================= */
+
+.hs-library-console
+.hs-search-console__heading {
+  align-items: center;
+}
+
+
+.hs-library-console
+.hs-search-primary-action {
+  justify-self: end;
+}
+
+
+/* =========================================================
+   COLLECTION PANEL
+   ========================================================= */
+
+.hs-library-collection {
+  width: 100%;
+}
+
+
+/* =========================================================
+   LOADING / EMPTY
+   ========================================================= */
+
+.hs-library-loading,
+.hs-library-empty {
+  display: flex;
+
+  min-height: 110px;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 11px;
+
+  padding:
+    20px;
+
+  color:
+    var(--hs-muted);
+
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.004
+    );
+}
+
+
+.hs-library-loading {
+  font:
+    500 7px
+    "JetBrains Mono",
+    monospace;
+
+  letter-spacing:
+    0.04em;
+
+  text-transform:
+    uppercase;
+}
+
+
+.hs-library-empty {
+  justify-content:
+    flex-start;
+}
+
+
+.hs-library-empty > svg {
+  flex: 0 0 auto;
+
+  color:
+    var(--hs-cyan);
+}
+
+
+.hs-library-empty > div {
+  display: grid;
+
+  gap: 4px;
+}
+
+
+.hs-library-empty strong {
+  color:
+    var(--hs-text);
+
+  font-size: 10px;
+}
+
+
+.hs-library-empty p {
+  margin: 0;
+
+  color:
+    var(--hs-muted);
+
+  font-size: 7.5px;
+
+  line-height: 1.5;
+}
+
+
+/* =========================================================
+   PLAYLIST ROWS
+   ========================================================= */
+
+.hs-library-playlist-row
+.hs-search-track__duration {
+  min-width: 55px;
+
+  white-space: nowrap;
+}
+
+
+.hs-library-playlist-row.is-opening {
+  opacity: 0.58;
+
+  cursor: wait;
+}
+
+
+/* =========================================================
+   OWNER TRACK ROWS
+   Keep Search's exact row look, but reserve enough room
+   for move up / move down / remove.
+   ========================================================= */
+
+.hs-library-track-row.is-owner {
+  grid-template-columns:
+    28px
+    46px
+    minmax(0, 1fr)
+    minmax(112px, auto)
+    44px
+    88px;
+}
+
+
+.hs-library-track-actions {
+  display: flex;
+
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 4px;
+
+  justify-self: end;
+}
+
+
+.hs-library-track-actions button {
+  display: grid;
+
+  width: 25px;
+  height: 25px;
+
+  place-items: center;
+
+  padding: 0;
+
+  border:
+    1px solid
+    rgba(
+      78,
+      173,
+      206,
+      0.13
+    );
+
+  border-radius: 6px;
+
+  color:
+    #537b8c;
+
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.015
+    );
+
+  font-size: 10px;
+
+  cursor: pointer;
+
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+
+.hs-library-track-actions
+button:hover:not(:disabled) {
+  border-color:
+    rgba(
+      77,
+      227,
+      255,
+      0.34
+    );
+
+  color:
+    #68e7ff;
+
+  background:
+    rgba(
+      38,
+      186,
+      223,
+      0.065
+    );
+}
+
+
+.hs-library-track-actions
+button:disabled {
+  opacity: 0.28;
+
+  cursor: default;
+}
+
+
+/* =========================================================
+   DELETE
+   ========================================================= */
+
+.hs-library-danger-action {
+  border-color:
+    rgba(
+      255,
+      79,
+      112,
+      0.22
+    ) !important;
+
+  color:
+    #ff8097 !important;
+}
+
+
+.hs-library-danger-action:hover:not(:disabled) {
+  border-color:
+    rgba(
+      255,
+      79,
+      112,
+      0.48
+    ) !important;
+
+  color:
+    #ff9bad !important;
+
+  background:
+    rgba(
+      255,
+      79,
+      112,
+      0.07
+    ) !important;
+}
+
+
+/* =========================================================
+   CREATE PLAYLIST MODAL — SEARCH PALETTE
+   ========================================================= */
+
+.hs-library-modal {
+  border:
+    1px solid
+    var(--hs-line-strong);
+
+  border-radius: 10px;
+
+  color:
+    var(--hs-text);
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(
+        8,
+        18,
+        29,
+        0.995
+      ),
+      rgba(
+        4,
+        11,
+        19,
+        0.995
+      )
+    );
+
+  box-shadow:
+    0 28px 75px
+    rgba(
+      0,
+      0,
+      0,
+      0.6
+    ),
+    inset 0 1px
+    rgba(
+      255,
+      255,
+      255,
+      0.025
+    );
+
+  font-family:
+    "Space Grotesk",
+    "Segoe UI Variable",
+    "Segoe UI",
+    sans-serif;
+}
+
+
+.hs-library-modal
+.library-modal__header span {
+  color:
+    #4d899c;
+
+  font:
+    700 6px
+    "JetBrains Mono",
+    monospace;
+
+  letter-spacing:
+    0.12em;
+}
+
+
+.hs-library-modal
+.library-modal__header h2 {
+  color:
+    var(--hs-text);
+}
+
+
+.hs-library-modal
+.library-modal__header button {
+  border-color:
+    var(--hs-line);
+
+  color:
+    var(--hs-muted);
+
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.012
+    );
+}
+
+
+.hs-library-modal
+.library-field > span {
+  color:
+    #4d899c;
+
+  font:
+    700 6px
+    "JetBrains Mono",
+    monospace;
+
+  letter-spacing:
+    0.08em;
+
+  text-transform:
+    uppercase;
+}
+
+
+.hs-library-modal
+.library-field input,
+.hs-library-modal
+.library-field textarea,
+.hs-library-modal
+.library-field select {
+  border:
+    1px solid
+    var(--hs-line);
+
+  color:
+    var(--hs-text);
+
+  background:
+    rgba(
+      2,
+      9,
+      15,
+      0.82
+    );
+}
+
+
+.hs-library-modal
+.library-field input:focus,
+.hs-library-modal
+.library-field textarea:focus,
+.hs-library-modal
+.library-field select:focus {
+  border-color:
+    rgba(
+      77,
+      227,
+      255,
+      0.42
+    );
+
+  outline: none;
+
+  box-shadow:
+    0 0 0 2px
+    rgba(
+      77,
+      227,
+      255,
+      0.055
+    );
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 980px) {
+
+  .hs-library-track-row.is-owner {
+    grid-template-columns:
+      27px
+      44px
+      minmax(0, 1fr)
+      44px
+      88px;
+  }
+
+}
+
+
+/* =========================================================
+   SMALL TABLET
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+  .hs-library-console
+  .hs-search-primary-action {
+    justify-self:
+      start;
+  }
+
+
+  .hs-library-track-row.is-owner {
+    grid-template-columns:
+      25px
+      42px
+      minmax(0, 1fr)
+      42px
+      82px;
+  }
+
+}
+
+
+/* =========================================================
+   PHONE
+   ========================================================= */
+
+@media (max-width: 520px) {
+
+  .hs-library-track-row.is-owner {
+    grid-template-columns:
+      40px
+      minmax(0, 1fr)
+      40px
+      82px;
+  }
+
+
+  .hs-library-track-actions {
+    gap: 3px;
+  }
+
+
+  .hs-library-track-actions button {
+    width: 24px;
+    height: 24px;
+
+    font-size: 9px;
+  }
+
+
+  .hs-library-playlist-row
+  .hs-search-track__duration {
+    min-width: 0;
+  }
+
+}

@@ -950,6 +950,7 @@ function MainPage({
   statusMessage,
   onStatusMessage,
   searchResetToken,
+  libraryResetToken,
 }) {
   const adminPage =
     ADMIN_NAV_ITEMS.some(
@@ -1079,6 +1080,29 @@ function MainPage({
   );
 }
 
+if (
+  activePage === "library"
+) {
+  return (
+    <LibraryPage
+      currentUser={
+        currentUser
+      }
+      resetToken={
+        libraryResetToken
+      }
+      onOpenAuth={
+        onOpenAuth
+      }
+      initialPlaylistId={
+        playlistToOpen
+      }
+      onInitialPlaylistHandled={
+        onPlaylistOpened
+      }
+    />
+  );
+}
 
   if (
     activePage === "profile"
@@ -1814,6 +1838,11 @@ export default function App() {
 ] = useState(0);
 
   const [
+  libraryResetToken,
+  setLibraryResetToken,
+] = useState(0);
+
+  const [
   playlistToOpen,
   setPlaylistToOpen,
   ] = useState(null);
@@ -2082,6 +2111,21 @@ const persistAppView =
         );
       }
 
+      /*
+ * Clicking Library while already
+ * on Library returns to the main
+ * Library playlist list.
+ */
+if (
+  page === "library" &&
+  activePage === "library"
+) {
+  setLibraryResetToken(
+    (current) =>
+      current + 1,
+  );
+}
+
 
       if (
         page !==
@@ -2319,6 +2363,7 @@ const clearPlaylistToOpen =
             activePage={activePage}
             currentUser={currentUser}
             searchResetToken={searchResetToken}
+            libraryResetToken={libraryResetToken}
             playlistToOpen={
             playlistToOpen
             }
