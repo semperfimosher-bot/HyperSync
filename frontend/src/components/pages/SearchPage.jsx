@@ -268,6 +268,7 @@ function SearchPage({
   onOpenPlaylist,
   onOpenAuth,
   currentUser,
+  resetToken = 0,
 }) {
   const trackActionMenu =
   useTrackActionMenu();
@@ -302,6 +303,23 @@ const [
   status: "idle",
   progress: 0,
 });
+
+useEffect(() => {
+  setOpenedPlaylist(
+    null,
+  );
+
+  setPlaylistError(
+    "",
+  );
+
+  setPlaylistDownload({
+    status: "idle",
+    progress: 0,
+  });
+}, [
+  resetToken,
+]);
 
   const [
     sortMode,
@@ -1611,14 +1629,14 @@ async function downloadOpenedPlaylist() {
         <span className="hs-search-eyebrow">
           <i aria-hidden="true" />
 
-          HYPERSYNC DISCOVERY
+          HYPERSYNCED DISCOVERY
         </span>
 
       </div>
 
 
       <h2>
-       Tune into something new.
+       Tune into something new
       </h2>
 
 
@@ -1756,7 +1774,387 @@ async function downloadOpenedPlaylist() {
 </section>
 
 
-      {normalizedQuery ? (
+      {openedPlaylist ? (
+
+  <section className="hs-search-playlist-view">
+
+    <div className="hs-search-playlist-view__nav">
+
+      <button
+        type="button"
+        className="hs-search-playlist-back"
+        onClick={
+          closeSearchPlaylist
+        }
+      >
+        <Icon
+          name="chevron"
+          size={15}
+        />
+
+        Back to search
+      </button>
+
+    </div>
+
+
+    <section className="hs-search-playlist-view__hero">
+
+      <div className="hs-search-playlist-view__art">
+
+        {resolveArtworkUrl(
+          openedPlaylist.artwork_url,
+        ) ? (
+          <img
+            src={
+              resolveArtworkUrl(
+                openedPlaylist.artwork_url,
+              )
+            }
+            alt=""
+          />
+        ) : (
+          <div className="hs-search-playlist-view__fallback">
+            <Icon
+              name="playlist"
+              size={32}
+            />
+          </div>
+        )}
+
+      </div>
+
+
+      <div className="hs-search-playlist-view__copy">
+
+        <span>
+          PLAYLIST
+        </span>
+
+        <h2>
+          {openedPlaylist.title}
+        </h2>
+
+        {openedPlaylist.description ? (
+          <p>
+            {openedPlaylist.description}
+          </p>
+        ) : null}
+
+        <small>
+          {
+            openedPlaylist.owner_username ||
+            "HyperSync"
+          }
+          {" • "}
+          {
+            openedPlaylist.tracks?.length ??
+            0
+          }
+          {" "}
+          {
+            openedPlaylist.tracks?.length ===
+            1
+              ? "track"
+              : "tracks"
+          }
+        </small>
+
+
+        <div className="hs-search-playlist-view__actions">
+
+          <button
+            type="button"
+            className="hs-search-playlist-primary"
+            disabled={
+              !openedPlaylist.tracks?.length
+            }
+            onClick={() => {
+              playOpenedPlaylist(
+                0,
+              );
+            }}
+          >
+            <Icon
+              name="play"
+              size={15}
+            />
+
+            Play
+          </button>
+
+
+          <button
+            type="button"
+            className="hs-search-playlist-action"
+            disabled={
+              !openedPlaylist.tracks?.length ||
+              playlistDownload.status ===
+                "downloading"
+            }
+            onClick={() => {
+              void downloadOpenedPlaylist();
+            }}
+          >
+            <Icon
+              name={
+                playlistDownload.status ===
+                  "downloaded"
+                  ? "check"
+                  : "download"
+              }
+              size={14}
+            />
+
+            {playlistDownload.status ===
+            "downloading"
+              ? `${playlistDownloadPercent}%`
+              : playlistDownload.status ===
+                  "downloaded"
+                ? "Downloaded"
+                : "Download"}
+          </button>
+
+
+          {!openedPlaylist.is_owner &&
+!openedPlaylist.is_saved ? (
+
+  <button
+    type="button"
+    className="hs-search-playlist-action"
+    disabled={
+      playlistActionBusy
+    }
+    onClick={() => {
+      void toggleOpenedPlaylistSaved();
+    }}
+  >
+    <Icon
+      name="plus"
+      size={14}
+    />
+
+    Add to Library
+  </button>
+
+) : null}
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    {playlistError ? (
+      <section className="hs-search-message hs-search-message--error">
+        <div>
+          <strong>
+            PLAYLIST ERROR
+          </strong>
+
+          <p>
+            {playlistError}
+          </p>
+        </div>
+      </section>
+    ) : null}
+
+
+    <section className="hs-search-section">
+
+      <div className="hs-search-section__heading">
+
+        <div>
+          <span>
+            PLAYLIST CONTENT
+          </span>
+
+          <h3>
+            Tracks
+          </h3>
+        </div>
+
+        <strong>
+          {
+            openedPlaylist.tracks
+              ?.length ??
+            0
+          }
+        </strong>
+
+      </div>
+
+
+      <div className="hs-search-track-list">
+
+        {openedPlaylist.tracks?.map(
+          (
+            track,
+            trackIndex,
+          ) => {
+
+            const artworkUrl =
+              resolveArtworkUrl(
+                track.artwork_url,
+              );
+
+            const isCurrentTrack =
+              currentTrackId !== null &&
+              String(
+                track.id,
+              ) ===
+                currentTrackId;
+
+
+            return (
+
+              <div
+                key={
+                  track.playlist_track_id ??
+                  `${track.id}-${trackIndex}`
+                }
+                role="button"
+                tabIndex={0}
+                {...trackActionMenu.getTriggerProps(
+                  track,
+                )}
+                className={[
+                  "hs-search-track",
+
+                  isCurrentTrack
+                    ? "is-current-track"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => {
+                  playOpenedPlaylist(
+                    trackIndex,
+                  );
+                }}
+                onKeyDown={(
+                  event,
+                ) => {
+                  if (
+                    event.key ===
+                      "Enter" ||
+                    event.key ===
+                      " "
+                  ) {
+                    event.preventDefault();
+
+                    playOpenedPlaylist(
+                      trackIndex,
+                    );
+                  }
+                }}
+              >
+
+                <span className="hs-search-track__rank">
+                  {String(
+                    trackIndex + 1,
+                  ).padStart(
+                    2,
+                    "0",
+                  )}
+                </span>
+
+
+                <span className="hs-search-track__art">
+
+                  {artworkUrl ? (
+                    <img
+                      src={
+                        artworkUrl
+                      }
+                      alt=""
+                      loading={
+                        trackIndex < 6
+                          ? "eager"
+                          : "lazy"
+                      }
+                    />
+                  ) : (
+                    <Icon
+                      name="music"
+                      size={20}
+                    />
+                  )}
+
+                  <i aria-hidden="true">
+                    <Icon
+                      name="play"
+                      size={15}
+                    />
+                  </i>
+
+                </span>
+
+
+                <span className="hs-search-track__copy">
+
+                  <strong>
+                    {track.title}
+                  </strong>
+
+                  <small>
+                    {track.artist}
+
+                    {track.album
+                      ? ` • ${track.album}`
+                      : ""}
+                  </small>
+
+                </span>
+
+
+                <span className="hs-search-track__signals">
+
+                  <em>
+                    PLAYLIST TRACK
+                  </em>
+
+                  <small>
+                    {track.album ||
+                      openedPlaylist.title}
+                  </small>
+
+                </span>
+
+
+                <span className="hs-search-track__duration">
+                  {formatDuration(
+                    track.duration_seconds,
+                  )}
+                </span>
+
+
+                <span
+                  className="hs-search-track__download hs-search-playlist-spacer"
+                  aria-hidden="true"
+                />
+
+
+                <span className="hs-search-track__play">
+                  <Icon
+                    name="play"
+                    size={16}
+                  />
+                </span>
+
+              </div>
+            );
+          },
+        )}
+
+      </div>
+
+    </section>
+
+  </section>
+
+) : normalizedQuery ? (
         <>
 
           <section className="hs-search-filterbar">
@@ -2486,408 +2884,6 @@ const downloadPercent =
           </div>
         </section>
       )}
-
-      {openedPlaylist ? (
-  <div
-    className="hs-search-playlist-backdrop"
-    role="presentation"
-    onMouseDown={(
-      event,
-    ) => {
-      if (
-        event.target ===
-        event.currentTarget
-      ) {
-        closeSearchPlaylist();
-      }
-    }}
-  >
-
-    <section
-      className="hs-search-playlist-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={
-        openedPlaylist.title
-      }
-    >
-
-      <div className="hs-search-playlist-modal__topbar">
-
-        <div>
-          <span>
-            GENERATED PLAYLIST
-          </span>
-
-          <strong>
-            HyperSync
-          </strong>
-        </div>
-
-        <button
-          type="button"
-          aria-label="Close playlist"
-          onClick={
-            closeSearchPlaylist
-          }
-        >
-          <Icon
-            name="close"
-            size={18}
-          />
-        </button>
-
-      </div>
-
-
-      <section className="library-detail-hero">
-
-        <div className="library-detail-art">
-
-          {resolveArtworkUrl(
-            openedPlaylist.artwork_url,
-          ) ? (
-            <img
-              src={
-                resolveArtworkUrl(
-                  openedPlaylist.artwork_url,
-                )
-              }
-              alt=""
-            />
-          ) : (
-            <div className="library-detail-art__fallback">
-              <Icon
-                name="playlist"
-                size={32}
-              />
-            </div>
-          )}
-
-        </div>
-
-
-        <div className="library-detail-info">
-
-          <span className="library-detail-eyebrow">
-            HYPERSYNC PLAYLIST
-          </span>
-
-          <h1>
-            {openedPlaylist.title}
-          </h1>
-
-          {openedPlaylist.description ? (
-            <p>
-              {
-                openedPlaylist.description
-              }
-            </p>
-          ) : null}
-
-
-          <div className="library-detail-meta">
-
-            <strong>
-              {
-                openedPlaylist.owner_username ||
-                "HyperSync"
-              }
-            </strong>
-
-            <span>
-              {
-                openedPlaylist.track_count
-              }
-              {" "}
-              {
-                openedPlaylist.track_count ===
-                1
-                  ? "track"
-                  : "tracks"
-              }
-            </span>
-
-          </div>
-
-        </div>
-
-
-        <div className="library-detail-hero__actions">
-
-          <button
-            type="button"
-            className="library-play-action"
-            disabled={
-              !openedPlaylist
-                .tracks
-                ?.length
-            }
-            onClick={() => {
-              playOpenedPlaylist(
-                0,
-              );
-            }}
-          >
-            <Icon
-              name="play"
-              size={16}
-            />
-
-            Play
-          </button>
-
-
-          <button
-            type="button"
-            className={
-              playlistDownload.status ===
-                "downloaded"
-                ? "library-action-button is-active"
-                : "library-action-button"
-            }
-            disabled={
-              !openedPlaylist
-                .tracks
-                ?.length ||
-              playlistDownload.status ===
-                "downloading"
-            }
-            onClick={() => {
-              void downloadOpenedPlaylist();
-            }}
-          >
-            <Icon
-              name={
-                playlistDownload.status ===
-                  "downloaded"
-                  ? "check"
-                  : "download"
-              }
-              size={15}
-            />
-
-            {playlistDownload.status ===
-            "downloading"
-              ? `Downloading ${playlistDownloadPercent}%`
-              : playlistDownload.status ===
-                  "downloaded"
-                ? "Downloaded"
-                : "Download"}
-          </button>
-
-
-          {!openedPlaylist.is_owner ? (
-            <button
-              type="button"
-              className={
-                openedPlaylist.is_saved
-                  ? "library-action-button is-active"
-                  : "library-action-button"
-              }
-              disabled={
-                playlistActionBusy
-              }
-              onClick={() => {
-                void toggleOpenedPlaylistSaved();
-              }}
-            >
-              <Icon
-                name={
-                  openedPlaylist.is_saved
-                    ? "check"
-                    : "plus"
-                }
-                size={15}
-              />
-
-              {openedPlaylist.is_saved
-                ? "In Library"
-                : "Add to Library"}
-            </button>
-          ) : null}
-
-        </div>
-
-      </section>
-
-
-      {playlistError ? (
-        <div className="library-inline-error">
-          {playlistError}
-        </div>
-      ) : null}
-
-
-      <section className="library-detail-tracks">
-
-        <div className="hs-search-section__heading">
-
-          <div>
-            <span>
-              PLAYLIST CONTENT
-            </span>
-
-            <h3>
-              Tracks
-            </h3>
-          </div>
-
-          <strong>
-            {
-              openedPlaylist
-                .tracks
-                ?.length ??
-              0
-            }
-          </strong>
-
-        </div>
-
-
-        <div className="library-track-list">
-
-          <div className="library-track-header">
-
-            <span>
-              #
-            </span>
-
-            <span>
-              Title
-            </span>
-
-            <span>
-              Album
-            </span>
-
-            <span>
-              Time
-            </span>
-
-            <span />
-
-          </div>
-
-
-          {openedPlaylist
-            .tracks
-            .map(
-              (
-                track,
-                trackIndex,
-              ) => {
-
-                const artwork =
-                  resolveArtworkUrl(
-                    track.artwork_url,
-                  );
-
-                return (
-                  <div
-                    className="library-track-row"
-                    key={
-                      track.playlist_track_id ??
-                      track.id
-                    }
-                    {...trackActionMenu.getTriggerProps(
-                      track,
-                    )}
-                  >
-
-                    <span className="library-track-index">
-                      {
-                        trackIndex +
-                        1
-                      }
-                    </span>
-
-
-                    <button
-                      type="button"
-                      className="library-track-main"
-                      onClick={() => {
-                        playOpenedPlaylist(
-                          trackIndex,
-                        );
-                      }}
-                    >
-
-                      <span className="library-track-art">
-
-                        {artwork ? (
-                          <img
-                            src={
-                              artwork
-                            }
-                            alt=""
-                          />
-                        ) : (
-                          <Icon
-                            name="music"
-                            size={16}
-                          />
-                        )}
-
-                        <span className="library-track-play">
-                          <Icon
-                            name="play"
-                            size={13}
-                          />
-                        </span>
-
-                      </span>
-
-
-                      <span className="library-track-copy">
-
-                        <strong>
-                          {
-                            track.title
-                          }
-                        </strong>
-
-                        <small>
-                          {
-                            track.artist
-                          }
-                        </small>
-
-                      </span>
-
-                    </button>
-
-
-                    <span className="library-track-album">
-                      {
-                        track.album ||
-                        "—"
-                      }
-                    </span>
-
-
-                    <span className="library-track-duration">
-                      {formatDuration(
-                        track.duration_seconds,
-                      )}
-                    </span>
-
-
-                    <span />
-
-                  </div>
-                );
-              },
-            )}
-
-        </div>
-
-      </section>
-
-    </section>
-
-  </div>
-) : null}
 
       <TrackActionMenu
         menu={

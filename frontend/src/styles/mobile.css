@@ -910,174 +910,259 @@
      HOME — TRACKS
      ========================= */
 
-  .home-track-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 100%;
-  }
+  /* =========================
+   HOME — RECENTLY PLAYED GRID
+   ========================= */
 
-  .home-track-card {
-    display: grid;
-    grid-template-columns: 58px minmax(0, 1fr);
-    align-items: center;
-    gap: 12px;
+.home-track-card {
+  display: block;
 
-    width: 100%;
-    min-width: 0;
+  width: 100%;
+  min-width: 0;
 
-    padding: 7px 9px 7px 7px;
+  padding: 0;
 
-    border: 1px solid rgba(77, 153, 198, 0.1);
-    border-radius: 9px;
+  overflow: hidden;
 
-    background:
-      linear-gradient(
-        90deg,
-        rgba(7, 17, 24, 0.92),
-        rgba(4, 11, 17, 0.72)
-      );
+  border:
+    1px solid
+    rgba(
+      77,
+      153,
+      198,
+      0.12
+    );
 
-    text-align: left;
+  border-radius: 8px;
 
-    overflow: hidden;
+  background:
+    rgba(
+      5,
+      15,
+      22,
+      0.9
+    );
 
-    transition:
-      transform 140ms ease,
-      border-color 140ms ease,
-      background 140ms ease;
-  }
-
-  .home-track-card:active {
-    transform: scale(0.985);
-
-    border-color:
-      rgba(64, 190, 245, 0.34);
-
-    background:
-      rgba(8, 24, 34, 0.94);
-  }
+  text-align: left;
+}
 
 
-  /* Artwork */
+.home-track-card {
+  display: block;
 
-  .home-track-card__art {
-    position: relative;
+  width: 100%;
+  min-width: 0;
 
-    width: 58px;
-    height: 58px;
+  padding: 0;
 
-    min-width: 58px;
+  overflow: hidden;
 
-    aspect-ratio: 1;
+  border:
+    1px solid
+    rgba(
+      77,
+      153,
+      198,
+      0.12
+    );
 
-    border-radius: 7px;
+  border-radius: 10px;
 
-    overflow: hidden;
-  }
+  background:
+    linear-gradient(
+      180deg,
+      rgba(7, 17, 24, 0.96),
+      rgba(4, 11, 17, 0.86)
+    );
 
-  .home-track-card__art img {
-    width: 100%;
-    height: 100%;
+  text-align: left;
 
-    display: block;
-
-    object-fit: cover;
-
-    border-radius: inherit;
-  }
-
-  .home-track-card__fallback {
-    width: 100%;
-    height: 100%;
-
-    display: grid;
-    place-items: center;
-
-    border-radius: inherit;
-
-    font-size: 17px;
-    font-weight: 900;
-  }
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
 
 
-  /* Don't use the big desktop play overlay */
+.home-track-card:active {
+  transform:
+    scale(0.98);
 
-  .home-track-card__play {
-    display: grid;
-    place-items: center;
+  border-color:
+    rgba(
+      64,
+      190,
+      245,
+      0.34
+    );
 
-    position: absolute;
-
-    right: 4px;
-    bottom: 4px;
-
-    width: 21px;
-    height: 21px;
-
-    border-radius: 50%;
-
-    background:
-      rgba(0, 0, 0, 0.72);
-
-    color: white;
-
-    font-size: 8px;
-
-    opacity: 0.92;
-  }
+  background:
+    rgba(
+      8,
+      24,
+      34,
+      0.94
+    );
+}
 
 
-  /* Song information */
+/* =========================
+   ARTWORK
+   ========================= */
 
-  .home-track-card__info {
-    display: flex;
-    flex-direction: column;
+.home-track-card__art {
+  position: relative;
 
-    justify-content: center;
+  width: 100%;
+  height: auto;
 
-    gap: 4px;
+  aspect-ratio: 1;
 
-    min-width: 0;
+  overflow: hidden;
 
-    padding: 0;
-  }
+  border-radius:
+    9px
+    9px
+    0
+    0;
 
-  .home-track-card__info strong {
-    display: block;
+  background:
+    #06121c;
+}
 
-    width: 100%;
 
-    overflow: hidden;
+.home-track-card__art img {
+  display: block;
 
-    color: var(--text);
+  width: 100%;
+  height: 100%;
 
-    font-size: 13px;
-    font-weight: 750;
+  object-fit: cover;
+}
 
-    line-height: 1.2;
 
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.home-track-card__fallback {
+  display: grid;
 
-  .home-track-card__info small {
-    display: block;
+  width: 100%;
+  height: 100%;
 
-    width: 100%;
+  place-items: center;
 
-    overflow: hidden;
+  font-size: 28px;
+  font-weight: 900;
+}
 
-    color: var(--muted);
 
-    font-size: 10px;
-    font-weight: 500;
+/* =========================
+   PLAY BUTTON
+   ========================= */
 
-    line-height: 1.2;
+.home-track-card__play {
+  position: absolute;
 
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  right: 7px;
+  bottom: 7px;
+
+  display: grid;
+
+  width: 26px;
+  height: 26px;
+
+  place-items: center;
+
+  border:
+    1px solid
+    rgba(
+      96,
+      221,
+      255,
+      0.45
+    );
+
+  border-radius: 50%;
+
+  color: white;
+
+  background:
+    rgba(
+      0,
+      0,
+      0,
+      0.72
+    );
+
+  font-size: 9px;
+
+  opacity: 0.95;
+
+  transform: none;
+}
+
+
+/* =========================
+   SONG INFORMATION
+   ========================= */
+
+.home-track-card__info {
+  display: grid;
+
+  gap: 3px;
+
+  min-width: 0;
+
+  padding:
+    8px
+    8px
+    9px;
+}
+
+
+.home-track-card__info strong {
+  display: block;
+
+  width: 100%;
+  min-width: 0;
+
+  overflow: hidden;
+
+  color:
+    var(--text);
+
+  font-size: 11px;
+  font-weight: 750;
+
+  line-height: 1.25;
+
+  text-overflow:
+    ellipsis;
+
+  white-space:
+    nowrap;
+}
+
+
+.home-track-card__info small {
+  display: block;
+
+  width: 100%;
+  min-width: 0;
+
+  overflow: hidden;
+
+  color:
+    var(--muted);
+
+  font-size: 9px;
+
+  line-height: 1.25;
+
+  text-overflow:
+    ellipsis;
+
+  white-space:
+    nowrap;
+}
 }
 
 /* =========================================================
@@ -1908,5 +1993,142 @@
 
     background:
       rgba(11, 31, 45, 0.97);
+  }
+}
+
+/* =========================================================
+   HOME RECENTLY PLAYED — SMALL 3-WIDE MOBILE GRID
+   Keep this at the VERY BOTTOM of mobile.css
+   ========================================================= */
+
+@media (max-width: 699px) {
+
+  .home-track-grid {
+    display: grid !important;
+
+    grid-template-columns:
+      repeat(
+        3,
+        minmax(0, 1fr)
+      ) !important;
+
+    gap: 10px !important;
+
+    width: calc(100% - 26px) !important;
+    max-width: 340px !important;
+
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+
+  .home-track-card {
+    display: block !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+
+    padding: 0 !important;
+    gap: 0 !important;
+
+    overflow: hidden !important;
+
+    border-radius: 7px !important;
+
+    text-align: left !important;
+  }
+
+
+  .home-track-card__art {
+    position: relative !important;
+
+    width: 100% !important;
+    height: auto !important;
+    min-width: 0 !important;
+
+    aspect-ratio: 1 / 1 !important;
+
+    border-radius:
+      6px
+      6px
+      0
+      0 !important;
+
+    overflow: hidden !important;
+  }
+
+
+  .home-track-card__art img {
+    display: block !important;
+
+    width: 100% !important;
+    height: 100% !important;
+
+    object-fit: cover !important;
+  }
+
+
+  .home-track-card__fallback {
+    width: 100% !important;
+    height: 100% !important;
+
+    font-size: 20px !important;
+  }
+
+
+  .home-track-card__play {
+    right: 4px !important;
+    bottom: 4px !important;
+
+    width: 18px !important;
+    height: 18px !important;
+
+    font-size: 6px !important;
+
+    transform: none !important;
+  }
+
+
+  .home-track-card__info {
+    display: grid !important;
+
+    gap: 1px !important;
+
+    min-width: 0 !important;
+
+    padding:
+      5px
+      5px
+      6px !important;
+  }
+
+
+  .home-track-card__info strong {
+    display: block !important;
+
+    width: 100% !important;
+
+    overflow: hidden !important;
+
+    font-size: 8px !important;
+    line-height: 1.15 !important;
+
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+
+  .home-track-card__info small {
+    display: block !important;
+
+    width: 100% !important;
+
+    overflow: hidden !important;
+
+    font-size: 6.5px !important;
+    line-height: 1.15 !important;
+
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
 }

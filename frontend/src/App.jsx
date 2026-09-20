@@ -949,6 +949,7 @@ function MainPage({
   onToggleCompact,
   statusMessage,
   onStatusMessage,
+  searchResetToken,
 }) {
   const adminPage =
     ADMIN_NAV_ITEMS.some(
@@ -1036,6 +1037,9 @@ function MainPage({
   }
   query={
     query
+  }
+  resetToken={
+  searchResetToken
   }
   onQueryChange={
     onQueryChange
@@ -1763,6 +1767,11 @@ export default function App() {
     useState("");
 
   const [
+  searchResetToken,
+  setSearchResetToken,
+] = useState(0);
+
+  const [
   playlistToOpen,
   setPlaylistToOpen,
   ] = useState(null);
@@ -2012,6 +2021,26 @@ const persistAppView =
     (page) => {
       cancelPendingSearchSave();
 
+
+      /*
+       * Clicking Search while already
+       * on Search acts like returning
+       * to the main Search results.
+       *
+       * SearchPage uses this token to
+       * close any playlist sub-view.
+       */
+      if (
+        page === "search" &&
+        activePage === "search"
+      ) {
+        setSearchResetToken(
+          (current) =>
+            current + 1,
+        );
+      }
+
+
       if (
         page !==
         "public-profile"
@@ -2021,13 +2050,16 @@ const persistAppView =
         );
       }
 
+
       setActivePage(
         page,
       );
 
+
       setStatusMessage(
         "",
       );
+
 
       persistAppView({
         active_page:
@@ -2041,6 +2073,7 @@ const persistAppView =
       });
     },
     [
+      activePage,
       cancelPendingSearchSave,
       persistAppView,
       searchQuery,
@@ -2243,6 +2276,7 @@ const clearPlaylistToOpen =
           <MainPage
             activePage={activePage}
             currentUser={currentUser}
+            resetToken={searchResetToken}
             playlistToOpen={
             playlistToOpen
             }

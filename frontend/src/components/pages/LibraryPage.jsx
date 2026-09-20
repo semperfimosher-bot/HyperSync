@@ -19,8 +19,6 @@ import {
   getSavedPlaylists,
   removeTrackFromPlaylist,
   reorderPlaylistTracks,
-  savePlaylist,
-  unsavePlaylist,
 } from "../../playlistApi.js";
 
 import {
@@ -727,62 +725,6 @@ function LibraryPage({
     }
   }
 
-
-  async function toggleSavedPlaylist() {
-    if (
-      !selectedPlaylist ||
-      selectedPlaylist.is_owner ||
-      actionBusy
-    ) {
-      return;
-    }
-
-    setActionBusy(true);
-    setError("");
-
-    const nextSaved =
-      !selectedPlaylist.is_saved;
-
-    setSelectedPlaylist(
-      (current) => ({
-        ...current,
-        is_saved:
-          nextSaved,
-      }),
-    );
-
-    try {
-      if (nextSaved) {
-        await savePlaylist(
-          selectedPlaylist.id,
-        );
-      } else {
-        await unsavePlaylist(
-          selectedPlaylist.id,
-        );
-      }
-
-      await loadLibrary();
-    } catch (requestError) {
-      setSelectedPlaylist(
-        (current) => ({
-          ...current,
-          is_saved:
-            !nextSaved,
-        }),
-      );
-
-      setError(
-        requestError
-          instanceof Error
-          ? requestError.message
-          : "Unable to update saved playlist.",
-      );
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
   async function downloadPlaylist() {
   const tracks =
     selectedPlaylist?.tracks ??
@@ -1173,37 +1115,6 @@ function LibraryPage({
   : "Add to Library"}
       </button>
     ) : null}
-
-
-    {!selectedPlaylist.is_owner ? (
-  <button
-    type="button"
-    className={
-      selectedPlaylist.is_saved
-        ? "library-action-button is-active"
-        : "library-action-button"
-    }
-    disabled={
-      actionBusy
-    }
-    onClick={() => {
-      void toggleSavedPlaylist();
-    }}
-  >
-    <Icon
-      name={
-        selectedPlaylist.is_saved
-          ? "check"
-          : "plus"
-      }
-      size={16}
-    />
-
-    {selectedPlaylist.is_saved
-      ? "In Library"
-      : "Add to Library"}
-  </button>
-) : null}
 
   </div>
 

@@ -1551,40 +1551,30 @@ async function playTrackInternal(
     return null;
   }
 
-
-  /*
-   * Cache-retention bookkeeping must not
-   * block or break successful playback.
-   */
-  void recordTrackPlayback(
-    trackId,
-    meta,
-  ).catch(
-    () => {},
-  );
-
-
-  /*
-   * IMPORTANT:
-   *
-   * Use this playback request's immutable
-   * trackId, never the mutable global
-   * currentTrackId.
-   *
-   * Otherwise a rapid A → B selection
-   * could record B for A's old request.
-   */
-  if (
-    getAccessToken()
-  ) {
-    void apiRequest(
-      beginListeningEvent(
-      )
-    )
-  }
+/*
+ * Cache-retention bookkeeping must not
+ * block or break successful playback.
+ */
+void recordTrackPlayback(
+  trackId,
+  meta,
+).catch(
+  () => {},
+);
 
 
-  return getState();
+/*
+ * Start a backend listening session.
+ *
+ * beginListeningEvent already handles
+ * authentication and performs the POST.
+ */
+beginListeningEvent(
+  trackId,
+);
+
+
+return getState();
 }
 
 export async function playTrack(
