@@ -1058,28 +1058,6 @@ function MainPage({
     );
   }
 
-
-  if (
-  activePage === "library"
-) {
-  return (
-    <LibraryPage
-  currentUser={
-    currentUser
-  }
-  onOpenAuth={
-    onOpenAuth
-  }
-  initialPlaylistId={
-    playlistToOpen
-  }
-  onInitialPlaylistHandled={
-    onPlaylistOpened
-  }
-/>
-  );
-}
-
 if (
   activePage === "library"
 ) {
