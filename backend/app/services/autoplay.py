@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     func,
+    or_,
     select,
 )
 from sqlalchemy.ext.asyncio import (
@@ -23,11 +24,13 @@ from ..models.media import Track
 
 HISTORY_LIMIT = 250
 
-AFFINITY_POOL_LIMIT = 250
+AFFINITY_POOL_LIMIT = 300
 
 POPULAR_POOL_LIMIT = 250
 
-NEW_POOL_LIMIT = 100
+NEW_POOL_LIMIT = 120
+
+RECENT_GENRE_WINDOW = 40
 
 
 def _text_key(
@@ -72,6 +75,31 @@ async def recommend_autoplay_tracks(
         )
 
 
+    current_artist = (
+        _text_key(
+            current_track.artist,
+        )
+        if current_track
+        else ""
+    )
+
+    current_album = (
+        _text_key(
+            current_track.album,
+        )
+        if current_track
+        else ""
+    )
+
+    current_genre = (
+        _text_key(
+            current_track.genre,
+        )
+        if current_track
+        else ""
+    )
+
+
     artist_affinity: dict[
         str,
         float,
@@ -86,10 +114,38 @@ async def recommend_autoplay_tracks(
         float,
     )
 
+    genre_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    recent_genre_momentum: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    track_affinity: dict[
+        UUID,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+
     artist_names: dict[
         str,
         str,
     ] = {}
+
+    genre_names: dict[
+        str,
+        str,
+    ] = {}
+
 
     recent_rank: dict[
         UUID,
@@ -104,14 +160,48 @@ async def recommend_autoplay_tracks(
     )
 
 
+    track_skips: dict[
+        UUID,
+        int,
+    ] = defaultdict(
+        int,
+    )
+
+    track_completions: dict[
+        UUID,
+        int,
+    ] = defaultdict(
+        int,
+    )
+
+
+    genre_skips: dict[
+        str,
+        int,
+    ] = defaultdict(
+        int,
+    )
+
+    genre_completions: dict[
+        str,
+        int,
+    ] = defaultdict(
+        int,
+    )
+
+
     if user_id is not None:
         history_result = (
             await session.execute(
                 select(
                     ListeningEvent.track_id,
                     ListeningEvent.listened_at,
+                    ListeningEvent.completed,
+                    ListeningEvent.skipped,
+                    ListeningEvent.completion_ratio,
                     Track.artist,
                     Track.album,
+                    Track.genre,
                 )
                 .join(
                     Track,
@@ -135,6 +225,7 @@ async def recommend_autoplay_tracks(
             )
         )
 
+
         history_rows = (
             history_result.all()
         )
@@ -149,18 +240,88 @@ async def recommend_autoplay_tracks(
             (
                 track_id,
                 _listened_at,
+                completed,
+                skipped,
+                completion_ratio,
                 artist,
                 album,
+                genre,
             ) = row
 
+
             recency_weight = (
-                1.0 /
+                1.0
+                /
                 (
-                    1.0 +
-                    rank *
-                    0.06
+                    1.0
+                    +
+                    rank * 0.05
                 )
             )
+
+
+            recent_window_weight = max(
+                0.0,
+                1.0
+                -
+                (
+                    rank
+                    /
+                    RECENT_GENRE_WINDOW
+                ),
+            )
+
+
+            ratio = (
+                float(
+                    completion_ratio,
+                )
+                if completion_ratio
+                is not None
+                else None
+            )
+
+
+            if skipped:
+                quality = -3.2
+
+                track_skips[
+                    track_id
+                ] += 1
+
+
+            elif completed:
+                quality = 3.0
+
+                track_completions[
+                    track_id
+                ] += 1
+
+
+            elif ratio is None:
+                # Old listening events and
+                # currently active events
+                # should count as weak signals,
+                # not proof that the user liked
+                # the song.
+                quality = 0.15
+
+
+            elif ratio >= 0.85:
+                quality = 2.0
+
+
+            elif ratio >= 0.55:
+                quality = 0.8
+
+
+            elif ratio < 0.20:
+                quality = -0.6
+
+
+            else:
+                quality = 0.1
+
 
             artist_key = (
                 _text_key(
@@ -168,35 +329,102 @@ async def recommend_autoplay_tracks(
                 )
             )
 
-            if artist_key:
-                artist_affinity[
-                    artist_key
-                ] += (
-                    3.0 *
-                    recency_weight
-                )
-
-                artist_names[
-                    artist_key
-                ] = artist
-
             album_key = (
                 _text_key(
                     album,
                 )
             )
 
+            genre_key = (
+                _text_key(
+                    genre,
+                )
+            )
+
+
+            if artist_key:
+                artist_affinity[
+                    artist_key
+                ] += (
+                    quality
+                    *
+                    recency_weight
+                    *
+                    2.7
+                )
+
+                artist_names[
+                    artist_key
+                ] = artist
+
+
             if album_key:
                 album_affinity[
                     album_key
                 ] += (
-                    1.6 *
+                    quality
+                    *
                     recency_weight
+                    *
+                    1.3
                 )
+
+
+            if genre_key:
+                genre_affinity[
+                    genre_key
+                ] += (
+                    quality
+                    *
+                    recency_weight
+                    *
+                    3.8
+                )
+
+
+                recent_genre_momentum[
+                    genre_key
+                ] += (
+                    quality
+                    *
+                    recent_window_weight
+                    *
+                    4.5
+                )
+
+
+                genre_names[
+                    genre_key
+                ] = genre
+
+
+                if skipped:
+                    genre_skips[
+                        genre_key
+                    ] += 1
+
+
+                if completed:
+                    genre_completions[
+                        genre_key
+                    ] += 1
+
+
+            track_affinity[
+                track_id
+            ] += (
+                quality
+                *
+                recency_weight
+                *
+                2.0
+            )
+
 
             history_counts[
                 track_id
             ] += 1
+
 
             recent_rank.setdefault(
                 track_id,
@@ -211,11 +439,49 @@ async def recommend_autoplay_tracks(
         reverse=True,
     )[:8]
 
+
     preferred_artists = [
         artist_names[key]
         for key
         in preferred_artist_keys
-        if key in artist_names
+        if (
+            key in artist_names
+            and artist_affinity[
+                key
+            ] > 0
+        )
+    ]
+
+
+    preferred_genre_keys = sorted(
+        genre_affinity,
+        key=lambda key: (
+            genre_affinity[key]
+            +
+            recent_genre_momentum.get(
+                key,
+                0.0,
+            )
+        ),
+        reverse=True,
+    )[:6]
+
+
+    preferred_genres = [
+        genre_names[key]
+        for key
+        in preferred_genre_keys
+        if (
+            key in genre_names
+            and (
+                genre_affinity[key]
+                +
+                recent_genre_momentum.get(
+                    key,
+                    0.0,
+                )
+            ) > 0
+        )
     ]
 
 
@@ -237,6 +503,7 @@ async def recommend_autoplay_tracks(
             )
         )
 
+
         if excluded:
             stmt = stmt.where(
                 Track.id.not_in(
@@ -244,18 +511,67 @@ async def recommend_autoplay_tracks(
                 )
             )
 
+
         return stmt
 
 
-    # Songs from artists the user
-    # actually listens to.
-    if preferred_artists:
+    affinity_terms = []
+
+
+    artist_candidates = list(
+        preferred_artists,
+    )
+
+    genre_candidates = list(
+        preferred_genres,
+    )
+
+
+    if (
+        current_track
+        and current_track.artist
+        and current_track.artist
+        not in artist_candidates
+    ):
+        artist_candidates.append(
+            current_track.artist,
+        )
+
+
+    if (
+        current_track
+        and current_track.genre
+        and current_track.genre
+        not in genre_candidates
+    ):
+        genre_candidates.append(
+            current_track.genre,
+        )
+
+
+    if artist_candidates:
+        affinity_terms.append(
+            Track.artist.in_(
+                artist_candidates,
+            )
+        )
+
+
+    if genre_candidates:
+        affinity_terms.append(
+            Track.genre.in_(
+                genre_candidates,
+            )
+        )
+
+
+    if affinity_terms:
         affinity_result = (
             await session.execute(
                 candidate_statement()
                 .where(
-                    Track.artist.in_(
-                        preferred_artists,
+                    or_(
+                        *affinity_terms,
                     )
                 )
                 .order_by(
@@ -267,8 +583,10 @@ async def recommend_autoplay_tracks(
             )
         )
 
+
         for track in (
-            affinity_result.scalars()
+            affinity_result
+            .scalars()
             .all()
         ):
             candidate_by_id[
@@ -276,7 +594,8 @@ async def recommend_autoplay_tracks(
             ] = track
 
 
-    # Globally popular fallback.
+    # Global popularity is only a
+    # fallback signal.
     global_counts = (
         select(
             ListeningEvent.track_id.label(
@@ -320,7 +639,8 @@ async def recommend_autoplay_tracks(
 
 
     for track in (
-        popular_result.scalars()
+        popular_result
+        .scalars()
         .all()
     ):
         candidate_by_id[
@@ -328,8 +648,8 @@ async def recommend_autoplay_tracks(
         ] = track
 
 
-    # Keep newer catalog material
-    # eligible too.
+    # Keep new catalog material
+    # eligible for discovery.
     new_result = (
         await session.execute(
             candidate_statement()
@@ -344,7 +664,8 @@ async def recommend_autoplay_tracks(
 
 
     for track in (
-        new_result.scalars()
+        new_result
+        .scalars()
         .all()
     ):
         candidate_by_id[
@@ -355,6 +676,7 @@ async def recommend_autoplay_tracks(
     candidates = list(
         candidate_by_id.values()
     )
+
 
     if not candidates:
         return []
@@ -389,7 +711,9 @@ async def recommend_autoplay_tracks(
 
     play_counts = {
         track_id:
-            int(count)
+            int(
+                count,
+            )
         for (
             track_id,
             count,
@@ -397,22 +721,6 @@ async def recommend_autoplay_tracks(
         in count_result.all()
     }
 
-
-    current_artist = (
-        _text_key(
-            current_track.artist,
-        )
-        if current_track
-        else ""
-    )
-
-    current_album = (
-        _text_key(
-            current_track.album,
-        )
-        if current_track
-        else ""
-    )
 
     now = datetime.now(
         UTC,
@@ -440,47 +748,181 @@ async def recommend_autoplay_tracks(
             )
         )
 
+        genre_key = (
+            _text_key(
+                track.genre,
+            )
+        )
+
 
         score = 0.0
 
 
-        # Main personalized signals.
+        # ==================================================
+        # PERSONAL TASTE
+        # ==================================================
+
+        # Genre is deliberately the
+        # strongest long-term signal.
+        score += (
+            genre_affinity.get(
+                genre_key,
+                0.0,
+            )
+            *
+            4.8
+        )
+
+
+        # This makes autoplay react to
+        # what the user has been listening
+        # to lately.
+        score += (
+            recent_genre_momentum.get(
+                genre_key,
+                0.0,
+            )
+            *
+            3.5
+        )
+
+
         score += (
             artist_affinity.get(
                 artist_key,
                 0.0,
             )
-            * 4.0
+            *
+            3.0
         )
+
 
         score += (
             album_affinity.get(
                 album_key,
                 0.0,
             )
-            * 2.0
+            *
+            1.4
         )
 
 
-        # Continue the vibe of the
-        # currently playing song.
+        score += (
+            track_affinity.get(
+                track.id,
+                0.0,
+            )
+            *
+            1.5
+        )
+
+
+        # ==================================================
+        # CURRENT VIBE
+        # ==================================================
+
+        # Current-track genre is an
+        # extremely strong short-term
+        # signal.
+        if (
+            current_genre
+            and genre_key
+            == current_genre
+        ):
+            score += 10.0
+
+
         if (
             current_artist
             and artist_key
             == current_artist
         ):
-            score += 4.0
+            score += 3.5
+
 
         if (
             current_album
             and album_key
             == current_album
         ):
-            score += 2.0
+            score += 1.5
 
 
-        # Popularity helps when personal
-        # history is sparse.
+        # ==================================================
+        # SKIPS / COMPLETIONS
+        # ==================================================
+
+        skip_count = (
+            track_skips.get(
+                track.id,
+                0,
+            )
+        )
+
+
+        completion_count = (
+            track_completions.get(
+                track.id,
+                0,
+            )
+        )
+
+
+        # A repeatedly skipped song should
+        # disappear quickly from autoplay.
+        score -= min(
+            skip_count
+            *
+            7.0,
+            35.0,
+        )
+
+
+        # Songs repeatedly completed by
+        # the user get a positive signal.
+        score += min(
+            completion_count
+            *
+            2.0,
+            12.0,
+        )
+
+
+        if genre_key:
+            # If the user has recently
+            # skipped several songs from a
+            # genre, cool that genre down.
+            score -= min(
+                genre_skips.get(
+                    genre_key,
+                    0,
+                )
+                *
+                0.55,
+                10.0,
+            )
+
+
+            # Conversely, lots of completed
+            # tracks in a genre strengthen
+            # that vibe.
+            score += min(
+                genre_completions.get(
+                    genre_key,
+                    0,
+                )
+                *
+                0.25,
+                5.0,
+            )
+
+
+        # ==================================================
+        # GLOBAL / DISCOVERY SIGNALS
+        # ==================================================
+
+        # Popularity helps mainly when
+        # personal history is sparse.
         score += (
             log1p(
                 play_counts.get(
@@ -488,15 +930,16 @@ async def recommend_autoplay_tracks(
                     0,
                 )
             )
-            * 0.75
+            *
+            0.70
         )
 
 
-        # Small discovery/new-release
-        # bonus.
+        # Small new-release bonus.
         created_at = (
             track.created_at
         )
+
 
         if created_at:
             if (
@@ -509,50 +952,61 @@ async def recommend_autoplay_tracks(
                     )
                 )
 
+
             age_days = max(
                 (
-                    now -
+                    now
+                    -
                     created_at
                 ).days,
                 0,
             )
 
+
             score += max(
                 0.0,
-                1.5 -
+                1.5
+                -
                 (
-                    age_days /
+                    age_days
+                    /
                     180.0
                 ),
             )
 
 
-        # Do not immediately replay
-        # something the user just heard.
+        # ==================================================
+        # REPETITION / FATIGUE
+        # ==================================================
+
         rank = recent_rank.get(
             track.id,
         )
 
+
+        # Don't immediately replay songs
+        # the user just heard, even if the
+        # user normally likes them.
         if rank is not None:
-            if rank < 8:
-                score -= 100.0
+            if rank < 6:
+                score -= 120.0
 
-            elif rank < 30:
-                score -= 12.0
+            elif rank < 20:
+                score -= 18.0
 
-            elif rank < 60:
-                score -= 3.0
+            elif rank < 50:
+                score -= 5.0
 
 
-        # Slight penalty for tracks
+        # Mild fatigue penalty for songs
         # already played many times.
         score -= min(
             history_counts.get(
                 track.id,
                 0,
             ),
-            10,
-        ) * 0.25
+            12,
+        ) * 0.20
 
 
         scored.append(
@@ -576,17 +1030,20 @@ async def recommend_autoplay_tracks(
         Track,
     ] = []
 
+
     deferred: list[
         Track,
     ] = []
 
+
     last_artist = ""
+
     artist_streak = 0
 
 
-    # Diversity pass:
-    # never more than two tracks by
-    # the same artist consecutively.
+    # Keep the genre/vibe cohesive, but
+    # avoid filling the entire queue with
+    # one artist.
     for (
         _score,
         track,
@@ -596,6 +1053,7 @@ async def recommend_autoplay_tracks(
                 track.artist,
             )
         )
+
 
         if (
             artist_key
@@ -635,13 +1093,14 @@ async def recommend_autoplay_tracks(
             return selected
 
 
-    # If the catalog is small, relax
-    # the diversity restriction instead
-    # of returning an empty queue.
+    # If the catalog is small, relax the
+    # same-artist restriction rather than
+    # letting autoplay run out of music.
     for track in deferred:
         selected.append(
             track,
         )
+
 
         if (
             len(selected)

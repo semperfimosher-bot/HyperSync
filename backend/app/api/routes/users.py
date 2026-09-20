@@ -1,7 +1,10 @@
 import asyncio
 import logging
 import mimetypes
-from datetime import UTC, datetime
+from datetime import (
+    UTC,
+    datetime,
+)
 from typing import (
     Annotated,
     Literal,
@@ -17,7 +20,10 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -125,6 +131,19 @@ class AppStateUpdateRequest(
         max_length=32,
     )
 
+class ListeningOutcomeRequest(
+    BaseModel,
+):
+    outcome: Literal[
+        "completed",
+        "skipped",
+    ]
+
+    position_seconds: int = Field(
+        default=0,
+        ge=0,
+        le=86_400,
+    )
 
 class ListeningRequest(BaseModel):
     track_id: UUID
@@ -749,7 +768,6 @@ async def update_my_privacy(
         user,
     )
 
-
 @router.post(
     "/me/listening",
     status_code=status.HTTP_201_CREATED,
@@ -762,34 +780,176 @@ async def record_listening(
     track_result = await session.execute(
         select(Track).where(
             Track.id == payload.track_id,
-            Track.is_published.is_(True),
+            Track.is_published.is_(
+                True,
+            ),
         )
     )
 
-    track = track_result.scalar_one_or_none()
+    track = (
+        track_result
+        .scalar_one_or_none()
+    )
 
     if track is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
             detail="Track not found.",
         )
 
-    session.add(
-        ListeningEvent(
-            user_id=user.id,
-            track_id=track.id,
-        )
+
+    event = ListeningEvent(
+        user_id=user.id,
+        track_id=track.id,
     )
+
+    session.add(
+        event,
+    )
+
+    await session.flush()
+
+    event_id = event.id
 
     await session.commit()
 
+
     return {
         "recorded": True,
+
+        "event_id": str(
+            event_id,
+        ),
+
         "track_id": str(
             track.id,
         ),
     }
 
+@router.patch(
+    "/me/listening/{event_id}",
+)
+async def finish_listening(
+    event_id: UUID,
+    payload: ListeningOutcomeRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    event = await session.get(
+        ListeningEvent,
+        event_id,
+    )
+
+    if (
+        event is None
+        or event.user_id != user.id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Listening event not found.",
+        )
+
+    track = await session.get(
+        Track,
+        event.track_id,
+    )
+
+    if track is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Track not found.",
+        )
+
+
+    duration = max(
+        int(
+            track.duration_seconds
+            or 0
+        ),
+        0,
+    )
+
+    position = max(
+        int(
+            payload.position_seconds
+        ),
+        0,
+    )
+
+    if duration > 0:
+        position = min(
+            position,
+            duration,
+        )
+
+        ratio = min(
+            position / duration,
+            1.0,
+        )
+    else:
+        ratio = None
+
+     # A user hitting Next at 98% should
+     # not be punished like someone
+     # skipping after 5 seconds.
+     
+    completed = (
+        payload.outcome
+        == "completed"
+        and (
+            ratio is None
+            or ratio >= 0.85
+        )
+    )
+
+    skipped = (
+        payload.outcome
+        == "skipped"
+        and (
+            ratio is None
+            or ratio < 0.90
+        )
+    )
+
+
+    event.progress_seconds = (
+        position
+    )
+
+    event.completion_ratio = (
+        ratio
+    )
+
+    event.completed = (
+        completed
+    )
+
+    event.skipped = (
+        skipped
+    )
+
+    event.ended_at = (
+        datetime.now(
+            UTC,
+        )
+    )
+
+
+    await session.commit()
+
+
+    return {
+        "completed":
+            completed,
+
+        "skipped":
+            skipped,
+
+        "completion_ratio":
+            ratio,
+    }
 
 @router.post(
     "/me/avatar",

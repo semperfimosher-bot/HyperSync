@@ -1352,11 +1352,9 @@ function PlayerBar() {
 
           <button
             type="button"
-            onClick={() =>
-              player.seekTo(
-                state.duration || 0,
-              )
-            }
+            onClick={() => {
+              void player.skipToNext();
+            }}
             disabled={!canControl}
             aria-label="Next"
           >

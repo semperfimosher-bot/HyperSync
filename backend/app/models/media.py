@@ -44,6 +44,12 @@ class Track(
         nullable=True,
     )
 
+    genre: Mapped[str | None] = mapped_column(
+    String(120),
+    nullable=True,
+    index=True,
+    )
+
     b2_object_key: Mapped[str] = mapped_column(
         Text,
         nullable=False,

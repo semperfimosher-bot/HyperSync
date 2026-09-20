@@ -16,6 +16,7 @@ class EmbeddedAudioMetadata(
     artist: str | None
     album: str | None
     duration_seconds: int | None
+    genre: str | None
 
 
 class ResolvedTrackMetadata(
@@ -25,6 +26,7 @@ class ResolvedTrackMetadata(
     artist: str
     album: str | None
     duration_seconds: int
+    genre: str | None
 
 
 def _clean_text(
@@ -76,6 +78,7 @@ def extract_embedded_audio_metadata(
         "artist": None,
         "album": None,
         "duration_seconds": None,
+        "genre": None,
     }
 
     if not file_content:
@@ -154,6 +157,10 @@ def extract_embedded_audio_metadata(
             "album",
         ),
         "duration_seconds": (duration_seconds),
+        "genre": _tag_value(
+            tags,
+            "genre",
+        ),
     }
 
 
@@ -203,4 +210,5 @@ def resolve_track_metadata(
             int(duration_seconds or 0),
             0,
         ),
+        "genre": embedded["genre"],
     }

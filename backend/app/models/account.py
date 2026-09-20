@@ -9,7 +9,9 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     Uuid,
@@ -326,6 +328,35 @@ class ListeningEvent(
         nullable=False,
         server_default=func.now(),
         index=True,
+    )
+
+    progress_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    completion_ratio: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    completed: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
+
+    skipped: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
+
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
 

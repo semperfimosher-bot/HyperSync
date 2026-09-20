@@ -171,6 +171,7 @@ async def upload_track(
             title=(resolved_metadata["title"]),
             artist=(resolved_metadata["artist"]),
             album=(resolved_metadata["album"]),
+            genre=(resolved_metadata["genre"]),
             b2_object_key=(object_key),
             artwork_object_key=(artwork_object_key),
             mime_type=(file.content_type),

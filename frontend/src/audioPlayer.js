@@ -43,6 +43,8 @@ audio.crossOrigin =
 audio.preload =
   "auto";
 
+let activeListeningEvent =
+  null;
 
 let subscribers =
   new Set();
@@ -114,6 +116,126 @@ let playbackPhase =
 let playbackError =
   null;
 
+function beginListeningEvent(
+  trackId,
+) {
+  if (!getAccessToken()) {
+    activeListeningEvent =
+      null;
+
+    return;
+  }
+
+  const event = {
+    trackId:
+      String(trackId),
+
+    eventId:
+      null,
+
+    request:
+      null,
+  };
+
+
+  event.request =
+    apiRequest(
+      "/users/me/listening",
+      {
+        method:
+          "POST",
+
+        body:
+          JSON.stringify({
+            track_id:
+              String(
+                trackId,
+              ),
+          }),
+      },
+    )
+      .then(
+        (data) =>
+          data?.event_id ??
+          null,
+      )
+      .catch(
+        () => null,
+      );
+
+
+  activeListeningEvent =
+    event;
+
+
+  void event.request.then(
+    (eventId) => {
+      if (
+        activeListeningEvent
+        === event
+      ) {
+        event.eventId =
+          eventId;
+      }
+    },
+  );
+}
+
+
+function finishListeningEvent(
+  outcome,
+  positionSeconds =
+    getSafeCurrentTime(),
+) {
+  const event =
+    activeListeningEvent;
+
+  if (!event) {
+    return;
+  }
+
+  activeListeningEvent =
+    null;
+
+
+  void (
+    async () => {
+      const eventId =
+        event.eventId ??
+        await event.request;
+
+      if (!eventId) {
+        return;
+      }
+
+      await apiRequest(
+        `/users/me/listening/${encodeURIComponent(
+          eventId,
+        )}`,
+        {
+          method:
+            "PATCH",
+
+          body:
+            JSON.stringify({
+              outcome,
+
+              position_seconds:
+                Math.max(
+                  0,
+                  Math.round(
+                    positionSeconds ||
+                    0,
+                  ),
+                ),
+            }),
+        },
+      );
+    }
+  )().catch(
+    () => {},
+  );
+}
 
 function normalizeTrackMeta(
   meta = {},
@@ -836,11 +958,20 @@ function attachEvents() {
 
 
   audio.addEventListener(
-    "ended",
-    () => {
-      void playNextQueueTrack();
-    },
-  );
+  "ended",
+  () => {
+    finishListeningEvent(
+      "completed",
+      Number.isFinite(
+        audio.duration,
+      )
+        ? audio.duration
+        : getSafeCurrentTime(),
+    );
+
+    void playNextQueueTrack();
+  },
+);
 }
 
 
@@ -1447,22 +1578,9 @@ async function playTrackInternal(
     getAccessToken()
   ) {
     void apiRequest(
-      "/users/me/listening",
-      {
-        method:
-          "POST",
-
-        body:
-          JSON.stringify({
-            track_id:
-              String(
-                trackId,
-              ),
-          }),
-      },
-    ).catch(
-      () => {},
-    );
+      beginListeningEvent(
+      )
+    )
   }
 
 
@@ -1473,6 +1591,10 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  finishListeningEvent(
+  "skipped",
+  getSafeCurrentTime(),
+);
   const state =
     await playTrackInternal(
       trackId,
@@ -1495,6 +1617,10 @@ export async function playTrack(
 export async function playQueueIndex(
   index,
 ) {
+  finishListeningEvent(
+  "skipped",
+  getSafeCurrentTime(),
+);
   const track =
     getQueueTrackAtIndex(
       currentQueue,
@@ -1542,6 +1668,10 @@ export async function playTrackQueue(
   tracks,
   startIndex = 0,
 ) {
+  finishListeningEvent(
+  "skipped",
+  getSafeCurrentTime(),
+);
   const queue =
     buildTrackQueue(
       tracks,
@@ -1984,5 +2114,29 @@ if (
     getState,
     subscribe,
     _getAudioElement,
+    skipToNext,
   };
+}
+
+export async function skipToNext() {
+  if (!currentTrackId) {
+    return false;
+  }
+
+
+  finishListeningEvent(
+    "skipped",
+    getSafeCurrentTime(),
+  );
+
+
+  await ensureAutoplayQueue({
+    force:
+      true,
+  });
+
+
+  await playNextQueueTrack();
+
+  return true;
 }
