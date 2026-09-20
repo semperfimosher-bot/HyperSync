@@ -1650,7 +1650,6 @@ async function downloadOpenedPlaylist() {
       <label
         htmlFor="hs-search-sort-mode"
       >
-        SORT RESULTS
       </label>
 
       <select
@@ -1671,17 +1670,7 @@ async function downloadOpenedPlaylist() {
         )}
       </select>
 
-      <small>
-        {preferenceStatus === "saving"
-          ? "SYNCING PREFERENCE"
-          : preferenceStatus === "synced"
-            ? "PREFERENCE SYNCED"
-            : preferenceStatus === "error"
-              ? "SYNC RETRY NEEDED"
-              : preferenceStatus === "loading"
-                ? "LOADING PREFERENCE"
-                : "GUEST DEFAULT"}
-      </small>
+      
 
     </div>
 
@@ -1747,11 +1736,7 @@ async function downloadOpenedPlaylist() {
         }
       />
 
-      {loading
-        ? "SEARCHING"
-        : normalizedQuery
-          ? "RESULTS READY"
-          : "SEARCH READY"}
+      
     </span>
 
 

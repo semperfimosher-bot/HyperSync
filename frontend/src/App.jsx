@@ -1202,39 +1202,67 @@ function MobileBottomNav({
 }
 
 function PlayerBar() {
-  const [state, setState] = useState(() => ({
+  const [
+    state,
+    setState,
+  ] = useState(() => ({
     src: null,
     paused: true,
     currentTime: 0,
     duration: 0,
   }));
 
+
   useEffect(() => {
-    const unsub = player.subscribe((s) => {
-      setState(s);
-    });
+    const unsub =
+      player.subscribe(
+        (nextState) => {
+          setState(
+            nextState,
+          );
+        },
+      );
 
     return unsub;
   }, []);
 
-  const toggle = useCallback(async () => {
-    try {
-      await player.togglePlay();
-    } catch {
-      // Browser autoplay restrictions can prevent playback.
-    }
-  }, []);
+
+  const toggle =
+    useCallback(
+      async () => {
+        try {
+          await player.togglePlay();
+        } catch {
+          // Browser autoplay restrictions
+          // can prevent playback.
+        }
+      },
+      [],
+    );
+
 
   const formatTime = (t) => {
-    if (!isFinite(t) || t <= 0) {
+    if (
+      !isFinite(t) ||
+      t <= 0
+    ) {
       return "0:00";
     }
 
-    const mins = Math.floor(t / 60);
+    const mins =
+      Math.floor(
+        t / 60,
+      );
 
-    const secs = Math.floor(t % 60)
-      .toString()
-      .padStart(2, "0");
+    const secs =
+      Math.floor(
+        t % 60,
+      )
+        .toString()
+        .padStart(
+          2,
+          "0",
+        );
 
     return `${mins}:${secs}`;
   };
@@ -1381,22 +1409,35 @@ function PlayerBar() {
 
 
           <input
-            type="range"
-            min="0"
-            max={progressMax}
-            step="0.1"
-            value={progressValue}
-            disabled={!canControl}
-            aria-label="Playback progress"
-            onChange={(event) => {
-              const value =
-                Number(
-                  event.target.value,
-                );
+  type="range"
+  min="0"
+  max={progressMax}
+  step="0.1"
+  value={progressValue}
+  disabled={!canControl}
+  aria-label="Playback progress"
+  style={{
+    "--player-progress":
+      `${
+        progressMax > 0
+          ? (
+              progressValue /
+              progressMax
+            ) * 100
+          : 0
+      }%`,
+  }}
+  onChange={(event) => {
+    const value =
+      Number(
+        event.target.value,
+      );
 
-              player.seekTo(value);
-            }}
-          />
+    player.seekTo(
+      value,
+    );
+  }}
+/>
 
 
           <span>
@@ -1430,6 +1471,7 @@ function PlayerBar() {
           size={19}
         />
       </button>
+
 
     </section>
   );
@@ -2276,7 +2318,7 @@ const clearPlaylistToOpen =
           <MainPage
             activePage={activePage}
             currentUser={currentUser}
-            resetToken={searchResetToken}
+            searchResetToken={searchResetToken}
             playlistToOpen={
             playlistToOpen
             }

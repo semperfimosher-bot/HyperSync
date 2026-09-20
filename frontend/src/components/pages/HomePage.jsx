@@ -304,7 +304,6 @@ useEffect(() => {
 
         <SectionHeading
           title="Recently Played"
-          actionLabel="View all"
           onAction={() => {
   if (currentUser) {
     onNavigate(

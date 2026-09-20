@@ -1118,114 +1118,145 @@
     text-align: center;
   }
 
+  /* =========================================================
+   DESKTOP PLAYER — FILL PROGRESS BAR
+   ========================================================= */
 
-  /* Actual interactive progress bar */
+.desktop-progress input[type="range"] {
+  width: 100%;
+  height: 4px;
 
-  .desktop-progress input[type="range"] {
-    width: 100%;
+  margin: 0;
 
-    height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
 
-    margin: 0;
+  border: 0;
+  border-radius: 999px;
 
-    appearance: none;
+  outline: none;
 
-    cursor: pointer;
+  cursor: pointer;
 
-    border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
 
-    outline: none;
+      #00cfff
+        0%,
 
-    background:
-      linear-gradient(
-        90deg,
-        #00bfff,
-        #0878ff
-      );
-  }
+      #0878ff
+        var(--player-progress),
 
+      rgba(
+        95,
+        126,
+        143,
+        0.22
+      )
+        var(--player-progress),
 
-  .desktop-progress
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 4px;
-
-    border-radius: 999px;
-
-    background:
-      linear-gradient(
-        90deg,
-        #00cfff,
-        #0878ff
-      );
-  }
-
-
-  .desktop-progress
-  input[type="range"]::-webkit-slider-thumb {
-    width: 10px;
-    height: 10px;
-
-    margin-top: -3px;
-
-    appearance: none;
-
-    border:
-      2px solid
-      #d9f9ff;
-
-    border-radius: 50%;
-
-    background:
-      #00bfff;
-
-    box-shadow:
-      0 0 10px
-      rgba(0, 191, 255, 0.8);
-  }
+      rgba(
+        95,
+        126,
+        143,
+        0.22
+      )
+        100%
+    );
+}
 
 
-  .desktop-progress
-  input[type="range"]::-moz-range-track {
-    height: 4px;
+/*
+ * Chrome / Edge / Safari
+ *
+ * Track is transparent because the actual
+ * progress fill is painted on the input.
+ */
 
-    border-radius: 999px;
+.desktop-progress
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
 
-    background:
-      rgba(95, 126, 143, 0.28);
-  }
+  border-radius: 999px;
 
-
-  .desktop-progress
-  input[type="range"]::-moz-range-progress {
-    height: 4px;
-
-    border-radius: 999px;
-
-    background:
-      linear-gradient(
-        90deg,
-        #00cfff,
-        #0878ff
-      );
-  }
+  background: transparent;
+}
 
 
-  .desktop-progress
-  input[type="range"]::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
+/*
+ * Invisible thumb.
+ *
+ * It still has a touch/click area so seeking
+ * continues to work, but no moving dot shows.
+ */
 
-    border:
-      2px solid
-      #d9f9ff;
+.desktop-progress
+input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
 
-    border-radius: 50%;
+  margin-top: -5px;
 
-    background:
-      #00bfff;
+  appearance: none;
+  -webkit-appearance: none;
 
-    box-shadow:
-      0 0 10px
-      rgba(0, 191, 255, 0.8);
-  }
+  border: 0;
+
+  background: transparent;
+
+  opacity: 0;
+}
+
+
+/*
+ * Firefox
+ */
+
+.desktop-progress
+input[type="range"]::-moz-range-track {
+  height: 4px;
+
+  border: 0;
+
+  border-radius: 999px;
+
+  background:
+    rgba(
+      95,
+      126,
+      143,
+      0.22
+    );
+}
+
+
+.desktop-progress
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+
+  border: 0;
+
+  border-radius: 999px;
+
+  background:
+    linear-gradient(
+      90deg,
+      #00cfff,
+      #0878ff
+    );
+}
+
+
+.desktop-progress
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+
+  border: 0;
+
+  background: transparent;
+
+  opacity: 0;
+ }
 }
