@@ -25,6 +25,7 @@ const MEDIA_CHUNK_STORE =
 
 let databasePromise = null;
 
+
 export function buildMediaCacheKey(
   trackId,
   mediaVersion,

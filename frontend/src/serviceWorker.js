@@ -23,6 +23,162 @@ const DEFAULT_API_BASE_URL =
   import.meta.env
     ?.VITE_API_BASE_URL ??
   "/api";
+const APP_SHELL_CACHE =
+  "hypersync-app-shell-v1";
+
+
+async function precacheAppShell() {
+  const cache =
+    await caches.open(
+      APP_SHELL_CACHE,
+    );
+
+  const response =
+    await fetch(
+      "/",
+      {
+        cache:
+          "no-cache",
+      },
+    );
+
+  if (!response.ok) {
+    return;
+  }
+
+  /*
+   * Save index.html.
+   */
+  await cache.put(
+    "/",
+    response.clone(),
+  );
+
+  /*
+   * Find the hashed Vite JS/CSS files
+   * referenced by index.html and cache
+   * those too.
+   */
+  const html =
+    await response.text();
+
+  const matches =
+    [
+      ...html.matchAll(
+        /(?:src|href)=["']([^"']+)["']/g,
+      ),
+    ];
+
+  const assetUrls =
+    [
+      ...new Set(
+        matches
+          .map(
+            (match) =>
+              match[1],
+          )
+          .filter(
+            (value) =>
+              value &&
+              !value.startsWith(
+                "data:",
+              ),
+          )
+          .map(
+            (value) =>
+              new URL(
+                value,
+                self.location.origin,
+              ),
+          )
+          .filter(
+            (url) =>
+              url.origin ===
+              self.location.origin,
+          )
+          .map(
+            (url) =>
+              url.href,
+          ),
+      ),
+    ];
+
+  await Promise.allSettled(
+    assetUrls.map(
+      async (url) => {
+        const assetResponse =
+          await fetch(
+            url,
+            {
+              cache:
+                "no-cache",
+            },
+          );
+
+        if (
+          assetResponse.ok
+        ) {
+          await cache.put(
+            url,
+            assetResponse,
+          );
+        }
+      },
+    ),
+  );
+}
+
+
+self.addEventListener(
+  "install",
+  (event) => {
+    event.waitUntil(
+      (
+        async () => {
+          await precacheAppShell();
+
+          await self.skipWaiting();
+        }
+      )(),
+    );
+  },
+);
+
+
+self.addEventListener(
+  "activate",
+  (event) => {
+    event.waitUntil(
+      (
+        async () => {
+          const keys =
+            await caches.keys();
+
+          await Promise.all(
+            keys
+              .filter(
+                (key) =>
+                  key.startsWith(
+                    "hypersync-app-shell-",
+                  ) &&
+                  key !==
+                    APP_SHELL_CACHE,
+              )
+              .map(
+                (key) =>
+                  caches.delete(
+                    key,
+                  ),
+              ),
+          );
+
+          await self.clients.claim();
+        }
+      )(),
+    );
+  },
+);
+
 function parseMediaRoute(
   request,
 ) {
@@ -438,6 +594,161 @@ export function registerMediaFetchHandler(
     },
   );
 }
+
+self.addEventListener(
+  "fetch",
+  (event) => {
+    const request =
+      event.request;
+
+    if (
+      request.method !==
+      "GET"
+    ) {
+      return;
+    }
+
+    const url =
+      new URL(
+        request.url,
+      );
+
+    /*
+     * Only handle the frontend here.
+     *
+     * Media is already handled by the
+     * existing HyperSync media handler.
+     */
+    if (
+      url.origin !==
+        self.location.origin ||
+      url.pathname.startsWith(
+        MEDIA_ROUTE_PREFIX,
+      ) ||
+      url.pathname.startsWith(
+        "/api/",
+      )
+    ) {
+      return;
+    }
+
+
+    /*
+     * SPA navigation:
+     *
+     * Try the newest page while online.
+     * If offline, return cached index.html.
+     */
+    if (
+      request.mode ===
+      "navigate"
+    ) {
+      event.respondWith(
+        (
+          async () => {
+            const cache =
+              await caches.open(
+                APP_SHELL_CACHE,
+              );
+
+            try {
+              const response =
+                await fetch(
+                  request,
+                );
+
+              if (
+                response.ok
+              ) {
+                await cache.put(
+                  "/",
+                  response.clone(),
+                );
+              }
+
+              return response;
+            } catch {
+              const cached =
+                await cache.match(
+                  "/",
+                );
+
+              if (cached) {
+                return cached;
+              }
+
+              return new Response(
+                "HyperSync is offline.",
+                {
+                  status: 503,
+
+                  headers: {
+                    "Content-Type":
+                      "text/plain",
+                  },
+                },
+              );
+            }
+          }
+        )(),
+      );
+
+      return;
+    }
+
+
+    /*
+     * Static frontend files.
+     */
+    if (
+      [
+        "script",
+        "style",
+        "font",
+        "image",
+        "manifest",
+      ].includes(
+        request.destination,
+      )
+    ) {
+      event.respondWith(
+        (
+          async () => {
+            const cache =
+              await caches.open(
+                APP_SHELL_CACHE,
+              );
+
+            const cached =
+              await cache.match(
+                request,
+              );
+
+            if (cached) {
+              return cached;
+            }
+
+            const response =
+              await fetch(
+                request,
+              );
+
+            if (
+              response.ok
+            ) {
+              await cache.put(
+                request,
+                response.clone(),
+              );
+            }
+
+            return response;
+          }
+        )(),
+      );
+    }
+  },
+);
 
 if (
   typeof globalThis.self !==

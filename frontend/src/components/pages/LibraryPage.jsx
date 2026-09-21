@@ -39,6 +39,13 @@ import {
   isTrackDownloaded,
 } from "../../offlineDownloads.js";
 
+import {
+  getCachedLibrary,
+  getCachedPlaylist,
+  setCachedLibrary,
+  setCachedPlaylist,
+} from "../../libraryCache.js";
+
 function resolveArtworkUrl(
   url,
 ) {
@@ -173,15 +180,33 @@ useEffect(() => {
     "Playlists",
   );
 
-  const [
-    ownedPlaylists,
-    setOwnedPlaylists,
-  ] = useState([]);
+  const libraryCacheKey =
+  currentUser?.id ??
+  currentUser?.username ??
+  "anonymous";
 
-  const [
-    savedPlaylists,
-    setSavedPlaylists,
-  ] = useState([]);
+  const cachedLibrary =
+  getCachedLibrary(
+    libraryCacheKey,
+  );
+
+const [
+  ownedPlaylists,
+  setOwnedPlaylists,
+] = useState(
+  () =>
+    cachedLibrary?.owned ??
+    [],
+);
+
+const [
+  savedPlaylists,
+  setSavedPlaylists,
+] = useState(
+  () =>
+    cachedLibrary?.saved ??
+    [],
+);
 
   const [
     selectedPlaylist,
@@ -286,55 +311,157 @@ useEffect(() => {
 
 
   const loadLibrary =
-    useCallback(
-      async () => {
-        if (!isRegistered) {
-          setOwnedPlaylists([]);
-          setSavedPlaylists([]);
+  useCallback(
+    async () => {
+      if (!isRegistered) {
+        setOwnedPlaylists([]);
+        setSavedPlaylists([]);
 
-          return;
-        }
+        return;
+      }
 
-        setLoading(true);
-        setError("");
+      const cached =
+        getCachedLibrary(
+          libraryCacheKey,
+        );
 
-        try {
-          const [
-            mine,
-            saved,
-          ] =
-            await Promise.all([
-              getMyPlaylists(),
-              getSavedPlaylists(),
-            ]);
+      const offline =
+        typeof navigator !==
+          "undefined" &&
+        navigator.onLine ===
+          false;
 
+
+      /*
+       * OFFLINE:
+       *
+       * Never attempt the API.
+       * Restore the last saved Library
+       * snapshot immediately.
+       */
+      if (offline) {
+        if (cached) {
           setOwnedPlaylists(
-            Array.isArray(mine)
-              ? mine
+            Array.isArray(
+              cached.owned,
+            )
+              ? cached.owned
               : [],
           );
 
           setSavedPlaylists(
-            Array.isArray(saved)
-              ? saved
+            Array.isArray(
+              cached.saved,
+            )
+              ? cached.saved
               : [],
           );
-        } catch (requestError) {
+
+          setError("");
+        } else {
+          setOwnedPlaylists([]);
+          setSavedPlaylists([]);
+
           setError(
-            requestError
-              instanceof Error
+            "This Library has not been cached on this device yet.",
+          );
+        }
+
+        setLoading(false);
+
+        return;
+      }
+
+
+      if (!cached) {
+        setLoading(true);
+      }
+
+      setError("");
+
+      try {
+        const [
+          mine,
+          saved,
+        ] =
+          await Promise.all([
+            getMyPlaylists(),
+            getSavedPlaylists(),
+          ]);
+
+        const nextOwned =
+          Array.isArray(mine)
+            ? mine
+            : [];
+
+        const nextSaved =
+          Array.isArray(saved)
+            ? saved
+            : [];
+
+        setOwnedPlaylists(
+          nextOwned,
+        );
+
+        setSavedPlaylists(
+          nextSaved,
+        );
+
+        setCachedLibrary(
+          libraryCacheKey,
+          {
+            owned:
+              nextOwned,
+
+            saved:
+              nextSaved,
+          },
+        );
+      } catch (requestError) {
+        /*
+         * If the connection disappeared
+         * during the request, fall back
+         * to the persisted snapshot.
+         */
+        const fallback =
+          getCachedLibrary(
+            libraryCacheKey,
+          );
+
+        if (fallback) {
+          setOwnedPlaylists(
+            Array.isArray(
+              fallback.owned,
+            )
+              ? fallback.owned
+              : [],
+          );
+
+          setSavedPlaylists(
+            Array.isArray(
+              fallback.saved,
+            )
+              ? fallback.saved
+              : [],
+          );
+
+          setError("");
+        } else {
+          setError(
+            requestError instanceof Error
               ? requestError.message
               : "Unable to load your library.",
           );
-        } finally {
-          setLoading(false);
         }
-      },
-      [
-        isRegistered,
-      ],
-    );
-
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      isRegistered,
+      libraryCacheKey,
+    ],
+  );
 
   useEffect(() => {
     void loadLibrary();
@@ -457,45 +584,95 @@ useEffect(() => {
 
 
   async function openPlaylist(
-    playlistId,
-  ) {
-    if (openingPlaylistId) {
-      return;
-    }
+  playlistId,
+) {
+  if (openingPlaylistId) {
+    return;
+  }
 
+  const cached =
+    getCachedPlaylist(
+  libraryCacheKey,
+  playlistId,
+)
+
+  /*
+   * If we've loaded this playlist before,
+   * show it immediately.
+   */
+  if (cached) {
+    setSelectedPlaylist(
+      cached,
+    );
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  } else {
     setOpeningPlaylistId(
       playlistId,
     );
+  }
 
-    setError("");
+  setError("");
 
-    try {
-      const playlist =
-        await getPlaylist(
-          playlistId,
-        );
+  const offline =
+  typeof navigator !==
+    "undefined" &&
+  navigator.onLine ===
+    false;
 
-      setSelectedPlaylist(
-        playlist,
+if (offline) {
+  if (!cached) {
+    setError(
+      "Open this playlist once while online before using it offline.",
+    );
+  }
+
+  setOpeningPlaylistId(
+    null,
+  );
+
+  return;
+}
+
+  try {
+    /*
+     * Still refresh from the server so
+     * cached data never becomes permanently stale.
+     */
+    const playlist =
+      await getPlaylist(
+        playlistId,
       );
 
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth",
-      });
-    } catch (requestError) {
+    setCachedPlaylist(
+  libraryCacheKey,
+  playlist,
+);
+
+    setSelectedPlaylist(
+      playlist,
+    );
+  } catch (requestError) {
+    /*
+     * If cached data exists, don't destroy
+     * the working page because refresh failed.
+     */
+    if (!cached) {
       setError(
-        requestError
-          instanceof Error
+        requestError instanceof Error
           ? requestError.message
           : "Unable to open playlist.",
       );
-    } finally {
-      setOpeningPlaylistId(
-        null,
-      );
     }
+  } finally {
+    setOpeningPlaylistId(
+      null,
+    );
   }
+}
 
 
   async function handleCreatePlaylist(

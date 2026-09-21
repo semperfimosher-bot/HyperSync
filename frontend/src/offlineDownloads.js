@@ -6,11 +6,11 @@ import {
   ensureMediaRecord,
   getMediaChunk,
   getMediaRecord,
+  getPinnedMediaRecords,
   MEDIA_CHUNK_SIZE,
   saveMediaChunk,
   saveMediaRecord,
 } from "./mediaStore.js";
-
 
 function normalizeApiBase() {
   return API_BASE.replace(
@@ -40,6 +40,51 @@ async function requestPersistentStorage() {
   }
 }
 
+export async function getDownloadedTracks() {
+  const records =
+    await getPinnedMediaRecords();
+
+  return records.map(
+    (record) => ({
+      id:
+        record.trackId,
+
+      title:
+        record.title ||
+        "Unknown Track",
+
+      artist:
+        record.artist ||
+        "Unknown Artist",
+
+      album:
+        record.album ||
+        "",
+
+      duration_seconds:
+        record.durationSeconds ??
+        null,
+
+      artwork_url:
+        record.artworkUrl ??
+        null,
+
+      mime_type:
+        record.mimeType ??
+        null,
+
+      file_size:
+        record.fileSize ??
+        null,
+
+      media_version:
+        record.mediaVersion,
+
+      downloaded:
+        true,
+    }),
+  );
+}
 
 export async function downloadTrackForOffline(
   track,
@@ -301,6 +346,11 @@ export async function downloadTrackForOffline(
     album:
       track.album ??
       "",
+
+    durationSeconds:
+      track.duration_seconds ??
+      track.durationSeconds ??
+      null,
 
     artworkUrl:
       track.artwork_url ??

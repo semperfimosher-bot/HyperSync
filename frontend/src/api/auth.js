@@ -144,6 +144,44 @@ async function restoreSessionInternal() {
   const remember =
     rememberSession();
 
+    const cachedProfile =
+  readCachedUserProfile();
+
+const isOffline =
+  typeof navigator !==
+    "undefined" &&
+  navigator.onLine ===
+    false;
+
+
+/*
+ * Offline startup.
+ *
+ * Do not contact the server and do not
+ * destroy the local session.
+ */
+if (
+  isOffline &&
+  cachedProfile
+) {
+  return buildRestoredUser(
+    cachedProfile,
+    token,
+  );
+}
+
+if (
+  typeof navigator !==
+    "undefined" &&
+  navigator.onLine ===
+    false &&
+  cachedProfile
+) {
+  return buildRestoredUser(
+    cachedProfile,
+    token,
+  );
+}
 
   if (
   token &&
