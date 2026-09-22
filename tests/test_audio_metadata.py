@@ -83,6 +83,7 @@ def test_embedded_metadata_wins_when_field_was_not_edited() -> None:
         "artist": "Real Artist",
         "album": "Real Album",
         "duration_seconds": 208,
+        "genre": None,
     }
 
 
@@ -113,4 +114,5 @@ def test_manual_metadata_wins_over_embedded_metadata() -> None:
         "artist": "Corrected Artist",
         "album": "Corrected Album",
         "duration_seconds": 210,
+        "genre": None,
     }
