@@ -149,9 +149,14 @@ globalThis.self?.addEventListener?.(
     event.waitUntil(
       (
         async () => {
+          /*
+           * Do not force-activate across an older
+           * open client. This release upgrades the
+           * media IndexedDB schema, so waiting for
+           * old tabs to close avoids a blocked DB
+           * migration and mixed-version runtime.
+           */
           await precacheAppShell();
-
-          await self.skipWaiting();
         }
       )(),
     );
