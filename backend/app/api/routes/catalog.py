@@ -14,6 +14,7 @@ from fastapi import (
     APIRouter,
     HTTPException,
     Query,
+    Request,
     Response,
 )
 from fastapi.responses import StreamingResponse
@@ -26,6 +27,7 @@ from ...models.media import (
     Track,
     TrackLyrics,
 )
+from ...security.rate_limit import enforce_rate_limit
 from ...services.b2 import (
     create_presigned_download_url,
     get_b2_bucket,
@@ -324,8 +326,16 @@ def _lyrics_response(
 )
 async def get_track_lyrics(
     track_id: UUID,
+    request: Request,
     response: Response,
 ) -> TrackLyricsResponse:
+    enforce_rate_limit(
+        request,
+        bucket="lyrics",
+        limit=30,
+        window_seconds=60,
+    )
+
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
 
     settings = get_settings()
