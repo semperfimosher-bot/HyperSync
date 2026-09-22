@@ -1217,6 +1217,7 @@ export async function saveArtwork({
   data,
   mimeType = "image/jpeg",
   sourceUrl = null,
+  artworkVersion = null,
 } = {}) {
   const normalizedTrackId =
     String(trackId ?? "").trim();
@@ -1243,6 +1244,13 @@ export async function saveArtwork({
     byteLength:
       data.byteLength,
     sourceUrl,
+    artworkVersion:
+      artworkVersion === null ||
+      artworkVersion === undefined
+        ? null
+        : String(
+            artworkVersion,
+          ),
     updatedAt:
       Date.now(),
   };
