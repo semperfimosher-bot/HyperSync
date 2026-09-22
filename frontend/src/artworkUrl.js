@@ -7,6 +7,81 @@ export const OFFLINE_ARTWORK_ROUTE_PREFIX =
   "/__hypersync/artwork/";
 
 
+function localArtworkRouteFromSource(
+  src,
+) {
+  try {
+    let parsed;
+
+    if (
+      src.startsWith(
+        "/api/",
+      )
+    ) {
+      parsed =
+        new URL(
+          src,
+          globalThis.location
+            ?.origin ??
+            "https://hypersynced.invalid",
+        );
+    } else if (
+      src.startsWith(
+        "http://",
+      ) ||
+      src.startsWith(
+        "https://",
+      )
+    ) {
+      parsed =
+        new URL(
+          src,
+        );
+    } else {
+      return null;
+    }
+
+    const match =
+      /\/api\/catalog\/tracks\/([^/]+)\/artwork$/.exec(
+        parsed.pathname,
+      );
+
+    if (!match) {
+      return null;
+    }
+
+    const trackId =
+      decodeURIComponent(
+        match[1],
+      );
+
+    const version =
+      parsed.searchParams.get(
+        "v",
+      );
+
+    return (
+      OFFLINE_ARTWORK_ROUTE_PREFIX +
+      encodeURIComponent(
+        trackId,
+      ) +
+      (
+        version
+          ? (
+              "?v=" +
+              encodeURIComponent(
+                version,
+              )
+            )
+          : ""
+      )
+    );
+  } catch {
+    return null;
+  }
+}
+
+
 export function resolveArtworkUrl(
   src,
 ) {
@@ -22,13 +97,33 @@ export function resolveArtworkUrl(
     return src;
   }
 
+  const localArtwork =
+    localArtworkRouteFromSource(
+      src,
+    );
+
+  if (localArtwork) {
+    return localArtwork;
+  }
+
   if (
     src.startsWith("blob:") ||
     src.startsWith("data:") ||
-    src.startsWith("http://") ||
     src.startsWith("https://")
   ) {
     return src;
+  }
+
+  /*
+   * Never render insecure remote artwork in the production UI.
+   * Relative same-origin URLs remain allowed below.
+   */
+  if (
+    src.startsWith(
+      "http://",
+    )
+  ) {
+    return null;
   }
 
   if (
