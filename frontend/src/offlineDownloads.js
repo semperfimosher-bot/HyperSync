@@ -69,8 +69,37 @@ function buildApiUrl(
 }
 
 
+function artworkVersionFromSource(
+  source,
+) {
+  if (!source) {
+    return null;
+  }
+
+  try {
+    const parsed =
+      new URL(
+        source,
+        globalThis.location
+          ?.origin ??
+          "https://hypersynced.invalid",
+      );
+
+    return (
+      parsed.searchParams.get(
+        "v",
+      ) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+
 export function getOfflineArtworkUrl(
   trackId,
+  artworkVersion = null,
 ) {
   const normalizedTrackId =
     String(trackId ?? "").trim();
@@ -79,10 +108,28 @@ export function getOfflineArtworkUrl(
     return null;
   }
 
+  const normalizedVersion =
+    artworkVersion === null ||
+    artworkVersion === undefined
+      ? ""
+      : String(
+          artworkVersion,
+        ).trim();
+
   return (
     OFFLINE_ARTWORK_ROUTE_PREFIX +
     encodeURIComponent(
       normalizedTrackId,
+    ) +
+    (
+      normalizedVersion
+        ? (
+            "?v=" +
+            encodeURIComponent(
+              normalizedVersion,
+            )
+          )
+        : ""
     )
   );
 }
@@ -425,16 +472,34 @@ async function cacheTrackArtwork(
     return null;
   }
 
+  const artworkVersion =
+    artworkVersionFromSource(
+      artworkSource,
+    );
+
   const existing =
     await getArtwork(
       trackId,
     );
 
-  if (
+  const existingMatches =
     existing?.data instanceof
       ArrayBuffer &&
-    existing.data.byteLength > 0
-  ) {
+    existing.data.byteLength > 0 &&
+    (
+      artworkVersion
+        ? (
+            existing.artworkVersion ===
+            artworkVersion
+          )
+        : (
+            !existing.sourceUrl ||
+            existing.sourceUrl ===
+              artworkSource
+          )
+    );
+
+  if (existingMatches) {
     return existing;
   }
 
@@ -484,6 +549,7 @@ async function cacheTrackArtwork(
       "image/jpeg",
     sourceUrl:
       artworkSource,
+    artworkVersion,
   });
 }
 
@@ -815,6 +881,7 @@ export async function downloadTrackForOffline(
       artwork
         ? getOfflineArtworkUrl(
             trackId,
+            artwork.artworkVersion,
           )
         : null,
 
