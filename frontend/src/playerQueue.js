@@ -50,6 +50,10 @@ export function buildTrackQueue(
         artist:
           track.artist ??
           "",
+
+        album:
+          track.album ??
+          "",
       },
     }));
 }
