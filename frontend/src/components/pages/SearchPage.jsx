@@ -9,12 +9,18 @@ import {
   API_BASE,
 } from "../../api/client.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import * as player from
   "../../audioPlayer.js";
 
 import {
   downloadTrackForOffline,
+  downloadTracksForOffline,
   isTrackDownloaded,
+  searchDownloadedTracks,
 } from "../../offlineDownloads.js";
 
 import {
@@ -92,25 +98,6 @@ const FILTERS = [
   ["playlists", "Playlists"],
   ["tracks", "Tracks"],
 ];
-
-function resolveArtworkUrl(url) {
-  if (!url) {
-    return null;
-  }
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(
-    /^\/api/,
-    "",
-  )}`;
-}
-
 
 function memberFor(value) {
   if (!value) {
@@ -515,7 +502,66 @@ useEffect(() => {
     const timer =
       window.setTimeout(
         async () => {
+          let localTracks =
+            [];
+
           try {
+            localTracks =
+              await searchDownloadedTracks(
+                normalizedQuery,
+              );
+
+            if (
+              !controller.signal
+                .aborted &&
+              localTracks.length > 0
+            ) {
+              setResults({
+                ...EMPTY_RESULTS,
+                query:
+                  normalizedQuery,
+                interpreted_query:
+                  normalizedQuery,
+                counts: {
+                  ...EMPTY_RESULTS.counts,
+                  tracks:
+                    localTracks.length,
+                },
+                tracks:
+                  localTracks,
+              });
+
+              setSelectedTrackIndex(
+                -1,
+              );
+
+              setLoading(
+                false,
+              );
+            }
+          } catch {
+            // Local search is best effort.
+          }
+
+          try {
+            if (
+              typeof navigator !==
+                "undefined" &&
+              navigator.onLine ===
+                false
+            ) {
+              if (
+                localTracks.length ===
+                0
+              ) {
+                setSearchError(
+                  "No downloaded matches are available offline.",
+                );
+              }
+
+              return;
+            }
+
             const data =
               await searchHypersync(
                 normalizedQuery,
@@ -565,6 +611,10 @@ useEffect(() => {
               -1,
             );
 
+            setSearchError(
+              "",
+            );
+
           } catch (error) {
             if (
               error?.name ===
@@ -573,11 +623,16 @@ useEffect(() => {
               return;
             }
 
-            setSearchError(
-              error instanceof Error
-                ? error.message
-                : "Unable to search.",
-            );
+            if (
+              localTracks.length ===
+                0
+            ) {
+              setSearchError(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to search.",
+              );
+            }
 
           } finally {
             if (
@@ -1140,6 +1195,10 @@ function playOpenedPlaylist(
 
         artist:
           track.artist,
+
+        album:
+          track.album ??
+          "",
       }),
     );
 
@@ -1240,53 +1299,30 @@ async function downloadOpenedPlaylist() {
   });
 
   try {
-    for (
-      let index = 0;
-      index < tracks.length;
-      index += 1
-    ) {
-      const track =
-        tracks[index];
-
-      const downloaded =
-        await isTrackDownloaded(
-          track,
-        );
-
-      if (!downloaded) {
-        await downloadTrackForOffline(
-          track,
-          {
-            onProgress: ({
-              progress,
-            }) => {
-              setPlaylistDownload({
-                status:
-                  "downloading",
-
-                progress:
-                  (
-                    index +
-                    progress
-                  ) /
-                  tracks.length,
-              });
-            },
-          },
-        );
-      }
-
-      setPlaylistDownload({
-        status:
-          "downloading",
-
-        progress:
-          (
-            index + 1
-          ) /
-          tracks.length,
-      });
-    }
+    await downloadTracksForOffline(
+      tracks,
+      {
+        jobId:
+          "playlist:" +
+          String(
+            openedPlaylist.id,
+          ),
+        onProgress: ({
+          progress,
+        }) => {
+          setPlaylistDownload({
+            status:
+              "downloading",
+            progress:
+              Number.isFinite(
+                progress,
+              )
+                ? progress
+                : 0,
+          });
+        },
+      },
+    );
 
     setPlaylistDownload({
       status:
