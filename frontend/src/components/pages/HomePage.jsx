@@ -28,6 +28,10 @@ import {
   getHomeRecentlyPlayed,
 } from "../../homeRecentlyPlayed.js";
 
+import {
+  getDownloadedTracks,
+} from "../../offlineDownloads.js";
+
 function CachedArtwork({
   src,
   alt,
@@ -159,6 +163,34 @@ useEffect(() => {
       "",
     );
 
+    let localTracks =
+      [];
+
+    try {
+      localTracks =
+        (
+          await getDownloadedTracks()
+        ).slice(
+          0,
+          12,
+        );
+
+      if (
+        !cancelled &&
+        localTracks.length > 0
+      ) {
+        setRecentlyPlayed(
+          localTracks,
+        );
+
+        setRecentLoading(
+          false,
+        );
+      }
+    } catch {
+      // Local downloads are a best-effort first paint.
+    }
+
     try {
       const profile =
         await getMyProfile();
@@ -172,20 +204,36 @@ useEffect(() => {
           profile,
         ),
       );
+
+      setRecentError(
+        "",
+      );
     } catch (error) {
       if (cancelled) {
         return;
       }
 
-      setRecentlyPlayed(
-        [],
-      );
+      if (
+        localTracks.length > 0
+      ) {
+        setRecentlyPlayed(
+          localTracks,
+        );
 
-      setRecentError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load recently played.",
-      );
+        setRecentError(
+          "",
+        );
+      } else {
+        setRecentlyPlayed(
+          [],
+        );
+
+        setRecentError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load recently played.",
+        );
+      }
     } finally {
       if (!cancelled) {
         setRecentLoading(
