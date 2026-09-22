@@ -273,6 +273,10 @@ function normalizeTrackMeta(
     artist:
       meta.artist ??
       "",
+
+    album:
+      meta.album ??
+      "",
   };
 }
 
