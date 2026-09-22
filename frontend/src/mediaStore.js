@@ -1623,6 +1623,7 @@ export async function removeDownloadedMedia(
             MEDIA_RECORD_STORE,
             MEDIA_CHUNK_STORE,
             MEDIA_ARTWORK_STORE,
+            MEDIA_LYRICS_STORE,
           ],
           "readwrite",
         );
