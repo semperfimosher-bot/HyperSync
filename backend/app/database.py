@@ -21,7 +21,14 @@ from .models.media import Track
 @lru_cache
 def get_engine() -> AsyncEngine:
     settings = get_settings()
-    database_url = settings.sqlalchemy_database_url or "sqlite+aiosqlite:///./local_dev.db"
+    database_url = settings.sqlalchemy_database_url
+
+    if not database_url:
+        if settings.environment == "production":
+            raise RuntimeError(
+                "DATABASE_URL is required in production; refusing SQLite fallback."
+            )
+        database_url = "sqlite+aiosqlite:///./local_dev.db"
 
     engine_kwargs = {
         "pool_pre_ping": True,
