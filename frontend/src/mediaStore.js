@@ -227,8 +227,19 @@ function openMediaDatabase() {
 
         request.onsuccess =
           () => {
+            const database =
+              request.result;
+
+            database.onversionchange =
+              () => {
+                database.close();
+
+                databasePromise =
+                  null;
+              };
+
             resolve(
-              request.result,
+              database,
             );
           };
 
