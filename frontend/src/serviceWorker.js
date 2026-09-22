@@ -143,7 +143,7 @@ async function precacheAppShell() {
 }
 
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "install",
   (event) => {
     event.waitUntil(
@@ -159,7 +159,7 @@ self.addEventListener(
 );
 
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "activate",
   (event) => {
     event.waitUntil(
@@ -813,7 +813,7 @@ export function registerMediaFetchHandler(
   );
 }
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "fetch",
   (event) => {
     const request =
