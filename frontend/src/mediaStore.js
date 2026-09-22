@@ -14,7 +14,7 @@ const MEDIA_DATABASE_NAME =
   "hypersynced-media-v1";
 
 const MEDIA_DATABASE_VERSION =
-  5;
+  2;
 
 const MEDIA_RECORD_STORE =
   "media";
@@ -31,8 +31,17 @@ const MEDIA_DOWNLOAD_JOB_STORE =
 const MEDIA_LYRICS_STORE =
   "lyrics";
 
+const OFFLINE_DATABASE_NAME =
+  "hypersynced-offline-v1";
+
+const OFFLINE_DATABASE_VERSION =
+  1;
+
 
 let databasePromise = null;
+
+let offlineDatabasePromise =
+  null;
 
 
 export function buildMediaCacheKey(
@@ -182,6 +191,78 @@ function openMediaDatabase() {
               );
             }
 
+          };
+
+        request.onsuccess =
+          () => {
+            const database =
+              request.result;
+
+            database.onversionchange =
+              () => {
+                database.close();
+
+                databasePromise =
+                  null;
+              };
+
+            resolve(
+              database,
+            );
+          };
+
+        request.onerror =
+          () => {
+            databasePromise =
+              null;
+
+            reject(
+              request.error ??
+                new Error(
+                  "Unable to open media database.",
+                ),
+            );
+          };
+      },
+    );
+
+  return databasePromise;
+}
+
+
+function openOfflineDatabase() {
+  if (
+    typeof indexedDB ===
+    "undefined"
+  ) {
+    return Promise.reject(
+      new Error(
+        "IndexedDB is unavailable.",
+      ),
+    );
+  }
+
+  if (offlineDatabasePromise) {
+    return offlineDatabasePromise;
+  }
+
+  offlineDatabasePromise =
+    new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const request =
+          indexedDB.open(
+            OFFLINE_DATABASE_NAME,
+            OFFLINE_DATABASE_VERSION,
+          );
+
+        request.onupgradeneeded =
+          () => {
+            const database =
+              request.result;
+
             if (
               !database.objectStoreNames
                 .contains(
@@ -234,7 +315,7 @@ function openMediaDatabase() {
               () => {
                 database.close();
 
-                databasePromise =
+                offlineDatabasePromise =
                   null;
               };
 
@@ -245,20 +326,20 @@ function openMediaDatabase() {
 
         request.onerror =
           () => {
-            databasePromise =
+            offlineDatabasePromise =
               null;
 
             reject(
               request.error ??
                 new Error(
-                  "Unable to open media database.",
+                  "Unable to open offline metadata database.",
                 ),
             );
           };
       },
     );
 
-  return databasePromise;
+  return offlineDatabasePromise;
 }
 
 
@@ -1268,7 +1349,7 @@ export async function saveArtwork({
   };
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   await new Promise(
     (resolve, reject) => {
@@ -1315,7 +1396,7 @@ export async function getArtwork(
   }
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   return new Promise(
     (resolve, reject) => {
@@ -1363,7 +1444,7 @@ export async function removeArtwork(
   }
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   await new Promise(
     (resolve, reject) => {
@@ -1425,7 +1506,7 @@ export async function saveLyrics(
   };
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   await new Promise(
     (resolve, reject) => {
@@ -1474,7 +1555,7 @@ export async function getLyrics(
   }
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   return new Promise(
     (resolve, reject) => {
@@ -1522,7 +1603,7 @@ export async function saveDownloadJob(
   }
 
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   const record = {
     ...job,
@@ -1565,7 +1646,7 @@ export async function saveDownloadJob(
 
 export async function getDownloadJobs() {
   const database =
-    await openMediaDatabase();
+    await openOfflineDatabase();
 
   return new Promise(
     (resolve, reject) => {
@@ -1651,8 +1732,6 @@ export async function removeDownloadedMedia(
           [
             MEDIA_RECORD_STORE,
             MEDIA_CHUNK_STORE,
-            MEDIA_ARTWORK_STORE,
-            MEDIA_LYRICS_STORE,
           ],
           "readwrite",
         );
@@ -1669,16 +1748,6 @@ export async function removeDownloadedMedia(
           MEDIA_CHUNK_STORE,
         );
 
-      const artworkStore =
-        transaction.objectStore(
-          MEDIA_ARTWORK_STORE,
-        );
-
-      const lyricsStore =
-        transaction.objectStore(
-          MEDIA_LYRICS_STORE,
-        );
-
 
       const mediaKeyIndex =
         chunkStore.index(
@@ -1689,16 +1758,6 @@ export async function removeDownloadedMedia(
       mediaStore.delete(
         mediaKey,
       );
-
-      if (!preserveSharedAssets) {
-        artworkStore.delete(
-          normalizedTrackId,
-        );
-
-        lyricsStore.delete(
-          normalizedTrackId,
-        );
-      }
 
 
       const cursorRequest =
@@ -1758,6 +1817,62 @@ export async function removeDownloadedMedia(
         };
     },
   );
+
+
+  if (!preserveSharedAssets) {
+    const offlineDatabase =
+      await openOfflineDatabase();
+
+    await new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const transaction =
+          offlineDatabase.transaction(
+            [
+              MEDIA_ARTWORK_STORE,
+              MEDIA_LYRICS_STORE,
+            ],
+            "readwrite",
+          );
+
+        transaction
+          .objectStore(
+            MEDIA_ARTWORK_STORE,
+          )
+          .delete(
+            normalizedTrackId,
+          );
+
+        transaction
+          .objectStore(
+            MEDIA_LYRICS_STORE,
+          )
+          .delete(
+            normalizedTrackId,
+          );
+
+        transaction.oncomplete =
+          () => {
+            resolve();
+          };
+
+        transaction.onerror =
+          () => {
+            reject(
+              transaction.error ??
+                new Error(
+                  "Unable to remove offline track metadata.",
+                ),
+            );
+          };
+
+        transaction.onabort =
+          transaction.onerror;
+      },
+    );
+  }
 
 
   return true;
