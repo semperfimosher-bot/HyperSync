@@ -1,6 +1,6 @@
 export function getHomeRecentlyPlayed(
   profile,
-  limit = 12,
+  limit = 6,
 ) {
   const tracks =
     Array.isArray(
