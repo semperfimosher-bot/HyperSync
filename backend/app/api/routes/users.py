@@ -16,6 +16,7 @@ from fastapi import (
     APIRouter,
     File,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
@@ -38,6 +39,7 @@ from ...models.account import (
     UserRole,
 )
 from ...models.media import Track
+from ...security.rate_limit import enforce_rate_limit
 from ...services.b2 import (
     create_presigned_download_url,
     delete_all_object_versions,
@@ -774,9 +776,17 @@ async def update_my_privacy(
 )
 async def record_listening(
     payload: ListeningRequest,
+    request: Request,
     user: CurrentUser,
     session: DatabaseSession,
 ):
+    enforce_rate_limit(
+        request,
+        bucket="listening",
+        limit=120,
+        window_seconds=60,
+        discriminator=str(user.id),
+    )
     track_result = await session.execute(
         select(Track).where(
             Track.id == payload.track_id,
@@ -1640,9 +1650,17 @@ async def get_public_profile(
 )
 async def follow_user(
     username: str,
+    request: Request,
     user: CurrentUser,
     session: DatabaseSession,
 ):
+    enforce_rate_limit(
+        request,
+        bucket="follow",
+        limit=30,
+        window_seconds=60,
+        discriminator=str(user.id),
+    )
     target = await get_user_by_username(
         session,
         username,
