@@ -499,69 +499,86 @@ useEffect(() => {
     setLoading(true);
     setSearchError("");
 
+    const setLocalResults =
+      (localTracks) => {
+        setResults({
+          ...EMPTY_RESULTS,
+          query:
+            normalizedQuery,
+          interpreted_query:
+            normalizedQuery,
+          counts: {
+            ...EMPTY_RESULTS.counts,
+            tracks:
+              localTracks.length,
+          },
+          tracks:
+            localTracks,
+        });
+
+        setSelectedTrackIndex(
+          -1,
+        );
+      };
+
     const timer =
       window.setTimeout(
         async () => {
-          let localTracks =
-            [];
+          const offline =
+            typeof navigator !==
+              "undefined" &&
+            navigator.onLine ===
+              false;
 
-          try {
-            localTracks =
-              await searchDownloadedTracks(
-                normalizedQuery,
-              );
-
-            if (
-              !controller.signal
-                .aborted &&
-              localTracks.length > 0
-            ) {
-              setResults({
-                ...EMPTY_RESULTS,
-                query:
+          if (offline) {
+            try {
+              const localTracks =
+                await searchDownloadedTracks(
                   normalizedQuery,
-                interpreted_query:
-                  normalizedQuery,
-                counts: {
-                  ...EMPTY_RESULTS.counts,
-                  tracks:
-                    localTracks.length,
-                },
-                tracks:
-                  localTracks,
-              });
+                );
 
-              setSelectedTrackIndex(
-                -1,
+              if (
+                controller.signal
+                  .aborted
+              ) {
+                return;
+              }
+
+              setLocalResults(
+                localTracks,
               );
 
-              setLoading(
-                false,
+              setSearchError(
+                localTracks.length > 0
+                  ? ""
+                  : "No downloaded matches are available offline.",
               );
+            } catch {
+              if (
+                !controller.signal
+                  .aborted
+              ) {
+                setLocalResults(
+                  [],
+                );
+
+                setSearchError(
+                  "Unable to search downloaded tracks.",
+                );
+              }
+            } finally {
+              if (
+                !controller.signal
+                  .aborted
+              ) {
+                setLoading(false);
+              }
             }
-          } catch {
-            // Local search is best effort.
+
+            return;
           }
 
           try {
-            if (
-              typeof navigator !==
-                "undefined" &&
-              navigator.onLine ===
-                false
-            ) {
-              if (
-                localTracks.length ===
-                0
-              ) {
-                setSearchError(
-                  "No downloaded matches are available offline.",
-                );
-              }
-
-              return;
-            }
-
             const data =
               await searchHypersync(
                 normalizedQuery,
@@ -614,7 +631,6 @@ useEffect(() => {
             setSearchError(
               "",
             );
-
           } catch (error) {
             if (
               error?.name ===
@@ -623,17 +639,43 @@ useEffect(() => {
               return;
             }
 
+            let localTracks =
+              [];
+
+            try {
+              localTracks =
+                await searchDownloadedTracks(
+                  normalizedQuery,
+                );
+            } catch {
+              localTracks =
+                [];
+            }
+
             if (
-              localTracks.length ===
-                0
+              controller.signal
+                .aborted
             ) {
+              return;
+            }
+
+            if (
+              localTracks.length > 0
+            ) {
+              setLocalResults(
+                localTracks,
+              );
+
+              setSearchError(
+                "",
+              );
+            } else {
               setSearchError(
                 error instanceof Error
                   ? error.message
                   : "Unable to search.",
               );
             }
-
           } finally {
             if (
               !controller.signal
@@ -933,6 +975,10 @@ async function downloadTrack(
 
       artist:
         track.artist,
+
+      album:
+        track.album ??
+        "",
     }),
   );
 
