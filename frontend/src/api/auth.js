@@ -1,5 +1,6 @@
 import {
   apiRequest,
+  AuthSessionExpiredError,
   refreshAccessToken,
 } from "./client.js";
 
@@ -141,110 +142,98 @@ async function restoreSessionInternal() {
   const token =
     getAccessToken();
 
-  const remember =
-    rememberSession();
+  const cachedProfile =
+    readCachedUserProfile();
 
-    const cachedProfile =
-  readCachedUserProfile();
+  const isOffline =
+    typeof navigator !==
+      "undefined" &&
+    navigator.onLine ===
+      false;
 
-const isOffline =
-  typeof navigator !==
-    "undefined" &&
-  navigator.onLine ===
-    false;
-
-
-/*
- * Offline startup.
- *
- * Do not contact the server and do not
- * destroy the local session.
- */
-if (
-  isOffline &&
-  cachedProfile
-) {
-  return buildRestoredUser(
-    cachedProfile,
-    token,
-  );
-}
-
-if (
-  typeof navigator !==
-    "undefined" &&
-  navigator.onLine ===
-    false &&
-  cachedProfile
-) {
-  return buildRestoredUser(
-    cachedProfile,
-    token,
-  );
-}
+  /*
+   * Cold offline start: trust only the cached UI profile.
+   * Server-side authorization remains authoritative once
+   * connectivity returns.
+   */
+  if (
+    isOffline &&
+    cachedProfile
+  ) {
+    return buildRestoredUser(
+      cachedProfile,
+      token,
+    );
+  }
 
   if (
-  token &&
-  !isAccessTokenExpired(token)
-) {
-  try {
-    const profile =
-      await apiRequest(
-        "/users/me",
-      );
+    token &&
+    !isAccessTokenExpired(
+      token,
+    )
+  ) {
+    try {
+      const profile =
+        await apiRequest(
+          "/users/me",
+        );
 
-    /*
-     * apiRequest may have refreshed the
-     * token automatically if the server
-     * rejected the stored token.
-     *
-     * Always read the newest token again
-     * before persisting the session.
-     */
-    const activeToken =
-      getAccessToken() ??
-      token;
+      const activeToken =
+        getAccessToken() ??
+        token;
 
-    const user =
-      buildRestoredUser(
-        profile,
+      const user =
+        buildRestoredUser(
+          profile,
+          activeToken,
+        );
+
+      persistRestoredSession(
+        user,
         activeToken,
       );
 
-    persistRestoredSession(
-      user,
-      activeToken,
-    );
+      return user;
+    } catch (error) {
+      if (
+        error instanceof
+          AuthSessionExpiredError
+      ) {
+        return null;
+      }
 
-    return user;
-
-  } catch {
-    // Access token may have expired or
-    // the session may need refreshing.
+      /*
+       * A valid cached profile is better than logging a
+       * user out because DNS/Wi-Fi/API connectivity is
+       * temporarily broken.
+       */
+      if (cachedProfile) {
+        return buildRestoredUser(
+          cachedProfile,
+          token,
+        );
+      }
+    }
   }
-}
-
 
   try {
     const auth =
       await refreshAccessToken();
 
-
     if (auth.user) {
-  const user =
-    buildRestoredUser(
-      auth.user,
-      auth.access_token,
-    );
+      const user =
+        buildRestoredUser(
+          auth.user,
+          auth.access_token,
+        );
 
-  persistRestoredSession(
-    user,
-    auth.access_token,
-  );
+      persistRestoredSession(
+        user,
+        auth.access_token,
+      );
 
-  return user;
-}
-
+      return user;
+    }
 
     const profile =
       await apiRequest(
@@ -253,35 +242,37 @@ if (
         auth.access_token,
       );
 
-
     const user =
       buildRestoredUser(
         profile,
         auth.access_token,
       );
 
-
     persistRestoredSession(
       user,
       auth.access_token,
     );
 
-
     return user;
-
-  } catch {
+  } catch (error) {
     if (
-      hasStoredSession() ||
-      token ||
-      readCachedUserProfile()
+      error instanceof
+        AuthSessionExpiredError
     ) {
       clearAuthSession();
+      return null;
+    }
+
+    if (cachedProfile) {
+      return buildRestoredUser(
+        cachedProfile,
+        token,
+      );
     }
 
     return null;
   }
 }
-
 
 export function restoreSession() {
   if (!restoreInFlight) {
