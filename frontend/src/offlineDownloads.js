@@ -4,18 +4,85 @@ import {
 
 import {
   ensureMediaRecord,
+  getArtwork,
   getMediaChunk,
   getMediaRecord,
   getPinnedMediaRecords,
   MEDIA_CHUNK_SIZE,
-  saveMediaChunk,
+  saveArtwork,
+  saveDownloadJob,
   saveMediaRecord,
 } from "./mediaStore.js";
+
+import {
+  cacheNetworkMediaResponse,
+} from "./mediaNetworkCache.js";
+
+
+export const OFFLINE_ARTWORK_ROUTE_PREFIX =
+  "/__hypersync/artwork/";
+
+export const DOWNLOAD_NETWORK_WINDOW_SIZE =
+  MEDIA_CHUNK_SIZE * 16;
+
+export const DEFAULT_DOWNLOAD_CONCURRENCY =
+  3;
+
+const MAX_OFFLINE_ARTWORK_BYTES =
+  12 * 1024 * 1024;
+
 
 function normalizeApiBase() {
   return API_BASE.replace(
     /\/+$/,
     "",
+  );
+}
+
+
+function buildApiUrl(
+  path,
+) {
+  const normalizedPath =
+    String(path || "");
+
+  if (
+    normalizedPath.startsWith(
+      "/api/",
+    )
+  ) {
+    return (
+      normalizeApiBase() +
+      normalizedPath.slice(4)
+    );
+  }
+
+  return (
+    normalizeApiBase() +
+    (
+      normalizedPath.startsWith("/")
+        ? normalizedPath
+        : "/" + normalizedPath
+    )
+  );
+}
+
+
+export function getOfflineArtworkUrl(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  return (
+    OFFLINE_ARTWORK_ROUTE_PREFIX +
+    encodeURIComponent(
+      normalizedTrackId,
+    )
   );
 }
 
@@ -27,18 +94,398 @@ async function requestPersistentStorage() {
         ?.storage
         ?.persist
     ) {
-      await globalThis.navigator
+      return await globalThis.navigator
         .storage
         .persist();
     }
   } catch {
-    /*
-     * A browser can refuse persistent
-     * storage. That should not prevent
-     * downloading from working.
-     */
+    // Storage persistence is best effort.
+  }
+
+  return false;
+}
+
+
+async function ensureStorageCapacity(
+  requestedBytes,
+) {
+  if (
+    !Number.isSafeInteger(
+      requestedBytes,
+    ) ||
+    requestedBytes <= 0
+  ) {
+    return;
+  }
+
+  try {
+    const estimate =
+      await globalThis.navigator
+        ?.storage
+        ?.estimate?.();
+
+    if (
+      !estimate ||
+      !Number.isFinite(
+        estimate.quota,
+      ) ||
+      !Number.isFinite(
+        estimate.usage,
+      )
+    ) {
+      return;
+    }
+
+    const availableBytes =
+      Math.max(
+        0,
+        estimate.quota -
+          estimate.usage,
+      );
+
+    const requiredBytes =
+      Math.ceil(
+        requestedBytes * 1.1,
+      );
+
+    if (
+      availableBytes <
+      requiredBytes
+    ) {
+      throw new Error(
+        "Not enough device storage is available for this download.",
+      );
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith(
+        "Not enough device storage",
+      )
+    ) {
+      throw error;
+    }
+
+    // Quota estimation is not available everywhere.
   }
 }
+
+
+function trackIdentity(
+  track,
+) {
+  const trackId =
+    track?.id
+      ? String(
+          track.id,
+        )
+      : "";
+
+  const mediaVersion =
+    track?.media_version ??
+    track?.mediaVersion ??
+    "";
+
+  return {
+    trackId,
+    mediaVersion:
+      String(mediaVersion || ""),
+    key:
+      trackId &&
+      mediaVersion
+        ? (
+            trackId +
+            ":" +
+            mediaVersion
+          )
+        : "",
+  };
+}
+
+
+function trackFileSize(
+  track,
+) {
+  return Number(
+    track?.file_size ??
+    track?.fileSize,
+  );
+}
+
+
+function trackMimeType(
+  track,
+) {
+  return (
+    track?.mime_type ??
+    track?.mimeType ??
+    "application/octet-stream"
+  );
+}
+
+
+async function requestDirectMediaSource(
+  trackId,
+  mediaVersion,
+  signal,
+) {
+  try {
+    const response =
+      await fetch(
+        buildApiUrl(
+          "/api/media/" +
+            encodeURIComponent(
+              trackId,
+            ) +
+            "/source?version=" +
+            encodeURIComponent(
+              mediaVersion,
+            ),
+        ),
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          signal,
+        },
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload =
+      await response.json();
+
+    return (
+      typeof payload?.url ===
+        "string" &&
+      payload.url
+        ? payload.url
+        : null
+    );
+  } catch {
+    return null;
+  }
+}
+
+
+async function fetchAudioRange({
+  trackId,
+  directSource,
+  byteStart,
+  byteEnd,
+  signal,
+}) {
+  const headers = {
+    Range:
+      `bytes=${byteStart}-${byteEnd}`,
+  };
+
+  if (directSource) {
+    try {
+      const response =
+        await fetch(
+          directSource,
+          {
+            method: "GET",
+            headers,
+            credentials: "omit",
+            cache: "no-store",
+            signal,
+          },
+        );
+
+      if (
+        response.status ===
+        206
+      ) {
+        return response;
+      }
+    } catch {
+      // Fall back through the API below.
+    }
+  }
+
+  const response =
+    await fetch(
+      buildApiUrl(
+        "/api/audio/" +
+          encodeURIComponent(
+            trackId,
+          ),
+      ),
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-cache",
+        headers,
+        signal,
+      },
+    );
+
+  if (
+    response.status !==
+      206
+  ) {
+    throw new Error(
+      `Unable to download audio range (${response.status}).`,
+    );
+  }
+
+  return response;
+}
+
+
+async function isWindowCached({
+  trackId,
+  mediaVersion,
+  byteStart,
+  byteEnd,
+  fileSize,
+}) {
+  const firstChunkIndex =
+    Math.floor(
+      byteStart /
+        MEDIA_CHUNK_SIZE,
+    );
+
+  const lastChunkIndex =
+    Math.floor(
+      byteEnd /
+        MEDIA_CHUNK_SIZE,
+    );
+
+  for (
+    let chunkIndex =
+      firstChunkIndex;
+    chunkIndex <=
+    lastChunkIndex;
+    chunkIndex += 1
+  ) {
+    const expectedStart =
+      chunkIndex *
+      MEDIA_CHUNK_SIZE;
+
+    const expectedEnd =
+      Math.min(
+        expectedStart +
+          MEDIA_CHUNK_SIZE -
+          1,
+        fileSize - 1,
+      );
+
+    const chunk =
+      await getMediaChunk(
+        trackId,
+        mediaVersion,
+        chunkIndex,
+      );
+
+    if (
+      !chunk ||
+      chunk.byteStart !==
+        expectedStart ||
+      chunk.byteLength !==
+        (
+          expectedEnd -
+          expectedStart +
+          1
+        )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+async function cacheTrackArtwork(
+  track,
+  {
+    signal = null,
+  } = {},
+) {
+  const trackId =
+    String(
+      track?.id ?? "",
+    ).trim();
+
+  const artworkSource =
+    track?.artwork_url ??
+    track?.artworkUrl ??
+    null;
+
+  if (
+    !trackId ||
+    !artworkSource
+  ) {
+    return null;
+  }
+
+  const existing =
+    await getArtwork(
+      trackId,
+    );
+
+  if (
+    existing?.data instanceof
+      ArrayBuffer &&
+    existing.data.byteLength > 0
+  ) {
+    return existing;
+  }
+
+  const response =
+    await fetch(
+      buildApiUrl(
+        "/api/catalog/tracks/" +
+          encodeURIComponent(
+            trackId,
+          ) +
+          "/artwork",
+      ),
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-cache",
+        signal,
+      },
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to download artwork (${response.status}).`,
+    );
+  }
+
+  const data =
+    await response.arrayBuffer();
+
+  if (
+    data.byteLength <= 0 ||
+    data.byteLength >
+      MAX_OFFLINE_ARTWORK_BYTES
+  ) {
+    throw new Error(
+      "Downloaded artwork has an invalid size.",
+    );
+  }
+
+  return saveArtwork({
+    trackId,
+    data,
+    mimeType:
+      response.headers.get(
+        "Content-Type",
+      ) ??
+      "image/jpeg",
+    sourceUrl:
+      artworkSource,
+  });
+}
+
 
 export async function getDownloadedTracks() {
   const records =
@@ -86,50 +533,44 @@ export async function getDownloadedTracks() {
   );
 }
 
+
 export async function downloadTrackForOffline(
   track,
   {
     onProgress = null,
+    signal = null,
+    skipStorageCheck = false,
   } = {},
 ) {
-  if (!track?.id) {
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const mimeType =
+    trackMimeType(
+      track,
+    );
+
+  const fileSize =
+    trackFileSize(
+      track,
+    );
+
+  if (!trackId) {
     throw new Error(
       "Track id is required.",
     );
   }
-
-
-  const trackId =
-    String(
-      track.id,
-    );
-
-
-  const mediaVersion =
-    track.media_version ??
-    track.mediaVersion ??
-    null;
-
-
-  const mimeType =
-    track.mime_type ??
-    track.mimeType ??
-    "application/octet-stream";
-
-
-  const fileSize =
-    Number(
-      track.file_size ??
-      track.fileSize,
-    );
-
 
   if (!mediaVersion) {
     throw new Error(
       "This track does not have a media version.",
     );
   }
-
 
   if (
     !Number.isSafeInteger(
@@ -142,9 +583,13 @@ export async function downloadTrackForOffline(
     );
   }
 
-
   await requestPersistentStorage();
 
+  if (!skipStorageCheck) {
+    await ensureStorageCapacity(
+      fileSize,
+    );
+  }
 
   await ensureMediaRecord({
     trackId,
@@ -153,141 +598,66 @@ export async function downloadTrackForOffline(
     fileSize,
   });
 
-
-  const chunkCount =
-    Math.ceil(
-      fileSize /
-      MEDIA_CHUNK_SIZE,
+  const directSource =
+    await requestDirectMediaSource(
+      trackId,
+      mediaVersion,
+      signal,
     );
-
 
   let completedBytes =
     0;
 
-
   for (
-    let chunkIndex = 0;
-    chunkIndex < chunkCount;
-    chunkIndex += 1
+    let byteStart = 0;
+    byteStart < fileSize;
+    byteStart +=
+      DOWNLOAD_NETWORK_WINDOW_SIZE
   ) {
-    const byteStart =
-      chunkIndex *
-      MEDIA_CHUNK_SIZE;
-
-
     const byteEnd =
       Math.min(
         byteStart +
-          MEDIA_CHUNK_SIZE -
+          DOWNLOAD_NETWORK_WINDOW_SIZE -
           1,
         fileSize - 1,
       );
 
-
-    const expectedLength =
+    const windowLength =
       byteEnd -
       byteStart +
       1;
 
-
-    /*
-     * Resume downloads instead of
-     * fetching chunks we already have.
-     */
-    const existingChunk =
-      await getMediaChunk(
+    const cached =
+      await isWindowCached({
         trackId,
         mediaVersion,
-        chunkIndex,
-      );
-
-
-    if (
-      existingChunk &&
-      existingChunk.byteStart ===
-        byteStart &&
-      existingChunk.byteLength ===
-        expectedLength
-    ) {
-      completedBytes +=
-        expectedLength;
-
-      onProgress?.({
-        trackId,
-        downloadedBytes:
-          completedBytes,
-        totalBytes:
-          fileSize,
-        progress:
-          completedBytes /
-          fileSize,
+        byteStart,
+        byteEnd,
+        fileSize,
       });
 
-      continue;
-    }
-
-
-    const response =
-      await fetch(
-        `${normalizeApiBase()}/audio/${encodeURIComponent(
+    if (!cached) {
+      const response =
+        await fetchAudioRange({
           trackId,
-        )}`,
-        {
-          method:
-            "GET",
+          directSource,
+          byteStart,
+          byteEnd,
+          signal,
+        });
 
-          credentials:
-            "include",
-
-          cache:
-            "no-cache",
-
-          headers: {
-            Range:
-              `bytes=${byteStart}-${byteEnd}`,
-          },
-        },
-      );
-
-
-    if (
-      response.status !==
-        206 &&
-      response.status !==
-        200
-    ) {
-      throw new Error(
-        `Unable to download track chunk (${response.status}).`,
-      );
+      await cacheNetworkMediaResponse({
+        response,
+        trackId,
+        mediaVersion,
+        byteStart,
+        byteEnd,
+        fileSize,
+      });
     }
-
-
-    const data =
-      await response.arrayBuffer();
-
-
-    if (
-      data.byteLength !==
-      expectedLength
-    ) {
-      throw new Error(
-        "Downloaded audio chunk has an unexpected size.",
-      );
-    }
-
-
-    await saveMediaChunk({
-      trackId,
-      mediaVersion,
-      chunkIndex,
-      byteStart,
-      data,
-    });
-
 
     completedBytes +=
-      data.byteLength;
-
+      windowLength;
 
     onProgress?.({
       trackId,
@@ -301,6 +671,13 @@ export async function downloadTrackForOffline(
     });
   }
 
+  const artwork =
+    await cacheTrackArtwork(
+      track,
+      {
+        signal,
+      },
+    );
 
   const record =
     await getMediaRecord(
@@ -308,21 +685,12 @@ export async function downloadTrackForOffline(
       mediaVersion,
     );
 
-
   if (!record) {
     throw new Error(
       "Downloaded media record disappeared.",
     );
   }
 
-
-  /*
-   * PINNED means:
-   *
-   * "The user explicitly downloaded
-   * this track. Do not remove it during
-   * normal cache cleanup."
-   */
   const pinnedRecord = {
     ...record,
 
@@ -353,16 +721,21 @@ export async function downloadTrackForOffline(
       null,
 
     artworkUrl:
+      artwork
+        ? getOfflineArtworkUrl(
+            trackId,
+          )
+        : null,
+
+    artworkSourceUrl:
       track.artwork_url ??
       track.artworkUrl ??
       null,
   };
 
-
   await saveMediaRecord(
     pinnedRecord,
   );
-
 
   onProgress?.({
     trackId,
@@ -374,25 +747,413 @@ export async function downloadTrackForOffline(
       1,
   });
 
-
   return pinnedRecord;
 }
+
+
+export async function downloadTracksForOffline(
+  tracks,
+  {
+    concurrency =
+      DEFAULT_DOWNLOAD_CONCURRENCY,
+    onProgress = null,
+    signal = null,
+    jobId = null,
+  } = {},
+) {
+  const uniqueTracks =
+    [];
+
+  const seen =
+    new Set();
+
+  for (
+    const track
+    of Array.isArray(tracks)
+      ? tracks
+      : []
+  ) {
+    const identity =
+      trackIdentity(
+        track,
+      );
+
+    if (
+      !identity.key ||
+      seen.has(
+        identity.key,
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      identity.key,
+    );
+
+    uniqueTracks.push(
+      track,
+    );
+  }
+
+  if (
+    uniqueTracks.length ===
+    0
+  ) {
+    onProgress?.({
+      downloadedBytes: 0,
+      totalBytes: 0,
+      progress: 1,
+      completedTracks: 0,
+      totalTracks: 0,
+    });
+
+    return [];
+  }
+
+  await requestPersistentStorage();
+
+  const progressByKey =
+    new Map();
+
+  const pendingTracks =
+    [];
+
+  let totalBytes =
+    0;
+
+  for (
+    const track
+    of uniqueTracks
+  ) {
+    const identity =
+      trackIdentity(
+        track,
+      );
+
+    const fileSize =
+      trackFileSize(
+        track,
+      );
+
+    if (
+      !Number.isSafeInteger(
+        fileSize,
+      ) ||
+      fileSize <= 0
+    ) {
+      throw new Error(
+        "A playlist track has invalid media size metadata.",
+      );
+    }
+
+    totalBytes +=
+      fileSize;
+
+    if (
+      await isTrackDownloaded(
+        track,
+      )
+    ) {
+      progressByKey.set(
+        identity.key,
+        fileSize,
+      );
+    } else {
+      progressByKey.set(
+        identity.key,
+        0,
+      );
+
+      pendingTracks.push(
+        track,
+      );
+    }
+  }
+
+  const remainingBytes =
+    pendingTracks.reduce(
+      (sum, track) =>
+        sum +
+        trackFileSize(
+          track,
+        ),
+      0,
+    );
+
+  await ensureStorageCapacity(
+    remainingBytes,
+  );
+
+  const normalizedJobId =
+    jobId
+      ? String(jobId)
+      : (
+          "offline:" +
+          Date.now()
+        );
+
+  const downloadedBytesNow =
+    () =>
+      Array.from(
+        progressByKey.values(),
+      ).reduce(
+        (sum, value) =>
+          sum + value,
+        0,
+      );
+
+  const report = (
+    currentTrackId =
+      null,
+  ) => {
+    const downloadedBytes =
+      downloadedBytesNow();
+
+    onProgress?.({
+      downloadedBytes,
+      totalBytes,
+      progress:
+        totalBytes > 0
+          ? (
+              downloadedBytes /
+              totalBytes
+            )
+          : 1,
+      completedTracks:
+        Array.from(
+          progressByKey.values(),
+        ).filter(
+          (value) =>
+            value > 0,
+        ).length,
+      totalTracks:
+        uniqueTracks.length,
+      currentTrackId,
+    });
+  };
+
+  await saveDownloadJob({
+    id:
+      normalizedJobId,
+    state:
+      pendingTracks.length > 0
+        ? "downloading"
+        : "complete",
+    totalBytes,
+    downloadedBytes:
+      downloadedBytesNow(),
+    trackKeys:
+      uniqueTracks.map(
+        (track) =>
+          trackIdentity(
+            track,
+          ).key,
+      ),
+  });
+
+  report();
+
+  if (
+    pendingTracks.length ===
+    0
+  ) {
+    return Promise.all(
+      uniqueTracks.map(
+        (track) => {
+          const identity =
+            trackIdentity(
+              track,
+            );
+
+          return getMediaRecord(
+            identity.trackId,
+            identity.mediaVersion,
+          );
+        },
+      ),
+    );
+  }
+
+  const results =
+    new Array(
+      pendingTracks.length,
+    );
+
+  let nextIndex =
+    0;
+
+  const workerCount =
+    Math.max(
+      1,
+      Math.min(
+        Math.trunc(
+          concurrency,
+        ) || 1,
+        pendingTracks.length,
+        4,
+      ),
+    );
+
+  async function worker() {
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException(
+          "Download cancelled.",
+          "AbortError",
+        );
+      }
+
+      const index =
+        nextIndex;
+
+      nextIndex +=
+        1;
+
+      if (
+        index >=
+        pendingTracks.length
+      ) {
+        return;
+      }
+
+      const track =
+        pendingTracks[
+          index
+        ];
+
+      const identity =
+        trackIdentity(
+          track,
+        );
+
+      const record =
+        await downloadTrackForOffline(
+          track,
+          {
+            signal,
+            skipStorageCheck:
+              true,
+            onProgress: ({
+              downloadedBytes,
+            }) => {
+              progressByKey.set(
+                identity.key,
+                downloadedBytes,
+              );
+
+              report(
+                identity.trackId,
+              );
+            },
+          },
+        );
+
+      results[index] =
+        record;
+
+      progressByKey.set(
+        identity.key,
+        trackFileSize(
+          track,
+        ),
+      );
+
+      report(
+        identity.trackId,
+      );
+
+      await saveDownloadJob({
+        id:
+          normalizedJobId,
+        state:
+          "downloading",
+        totalBytes,
+        downloadedBytes:
+          downloadedBytesNow(),
+        trackKeys:
+          uniqueTracks.map(
+            (item) =>
+              trackIdentity(
+                item,
+              ).key,
+          ),
+      });
+    }
+  }
+
+  try {
+    await Promise.all(
+      Array.from(
+        {
+          length:
+            workerCount,
+        },
+        () => worker(),
+      ),
+    );
+
+    await saveDownloadJob({
+      id:
+        normalizedJobId,
+      state:
+        "complete",
+      totalBytes,
+      downloadedBytes:
+        totalBytes,
+      trackKeys:
+        uniqueTracks.map(
+          (track) =>
+            trackIdentity(
+              track,
+            ).key,
+        ),
+    });
+
+    report();
+
+    return results;
+  } catch (error) {
+    await saveDownloadJob({
+      id:
+        normalizedJobId,
+      state:
+        signal?.aborted
+          ? "paused"
+          : "error",
+      totalBytes,
+      downloadedBytes:
+        downloadedBytesNow(),
+      trackKeys:
+        uniqueTracks.map(
+          (track) =>
+            trackIdentity(
+              track,
+            ).key,
+        ),
+      error:
+        error instanceof Error
+          ? error.message
+          : "Download failed.",
+    }).catch(
+      () => null,
+    );
+
+    throw error;
+  }
+}
+
 
 export async function isTrackDownloaded(
   track,
 ) {
-  const trackId =
-    track?.id
-      ? String(
-          track.id,
-        )
-      : null;
-
-  const mediaVersion =
-    track?.media_version ??
-    track?.mediaVersion ??
-    null;
-
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
 
   if (
     !trackId ||
@@ -401,13 +1162,11 @@ export async function isTrackDownloaded(
     return false;
   }
 
-
   const record =
     await getMediaRecord(
       trackId,
       mediaVersion,
     );
-
 
   return (
     record?.state ===
