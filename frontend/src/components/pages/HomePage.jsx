@@ -138,6 +138,19 @@ useEffect(() => {
   let cancelled =
     false;
 
+  async function loadDownloadedFallback() {
+    try {
+      return (
+        await getDownloadedTracks()
+      ).slice(
+        0,
+        12,
+      );
+    } catch {
+      return [];
+    }
+  }
+
   async function loadRecentlyPlayed() {
     if (!currentUser) {
       setRecentlyPlayed(
@@ -163,32 +176,35 @@ useEffect(() => {
       "",
     );
 
-    let localTracks =
-      [];
+    const offline =
+      typeof navigator !==
+        "undefined" &&
+      navigator.onLine ===
+        false;
 
-    try {
-      localTracks =
-        (
-          await getDownloadedTracks()
-        ).slice(
-          0,
-          6,
-        );
+    if (offline) {
+      const localTracks =
+        await loadDownloadedFallback();
 
-      if (
-        !cancelled &&
-        localTracks.length > 0
-      ) {
-        setRecentlyPlayed(
-          localTracks,
-        );
-
-        setRecentLoading(
-          false,
-        );
+      if (cancelled) {
+        return;
       }
-    } catch {
-      // Local downloads are a best-effort first paint.
+
+      setRecentlyPlayed(
+        localTracks,
+      );
+
+      setRecentError(
+        localTracks.length > 0
+          ? ""
+          : "No downloaded tracks are available offline yet.",
+      );
+
+      setRecentLoading(
+        false,
+      );
+
+      return;
     }
 
     try {
@@ -209,6 +225,13 @@ useEffect(() => {
         "",
       );
     } catch (error) {
+      if (cancelled) {
+        return;
+      }
+
+      const localTracks =
+        await loadDownloadedFallback();
+
       if (cancelled) {
         return;
       }
@@ -252,7 +275,6 @@ useEffect(() => {
 }, [currentUser]);
 
 
-
   const playTrack = async (
     trackId,
     track = null,
@@ -277,6 +299,9 @@ useEffect(() => {
 
     artist:
       track?.artist ?? "",
+
+    album:
+      track?.album ?? "",
 
     mimeType:
       track?.mime_type ??
