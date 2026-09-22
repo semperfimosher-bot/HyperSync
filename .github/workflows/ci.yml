@@ -14,12 +14,29 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hypersync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hypersync_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       ENVIRONMENT: test
       ADMIN_BOOTSTRAP_SECRET: ci-test-admin-bootstrap-secret-1234567890
       JWT_SECRET: ci-test-jwt-secret-that-is-longer-than-thirty-two-characters
-      DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
-      MIGRATION_DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hypersync_test
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hypersync_test
+      DATABASE_SSL: "false"
     steps:
       - uses: actions/checkout@v4
 
