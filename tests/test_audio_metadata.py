@@ -52,6 +52,7 @@ def test_extracts_embedded_audio_metadata(
         "artist": ("FKi 1st & Post Malone"),
         "album": ("First Time for Everything, Pt. 1 - EP"),
         "duration_seconds": 207,
+        "genre": None,
     }
 
 
