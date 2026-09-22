@@ -9,6 +9,7 @@ import {
   getMediaRecord,
   getPinnedMediaRecords,
   MEDIA_CHUNK_SIZE,
+  removeDownloadedMedia,
   saveArtwork,
   saveDownloadJob,
   saveLyrics,
@@ -919,6 +920,32 @@ export async function downloadTrackForOffline(
   await saveMediaRecord(
     pinnedRecord,
   );
+
+  /*
+   * A re-upload changes mediaVersion.
+   * Keep only the newly downloaded version
+   * so stale audio does not accumulate or
+   * appear twice in Downloads.
+   */
+  const pinnedRecords =
+    await getPinnedMediaRecords();
+
+  for (
+    const existing
+    of pinnedRecords
+  ) {
+    if (
+      existing.trackId ===
+        trackId &&
+      existing.mediaVersion !==
+        mediaVersion
+    ) {
+      await removeDownloadedMedia(
+        existing.trackId,
+        existing.mediaVersion,
+      );
+    }
+  }
 
   onProgress?.({
     trackId,
