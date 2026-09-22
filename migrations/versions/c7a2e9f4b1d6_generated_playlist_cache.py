@@ -16,12 +16,14 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column(
+    with op.batch_alter_table(
         "playlists",
-        "owner_id",
-        existing_type=sa.Uuid(),
-        nullable=True,
-    )
+    ) as batch_op:
+        batch_op.alter_column(
+            "owner_id",
+            existing_type=sa.Uuid(),
+            nullable=True,
+        )
 
     op.add_column(
         "playlists",
@@ -123,9 +125,11 @@ def downgrade() -> None:
         """
     )
 
-    op.alter_column(
+    with op.batch_alter_table(
         "playlists",
-        "owner_id",
-        existing_type=sa.Uuid(),
-        nullable=False,
-    )
+    ) as batch_op:
+        batch_op.alter_column(
+            "owner_id",
+            existing_type=sa.Uuid(),
+            nullable=False,
+        )
