@@ -61,6 +61,7 @@ test(
         "Artists",
         "Collaborations",
         "People",
+        "Playlists",
         "Tracks",
       ],
     );
