@@ -12,6 +12,19 @@ export const API_BASE =
 
 let refreshInFlight = null;
 
+
+export class AuthSessionExpiredError extends Error {
+  constructor(
+    message =
+      "Authentication session expired.",
+  ) {
+    super(message);
+    this.name =
+      "AuthSessionExpiredError";
+  }
+}
+
+
 export function formatApiError(detail) {
   if (!detail) {
     return "HyperSynced request failed.";
@@ -45,10 +58,30 @@ export async function refreshAccessToken() {
     );
 
     if (!response.ok) {
-      clearAuthSession();
+      const data =
+        await response
+          .json()
+          .catch(
+            () => null,
+          );
+
+      if (
+        response.status === 401 ||
+        response.status === 403
+      ) {
+        clearAuthSession();
+
+        throw new AuthSessionExpiredError(
+          formatApiError(
+            data?.detail,
+          ),
+        );
+      }
 
       throw new Error(
-        "Authentication session expired.",
+        formatApiError(
+          data?.detail,
+        ),
       );
     }
 
@@ -132,8 +165,15 @@ export async function apiRequest(
           credentials: "include",
         },
       );
-    } catch {
-      clearAuthSession();
+    } catch (error) {
+      if (
+        error instanceof
+          AuthSessionExpiredError
+      ) {
+        clearAuthSession();
+      }
+
+      throw error;
     }
   }
 
