@@ -1192,6 +1192,26 @@ export async function downloadTracksForOffline(
       pendingTracks.length,
     );
 
+  const workerController =
+    new AbortController();
+
+  const abortFromCaller =
+    () => {
+      workerController.abort();
+    };
+
+  if (signal?.aborted) {
+    workerController.abort();
+  } else {
+    signal?.addEventListener?.(
+      "abort",
+      abortFromCaller,
+      {
+        once: true,
+      },
+    );
+  }
+
   let nextIndex =
     0;
 
@@ -1209,7 +1229,10 @@ export async function downloadTracksForOffline(
 
   async function worker() {
     while (true) {
-      if (signal?.aborted) {
+      if (
+        workerController.signal
+          .aborted
+      ) {
         throw new DOMException(
           "Download cancelled.",
           "AbortError",
@@ -1243,7 +1266,8 @@ export async function downloadTracksForOffline(
         await downloadTrackForOffline(
           track,
           {
-            signal,
+            signal:
+              workerController.signal,
             skipStorageCheck:
               true,
             onProgress: ({
@@ -1305,7 +1329,14 @@ export async function downloadTracksForOffline(
           length:
             workerCount,
         },
-        () => worker(),
+        async () => {
+          try {
+            await worker();
+          } catch (error) {
+            workerController.abort();
+            throw error;
+          }
+        },
       ),
     );
 
@@ -1356,6 +1387,11 @@ export async function downloadTracksForOffline(
     );
 
     throw error;
+  } finally {
+    signal?.removeEventListener?.(
+      "abort",
+      abortFromCaller,
+    );
   }
 }
 
