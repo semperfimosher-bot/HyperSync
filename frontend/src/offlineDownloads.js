@@ -821,13 +821,31 @@ export async function downloadTrackForOffline(
     });
   }
 
-  const artwork =
-    await cacheTrackArtwork(
-      track,
-      {
-        signal,
-      },
-    );
+  let artwork =
+    null;
+
+  try {
+    artwork =
+      await cacheTrackArtwork(
+        track,
+        {
+          signal,
+        },
+      );
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw error;
+    }
+
+    /*
+     * Audio is the required offline asset.
+     * A temporary artwork failure must not
+     * discard an otherwise complete track.
+     */
+  }
 
   await cacheTrackLyrics(
     trackId,
@@ -878,10 +896,17 @@ export async function downloadTrackForOffline(
       null,
 
     artworkUrl:
-      artwork
+      (
+        track.artwork_url ??
+        track.artworkUrl
+      )
         ? getOfflineArtworkUrl(
             trackId,
-            artwork.artworkVersion,
+            artwork?.artworkVersion ??
+              artworkVersionFromSource(
+                track.artwork_url ??
+                track.artworkUrl,
+              ),
           )
         : null,
 
