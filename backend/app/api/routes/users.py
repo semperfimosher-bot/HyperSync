@@ -975,7 +975,11 @@ async def upload_my_avatar(
             detail=("Profile picture must be a JPG, PNG, or WebP image."),
         )
 
-    image_data = await file.read()
+    settings = get_settings()
+
+    image_data = await file.read(
+        settings.max_avatar_upload_bytes + 1
+    )
 
     if not image_data:
         raise HTTPException(
@@ -983,10 +987,10 @@ async def upload_my_avatar(
             detail=("Profile picture is empty."),
         )
 
-    if len(image_data) > 5 * 1024 * 1024:
+    if len(image_data) > settings.max_avatar_upload_bytes:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=("Profile picture must be 5 MB or smaller."),
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Profile picture exceeds the configured upload limit.",
         )
 
     profile = user.profile
@@ -1001,8 +1005,6 @@ async def upload_my_avatar(
         await session.flush()
 
     old_object_key = profile.avatar_object_key
-
-    settings = get_settings()
 
     extension = {
         "image/jpeg": "jpg",
