@@ -109,21 +109,10 @@ export function resolveArtworkUrl(
   if (
     src.startsWith("blob:") ||
     src.startsWith("data:") ||
+    src.startsWith("http://") ||
     src.startsWith("https://")
   ) {
     return src;
-  }
-
-  /*
-   * Never render insecure remote artwork in the production UI.
-   * Relative same-origin URLs remain allowed below.
-   */
-  if (
-    src.startsWith(
-      "http://",
-    )
-  ) {
-    return null;
   }
 
   if (
