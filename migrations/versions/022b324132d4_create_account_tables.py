@@ -54,13 +54,13 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.CheckConstraint(
@@ -95,13 +95,13 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
@@ -121,7 +121,7 @@ def upgrade() -> None:
         sa.Column(
             "last_used_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
@@ -132,13 +132,13 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
