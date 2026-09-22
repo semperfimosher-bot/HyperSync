@@ -65,6 +65,9 @@ let currentTrackId =
 let currentTrackMeta =
   null;
 
+let lastMediaSessionSignature =
+  null;
+
 
 /*
  * When the application is refreshed,
@@ -647,30 +650,70 @@ function updateMediaSession(
       typeof globalThis.MediaMetadata ===
         "function"
     ) {
-      mediaSession.metadata =
-        new globalThis.MediaMetadata({
-          title:
-            state.title ||
-            "Unknown Track",
-          artist:
-            state.artist ||
-            "Unknown Artist",
-          album:
-            currentTrackMeta
-              ?.album ??
-            "",
-          artwork:
-            state.artworkUrl
-              ? [
-                  {
-                    src:
-                      state.artworkUrl,
-                  },
-                ]
-              : [],
-        });
+      const album =
+        currentTrackMeta
+          ?.album ??
+        "";
+
+      let artworkSrc =
+        null;
+
+      if (state.artworkUrl) {
+        try {
+          artworkSrc =
+            new URL(
+              state.artworkUrl,
+              globalThis.location
+                ?.href ??
+                "https://hypersynced.invalid/",
+            ).href;
+        } catch {
+          artworkSrc =
+            null;
+        }
+      }
+
+      const signature =
+        JSON.stringify([
+          state.trackId,
+          state.title,
+          state.artist,
+          album,
+          artworkSrc,
+        ]);
+
+      if (
+        signature !==
+        lastMediaSessionSignature
+      ) {
+        mediaSession.metadata =
+          new globalThis.MediaMetadata({
+            title:
+              state.title ||
+              "Unknown Track",
+            artist:
+              state.artist ||
+              "Unknown Artist",
+            album,
+            artwork:
+              artworkSrc
+                ? [
+                    {
+                      src:
+                        artworkSrc,
+                    },
+                  ]
+                : [],
+          });
+
+        lastMediaSessionSignature =
+          signature;
+      }
     } else if (!state.trackId) {
       mediaSession.metadata =
+        null;
+
+      lastMediaSessionSignature =
         null;
     }
 
