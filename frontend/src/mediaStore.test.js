@@ -1370,3 +1370,127 @@ test(
     );
   },
 );
+
+test(
+  "offline artwork persists in IndexedDB",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const data =
+      new Uint8Array([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+      ]).buffer;
+
+    await mediaStore.saveArtwork({
+      trackId:
+        "artwork-track",
+      data,
+      mimeType:
+        "image/png",
+      sourceUrl:
+        "https://example.test/art.png",
+    });
+
+    const stored =
+      await mediaStore.getArtwork(
+        "artwork-track",
+      );
+
+    assert.equal(
+      stored.mimeType,
+      "image/png",
+    );
+
+    assert.deepEqual(
+      Array.from(
+        new Uint8Array(
+          stored.data,
+        ),
+      ),
+      [
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+      ],
+    );
+  },
+);
+
+test(
+  "offline lyrics persist by track",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const lyrics = {
+      status:
+        "synced",
+      synced_lyrics:
+        "[00:01.00]Hello",
+      plain_lyrics:
+        null,
+    };
+
+    await mediaStore.saveLyrics(
+      "lyrics-track",
+      lyrics,
+    );
+
+    assert.deepEqual(
+      await mediaStore.getLyrics(
+        "lyrics-track",
+      ),
+      lyrics,
+    );
+  },
+);
+
+test(
+  "download jobs survive page-level state changes",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:test",
+      state:
+        "downloading",
+      totalBytes:
+        1000,
+      downloadedBytes:
+        400,
+      trackKeys: [
+        "one:v1",
+        "two:v1",
+      ],
+    });
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    const job =
+      jobs.find(
+        (value) =>
+          value.id ===
+          "playlist:test",
+      );
+
+    assert.ok(job);
+
+    assert.equal(
+      job.state,
+      "downloading",
+    );
+
+    assert.equal(
+      job.downloadedBytes,
+      400,
+    );
+  },
+);
