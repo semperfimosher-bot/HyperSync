@@ -354,9 +354,21 @@ async def login(
 
     identifier = payload.username.strip()
 
+    # Limit both the source IP and the individual account identifier.
+    # The IP-only bucket prevents username rotation from bypassing throttling.
     enforce_rate_limit(
         request,
-        bucket="login",
+        bucket="login-ip",
+        limit=max(
+            settings.auth_login_attempts_per_minute * 3,
+            settings.auth_login_attempts_per_minute,
+        ),
+        window_seconds=60,
+    )
+
+    enforce_rate_limit(
+        request,
+        bucket="login-account",
         limit=settings.auth_login_attempts_per_minute,
         window_seconds=60,
         discriminator=identifier,
