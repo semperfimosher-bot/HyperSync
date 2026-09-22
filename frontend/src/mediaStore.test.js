@@ -1494,3 +1494,109 @@ test(
     );
   },
 );
+
+
+test(
+  "removing downloaded media clears audio artwork and lyrics",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "remove-track";
+
+    const mediaVersion =
+      "remove-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await mediaStore.saveMediaChunk({
+      trackId,
+      mediaVersion,
+      chunkIndex:
+        0,
+      byteStart:
+        0,
+      data:
+        new Uint8Array([
+          0x42,
+        ]).buffer,
+    });
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "hello",
+      },
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+      ),
+      true,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      null,
+    );
+  },
+);
