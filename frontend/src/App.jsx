@@ -1583,6 +1583,14 @@ function AuthOverlay({
                   form.get("email") ?? "",
                 ).trim(),
                 password,
+                admin_setup_code:
+                  bootstrapMode
+                    ? String(
+                        form.get(
+                          "admin_setup_code",
+                        ) ?? "",
+                      )
+                    : undefined,
               }
             : {
                 username,
@@ -1643,15 +1651,26 @@ function AuthOverlay({
         <div className="auth-heading">
           <h2 id="auth-title">
             {isCreate
-              ? "Create your HyperSync account"
+              ? (
+                  bootstrapMode
+                    ? "Set up HyperSync administrator"
+                    : "Create your HyperSync account"
+                )
               : "Welcome to HyperSynced"}
           </h2>
 
           <p>
             {isCreate
               ? (
-                "Create a HyperSync account to save " +
-                "your library and sync across devices."
+                bootstrapMode
+                  ? (
+                      "No administrator exists yet. Enter the " +
+                      "server setup code to create the first admin."
+                    )
+                  : (
+                      "Create a HyperSync account to save " +
+                      "your library and sync across devices."
+                    )
               )
               : (
                 "Sync your world. Stream your sound. " +
@@ -1691,6 +1710,23 @@ function AuthOverlay({
                 name="email"
                 autoComplete="email"
                 placeholder="Email address"
+                required
+              />
+            </label>
+          ) : null}
+
+          {isCreate && bootstrapMode ? (
+            <label>
+              <Icon
+                name="lock"
+                size={22}
+              />
+
+              <input
+                type="password"
+                name="admin_setup_code"
+                autoComplete="off"
+                placeholder="Administrator setup code"
                 required
               />
             </label>
@@ -1784,7 +1820,13 @@ function AuthOverlay({
             type="submit"
           >
             {isCreate
-              ? "CREATE ACCOUNT"
+              ? (
+                  bootstrapLoading
+                    ? "CHECKING SETUP..."
+                    : bootstrapMode
+                      ? "CREATE ADMIN"
+                      : "CREATE ACCOUNT"
+                )
               : "SIGN IN"}
           </button>
         </form>
