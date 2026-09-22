@@ -20,6 +20,7 @@ import {
   downloadTrackForOffline,
   downloadTracksForOffline,
   isTrackDownloaded,
+  searchDownloadedTracks,
 } from "../../offlineDownloads.js";
 
 import {
@@ -501,7 +502,66 @@ useEffect(() => {
     const timer =
       window.setTimeout(
         async () => {
+          let localTracks =
+            [];
+
           try {
+            localTracks =
+              await searchDownloadedTracks(
+                normalizedQuery,
+              );
+
+            if (
+              !controller.signal
+                .aborted &&
+              localTracks.length > 0
+            ) {
+              setResults({
+                ...EMPTY_RESULTS,
+                query:
+                  normalizedQuery,
+                interpreted_query:
+                  normalizedQuery,
+                counts: {
+                  ...EMPTY_RESULTS.counts,
+                  tracks:
+                    localTracks.length,
+                },
+                tracks:
+                  localTracks,
+              });
+
+              setSelectedTrackIndex(
+                -1,
+              );
+
+              setLoading(
+                false,
+              );
+            }
+          } catch {
+            // Local search is best effort.
+          }
+
+          try {
+            if (
+              typeof navigator !==
+                "undefined" &&
+              navigator.onLine ===
+                false
+            ) {
+              if (
+                localTracks.length ===
+                0
+              ) {
+                setSearchError(
+                  "No downloaded matches are available offline.",
+                );
+              }
+
+              return;
+            }
+
             const data =
               await searchHypersync(
                 normalizedQuery,
@@ -551,6 +611,10 @@ useEffect(() => {
               -1,
             );
 
+            setSearchError(
+              "",
+            );
+
           } catch (error) {
             if (
               error?.name ===
@@ -559,11 +623,16 @@ useEffect(() => {
               return;
             }
 
-            setSearchError(
-              error instanceof Error
-                ? error.message
-                : "Unable to search.",
-            );
+            if (
+              localTracks.length ===
+                0
+            ) {
+              setSearchError(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to search.",
+              );
+            }
 
           } finally {
             if (
