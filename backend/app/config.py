@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
+    database_ssl: bool = True
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -119,6 +120,9 @@ class Settings(BaseSettings):
 
         if not self.database_url.strip():
             errors.append("DATABASE_URL")
+
+        if not self.database_ssl:
+            errors.append("DATABASE_SSL (must be enabled in production)")
 
         if len(self.jwt_secret.strip()) < 32:
             errors.append("JWT_SECRET (minimum 32 characters)")
