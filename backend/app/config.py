@@ -123,8 +123,14 @@ class Settings(BaseSettings):
         if len(self.jwt_secret.strip()) < 32:
             errors.append("JWT_SECRET (minimum 32 characters)")
 
-        if len(self.admin_bootstrap_secret.strip()) < 20:
-            errors.append("ADMIN_BOOTSTRAP_SECRET (minimum 20 characters)")
+        bootstrap_secret = self.admin_bootstrap_secret.strip()
+        if bootstrap_secret and len(bootstrap_secret) < 20:
+            errors.append(
+                "ADMIN_BOOTSTRAP_SECRET (minimum 20 characters when configured)"
+            )
+
+        if self.jwt_algorithm.upper() != "HS256":
+            errors.append("JWT_ALGORITHM (HS256 required)")
 
         if not self.b2_endpoint.strip().startswith("https://"):
             errors.append("B2_ENDPOINT (HTTPS required)")
