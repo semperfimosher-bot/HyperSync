@@ -61,11 +61,14 @@ async def run_async_migrations() -> None:
 
     connect_args = {}
 
-    if not database_url.startswith(
-        (
-            "sqlite://",
-            "sqlite+aiosqlite://",
-        ),
+    if (
+        not database_url.startswith(
+            (
+                "sqlite://",
+                "sqlite+aiosqlite://",
+            ),
+        )
+        and settings.database_ssl
     ):
         connect_args["ssl"] = (
             ssl.create_default_context()
