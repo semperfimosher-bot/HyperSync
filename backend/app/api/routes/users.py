@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import mimetypes
 from datetime import (
@@ -288,21 +289,28 @@ def artwork_url(
         return None
 
     if track.artwork_object_key.startswith(
-        (
-            "http://",
-            "https://",
-        ),
+        "https://",
     ):
         return track.artwork_object_key
 
-    settings = get_settings()
+    if track.artwork_object_key.startswith(
+        "http://",
+    ):
+        logger.warning(
+            "Ignoring insecure external artwork URL for track %s.",
+            track.id,
+        )
+        return None
 
-    if settings.environment != "production":
-        return f"/api/catalog/tracks/{track.id}/artwork"
+    artwork_version = hashlib.sha256(
+        track.artwork_object_key.encode(
+            "utf-8",
+        ),
+    ).hexdigest()[:16]
 
-    return presigned_or_fallback(
-        track.artwork_object_key,
-        (f"/api/catalog/tracks/{track.id}/artwork"),
+    return (
+        f"/api/catalog/tracks/{track.id}/artwork"
+        f"?v={artwork_version}"
     )
 
 
