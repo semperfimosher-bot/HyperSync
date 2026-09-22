@@ -507,11 +507,45 @@ const [
     false;
 
   async function loadInitialPlaylist() {
-    setOpeningPlaylistId(
-      initialPlaylistId,
-    );
+    const cached =
+      getCachedPlaylist(
+        libraryCacheKey,
+        initialPlaylistId,
+      );
+
+    if (cached) {
+      setSelectedPlaylist(
+        cached,
+      );
+    } else {
+      setOpeningPlaylistId(
+        initialPlaylistId,
+      );
+    }
 
     setError("");
+
+    const offline =
+      typeof navigator !==
+        "undefined" &&
+      navigator.onLine ===
+        false;
+
+    if (offline) {
+      if (!cached) {
+        setError(
+          "Open this playlist once while online before using it offline.",
+        );
+      }
+
+      setOpeningPlaylistId(
+        null,
+      );
+
+      onInitialPlaylistHandled?.();
+
+      return;
+    }
 
     try {
       const playlist =
@@ -523,6 +557,11 @@ const [
         return;
       }
 
+      setCachedPlaylist(
+        libraryCacheKey,
+        playlist,
+      );
+
       setSelectedPlaylist(
         playlist,
       );
@@ -532,7 +571,10 @@ const [
         behavior: "smooth",
       });
     } catch (requestError) {
-      if (cancelled) {
+      if (
+        cancelled ||
+        cached
+      ) {
         return;
       }
 
@@ -561,6 +603,7 @@ const [
   };
 }, [
   initialPlaylistId,
+  libraryCacheKey,
   onInitialPlaylistHandled,
 ]);
 
@@ -1063,6 +1106,10 @@ if (offline) {
 
           artist:
             track.artist,
+
+          album:
+            track.album ??
+            "",
         }),
       );
 
