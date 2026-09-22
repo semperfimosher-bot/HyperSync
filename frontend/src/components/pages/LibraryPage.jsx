@@ -8,6 +8,10 @@ import {
   API_BASE,
 } from "../../api/client.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import * as player from
   "../../audioPlayer.js";
 
@@ -36,6 +40,8 @@ import useTrackActionMenu from
 
 import {
   downloadTrackForOffline,
+  downloadTracksForOffline,
+  getDownloadedTracks,
   isTrackDownloaded,
 } from "../../offlineDownloads.js";
 
@@ -45,27 +51,6 @@ import {
   setCachedLibrary,
   setCachedPlaylist,
 } from "../../libraryCache.js";
-
-function resolveArtworkUrl(
-  url,
-) {
-  if (!url) {
-    return null;
-  }
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(
-    /^\/api/,
-    "",
-  )}`;
-}
-
 
 function formatDuration(
   seconds,
@@ -305,6 +290,47 @@ const [
   progress: 0,
 });
 
+  const [
+    downloadedTracks,
+    setDownloadedTracks,
+  ] = useState([]);
+
+  useEffect(() => {
+    if (
+      activeTab !==
+      "Downloads"
+    ) {
+      return undefined;
+    }
+
+    let cancelled =
+      false;
+
+    void getDownloadedTracks()
+      .then((tracks) => {
+        if (!cancelled) {
+          setDownloadedTracks(
+            tracks,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDownloadedTracks(
+            [],
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    resetToken,
+    playlistDownload.status,
+  ]);
+
   const isRegistered =
     currentUser?.account_type ===
     "registered";
@@ -481,11 +507,45 @@ const [
     false;
 
   async function loadInitialPlaylist() {
-    setOpeningPlaylistId(
-      initialPlaylistId,
-    );
+    const cached =
+      getCachedPlaylist(
+        libraryCacheKey,
+        initialPlaylistId,
+      );
+
+    if (cached) {
+      setSelectedPlaylist(
+        cached,
+      );
+    } else {
+      setOpeningPlaylistId(
+        initialPlaylistId,
+      );
+    }
 
     setError("");
+
+    const offline =
+      typeof navigator !==
+        "undefined" &&
+      navigator.onLine ===
+        false;
+
+    if (offline) {
+      if (!cached) {
+        setError(
+          "Open this playlist once while online before using it offline.",
+        );
+      }
+
+      setOpeningPlaylistId(
+        null,
+      );
+
+      onInitialPlaylistHandled?.();
+
+      return;
+    }
 
     try {
       const playlist =
@@ -497,6 +557,11 @@ const [
         return;
       }
 
+      setCachedPlaylist(
+        libraryCacheKey,
+        playlist,
+      );
+
       setSelectedPlaylist(
         playlist,
       );
@@ -506,7 +571,10 @@ const [
         behavior: "smooth",
       });
     } catch (requestError) {
-      if (cancelled) {
+      if (
+        cancelled ||
+        cached
+      ) {
         return;
       }
 
@@ -535,6 +603,7 @@ const [
   };
 }, [
   initialPlaylistId,
+  libraryCacheKey,
   onInitialPlaylistHandled,
 ]);
 
@@ -923,106 +992,75 @@ if (offline) {
   }
 
   async function downloadPlaylist() {
-  const tracks =
-    selectedPlaylist?.tracks ??
-    [];
+    const tracks =
+      selectedPlaylist?.tracks ??
+      [];
 
-  if (
-    tracks.length === 0 ||
-    playlistDownload.status ===
-      "downloading"
-  ) {
-    return;
-  }
-
-  setError("");
-
-  setPlaylistDownload({
-    status:
-      "downloading",
-
-    progress:
-      0,
-  });
-
-  try {
-    const total =
-      tracks.length;
-
-    for (
-      let index = 0;
-      index < total;
-      index += 1
+    if (
+      tracks.length === 0 ||
+      playlistDownload.status ===
+        "downloading"
     ) {
-      const track =
-        tracks[index];
+      return;
+    }
 
-      const alreadyDownloaded =
-        await isTrackDownloaded(
-          track,
-        );
+    setError("");
 
-      if (
-        alreadyDownloaded
-      ) {
-        setPlaylistDownload({
-          status:
-            "downloading",
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        0,
+    });
 
-          progress:
-            (index + 1) /
-            total,
-        });
-
-        continue;
-      }
-
-      await downloadTrackForOffline(
-        track,
+    try {
+      await downloadTracksForOffline(
+        tracks,
         {
+          jobId:
+            "playlist:" +
+            String(
+              selectedPlaylist.id,
+            ),
           onProgress: ({
             progress,
           }) => {
             setPlaylistDownload({
               status:
                 "downloading",
-
               progress:
-                (
-                  index +
-                  progress
-                ) /
-                total,
+                Number.isFinite(
+                  progress,
+                )
+                  ? progress
+                  : 0,
             });
           },
         },
       );
+
+      setPlaylistDownload({
+        status:
+          "downloaded",
+        progress:
+          1,
+      });
+    } catch (requestError) {
+      setPlaylistDownload({
+        status:
+          "error",
+        progress:
+          0,
+      });
+
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to download playlist.",
+      );
     }
-
-    setPlaylistDownload({
-      status:
-        "downloaded",
-
-      progress:
-        1,
-    });
-  } catch (requestError) {
-    setPlaylistDownload({
-      status:
-        "error",
-
-      progress:
-        0,
-    });
-
-    setError(
-      requestError
-        instanceof Error
-        ? requestError.message
-        : "Unable to download playlist.",
-    );
   }
-}
 
   function playPlaylist(
     startIndex = 0,
@@ -1068,6 +1106,10 @@ if (offline) {
 
           artist:
             track.artist,
+
+          album:
+            track.album ??
+            "",
         }),
       );
 
@@ -1889,7 +1931,186 @@ if (offline) {
     ) : null}
 
 
-    {activeTab !== "Playlists" ? (
+    {activeTab === "Downloads" ? (
+
+      <section className="hs-search-section hs-library-collection">
+
+        <div className="hs-search-section__heading">
+          <div>
+            <span>
+              OFFLINE CONTENT
+            </span>
+
+            <h3>
+              Downloads
+            </h3>
+          </div>
+
+          <strong>
+            {downloadedTracks.length}
+          </strong>
+        </div>
+
+        {downloadedTracks.length === 0 ? (
+          <div className="hs-library-empty">
+            <Icon
+              name="download"
+              size={22}
+            />
+
+            <div>
+              <strong>
+                Nothing downloaded yet
+              </strong>
+
+              <p>
+                Download a track or playlist and it will be available here without internet.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="hs-search-track-list">
+            {downloadedTracks.map(
+              (track, index) => {
+                const artwork =
+                  resolveArtworkUrl(
+                    track.artwork_url,
+                  );
+
+                const current =
+                  currentTrackId !== null &&
+                  String(
+                    track.id,
+                  ) ===
+                    currentTrackId;
+
+                return (
+                  <div
+                    key={
+                      track.id
+                    }
+                    role="button"
+                    tabIndex={0}
+                    className={[
+                      "hs-search-track",
+                      current
+                        ? "is-current-track"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => {
+                      void player.playTrack(
+                        track.id,
+                        {
+                          artworkUrl:
+                            artwork,
+                          title:
+                            track.title,
+                          artist:
+                            track.artist,
+                          album:
+                            track.album,
+                          mimeType:
+                            track.mime_type,
+                          fileSize:
+                            track.file_size,
+                          mediaVersion:
+                            track.media_version,
+                        },
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key ===
+                          "Enter" ||
+                        event.key ===
+                          " "
+                      ) {
+                        event.preventDefault();
+
+                        event.currentTarget.click();
+                      }
+                    }}
+                  >
+                    <span className="hs-search-track__rank">
+                      {String(
+                        index + 1,
+                      ).padStart(
+                        2,
+                        "0",
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__art">
+                      {artwork ? (
+                        <img
+                          src={
+                            artwork
+                          }
+                          alt=""
+                          loading="lazy"
+                        />
+                      ) : (
+                        <Icon
+                          name="music"
+                          size={20}
+                        />
+                      )}
+
+                      <i aria-hidden="true">
+                        <Icon
+                          name="play"
+                          size={15}
+                        />
+                      </i>
+                    </span>
+
+                    <span className="hs-search-track__copy">
+                      <strong>
+                        {track.title}
+                      </strong>
+
+                      <small>
+                        {track.artist}
+                        {track.album
+                          ? ` • ${track.album}`
+                          : ""}
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__signals">
+                      <em>
+                        AVAILABLE OFFLINE
+                      </em>
+
+                      <small>
+                        Stored on this device
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__duration">
+                      {formatDuration(
+                        track.duration_seconds,
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__play">
+                      <Icon
+                        name="play"
+                        size={16}
+                      />
+                    </span>
+                  </div>
+                );
+              },
+            )}
+          </div>
+        )}
+
+      </section>
+
+    ) : activeTab !== "Playlists" ? (
 
       <section className="hs-search-message">
 
