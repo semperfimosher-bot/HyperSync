@@ -14,13 +14,22 @@ const MEDIA_DATABASE_NAME =
   "hypersynced-media-v1";
 
 const MEDIA_DATABASE_VERSION =
-  2;
+  5;
 
 const MEDIA_RECORD_STORE =
   "media";
 
 const MEDIA_CHUNK_STORE =
   "chunks";
+
+const MEDIA_ARTWORK_STORE =
+  "artwork";
+
+const MEDIA_DOWNLOAD_JOB_STORE =
+  "downloadJobs";
+
+const MEDIA_LYRICS_STORE =
+  "lyrics";
 
 
 let databasePromise = null;
@@ -169,6 +178,48 @@ function openMediaDatabase() {
                 "mediaKey",
                 {
                   unique: false,
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_ARTWORK_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_ARTWORK_STORE,
+                {
+                  keyPath: "trackId",
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_DOWNLOAD_JOB_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_DOWNLOAD_JOB_STORE,
+                {
+                  keyPath: "id",
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_LYRICS_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_LYRICS_STORE,
+                {
+                  keyPath: "trackId",
                 },
               );
             }
@@ -981,6 +1032,8 @@ export async function cleanupExpiredMedia(
           [
             MEDIA_RECORD_STORE,
             MEDIA_CHUNK_STORE,
+            MEDIA_ARTWORK_STORE,
+            MEDIA_LYRICS_STORE,
           ],
           "readwrite",
         );
@@ -1160,6 +1213,385 @@ export async function getPinnedMediaRecords() {
 }
 
 
+export async function saveArtwork({
+  trackId,
+  data,
+  mimeType = "image/jpeg",
+  sourceUrl = null,
+  artworkVersion = null,
+} = {}) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    throw new TypeError(
+      "Artwork requires a track id.",
+    );
+  }
+
+  if (!(data instanceof ArrayBuffer)) {
+    throw new TypeError(
+      "Artwork data must be an ArrayBuffer.",
+    );
+  }
+
+  const record = {
+    trackId:
+      normalizedTrackId,
+    data,
+    mimeType:
+      mimeType ||
+      "application/octet-stream",
+    byteLength:
+      data.byteLength,
+    sourceUrl,
+    artworkVersion:
+      artworkVersion === null ||
+      artworkVersion === undefined
+        ? null
+        : String(
+            artworkVersion,
+          ),
+    updatedAt:
+      Date.now(),
+  };
+
+  const database =
+    await openMediaDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_ARTWORK_STORE,
+        )
+        .put(record);
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save artwork.",
+            ),
+        );
+
+      transaction.onabort =
+        transaction.onerror;
+    },
+  );
+
+  return record;
+}
+
+
+export async function getArtwork(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_ARTWORK_STORE,
+          )
+          .get(
+            normalizedTrackId,
+          );
+
+      request.onsuccess =
+        () => resolve(
+          request.result ??
+            null,
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read artwork.",
+            ),
+        );
+    },
+  );
+}
+
+
+export async function removeArtwork(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return false;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_ARTWORK_STORE,
+        )
+        .delete(
+          normalizedTrackId,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to remove artwork.",
+            ),
+        );
+    },
+  );
+
+  return true;
+}
+
+
+export async function saveLyrics(
+  trackId,
+  lyrics,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (
+    !normalizedTrackId ||
+    !lyrics ||
+    typeof lyrics !== "object"
+  ) {
+    throw new TypeError(
+      "Lyrics require a track id and payload.",
+    );
+  }
+
+  const record = {
+    trackId:
+      normalizedTrackId,
+    payload:
+      lyrics,
+    updatedAt:
+      Date.now(),
+  };
+
+  const database =
+    await openMediaDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_LYRICS_STORE,
+        )
+        .put(
+          record,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save lyrics.",
+            ),
+        );
+
+      transaction.onabort =
+        transaction.onerror;
+    },
+  );
+
+  return record;
+}
+
+
+export async function getLyrics(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_LYRICS_STORE,
+          )
+          .get(
+            normalizedTrackId,
+          );
+
+      request.onsuccess =
+        () => resolve(
+          request.result
+            ?.payload ??
+          null,
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read lyrics.",
+            ),
+        );
+    },
+  );
+}
+
+
+export async function saveDownloadJob(
+  job,
+) {
+  if (!job?.id) {
+    throw new TypeError(
+      "Download job requires an id.",
+    );
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  const record = {
+    ...job,
+    id:
+      String(job.id),
+    updatedAt:
+      Date.now(),
+  };
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_DOWNLOAD_JOB_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_DOWNLOAD_JOB_STORE,
+        )
+        .put(record);
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save download job.",
+            ),
+        );
+    },
+  );
+
+  return record;
+}
+
+
+export async function getDownloadJobs() {
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_DOWNLOAD_JOB_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+          )
+          .getAll();
+
+      request.onsuccess =
+        () => resolve(
+          Array.isArray(
+            request.result,
+          )
+            ? request.result
+            : [],
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read download jobs.",
+            ),
+        );
+    },
+  );
+}
+
+
 export async function removeDownloadedMedia(
   trackId,
   mediaVersion,
@@ -1190,6 +1622,7 @@ export async function removeDownloadedMedia(
           [
             MEDIA_RECORD_STORE,
             MEDIA_CHUNK_STORE,
+            MEDIA_ARTWORK_STORE,
           ],
           "readwrite",
         );
@@ -1206,6 +1639,16 @@ export async function removeDownloadedMedia(
           MEDIA_CHUNK_STORE,
         );
 
+      const artworkStore =
+        transaction.objectStore(
+          MEDIA_ARTWORK_STORE,
+        );
+
+      const lyricsStore =
+        transaction.objectStore(
+          MEDIA_LYRICS_STORE,
+        );
+
 
       const mediaKeyIndex =
         chunkStore.index(
@@ -1215,6 +1658,14 @@ export async function removeDownloadedMedia(
 
       mediaStore.delete(
         mediaKey,
+      );
+
+      artworkStore.delete(
+        String(trackId),
+      );
+
+      lyricsStore.delete(
+        String(trackId),
       );
 
 
