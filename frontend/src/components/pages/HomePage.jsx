@@ -8,7 +8,9 @@ import {
   resolveMediaUrl,
 } from "../../mediaCache.js";
 
-import { API_BASE } from "../../api/client.js";
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
 
 import * as player from "../../audioPlayer.js";
 
@@ -25,6 +27,10 @@ import {
 import {
   getHomeRecentlyPlayed,
 } from "../../homeRecentlyPlayed.js";
+
+import {
+  getDownloadedTracks,
+} from "../../offlineDownloads.js";
 
 function CachedArtwork({
   src,
@@ -157,6 +163,34 @@ useEffect(() => {
       "",
     );
 
+    let localTracks =
+      [];
+
+    try {
+      localTracks =
+        (
+          await getDownloadedTracks()
+        ).slice(
+          0,
+          6,
+        );
+
+      if (
+        !cancelled &&
+        localTracks.length > 0
+      ) {
+        setRecentlyPlayed(
+          localTracks,
+        );
+
+        setRecentLoading(
+          false,
+        );
+      }
+    } catch {
+      // Local downloads are a best-effort first paint.
+    }
+
     try {
       const profile =
         await getMyProfile();
@@ -170,20 +204,36 @@ useEffect(() => {
           profile,
         ),
       );
+
+      setRecentError(
+        "",
+      );
     } catch (error) {
       if (cancelled) {
         return;
       }
 
-      setRecentlyPlayed(
-        [],
-      );
+      if (
+        localTracks.length > 0
+      ) {
+        setRecentlyPlayed(
+          localTracks,
+        );
 
-      setRecentError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load recently played.",
-      );
+        setRecentError(
+          "",
+        );
+      } else {
+        setRecentlyPlayed(
+          [],
+        );
+
+        setRecentError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load recently played.",
+        );
+      }
     } finally {
       if (!cancelled) {
         setRecentLoading(
@@ -201,18 +251,7 @@ useEffect(() => {
   };
 }, [currentUser]);
 
-  const resolveArtworkUrl = (url) => {
-  if (!url) return null;
 
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(/^\/api/, "")}`;
-  };
 
   const playTrack = async (
     trackId,
