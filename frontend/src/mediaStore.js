@@ -1608,6 +1608,24 @@ export async function removeDownloadedMedia(
   }
 
 
+  const normalizedTrackId =
+    String(trackId);
+
+  const otherPinnedRecords =
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        record.trackId ===
+          normalizedTrackId &&
+        record.key !==
+          mediaKey,
+    );
+
+  const preserveSharedAssets =
+    otherPinnedRecords.length > 0;
+
+
   const database =
     await openMediaDatabase();
 
@@ -1661,13 +1679,15 @@ export async function removeDownloadedMedia(
         mediaKey,
       );
 
-      artworkStore.delete(
-        String(trackId),
-      );
+      if (!preserveSharedAssets) {
+        artworkStore.delete(
+          normalizedTrackId,
+        );
 
-      lyricsStore.delete(
-        String(trackId),
-      );
+        lyricsStore.delete(
+          normalizedTrackId,
+        );
+      }
 
 
       const cursorRequest =
