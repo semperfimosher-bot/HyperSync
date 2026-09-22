@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 from io import BytesIO
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -24,6 +25,20 @@ router = APIRouter(
     prefix="/admin",
     tags=["administration"],
 )
+
+logger = logging.getLogger(__name__)
+
+AUDIO_TYPES = {
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/flac": "flac",
+    "audio/x-flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/opus": "opus",
+}
 
 
 @router.get("/access")
@@ -61,17 +76,33 @@ async def upload_track(
             detail="No file provided.",
         )
 
-    if not file.content_type or "audio" not in file.content_type:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an audio file.",
-        )
-
     settings = get_settings()
 
+    file_type = (file.content_type or "").lower().strip()
+
+    if file_type not in AUDIO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported audio type.",
+        )
+
     try:
-        file_content = await file.read()
+        file_content = await file.read(
+            settings.max_audio_upload_bytes + 1
+        )
         file_size = len(file_content)
+
+        if file_size == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file is empty.",
+            )
+
+        if file_size > settings.max_audio_upload_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Audio file exceeds the configured upload limit.",
+            )
 
         embedded_metadata = extract_embedded_audio_metadata(
             file_content,
@@ -89,9 +120,7 @@ async def upload_track(
             embedded=embedded_metadata,
         )
 
-        file_ext = (
-            file.filename.split(".")[-1] if (file.filename and "." in file.filename) else "wav"
-        )
+        file_ext = AUDIO_TYPES[file_type]
 
         object_key = f"{settings.b2_audio_prefix}/{uuid4()}.{file_ext}"
 
@@ -149,7 +178,7 @@ async def upload_track(
             bucket.upload_bytes,
             file_content,
             object_key,
-            content_type=(file.content_type),
+            content_type=file_type,
         )
 
         artwork_object_key = None
@@ -174,7 +203,7 @@ async def upload_track(
             genre=(resolved_metadata["genre"]),
             b2_object_key=(object_key),
             artwork_object_key=(artwork_object_key),
-            mime_type=(file.content_type),
+            mime_type=file_type,
             file_size=file_size,
             duration_seconds=(resolved_metadata["duration_seconds"]),
             is_published=True,
@@ -198,12 +227,16 @@ async def upload_track(
             "duration_seconds": (track.duration_seconds),
         }
 
+    except HTTPException:
+        await session.rollback()
+        raise
     except Exception as exc:
         await session.rollback()
+        logger.exception("Track upload failed.")
 
         raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=(f"Upload failed: {exc}"),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Track upload failed.",
         ) from exc
 
 
@@ -250,10 +283,13 @@ async def delete_track(
 
     except Exception as exc:
         await session.rollback()
+        logger.exception(
+            "Failed to remove track files from object storage.",
+        )
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(f"Failed to permanently remove track files from B2: {exc}"),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Track storage is temporarily unavailable.",
         ) from exc
 
     await session.delete(track)
