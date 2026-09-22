@@ -210,5 +210,5 @@ def resolve_track_metadata(
             int(duration_seconds or 0),
             0,
         ),
-        "genre": embedded["genre"],
+        "genre": embedded.get("genre"),
     }
