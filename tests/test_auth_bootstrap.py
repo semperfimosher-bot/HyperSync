@@ -6,7 +6,10 @@ from backend.app.main import app
 
 @pytest.mark.asyncio
 async def test_first_admin_bootstrap_then_normal_registration() -> None:
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(
+        app=app,
+        client=("198.51.100.20", 12345),
+    )
 
     async with AsyncClient(
         transport=transport,
