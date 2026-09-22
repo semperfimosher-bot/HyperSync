@@ -59,12 +59,22 @@ async def run_async_migrations() -> None:
     if not database_url:
         raise RuntimeError("MIGRATION_DATABASE_URL is not configured.")
 
+    connect_args = {}
+
+    if not database_url.startswith(
+        (
+            "sqlite://",
+            "sqlite+aiosqlite://",
+        ),
+    ):
+        connect_args["ssl"] = (
+            ssl.create_default_context()
+        )
+
     engine = create_async_engine(
         database_url,
         poolclass=pool.NullPool,
-        connect_args={
-            "ssl": ssl.create_default_context(),
-        },
+        connect_args=connect_args,
     )
 
     try:
