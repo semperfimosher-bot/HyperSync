@@ -18,6 +18,8 @@ jobs:
       ENVIRONMENT: test
       ADMIN_BOOTSTRAP_SECRET: ci-test-admin-bootstrap-secret-1234567890
       JWT_SECRET: ci-test-jwt-secret-that-is-longer-than-thirty-two-characters
+      DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
+      MIGRATION_DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +34,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.backend.txt
           pip install pytest pytest-asyncio
+
+      - name: Apply test database migrations
+        run: python -m alembic upgrade head
 
       - name: Run backend tests
         run: python -m pytest -q -W error
