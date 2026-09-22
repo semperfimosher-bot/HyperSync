@@ -1,3 +1,4 @@
+import hashlib
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -110,8 +111,12 @@ async def test_catalog_returns_direct_signed_media_urls(
         "https://s3.example.test/bucket/audio/fast-song.mp3?X-Amz-Signature=test"
     )
 
+    artwork_version = hashlib.sha256(
+        b"artwork/fast-song.jpg"
+    ).hexdigest()[:16]
+
     assert payload[0]["artwork_url"] == (
-        "https://s3.example.test/bucket/artwork/fast-song.jpg?X-Amz-Signature=test"
+        f"/api/catalog/tracks/{track_id}/artwork?v={artwork_version}"
     )
 
     assert payload[0]["mime_type"] == ("audio/mpeg")
@@ -168,9 +173,15 @@ def test_catalog_media_urls_fall_back_when_signing_fails(
         == f"/api/audio/{track_id}"
     )
 
+    artwork_version = hashlib.sha256(
+        b"artwork/demo.jpg"
+    ).hexdigest()[:16]
+
     assert catalog_route._track_artwork_url(
         track,
-    ) == (f"/api/catalog/tracks/{track_id}/artwork")
+    ) == (
+        f"/api/catalog/tracks/{track_id}/artwork?v={artwork_version}"
+    )
 
 
 def test_catalog_track_response_exposes_media_cache_metadata() -> None:
