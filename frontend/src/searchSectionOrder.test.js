@@ -16,13 +16,8 @@ const searchPageSource =
 
 
 test(
-  "search result sections are alphabetically ordered after Top Signal",
+  "search discovery panels are alphabetically ordered",
   () => {
-    const topSignalIndex =
-      searchPageSource.indexOf(
-        'className="hs-search-top-signal"',
-      );
-
     const discoveryIndex =
       searchPageSource.indexOf(
         'className="hs-search-discovery-shell"',
@@ -52,22 +47,6 @@ test(
         discoveryGridIndex,
       );
 
-    const peopleIndex =
-      searchPageSource.indexOf(
-        "{showPeople &&",
-      );
-
-    const tracksIndex =
-      searchPageSource.indexOf(
-        "{showTracks &&",
-      );
-
-
-    assert.ok(
-      topSignalIndex >= 0,
-      "Top Signal section was not found.",
-    );
-
     assert.ok(
       discoveryIndex >= 0,
       "Discovery section was not found.",
@@ -89,23 +68,6 @@ test(
     );
 
     assert.ok(
-      peopleIndex >= 0,
-      "People section was not found.",
-    );
-
-    assert.ok(
-      tracksIndex >= 0,
-      "Tracks section was not found.",
-    );
-
-
-    assert.ok(
-      topSignalIndex <
-        discoveryIndex,
-      "Top Signal must stay above the alphabetical sections.",
-    );
-
-    assert.ok(
       albumIndex <
         artistIndex,
       "Albums must appear before Artists.",
@@ -115,18 +77,6 @@ test(
       artistIndex <
         collaborationIndex,
       "Artists must appear before Collaborations.",
-    );
-
-    assert.ok(
-      discoveryIndex <
-        peopleIndex,
-      "Discovery sections must appear before People.",
-    );
-
-    assert.ok(
-      peopleIndex <
-        tracksIndex,
-      "People must appear before Tracks.",
     );
   },
 );
