@@ -1,8 +1,10 @@
+import hmac
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -15,6 +17,7 @@ from ...models.account import (
     UserSession,
 )
 from ...security.passwords import hash_password, verify_password
+from ...security.rate_limit import enforce_rate_limit
 from ...security.tokens import (
     create_access_token,
     create_refresh_token,
@@ -39,6 +42,16 @@ class RegisterRequest(BaseModel):
         min_length=8,
         max_length=128,
     )
+
+    admin_setup_code: str | None = Field(
+        default=None,
+        max_length=256,
+    )
+
+
+class BootstrapStatusResponse(BaseModel):
+    admin_exists: bool
+    registration_mode: str
 
 
 class LoginRequest(BaseModel):
@@ -70,8 +83,49 @@ class AuthResponse(BaseModel):
     user: UserResponse
 
 
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 def normalize_username(username: str) -> str:
-    return username.strip().lower()
+    return username.strip().casefold()
+
+
+def validate_username(username: str) -> str:
+    cleaned = username.strip()
+
+    if not USERNAME_PATTERN.fullmatch(cleaned):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Username may contain only letters, numbers, dots, "
+                "underscores, and hyphens."
+            ),
+        )
+
+    return cleaned
+
+
+async def _admin_exists(session) -> bool:
+    result = await session.execute(
+        select(User.id)
+        .where(
+            User.account_type == AccountType.REGISTERED,
+            User.role == UserRole.ADMIN,
+        )
+        .limit(1)
+    )
+
+    return result.scalar_one_or_none() is not None
+
+
+async def _lock_admin_bootstrap(session) -> None:
+    bind = session.get_bind()
+
+    if bind is not None and bind.dialect.name == "postgresql":
+        # Serialize the one-time bootstrap decision across backend workers.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(37420260921)")
+        )
 
 
 def make_user_response(
@@ -139,6 +193,22 @@ async def create_session(
     return session, refresh_token
 
 
+@router.get(
+    "/bootstrap-status",
+    response_model=BootstrapStatusResponse,
+)
+async def bootstrap_status():
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        exists = await _admin_exists(session)
+
+    return BootstrapStatusResponse(
+        admin_exists=exists,
+        registration_mode="user" if exists else "admin_setup",
+    )
+
+
 @router.post(
     "/register",
     response_model=AuthResponse,
@@ -149,15 +219,30 @@ async def register(
     request: Request,
     response: Response,
 ):
+    settings = get_settings()
+
+    enforce_rate_limit(
+        request,
+        bucket="register",
+        limit=settings.auth_register_attempts_per_15_minutes,
+        window_seconds=15 * 60,
+    )
+
     session_factory = get_session_factory()
 
-    username = normalize_username(
+    display_username = validate_username(
         payload.username,
+    )
+
+    username = normalize_username(
+        display_username,
     )
 
     email = str(payload.email).strip().lower()
 
     async with session_factory() as session:
+        await _lock_admin_bootstrap(session)
+
         existing = await session.execute(
             select(User).where(
                 (
@@ -176,22 +261,35 @@ async def register(
                 detail=("That email or username is already registered."),
             )
 
-        # The first registered account becomes
-        # the initial HyperSync administrator.
-        count_result = await session.execute(
-            select(func.count(User.id)).where(
-                User.account_type == AccountType.REGISTERED,
-            )
-        )
+        admin_exists = await _admin_exists(session)
 
-        registered_count = count_result.scalar_one()
+        if admin_exists:
+            role = UserRole.USER
+        else:
+            configured_code = settings.admin_bootstrap_secret.strip()
+            submitted_code = (payload.admin_setup_code or "").strip()
 
-        role = UserRole.ADMIN if registered_count == 0 else UserRole.USER
+            if len(configured_code) < 20:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Administrator setup is not configured.",
+                )
+
+            if not hmac.compare_digest(
+                configured_code,
+                submitted_code,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="A valid administrator setup code is required.",
+                )
+
+            role = UserRole.ADMIN
 
         user = User(
             account_type=AccountType.REGISTERED,
             email=email,
-            username=payload.username.strip(),
+            username=display_username,
             username_normalized=username,
             password_hash=hash_password(
                 payload.password,
@@ -206,7 +304,7 @@ async def register(
 
         profile = UserProfile(
             user_id=user.id,
-            display_name=payload.username.strip(),
+            display_name=display_username,
         )
 
         session.add(profile)
@@ -252,9 +350,19 @@ async def login(
     request: Request,
     response: Response,
 ):
-    session_factory = get_session_factory()
+    settings = get_settings()
 
     identifier = payload.username.strip()
+
+    enforce_rate_limit(
+        request,
+        bucket="login",
+        limit=settings.auth_login_attempts_per_minute,
+        window_seconds=60,
+        discriminator=identifier,
+    )
+
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         result = await session.execute(
