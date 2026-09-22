@@ -55,6 +55,7 @@ test(
         artworkUrl: "one.jpg",
         title: "Song One",
         artist: "Artist One",
+        album: "",
         mimeType: "audio/mpeg",
         fileSize: 5_000_000,
         mediaVersion:
@@ -68,6 +69,7 @@ test(
         artworkUrl: "two.jpg",
         title: "Song Two",
         artist: "Artist Two",
+        album: "",
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
@@ -80,6 +82,7 @@ test(
         artworkUrl: "three.jpg",
         title: "Song Three",
         artist: "Artist Three",
+        album: "",
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
