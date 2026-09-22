@@ -14,7 +14,7 @@ const MEDIA_DATABASE_NAME =
   "hypersynced-media-v1";
 
 const MEDIA_DATABASE_VERSION =
-  4;
+  5;
 
 const MEDIA_RECORD_STORE =
   "media";
@@ -27,6 +27,9 @@ const MEDIA_ARTWORK_STORE =
 
 const MEDIA_DOWNLOAD_JOB_STORE =
   "downloadJobs";
+
+const MEDIA_LYRICS_STORE =
+  "lyrics";
 
 
 let databasePromise = null;
@@ -203,6 +206,20 @@ function openMediaDatabase() {
                 MEDIA_DOWNLOAD_JOB_STORE,
                 {
                   keyPath: "id",
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_LYRICS_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_LYRICS_STORE,
+                {
+                  keyPath: "trackId",
                 },
               );
             }
@@ -1358,6 +1375,120 @@ export async function removeArtwork(
   );
 
   return true;
+}
+
+
+export async function saveLyrics(
+  trackId,
+  lyrics,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (
+    !normalizedTrackId ||
+    !lyrics ||
+    typeof lyrics !== "object"
+  ) {
+    throw new TypeError(
+      "Lyrics require a track id and payload.",
+    );
+  }
+
+  const record = {
+    trackId:
+      normalizedTrackId,
+    payload:
+      lyrics,
+    updatedAt:
+      Date.now(),
+  };
+
+  const database =
+    await openMediaDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_LYRICS_STORE,
+        )
+        .put(
+          record,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save lyrics.",
+            ),
+        );
+
+      transaction.onabort =
+        transaction.onerror;
+    },
+  );
+
+  return record;
+}
+
+
+export async function getLyrics(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_LYRICS_STORE,
+          )
+          .get(
+            normalizedTrackId,
+          );
+
+      request.onsuccess =
+        () => resolve(
+          request.result
+            ?.payload ??
+          null,
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read lyrics.",
+            ),
+        );
+    },
+  );
 }
 
 
