@@ -36,6 +36,7 @@ import useTrackActionMenu from
 
 import {
   downloadTrackForOffline,
+  downloadTracksForOffline,
   isTrackDownloaded,
 } from "../../offlineDownloads.js";
 
@@ -923,106 +924,75 @@ if (offline) {
   }
 
   async function downloadPlaylist() {
-  const tracks =
-    selectedPlaylist?.tracks ??
-    [];
+    const tracks =
+      selectedPlaylist?.tracks ??
+      [];
 
-  if (
-    tracks.length === 0 ||
-    playlistDownload.status ===
-      "downloading"
-  ) {
-    return;
-  }
-
-  setError("");
-
-  setPlaylistDownload({
-    status:
-      "downloading",
-
-    progress:
-      0,
-  });
-
-  try {
-    const total =
-      tracks.length;
-
-    for (
-      let index = 0;
-      index < total;
-      index += 1
+    if (
+      tracks.length === 0 ||
+      playlistDownload.status ===
+        "downloading"
     ) {
-      const track =
-        tracks[index];
+      return;
+    }
 
-      const alreadyDownloaded =
-        await isTrackDownloaded(
-          track,
-        );
+    setError("");
 
-      if (
-        alreadyDownloaded
-      ) {
-        setPlaylistDownload({
-          status:
-            "downloading",
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        0,
+    });
 
-          progress:
-            (index + 1) /
-            total,
-        });
-
-        continue;
-      }
-
-      await downloadTrackForOffline(
-        track,
+    try {
+      await downloadTracksForOffline(
+        tracks,
         {
+          jobId:
+            "playlist:" +
+            String(
+              selectedPlaylist.id,
+            ),
           onProgress: ({
             progress,
           }) => {
             setPlaylistDownload({
               status:
                 "downloading",
-
               progress:
-                (
-                  index +
-                  progress
-                ) /
-                total,
+                Number.isFinite(
+                  progress,
+                )
+                  ? progress
+                  : 0,
             });
           },
         },
       );
+
+      setPlaylistDownload({
+        status:
+          "downloaded",
+        progress:
+          1,
+      });
+    } catch (requestError) {
+      setPlaylistDownload({
+        status:
+          "error",
+        progress:
+          0,
+      });
+
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to download playlist.",
+      );
     }
-
-    setPlaylistDownload({
-      status:
-        "downloaded",
-
-      progress:
-        1,
-    });
-  } catch (requestError) {
-    setPlaylistDownload({
-      status:
-        "error",
-
-      progress:
-        0,
-    });
-
-    setError(
-      requestError
-        instanceof Error
-        ? requestError.message
-        : "Unable to download playlist.",
-    );
   }
-}
 
   function playPlaylist(
     startIndex = 0,
