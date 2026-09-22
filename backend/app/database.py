@@ -39,7 +39,7 @@ def get_engine() -> AsyncEngine:
         engine_kwargs["connect_args"] = {
             "check_same_thread": False,
         }
-    else:
+    elif settings.database_ssl:
         ssl_context = ssl.create_default_context()
 
         engine_kwargs["connect_args"] = {
