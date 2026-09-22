@@ -273,6 +273,10 @@ function normalizeTrackMeta(
     artist:
       meta.artist ??
       "",
+
+    album:
+      meta.album ??
+      "",
   };
 }
 
@@ -626,9 +630,100 @@ function setPlaybackPhase(
 }
 
 
+function updateMediaSession(
+  state,
+) {
+  const mediaSession =
+    globalThis.navigator
+      ?.mediaSession;
+
+  if (!mediaSession) {
+    return;
+  }
+
+  try {
+    if (
+      state.trackId &&
+      typeof globalThis.MediaMetadata ===
+        "function"
+    ) {
+      mediaSession.metadata =
+        new globalThis.MediaMetadata({
+          title:
+            state.title ||
+            "Unknown Track",
+          artist:
+            state.artist ||
+            "Unknown Artist",
+          album:
+            currentTrackMeta
+              ?.album ??
+            "",
+          artwork:
+            state.artworkUrl
+              ? [
+                  {
+                    src:
+                      state.artworkUrl,
+                  },
+                ]
+              : [],
+        });
+    } else if (!state.trackId) {
+      mediaSession.metadata =
+        null;
+    }
+
+    mediaSession.playbackState =
+      state.trackId
+        ? (
+            state.paused
+              ? "paused"
+              : "playing"
+          )
+        : "none";
+
+    if (
+      typeof mediaSession
+        .setPositionState ===
+        "function" &&
+      Number.isFinite(
+        state.duration,
+      ) &&
+      state.duration > 0 &&
+      Number.isFinite(
+        state.currentTime,
+      )
+    ) {
+      mediaSession.setPositionState({
+        duration:
+          state.duration,
+        playbackRate:
+          audio.playbackRate ||
+          1,
+        position:
+          Math.max(
+            0,
+            Math.min(
+              state.currentTime,
+              state.duration,
+            ),
+          ),
+      });
+    }
+  } catch {
+    // Media Session support varies by browser.
+  }
+}
+
+
 function notify() {
   const state =
     getState();
+
+  updateMediaSession(
+    state,
+  );
 
   subscribers.forEach(
     (cb) => {
@@ -2105,6 +2200,7 @@ if (
     subscribe,
     _getAudioElement,
     skipToNext,
+    skipToPrevious,
   };
 }
 
@@ -2130,3 +2226,142 @@ export async function skipToNext() {
 
   return true;
 }
+
+
+
+export async function skipToPrevious() {
+  if (!currentTrackId) {
+    return false;
+  }
+
+  if (
+    getSafeCurrentTime() >
+      5 ||
+    currentQueueIndex <= 0
+  ) {
+    seekTo(
+      0,
+    );
+
+    return true;
+  }
+
+  finishListeningEvent(
+    "skipped",
+    getSafeCurrentTime(),
+  );
+
+  await playQueueIndex(
+    currentQueueIndex - 1,
+  );
+
+  return true;
+}
+
+
+function configureMediaSessionActions() {
+  const mediaSession =
+    globalThis.navigator
+      ?.mediaSession;
+
+  if (
+    !mediaSession ||
+    typeof mediaSession
+      .setActionHandler !==
+      "function"
+  ) {
+    return;
+  }
+
+  const setHandler =
+    (
+      action,
+      handler,
+    ) => {
+      try {
+        mediaSession.setActionHandler(
+          action,
+          handler,
+        );
+      } catch {
+        // Some browsers expose only a subset.
+      }
+    };
+
+  setHandler(
+    "play",
+    () => {
+      if (audio.paused) {
+        void togglePlay();
+      }
+    },
+  );
+
+  setHandler(
+    "pause",
+    () => {
+      pausePlayback();
+    },
+  );
+
+  setHandler(
+    "nexttrack",
+    () => {
+      void skipToNext();
+    },
+  );
+
+  setHandler(
+    "previoustrack",
+    () => {
+      void skipToPrevious();
+    },
+  );
+
+  setHandler(
+    "seekbackward",
+    (details) => {
+      seekTo(
+        Math.max(
+          0,
+          getSafeCurrentTime() -
+            (
+              details?.seekOffset ??
+              10
+            ),
+        ),
+      );
+    },
+  );
+
+  setHandler(
+    "seekforward",
+    (details) => {
+      seekTo(
+        getSafeCurrentTime() +
+          (
+            details?.seekOffset ??
+            10
+          ),
+      );
+    },
+  );
+
+  setHandler(
+    "seekto",
+    (details) => {
+      if (
+        Number.isFinite(
+          details?.seekTime,
+        )
+      ) {
+        seekTo(
+          details.seekTime,
+        );
+      }
+    },
+  );
+}
+
+
+configureMediaSessionActions();
