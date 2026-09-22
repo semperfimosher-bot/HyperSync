@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     HTTPException,
+    Request,
     Query,
     status,
 )
@@ -22,6 +23,7 @@ from ...models.account import (
     User,
 )
 from ...models.media import Track
+from ...security.rate_limit import enforce_rate_limit
 from ...models.playlist import (
     Playlist,
     PlaylistTrack,
@@ -676,11 +678,20 @@ async def search_public_playlists(
 )
 async def create_playlist(
     payload: PlaylistCreateRequest,
+    request: Request,
     user: CurrentUser,
     session: DatabaseSession,
 ) -> PlaylistDetailResponse:
     require_registered_user(
         user,
+    )
+
+    enforce_rate_limit(
+        request,
+        bucket="playlist-create",
+        limit=20,
+        window_seconds=60 * 60,
+        discriminator=str(user.id),
     )
 
     title = payload.title.strip()
