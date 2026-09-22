@@ -1033,6 +1033,7 @@ export async function cleanupExpiredMedia(
             MEDIA_RECORD_STORE,
             MEDIA_CHUNK_STORE,
             MEDIA_ARTWORK_STORE,
+            MEDIA_LYRICS_STORE,
           ],
           "readwrite",
         );
@@ -1643,6 +1644,11 @@ export async function removeDownloadedMedia(
           MEDIA_ARTWORK_STORE,
         );
 
+      const lyricsStore =
+        transaction.objectStore(
+          MEDIA_LYRICS_STORE,
+        );
+
 
       const mediaKeyIndex =
         chunkStore.index(
@@ -1655,6 +1661,10 @@ export async function removeDownloadedMedia(
       );
 
       artworkStore.delete(
+        String(trackId),
+      );
+
+      lyricsStore.delete(
         String(trackId),
       );
 
