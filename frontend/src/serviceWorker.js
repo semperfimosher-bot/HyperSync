@@ -264,15 +264,22 @@ function parseArtworkRoute(
     return null;
   }
 
-  return decodeURIComponent(
-    trackId,
-  );
+  return {
+    trackId:
+      decodeURIComponent(
+        trackId,
+      ),
+    artworkVersion:
+      url.searchParams.get(
+        "v",
+      ),
+  };
 }
 
 
 function createNetworkArtworkRequest(
   request,
-  trackId,
+  identity,
   apiBaseUrl,
 ) {
   const normalizedApiBaseUrl =
@@ -288,11 +295,18 @@ function createNetworkArtworkRequest(
       normalizedApiBaseUrl +
         "/catalog/tracks/" +
         encodeURIComponent(
-          trackId,
+          identity.trackId,
         ) +
         "/artwork",
       request.url,
     );
+
+  if (identity.artworkVersion) {
+    networkUrl.searchParams.set(
+      "v",
+      identity.artworkVersion,
+    );
+  }
 
   return new Request(
     networkUrl,
@@ -313,12 +327,12 @@ export async function handleArtworkRequest(
   scheduleBackgroundTask =
     null,
 ) {
-  const trackId =
+  const identity =
     parseArtworkRoute(
       request,
     );
 
-  if (!trackId) {
+  if (!identity) {
     return networkFallback(
       request,
     );
@@ -326,10 +340,16 @@ export async function handleArtworkRequest(
 
   const cached =
     await getArtwork(
-      trackId,
+      identity.trackId,
     );
 
+  const versionMatches =
+    !identity.artworkVersion ||
+    cached?.artworkVersion ===
+      identity.artworkVersion;
+
   if (
+    versionMatches &&
     cached?.data instanceof
       ArrayBuffer &&
     cached.data.byteLength > 0
@@ -356,7 +376,7 @@ export async function handleArtworkRequest(
   const networkRequest =
     createNetworkArtworkRequest(
       request,
-      trackId,
+      identity,
       apiBaseUrl,
     );
 
@@ -399,7 +419,8 @@ export async function handleArtworkRequest(
               }
 
               return saveArtwork({
-                trackId,
+                trackId:
+                  identity.trackId,
                 data,
                 mimeType:
                   response.headers.get(
@@ -408,6 +429,8 @@ export async function handleArtworkRequest(
                   "image/jpeg",
                 sourceUrl:
                   networkRequest.url,
+                artworkVersion:
+                  identity.artworkVersion,
               });
             },
           )
@@ -754,14 +777,14 @@ export function registerMediaFetchHandler(
           event.request,
         );
 
-      const artworkTrackId =
+      const artworkIdentity =
         parseArtworkRoute(
           event.request,
         );
 
       if (
         !identity &&
-        !artworkTrackId
+        !artworkIdentity
       ) {
         return;
       }
