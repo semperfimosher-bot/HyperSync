@@ -1090,3 +1090,79 @@ test(
     );
   },
 );
+
+test(
+  "service worker serves downloaded artwork without the network",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const serviceWorker =
+      await loadServiceWorkerModule();
+
+    await mediaStore.saveArtwork({
+      trackId:
+        "offline-art-track",
+      data:
+        new Uint8Array([
+          1,
+          2,
+          3,
+          4,
+        ]).buffer,
+      mimeType:
+        "image/webp",
+    });
+
+    let networkCalled =
+      false;
+
+    const response =
+      await serviceWorker.handleArtworkRequest(
+        new Request(
+          "https://example.test/__hypersync/artwork/offline-art-track",
+        ),
+        async () => {
+          networkCalled =
+            true;
+
+          throw new Error(
+            "Artwork should come from IndexedDB.",
+          );
+        },
+      );
+
+    assert.equal(
+      networkCalled,
+      false,
+    );
+
+    assert.equal(
+      response.status,
+      200,
+    );
+
+    assert.equal(
+      response.headers.get(
+        "Content-Type",
+      ),
+      "image/webp",
+    );
+
+    assert.deepEqual(
+      Array.from(
+        new Uint8Array(
+          await response.arrayBuffer(),
+        ),
+      ),
+      [
+        1,
+        2,
+        3,
+        4,
+      ],
+    );
+  },
+);
