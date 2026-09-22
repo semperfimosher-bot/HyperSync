@@ -116,21 +116,30 @@ def _track_artwork_url(
         return None
 
     if track.artwork_object_key.startswith(
-        (
-            "http://",
-            "https://",
-        ),
+        "https://",
     ):
         return track.artwork_object_key
 
-    settings = get_settings()
+    if track.artwork_object_key.startswith(
+        "http://",
+    ):
+        logger.warning(
+            "Ignoring insecure external artwork URL for track %s.",
+            track.id,
+        )
+        return None
 
-    if settings.environment != "production":
-        return f"/api/catalog/tracks/{track.id}/artwork"
+    artwork_version = hashlib.sha256(
+        track.artwork_object_key.encode(
+            "utf-8",
+        ),
+    ).hexdigest()[:16]
 
-    return _presigned_or_fallback(
-        track.artwork_object_key,
-        (f"/api/catalog/tracks/{track.id}/artwork"),
+    # Keep internal artwork on a stable API route. The frontend service
+    # worker maps this to its same-origin offline artwork route.
+    return (
+        f"/api/catalog/tracks/{track.id}/artwork"
+        f"?v={artwork_version}"
     )
 
 
@@ -451,12 +460,6 @@ async def get_track_lyrics(
                 lyrics_row.plain_lyrics = fetched["plain_lyrics"]
 
                 lyrics_row.synced_lyrics = None
-
-        await session.commit()
-
-        return _lyrics_response(
-            lyrics_row,
-        )
 
         await session.commit()
 
