@@ -9,6 +9,10 @@ import {
   API_BASE,
 } from "../../api/client.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import * as player from
   "../../audioPlayer.js";
 
@@ -93,25 +97,6 @@ const FILTERS = [
   ["playlists", "Playlists"],
   ["tracks", "Tracks"],
 ];
-
-function resolveArtworkUrl(url) {
-  if (!url) {
-    return null;
-  }
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(
-    /^\/api/,
-    "",
-  )}`;
-}
-
 
 function memberFor(value) {
   if (!value) {
