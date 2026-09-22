@@ -1818,6 +1818,10 @@ function AuthOverlay({
           <button
             className="auth-submit"
             type="submit"
+            disabled={
+              isCreate &&
+              bootstrapLoading
+            }
           >
             {isCreate
               ? (
