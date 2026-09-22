@@ -14,6 +14,7 @@ import * as player from
 
 import {
   downloadTrackForOffline,
+  downloadTracksForOffline,
   isTrackDownloaded,
 } from "../../offlineDownloads.js";
 
@@ -1240,53 +1241,30 @@ async function downloadOpenedPlaylist() {
   });
 
   try {
-    for (
-      let index = 0;
-      index < tracks.length;
-      index += 1
-    ) {
-      const track =
-        tracks[index];
-
-      const downloaded =
-        await isTrackDownloaded(
-          track,
-        );
-
-      if (!downloaded) {
-        await downloadTrackForOffline(
-          track,
-          {
-            onProgress: ({
-              progress,
-            }) => {
-              setPlaylistDownload({
-                status:
-                  "downloading",
-
-                progress:
-                  (
-                    index +
-                    progress
-                  ) /
-                  tracks.length,
-              });
-            },
-          },
-        );
-      }
-
-      setPlaylistDownload({
-        status:
-          "downloading",
-
-        progress:
-          (
-            index + 1
-          ) /
-          tracks.length,
-      });
-    }
+    await downloadTracksForOffline(
+      tracks,
+      {
+        jobId:
+          "playlist:" +
+          String(
+            openedPlaylist.id,
+          ),
+        onProgress: ({
+          progress,
+        }) => {
+          setPlaylistDownload({
+            status:
+              "downloading",
+            progress:
+              Number.isFinite(
+                progress,
+              )
+                ? progress
+                : 0,
+          });
+        },
+      },
+    );
 
     setPlaylistDownload({
       status:
