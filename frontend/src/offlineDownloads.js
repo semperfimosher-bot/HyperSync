@@ -11,6 +11,7 @@ import {
   MEDIA_CHUNK_SIZE,
   saveArtwork,
   saveDownloadJob,
+  saveLyrics,
   saveMediaRecord,
 } from "./mediaStore.js";
 
@@ -487,6 +488,54 @@ async function cacheTrackArtwork(
 }
 
 
+async function cacheTrackLyrics(
+  trackId,
+  {
+    signal = null,
+  } = {},
+) {
+  try {
+    const response =
+      await fetch(
+        buildApiUrl(
+          "/api/catalog/tracks/" +
+            encodeURIComponent(
+              trackId,
+            ) +
+            "/lyrics",
+        ),
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-cache",
+          signal,
+        },
+      );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload =
+      await response.json();
+
+    await saveLyrics(
+      trackId,
+      payload,
+    );
+
+    return payload;
+  } catch {
+    /*
+     * Lyrics are an offline enhancement.
+     * A lyrics-provider outage must never
+     * fail an otherwise valid music download.
+     */
+    return null;
+  }
+}
+
+
 export async function getDownloadedTracks() {
   const records =
     await getPinnedMediaRecords();
@@ -713,6 +762,13 @@ export async function downloadTrackForOffline(
         signal,
       },
     );
+
+  await cacheTrackLyrics(
+    trackId,
+    {
+      signal,
+    },
+  );
 
   const record =
     await getMediaRecord(
