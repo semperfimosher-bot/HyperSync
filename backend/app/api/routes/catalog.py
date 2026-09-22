@@ -510,7 +510,12 @@ async def get_track_artwork(track_id: UUID):
             },
         )
     except Exception as exc:
+        logger.exception(
+            "Artwork delivery failed for track %s.",
+            track.id,
+        )
         raise HTTPException(
-            status_code=500,
-            detail=f"Artwork unavailable: {str(exc)}",
+            status_code=503,
+            detail="Artwork is temporarily unavailable.",
+            headers={"Retry-After": "2"},
         ) from exc
