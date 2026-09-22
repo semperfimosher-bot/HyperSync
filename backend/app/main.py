@@ -64,14 +64,39 @@ app = FastAPI(
     title=f"{settings.app_name} API",
     version=settings.app_version,
     lifespan=lifespan,
+    docs_url=(
+        None
+        if settings.environment == "production"
+        else "/docs"
+    ),
+    redoc_url=(
+        None
+        if settings.environment == "production"
+        else "/redoc"
+    ),
+    openapi_url=(
+        None
+        if settings.environment == "production"
+        else "/openapi.json"
+    ),
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Range",
+    ],
 )
 
 app.include_router(api_router)
@@ -79,8 +104,12 @@ app.include_router(api_router)
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    return {
+    response = {
         "application": settings.app_name,
         "status": "online",
-        "documentation": "/docs",
     }
+
+    if settings.environment != "production":
+        response["documentation"] = "/docs"
+
+    return response
