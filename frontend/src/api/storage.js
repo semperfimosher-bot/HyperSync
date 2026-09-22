@@ -29,9 +29,14 @@ export function getActiveStorage() {
 }
 
 export function getAccessToken() {
-  return (
-    localStorage.getItem(ACCESS_TOKEN_KEY) ||
-    sessionStorage.getItem(ACCESS_TOKEN_KEY)
+  /*
+   * Access JWTs are intentionally session-only.
+   * The HttpOnly refresh cookie restores a signed-in
+   * session after a browser restart while keeping the
+   * bearer token out of persistent Web Storage.
+   */
+  return sessionStorage.getItem(
+    ACCESS_TOKEN_KEY,
   );
 }
 
@@ -104,20 +109,12 @@ export function saveAuthSession(
   accessToken,
   { remember = true } = {},
 ) {
-  const primary = remember
-    ? localStorage
-    : sessionStorage;
-
-  const secondary = remember
-    ? sessionStorage
-    : localStorage;
-
-  primary.setItem(
+  sessionStorage.setItem(
     ACCESS_TOKEN_KEY,
     accessToken,
   );
 
-  primary.setItem(
+  sessionStorage.setItem(
     SESSION_ACTIVE_KEY,
     "true",
   );
@@ -127,8 +124,21 @@ export function saveAuthSession(
     remember ? "true" : "false",
   );
 
-  secondary.removeItem(ACCESS_TOKEN_KEY);
-  secondary.removeItem(SESSION_ACTIVE_KEY);
+  if (remember) {
+    localStorage.setItem(
+      SESSION_ACTIVE_KEY,
+      "true",
+    );
+  } else {
+    localStorage.removeItem(
+      SESSION_ACTIVE_KEY,
+    );
+  }
+
+  // Remove legacy persistent access tokens.
+  localStorage.removeItem(
+    ACCESS_TOKEN_KEY,
+  );
 }
 
 export function clearAuthSession() {
