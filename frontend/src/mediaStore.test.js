@@ -1600,3 +1600,100 @@ test(
     );
   },
 );
+
+
+test(
+  "removing an old media version preserves shared assets for a newer pinned version",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "versioned-track";
+
+    for (
+      const mediaVersion
+      of [
+        "old-version",
+        "new-version",
+      ]
+    ) {
+      const record =
+        mediaStore.createMediaRecord({
+          trackId,
+          mediaVersion,
+          mimeType:
+            "audio/mpeg",
+          fileSize:
+            1,
+          state:
+            "PINNED",
+        });
+
+      record.cachedBytes =
+        1;
+
+      await mediaStore.saveMediaRecord(
+        record,
+      );
+    }
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "still here",
+      },
+    );
+
+    await mediaStore.removeDownloadedMedia(
+      trackId,
+      "old-version",
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        "old-version",
+      ),
+      null,
+    );
+
+    assert.ok(
+      await mediaStore.getMediaRecord(
+        trackId,
+        "new-version",
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+    );
+
+    assert.deepEqual(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "still here",
+      },
+    );
+  },
+);
