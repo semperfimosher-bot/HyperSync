@@ -534,6 +534,41 @@ export async function getDownloadedTracks() {
 }
 
 
+export async function searchDownloadedTracks(
+  query,
+) {
+  const normalizedQuery =
+    String(query ?? "")
+      .trim()
+      .toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const tracks =
+    await getDownloadedTracks();
+
+  return tracks.filter(
+    (track) => {
+      const haystack =
+        [
+          track.title,
+          track.artist,
+          track.album,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+
+      return haystack.includes(
+        normalizedQuery,
+      );
+    },
+  );
+}
+
+
 export async function downloadTrackForOffline(
   track,
   {
