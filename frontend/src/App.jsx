@@ -1500,11 +1500,55 @@ function AuthOverlay({
   const [message, setMessage] =
     useState("");
 
+  const [bootstrapMode, setBootstrapMode] =
+    useState(false);
+
+  const [bootstrapLoading, setBootstrapLoading] =
+    useState(false);
+
+  const isCreate = mode === "create";
+
+  useEffect(() => {
+    if (!open || !isCreate) {
+      setBootstrapMode(false);
+      setBootstrapLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    setBootstrapLoading(true);
+
+    void apiRequest(
+      "/auth/bootstrap-status",
+    )
+      .then((data) => {
+        if (!cancelled) {
+          setBootstrapMode(
+            data?.registration_mode ===
+              "admin_setup",
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBootstrapMode(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBootstrapLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isCreate]);
+
   if (!open) {
     return null;
   }
-
-  const isCreate = mode === "create";
 
   async function submit(event) {
   event.preventDefault();
