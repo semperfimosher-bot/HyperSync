@@ -1,6 +1,8 @@
 import {
+  getArtwork,
   getMediaRecord,
   MEDIA_CHUNK_SIZE,
+  saveArtwork,
 } from "./mediaStore.js";
 
 import {
@@ -19,12 +21,18 @@ import {
 const MEDIA_ROUTE_PREFIX =
   "/__hypersync/media/";
 
+const ARTWORK_ROUTE_PREFIX =
+  "/__hypersync/artwork/";
+
 const DEFAULT_API_BASE_URL =
   import.meta.env
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v1";
+  "hypersync-app-shell-v2";
+
+const MAX_CACHED_ARTWORK_BYTES =
+  12 * 1024 * 1024;
 
 
 async function precacheAppShell() {
@@ -72,11 +80,17 @@ async function precacheAppShell() {
   const assetUrls =
     [
       ...new Set(
-        matches
-          .map(
+        [
+          ...matches.map(
             (match) =>
               match[1],
-          )
+          ),
+          "/site.webmanifest",
+          "/favicon.svg",
+          "/apple-touch-icon.png",
+          "/icon-192.png",
+          "/icon-512.png",
+        ]
           .filter(
             (value) =>
               value &&
@@ -129,7 +143,7 @@ async function precacheAppShell() {
 }
 
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "install",
   (event) => {
     event.waitUntil(
@@ -145,7 +159,7 @@ self.addEventListener(
 );
 
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "activate",
   (event) => {
     event.waitUntil(
@@ -224,6 +238,215 @@ function parseMediaRoute(
       ),
   };
 }
+
+function parseArtworkRoute(
+  request,
+) {
+  const url =
+    new URL(
+      request.url,
+    );
+
+  if (
+    !url.pathname.startsWith(
+      ARTWORK_ROUTE_PREFIX,
+    )
+  ) {
+    return null;
+  }
+
+  const trackId =
+    url.pathname.slice(
+      ARTWORK_ROUTE_PREFIX.length,
+    );
+
+  if (!trackId) {
+    return null;
+  }
+
+  return {
+    trackId:
+      decodeURIComponent(
+        trackId,
+      ),
+    artworkVersion:
+      url.searchParams.get(
+        "v",
+      ),
+  };
+}
+
+
+function createNetworkArtworkRequest(
+  request,
+  identity,
+  apiBaseUrl,
+) {
+  const normalizedApiBaseUrl =
+    String(
+      apiBaseUrl,
+    ).replace(
+      /\/+$/,
+      "",
+    );
+
+  const networkUrl =
+    new URL(
+      normalizedApiBaseUrl +
+        "/catalog/tracks/" +
+        encodeURIComponent(
+          identity.trackId,
+        ) +
+        "/artwork",
+      request.url,
+    );
+
+  if (identity.artworkVersion) {
+    networkUrl.searchParams.set(
+      "v",
+      identity.artworkVersion,
+    );
+  }
+
+  return new Request(
+    networkUrl,
+    {
+      method: "GET",
+      credentials: "include",
+      cache: "no-cache",
+    },
+  );
+}
+
+
+export async function handleArtworkRequest(
+  request,
+  networkFallback,
+  apiBaseUrl =
+    DEFAULT_API_BASE_URL,
+  scheduleBackgroundTask =
+    null,
+) {
+  const identity =
+    parseArtworkRoute(
+      request,
+    );
+
+  if (!identity) {
+    return networkFallback(
+      request,
+    );
+  }
+
+  const cached =
+    await getArtwork(
+      identity.trackId,
+    );
+
+  const versionMatches =
+    !identity.artworkVersion ||
+    cached?.artworkVersion ===
+      identity.artworkVersion;
+
+  if (
+    versionMatches &&
+    cached?.data instanceof
+      ArrayBuffer &&
+    cached.data.byteLength > 0
+  ) {
+    return new Response(
+      cached.data.slice(0),
+      {
+        status: 200,
+        headers: {
+          "Content-Type":
+            cached.mimeType ??
+            "image/jpeg",
+          "Content-Length":
+            String(
+              cached.data.byteLength,
+            ),
+          "Cache-Control":
+            "private, max-age=31536000, immutable",
+        },
+      },
+    );
+  }
+
+  const networkRequest =
+    createNetworkArtworkRequest(
+      request,
+      identity,
+      apiBaseUrl,
+    );
+
+  const response =
+    await networkFallback(
+      networkRequest,
+    );
+
+  if (
+    response.ok &&
+    typeof scheduleBackgroundTask ===
+      "function"
+  ) {
+    const contentLength =
+      Number(
+        response.headers.get(
+          "Content-Length",
+        ),
+      );
+
+    if (
+      !Number.isFinite(
+        contentLength,
+      ) ||
+      contentLength <=
+        MAX_CACHED_ARTWORK_BYTES
+    ) {
+      const task =
+        response
+          .clone()
+          .arrayBuffer()
+          .then(
+            (data) => {
+              if (
+                data.byteLength <= 0 ||
+                data.byteLength >
+                  MAX_CACHED_ARTWORK_BYTES
+              ) {
+                return null;
+              }
+
+              return saveArtwork({
+                trackId:
+                  identity.trackId,
+                data,
+                mimeType:
+                  response.headers.get(
+                    "Content-Type",
+                  ) ??
+                  "image/jpeg",
+                sourceUrl:
+                  networkRequest.url,
+                artworkVersion:
+                  identity.artworkVersion,
+              });
+            },
+          )
+          .catch(
+            () => null,
+          );
+
+      scheduleBackgroundTask(
+        task,
+      );
+    }
+  }
+
+  return response;
+}
+
 
 function createNetworkMediaRequest(
   request,
@@ -554,26 +777,44 @@ export function registerMediaFetchHandler(
           event.request,
         );
 
-      if (!identity) {
+      const artworkIdentity =
+        parseArtworkRoute(
+          event.request,
+        );
+
+      if (
+        !identity &&
+        !artworkIdentity
+      ) {
         return;
       }
 
       const backgroundTasks =
         [];
 
-      const responsePromise =
-        handleMediaRequest(
-          event.request,
-          networkFallback,
-          DEFAULT_API_BASE_URL,
-          (
+      const scheduleTask =
+        (
+          task,
+        ) => {
+          backgroundTasks.push(
             task,
-          ) => {
-            backgroundTasks.push(
-              task,
+          );
+        };
+
+      const responsePromise =
+        identity
+          ? handleMediaRequest(
+              event.request,
+              networkFallback,
+              DEFAULT_API_BASE_URL,
+              scheduleTask,
+            )
+          : handleArtworkRequest(
+              event.request,
+              networkFallback,
+              DEFAULT_API_BASE_URL,
+              scheduleTask,
             );
-          },
-        );
 
       const lifetimePromise =
         responsePromise.then(
@@ -595,7 +836,7 @@ export function registerMediaFetchHandler(
   );
 }
 
-self.addEventListener(
+globalThis.self?.addEventListener?.(
   "fetch",
   (event) => {
     const request =
@@ -624,6 +865,9 @@ self.addEventListener(
         self.location.origin ||
       url.pathname.startsWith(
         MEDIA_ROUTE_PREFIX,
+      ) ||
+      url.pathname.startsWith(
+        ARTWORK_ROUTE_PREFIX,
       ) ||
       url.pathname.startsWith(
         "/api/",
