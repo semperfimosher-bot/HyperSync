@@ -1195,6 +1195,10 @@ function playOpenedPlaylist(
 
         artist:
           track.artist,
+
+        album:
+          track.album ??
+          "",
       }),
     );
 
