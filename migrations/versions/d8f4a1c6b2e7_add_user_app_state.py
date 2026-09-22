@@ -59,9 +59,7 @@ def upgrade() -> None:
                 timezone=True,
             ),
             nullable=False,
-            server_default=sa.text(
-                "now()",
-            ),
+            server_default=sa.func.now(),
         ),
         sa.Column(
             "updated_at",
@@ -69,9 +67,7 @@ def upgrade() -> None:
                 timezone=True,
             ),
             nullable=False,
-            server_default=sa.text(
-                "now()",
-            ),
+            server_default=sa.func.now(),
         ),
         sa.PrimaryKeyConstraint(
             "user_id",
