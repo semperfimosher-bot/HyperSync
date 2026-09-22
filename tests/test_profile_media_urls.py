@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
@@ -64,13 +65,14 @@ def test_profile_media_urls_are_direct_in_production(
         "?X-Amz-Signature=test"
     )
 
-    assert (
-        users_route.artwork_url(
-            track,
-        )
-        == "https://s3.example.test/"
-        "bucket/artwork/demo.jpg"
-        "?X-Amz-Signature=test"
+    artwork_version = hashlib.sha256(
+        b"artwork/demo.jpg"
+    ).hexdigest()[:16]
+
+    assert users_route.artwork_url(
+        track,
+    ) == (
+        f"/api/catalog/tracks/{track.id}/artwork?v={artwork_version}"
     )
 
 
@@ -94,9 +96,15 @@ def test_profile_media_urls_use_local_api_in_development(
         == f"/api/audio/{track_id}"
     )
 
+    artwork_version = hashlib.sha256(
+        b"artwork/demo.jpg"
+    ).hexdigest()[:16]
+
     assert users_route.artwork_url(
         track,
-    ) == (f"/api/catalog/tracks/{track_id}/artwork")
+    ) == (
+        f"/api/catalog/tracks/{track_id}/artwork?v={artwork_version}"
+    )
 
 
 def test_profile_media_urls_fall_back_when_signing_fails(
@@ -130,9 +138,15 @@ def test_profile_media_urls_fall_back_when_signing_fails(
         == f"/api/audio/{track_id}"
     )
 
+    artwork_version = hashlib.sha256(
+        b"artwork/demo.jpg"
+    ).hexdigest()[:16]
+
     assert users_route.artwork_url(
         track,
-    ) == (f"/api/catalog/tracks/{track_id}/artwork")
+    ) == (
+        f"/api/catalog/tracks/{track_id}/artwork?v={artwork_version}"
+    )
 
 
 def test_profile_track_summary_exposes_media_cache_metadata() -> None:
