@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import threading
 import unicodedata
@@ -19,6 +20,8 @@ router = APIRouter(
     prefix="/audio",
     tags=["audio"],
 )
+
+logger = logging.getLogger(__name__)
 
 
 STREAM_CHUNK_SIZE = 1024 * 1024
@@ -320,7 +323,18 @@ async def stream_audio(
         )
         body = stream_b2_file(downloaded)
 
-    except Exception:
+    except Exception as exc:
+        if settings.environment == "production":
+            logger.exception(
+                "Object storage unavailable for track %s.",
+                track.id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Audio storage is temporarily unavailable.",
+                headers={"Retry-After": "2"},
+            ) from exc
+
         fallback_file = anyio.Path(track.b2_object_key)
 
         if not await fallback_file.exists():
