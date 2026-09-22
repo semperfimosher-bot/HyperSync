@@ -40,9 +40,31 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run frontend tests
+      - name: Run frontend regression tests
         working-directory: frontend
-        run: npm test
+        run: |
+          node --test \
+            src/appViewState.test.js \
+            src/audioMetadata.test.js \
+            src/lyricsSync.test.js \
+            src/mediaCacheResponse.test.js \
+            src/mediaChunkSource.test.js \
+            src/mediaNetworkCache.test.js \
+            src/mediaPlayback.test.js \
+            src/mediaRange.test.js \
+            src/mediaResponse.test.js \
+            src/mediaStore.test.js \
+            src/mediaStreamResponse.test.js \
+            src/playerQueue.test.js \
+            src/profileMobileRecentlyPlayed.test.js \
+            src/rightRailTabs.test.js \
+            src/searchAlphabeticalIntegration.test.js \
+            src/searchAlphabeticalResults.test.js \
+            src/searchQuickCommandOrder.test.js \
+            src/searchSortOptions.test.js \
+            src/searchTopSignal.test.js \
+            src/serviceWorker.test.js \
+            src/serviceWorkerRegistration.test.js
 
       - name: Build production frontend
         working-directory: frontend
