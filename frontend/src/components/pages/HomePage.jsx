@@ -172,7 +172,7 @@ useEffect(() => {
           await getDownloadedTracks()
         ).slice(
           0,
-          12,
+          6,
         );
 
       if (
