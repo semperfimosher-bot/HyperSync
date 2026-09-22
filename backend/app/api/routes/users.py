@@ -41,6 +41,11 @@ from ...models.account import (
 )
 from ...models.media import Track
 from ...security.rate_limit import enforce_rate_limit
+from ...security.uploads import (
+    image_extension,
+    image_signature_matches,
+    normalized_image_type,
+)
 from ...services.b2 import (
     create_presigned_download_url,
     delete_all_object_versions,
@@ -981,16 +986,14 @@ async def upload_my_avatar(
         File(),
     ],
 ):
-    allowed_types = {
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-    }
+    image_type = normalized_image_type(
+        file.content_type,
+    )
 
-    if file.content_type not in allowed_types:
+    if image_type is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=("Profile picture must be a JPG, PNG, or WebP image."),
+            detail="Profile picture must be a JPG, PNG, or WebP image.",
         )
 
     settings = get_settings()
@@ -1011,6 +1014,15 @@ async def upload_my_avatar(
             detail="Profile picture exceeds the configured upload limit.",
         )
 
+    if not image_signature_matches(
+        image_data,
+        image_type,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Profile picture content does not match its file type.",
+        )
+
     profile = user.profile
 
     if profile is None:
@@ -1024,11 +1036,9 @@ async def upload_my_avatar(
 
     old_object_key = profile.avatar_object_key
 
-    extension = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-    }[file.content_type]
+    extension = image_extension(
+        image_type,
+    )
 
     object_key = f"{settings.b2_profile_prefix}/{user.id}/{uuid4()}.{extension}"
 
@@ -1039,7 +1049,7 @@ async def upload_my_avatar(
             bucket.upload_bytes,
             image_data,
             object_key,
-            content_type=(file.content_type),
+            content_type=image_type,
         )
 
         profile.avatar_object_key = object_key
@@ -1049,9 +1059,21 @@ async def upload_my_avatar(
     except Exception as exc:
         await session.rollback()
 
+        try:
+            await delete_all_object_versions(
+                bucket,
+                object_key,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to clean up orphaned profile avatar %s",
+                object_key,
+                exc_info=True,
+            )
+
         raise HTTPException(
-            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=("Failed to upload profile picture."),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload profile picture.",
         ) from exc
 
     if old_object_key:
