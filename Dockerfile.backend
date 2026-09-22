@@ -15,6 +15,12 @@ COPY bot ./bot
 COPY migrations ./migrations
 COPY alembic.ini ./
 
+RUN groupadd --system hypersync \
+    && useradd --system --gid hypersync --home-dir /app hypersync \
+    && chown -R hypersync:hypersync /app
+
+USER hypersync
+
 WORKDIR /app/backend
 
 EXPOSE 8000
