@@ -8,6 +8,10 @@ import {
   API_BASE,
 } from "../../api/client.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import * as player from
   "../../audioPlayer.js";
 
@@ -46,27 +50,6 @@ import {
   setCachedLibrary,
   setCachedPlaylist,
 } from "../../libraryCache.js";
-
-function resolveArtworkUrl(
-  url,
-) {
-  if (!url) {
-    return null;
-  }
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(
-    /^\/api/,
-    "",
-  )}`;
-}
-
 
 function formatDuration(
   seconds,
