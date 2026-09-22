@@ -18,6 +18,9 @@ async def register_and_login(
             "username": username,
             "email": f"{username}@example.com",
             "password": password,
+            "admin_setup_code": (
+                "ci-test-admin-bootstrap-secret-1234567890"
+            ),
         },
     )
 
