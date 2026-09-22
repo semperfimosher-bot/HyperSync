@@ -974,6 +974,9 @@ export async function downloadTracksForOffline(
   const progressByKey =
     new Map();
 
+  const completedKeys =
+    new Set();
+
   const pendingTracks =
     [];
 
@@ -1016,6 +1019,10 @@ export async function downloadTracksForOffline(
       progressByKey.set(
         identity.key,
         fileSize,
+      );
+
+      completedKeys.add(
+        identity.key,
       );
     } else {
       progressByKey.set(
@@ -1079,12 +1086,7 @@ export async function downloadTracksForOffline(
             )
           : 1,
       completedTracks:
-        Array.from(
-          progressByKey.values(),
-        ).filter(
-          (value) =>
-            value > 0,
-        ).length,
+        completedKeys.size,
       totalTracks:
         uniqueTracks.length,
       currentTrackId,
@@ -1215,6 +1217,10 @@ export async function downloadTracksForOffline(
         trackFileSize(
           track,
         ),
+      );
+
+      completedKeys.add(
+        identity.key,
       );
 
       report(
