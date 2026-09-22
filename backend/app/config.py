@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -64,6 +65,16 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 60
     refresh_token_ttl_days: int = 30
 
+    # One-time secret used only when the database has no administrator.
+    # Keep this backend-only and use a long random value in production.
+    admin_bootstrap_secret: str = ""
+
+    auth_login_attempts_per_minute: int = 10
+    auth_register_attempts_per_15_minutes: int = 5
+
+    max_audio_upload_bytes: int = 250 * 1024 * 1024
+    max_avatar_upload_bytes: int = 5 * 1024 * 1024
+
     bot_jwt_secret: str = ""
     bot_jwt_audience: str = "hypersync-bot"
     bot_token_ttl_minutes: int = 60
@@ -98,6 +109,47 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
+
+    @model_validator(mode="after")
+    def validate_production_configuration(self):
+        if self.environment != "production":
+            return self
+
+        errors: list[str] = []
+
+        if not self.database_url.strip():
+            errors.append("DATABASE_URL")
+
+        if len(self.jwt_secret.strip()) < 32:
+            errors.append("JWT_SECRET (minimum 32 characters)")
+
+        if len(self.admin_bootstrap_secret.strip()) < 20:
+            errors.append("ADMIN_BOOTSTRAP_SECRET (minimum 20 characters)")
+
+        if not self.b2_endpoint.strip().startswith("https://"):
+            errors.append("B2_ENDPOINT (HTTPS required)")
+
+        for name, value in (
+            ("B2_KEY_ID", self.b2_key_id),
+            ("B2_APPLICATION_KEY", self.b2_application_key),
+            ("B2_BUCKET_NAME", self.b2_bucket_name),
+        ):
+            if not value.strip():
+                errors.append(name)
+
+        origins = self.cors_origins
+        if not origins or any(
+            origin == "*" or not origin.startswith("https://")
+            for origin in origins
+        ):
+            errors.append("FRONTEND_ORIGINS (explicit HTTPS origins required)")
+
+        if errors:
+            raise ValueError(
+                "Unsafe production configuration; fix: " + ", ".join(errors)
+            )
+
+        return self
 
     @property
     def cors_origins(self) -> list[str]:
