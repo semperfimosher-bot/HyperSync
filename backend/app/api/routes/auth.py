@@ -39,7 +39,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
 
     password: str = Field(
-        min_length=8,
+        min_length=12,
         max_length=128,
     )
 
@@ -258,7 +258,7 @@ async def register(
         if existing.scalar_one_or_none() is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=("That email or username is already registered."),
+                detail="Unable to create account with those details.",
             )
 
         admin_exists = await _admin_exists(session)
