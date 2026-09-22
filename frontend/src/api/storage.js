@@ -15,6 +15,9 @@ const STORAGES = [
   sessionStorage,
 ];
 
+let accessTokenMemory =
+  null;
+
 export function getActiveStorage() {
   for (const storage of STORAGES) {
     if (
@@ -30,14 +33,12 @@ export function getActiveStorage() {
 
 export function getAccessToken() {
   /*
-   * Access JWTs are intentionally session-only.
-   * The HttpOnly refresh cookie restores a signed-in
-   * session after a browser restart while keeping the
-   * bearer token out of persistent Web Storage.
+   * Access JWTs live only in JavaScript memory.
+   * A page reload restores authentication through
+   * the HttpOnly refresh cookie instead of exposing
+   * bearer credentials through Web Storage.
    */
-  return sessionStorage.getItem(
-    ACCESS_TOKEN_KEY,
-  );
+  return accessTokenMemory;
 }
 
 export function hasStoredSession() {
@@ -109,10 +110,8 @@ export function saveAuthSession(
   accessToken,
   { remember = true } = {},
 ) {
-  sessionStorage.setItem(
-    ACCESS_TOKEN_KEY,
-    accessToken,
-  );
+  accessTokenMemory =
+    accessToken || null;
 
   sessionStorage.setItem(
     SESSION_ACTIVE_KEY,
@@ -135,13 +134,20 @@ export function saveAuthSession(
     );
   }
 
-  // Remove legacy persistent access tokens.
+  // Remove legacy Web Storage access tokens.
   localStorage.removeItem(
+    ACCESS_TOKEN_KEY,
+  );
+
+  sessionStorage.removeItem(
     ACCESS_TOKEN_KEY,
   );
 }
 
 export function clearAuthSession() {
+  accessTokenMemory =
+    null;
+
   for (const storage of STORAGES) {
     storage.removeItem(ACCESS_TOKEN_KEY);
     storage.removeItem(SESSION_ACTIVE_KEY);
