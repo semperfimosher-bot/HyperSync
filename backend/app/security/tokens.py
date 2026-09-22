@@ -10,6 +10,9 @@ from jwt.exceptions import InvalidTokenError
 from ..config import get_settings
 
 
+JWT_ALGORITHM = "HS256"
+
+
 class InvalidAccessTokenError(ValueError):
     """Raised when an access token is invalid or expired."""
 
@@ -54,7 +57,7 @@ def create_access_token(
     token = jwt.encode(
         payload,
         secret,
-        algorithm=settings.jwt_algorithm,
+        algorithm=JWT_ALGORITHM,
     )
 
     return token, expires_in
@@ -72,7 +75,7 @@ def decode_access_token(
             token,
             _validated_jwt_secret(),
             algorithms=[
-                settings.jwt_algorithm,
+                JWT_ALGORITHM,
             ],
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
