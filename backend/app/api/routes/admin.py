@@ -11,6 +11,11 @@ from mutagen.flac import Picture
 
 from ...config import get_settings
 from ...models.media import Track
+from ...security.uploads import (
+    image_extension,
+    image_signature_matches,
+    normalized_image_type,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     resolve_track_metadata,
@@ -57,10 +62,22 @@ async def check_admin_access(
 @router.post("/tracks/upload")
 async def upload_track(
     file: Annotated[UploadFile, File(...)],
-    title: Annotated[str, Form(...)],
-    artist: Annotated[str, Form(...)],
-    album: Annotated[str, Form(...)],
-    duration_seconds: Annotated[int, Form(...)],
+    title: Annotated[
+        str,
+        Form(min_length=1, max_length=255),
+    ],
+    artist: Annotated[
+        str,
+        Form(min_length=1, max_length=255),
+    ],
+    album: Annotated[
+        str,
+        Form(max_length=255),
+    ],
+    duration_seconds: Annotated[
+        int,
+        Form(ge=0, le=24 * 60 * 60),
+    ],
     user: AdminUser,
     session: DatabaseSession,
     title_edited: Annotated[bool, Form()] = False,
@@ -86,6 +103,9 @@ async def upload_track(
             detail="Unsupported audio type.",
         )
 
+    uploaded_keys: list[str] = []
+    bucket = None
+
     try:
         file_content = await file.read(
             settings.max_audio_upload_bytes + 1
@@ -102,6 +122,23 @@ async def upload_track(
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="Audio file exceeds the configured upload limit.",
+            )
+
+        try:
+            audio_probe = MutagenFile(
+                BytesIO(file_content),
+                easy=True,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file could not be parsed.",
+            ) from exc
+
+        if audio_probe is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio file could not be parsed.",
             )
 
         embedded_metadata = extract_embedded_audio_metadata(
@@ -181,18 +218,43 @@ async def upload_track(
             content_type=file_type,
         )
 
+        uploaded_keys.append(
+            object_key,
+        )
+
         artwork_object_key = None
 
-        if artwork_data and artwork_mime_type:
-            artwork_ext = artwork_mime_type.split("/")[-1] if "/" in artwork_mime_type else "jpg"
+        normalized_artwork_type = normalized_image_type(
+            artwork_mime_type,
+        )
 
-            artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
+        if (
+            artwork_data
+            and normalized_artwork_type
+            and len(artwork_data) <= 12 * 1024 * 1024
+            and image_signature_matches(
+                artwork_data,
+                normalized_artwork_type,
+            )
+        ):
+            artwork_ext = image_extension(
+                normalized_artwork_type,
+            )
+
+            artwork_object_key = (
+                f"{settings.b2_artwork_prefix}/"
+                f"{uuid4()}.{artwork_ext}"
+            )
 
             await asyncio.to_thread(
                 bucket.upload_bytes,
                 artwork_data,
                 artwork_object_key,
-                content_type=(artwork_mime_type),
+                content_type=normalized_artwork_type,
+            )
+
+            uploaded_keys.append(
+                artwork_object_key,
             )
 
         track = Track(
@@ -229,9 +291,39 @@ async def upload_track(
 
     except HTTPException:
         await session.rollback()
+
+        if bucket is not None:
+            for uploaded_key in uploaded_keys:
+                try:
+                    await delete_all_object_versions(
+                        bucket,
+                        uploaded_key,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up rejected upload object %s",
+                        uploaded_key,
+                        exc_info=True,
+                    )
+
         raise
     except Exception as exc:
         await session.rollback()
+
+        if bucket is not None:
+            for uploaded_key in uploaded_keys:
+                try:
+                    await delete_all_object_versions(
+                        bucket,
+                        uploaded_key,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up orphaned upload object %s",
+                        uploaded_key,
+                        exc_info=True,
+                    )
+
         logger.exception("Track upload failed.")
 
         raise HTTPException(
