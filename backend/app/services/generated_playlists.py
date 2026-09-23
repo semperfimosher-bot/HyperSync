@@ -128,11 +128,14 @@ async def generated_playlist_needs_refresh(
     ):
         return True
 
-    result = await session.execute(
+    catalog_result = await session.execute(
         select(
+            func.count(
+                Track.id,
+            ),
             func.max(
                 Track.updated_at,
-            )
+            ),
         ).where(
             Track.is_published.is_(
                 True,
@@ -143,9 +146,42 @@ async def generated_playlist_needs_refresh(
         )
     )
 
-    latest_track_update = (
-        result.scalar_one_or_none()
+    (
+        matching_track_count,
+        latest_track_update,
+    ) = catalog_result.one()
+
+    playlist_count_result = (
+        await session.execute(
+            select(
+                func.count(
+                    PlaylistTrack.id,
+                )
+            ).where(
+                PlaylistTrack.playlist_id
+                == playlist.id,
+            )
+        )
     )
+
+    current_playlist_count = int(
+        playlist_count_result.scalar_one()
+        or 0
+    )
+
+    expected_playlist_count = min(
+        int(
+            matching_track_count
+            or 0
+        ),
+        MAX_GENERATED_TRACKS,
+    )
+
+    if (
+        current_playlist_count
+        != expected_playlist_count
+    ):
+        return True
 
     if latest_track_update is None:
         return False
