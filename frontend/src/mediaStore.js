@@ -44,6 +44,86 @@ let offlineDatabasePromise =
   null;
 
 
+function openCompatibleDatabase({
+  name,
+  preferredVersion,
+  onUpgrade,
+  errorMessage,
+}) {
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const startOpen =
+        (
+          usePreferredVersion,
+        ) => {
+          const request =
+            usePreferredVersion
+              ? indexedDB.open(
+                  name,
+                  preferredVersion,
+                )
+              : indexedDB.open(
+                  name,
+                );
+
+          request.onupgradeneeded =
+            () => {
+              onUpgrade?.(
+                request.result,
+                request.transaction,
+              );
+            };
+
+          request.onsuccess =
+            () => {
+              resolve(
+                request.result,
+              );
+            };
+
+          request.onerror =
+            (event) => {
+              if (
+                usePreferredVersion &&
+                request.error?.name ===
+                  "VersionError"
+              ) {
+                /*
+                 * A user may already have a newer
+                 * database from an earlier feature
+                 * build. IndexedDB never permits a
+                 * downgrade, so preserve that data
+                 * and open the existing schema as-is.
+                 */
+                event.preventDefault?.();
+
+                startOpen(
+                  false,
+                );
+
+                return;
+              }
+
+              reject(
+                request.error ??
+                  new Error(
+                    errorMessage,
+                  ),
+              );
+            };
+        };
+
+      startOpen(
+        true,
+      );
+    },
+  );
+}
+
+
 export function buildMediaCacheKey(
   trackId,
   mediaVersion,
@@ -139,92 +219,75 @@ function openMediaDatabase() {
   }
 
   databasePromise =
-    new Promise(
-      (
-        resolve,
-        reject,
+    openCompatibleDatabase({
+      name:
+        MEDIA_DATABASE_NAME,
+      preferredVersion:
+        MEDIA_DATABASE_VERSION,
+      errorMessage:
+        "Unable to open media database.",
+      onUpgrade: (
+        database,
       ) => {
-        const request =
-          indexedDB.open(
-            MEDIA_DATABASE_NAME,
-            MEDIA_DATABASE_VERSION,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_RECORD_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_RECORD_STORE,
+            {
+              keyPath: "key",
+            },
           );
+        }
 
-        request.onupgradeneeded =
-          () => {
-            const database =
-              request.result;
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_RECORD_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_RECORD_STORE,
-                {
-                  keyPath: "key",
-                },
-              );
-            }
-                if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_CHUNK_STORE,
-                )
-            ) {
-              const chunkStore =
-                database.createObjectStore(
-                  MEDIA_CHUNK_STORE,
-                  {
-                    keyPath: "key",
-                  },
-                );
-
-              chunkStore.createIndex(
-                "mediaKey",
-                "mediaKey",
-                {
-                  unique: false,
-                },
-              );
-            }
-
-          };
-
-        request.onsuccess =
-          () => {
-            const database =
-              request.result;
-
-            database.onversionchange =
-              () => {
-                database.close();
-
-                databasePromise =
-                  null;
-              };
-
-            resolve(
-              database,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_CHUNK_STORE,
+            )
+        ) {
+          const chunkStore =
+            database.createObjectStore(
+              MEDIA_CHUNK_STORE,
+              {
+                keyPath: "key",
+              },
             );
-          };
 
-        request.onerror =
-          () => {
-            databasePromise =
-              null;
-
-            reject(
-              request.error ??
-                new Error(
-                  "Unable to open media database.",
-                ),
-            );
-          };
+          chunkStore.createIndex(
+            "mediaKey",
+            "mediaKey",
+            {
+              unique: false,
+            },
+          );
+        }
       },
-    );
+    })
+      .then(
+        (database) => {
+          database.onversionchange =
+            () => {
+              database.close();
+
+              databasePromise =
+                null;
+            };
+
+          return database;
+        },
+      )
+      .catch(
+        (error) => {
+          databasePromise =
+            null;
+
+          throw error;
+        },
+      );
 
   return databasePromise;
 }
@@ -247,97 +310,80 @@ function openOfflineDatabase() {
   }
 
   offlineDatabasePromise =
-    new Promise(
-      (
-        resolve,
-        reject,
+    openCompatibleDatabase({
+      name:
+        OFFLINE_DATABASE_NAME,
+      preferredVersion:
+        OFFLINE_DATABASE_VERSION,
+      errorMessage:
+        "Unable to open offline metadata database.",
+      onUpgrade: (
+        database,
       ) => {
-        const request =
-          indexedDB.open(
-            OFFLINE_DATABASE_NAME,
-            OFFLINE_DATABASE_VERSION,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_ARTWORK_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_ARTWORK_STORE,
+            {
+              keyPath: "trackId",
+            },
           );
+        }
 
-        request.onupgradeneeded =
-          () => {
-            const database =
-              request.result;
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_DOWNLOAD_JOB_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+            {
+              keyPath: "id",
+            },
+          );
+        }
 
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_ARTWORK_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_ARTWORK_STORE,
-                {
-                  keyPath: "trackId",
-                },
-              );
-            }
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_DOWNLOAD_JOB_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_DOWNLOAD_JOB_STORE,
-                {
-                  keyPath: "id",
-                },
-              );
-            }
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_LYRICS_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_LYRICS_STORE,
-                {
-                  keyPath: "trackId",
-                },
-              );
-            }
-          };
-
-        request.onsuccess =
-          () => {
-            const database =
-              request.result;
-
-            database.onversionchange =
-              () => {
-                database.close();
-
-                offlineDatabasePromise =
-                  null;
-              };
-
-            resolve(
-              database,
-            );
-          };
-
-        request.onerror =
-          () => {
-            offlineDatabasePromise =
-              null;
-
-            reject(
-              request.error ??
-                new Error(
-                  "Unable to open offline metadata database.",
-                ),
-            );
-          };
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_LYRICS_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_LYRICS_STORE,
+            {
+              keyPath: "trackId",
+            },
+          );
+        }
       },
-    );
+    })
+      .then(
+        (database) => {
+          database.onversionchange =
+            () => {
+              database.close();
+
+              offlineDatabasePromise =
+                null;
+            };
+
+          return database;
+        },
+      )
+      .catch(
+        (error) => {
+          offlineDatabasePromise =
+            null;
+
+          throw error;
+        },
+      );
 
   return offlineDatabasePromise;
 }
