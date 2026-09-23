@@ -1303,6 +1303,104 @@ export async function getPinnedMediaRecords() {
 }
 
 
+export function getMediaPinReferences(
+  record,
+) {
+  if (
+    !Array.isArray(
+      record?.pinRefs,
+    )
+  ) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      record.pinRefs
+        .map(
+          (value) =>
+            String(
+              value ?? "",
+            ).trim(),
+        )
+        .filter(Boolean),
+    ),
+  ];
+}
+
+
+export async function addMediaPinReference(
+  trackId,
+  mediaVersion,
+  pinRef,
+) {
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (!normalizedPinRef) {
+    return getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+  }
+
+  const existing =
+    await getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+
+  if (!existing) {
+    return null;
+  }
+
+  const pinRefs =
+    getMediaPinReferences(
+      existing,
+    );
+
+  if (
+    pinRefs.includes(
+      normalizedPinRef,
+    ) &&
+    existing.state ===
+      "PINNED" &&
+    existing.expiresAt ===
+      null
+  ) {
+    return existing;
+  }
+
+  const updated = {
+    ...existing,
+    state:
+      "PINNED",
+    expiresAt:
+      null,
+    pinRefs: [
+      ...pinRefs,
+      ...(
+        pinRefs.includes(
+          normalizedPinRef,
+        )
+          ? []
+          : [
+              normalizedPinRef,
+            ]
+      ),
+    ],
+  };
+
+  await saveMediaRecord(
+    updated,
+  );
+
+  return updated;
+}
+
+
 export async function saveArtwork({
   trackId,
   data,
@@ -1768,6 +1866,7 @@ export async function deleteDownloadJob(
 export async function removeDownloadedMedia(
   trackId,
   mediaVersion,
+  pinRef = null,
 ) {
   const mediaKey =
     buildMediaCacheKey(
@@ -1778,6 +1877,61 @@ export async function removeDownloadedMedia(
 
   if (!mediaKey) {
     return false;
+  }
+
+
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (normalizedPinRef) {
+    const existing =
+      await getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    if (!existing) {
+      return false;
+    }
+
+    const pinRefs =
+      getMediaPinReferences(
+        existing,
+      );
+
+    if (
+      !pinRefs.includes(
+        normalizedPinRef,
+      )
+    ) {
+      return false;
+    }
+
+    const remainingPinRefs =
+      pinRefs.filter(
+        (value) =>
+          value !==
+          normalizedPinRef,
+      );
+
+    if (
+      remainingPinRefs.length >
+      0
+    ) {
+      await saveMediaRecord({
+        ...existing,
+        state:
+          "PINNED",
+        expiresAt:
+          null,
+        pinRefs:
+          remainingPinRefs,
+      });
+
+      return true;
+    }
   }
 
 
