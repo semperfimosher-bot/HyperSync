@@ -1803,7 +1803,7 @@ async function downloadOpenedPlaylist() {
 
 
       {openedPlaylist ? (
-
+        <>
   <section className="hs-search-playlist-view">
 
     <div className="hs-search-playlist-view__nav">
@@ -2297,7 +2297,7 @@ async function downloadOpenedPlaylist() {
         void confirmRemoveOpenedPlaylistDownload();
       }}
     />
-
+        </>
 ) : normalizedQuery ? (
         <>
 
