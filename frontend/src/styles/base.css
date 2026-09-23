@@ -6549,5 +6549,12 @@ button > span:nth-child(2) {
     auto
     auto;
   padding: 8px;
-  z-index: 49;
+  pointer-events: auto;
+  touch-action: manipulation;
+  z-index: 80;
+}
+
+.playlist-update-notice--mobile button {
+  pointer-events: auto;
+  touch-action: manipulation;
 }
