@@ -736,18 +736,36 @@ export async function downloadTrackForOffline(
 
   await requestPersistentStorage();
 
-  if (!skipStorageCheck) {
-    await ensureStorageCapacity(
+  const mediaRecord =
+    await ensureMediaRecord({
+      trackId,
+      mediaVersion,
+      mimeType,
       fileSize,
+    });
+
+  if (!skipStorageCheck) {
+    const cachedBytes =
+      Number.isFinite(
+        mediaRecord?.cachedBytes,
+      )
+        ? Math.max(
+            0,
+            Math.min(
+              fileSize,
+              mediaRecord.cachedBytes,
+            ),
+          )
+        : 0;
+
+    await ensureStorageCapacity(
+      Math.max(
+        0,
+        fileSize -
+          cachedBytes,
+      ),
     );
   }
-
-  await ensureMediaRecord({
-    trackId,
-    mediaVersion,
-    mimeType,
-    fileSize,
-  });
 
   const directSource =
     await requestDirectMediaSource(
@@ -1077,9 +1095,28 @@ export async function downloadTracksForOffline(
         identity.key,
       );
     } else {
+      const existingRecord =
+        await getMediaRecord(
+          identity.trackId,
+          identity.mediaVersion,
+        );
+
+      const cachedBytes =
+        Number.isFinite(
+          existingRecord?.cachedBytes,
+        )
+          ? Math.max(
+              0,
+              Math.min(
+                fileSize,
+                existingRecord.cachedBytes,
+              ),
+            )
+          : 0;
+
       progressByKey.set(
         identity.key,
-        0,
+        cachedBytes,
       );
 
       pendingTracks.push(
@@ -1090,11 +1127,31 @@ export async function downloadTracksForOffline(
 
   const remainingBytes =
     pendingTracks.reduce(
-      (sum, track) =>
-        sum +
-        trackFileSize(
-          track,
-        ),
+      (
+        sum,
+        track,
+      ) => {
+        const identity =
+          trackIdentity(
+            track,
+          );
+
+        return (
+          sum +
+          Math.max(
+            0,
+            trackFileSize(
+              track,
+            ) -
+              (
+                progressByKey.get(
+                  identity.key,
+                ) ??
+                0
+              ),
+          )
+        );
+      },
       0,
     );
 
