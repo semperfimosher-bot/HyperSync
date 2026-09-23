@@ -23,7 +23,7 @@ jobs:
           git fetch origin main
           changed="$(git diff --name-only origin/main...HEAD)"
           echo "$changed"
-          bad="$(printf '%s\n' "$changed" | grep -v -E '^(frontend/src/(artworkUrl\.js|audioPlayer\.js|mediaStore\.js|mediaStore\.test\.js|offlineDownloads\.js|offlineDownloads\.test\.js|playerQueue\.js|playerQueue\.test\.js|serviceWorker\.js|serviceWorker\.test\.js|components/lyrics/LiveLyrics\.jsx|components/pages/(HomePage|LibraryPage|SearchPage)\.jsx|components/ui/TrackArtwork\.jsx)|\.github/workflows/feature-offline-pwa-ci\.yml)$' || true)"
+          bad="$(printf '%s\n' "$changed" | grep -v -E '^(frontend/src/(artworkUrl\.js|audioPlayer\.js|mediaStore\.js|mediaStore\.test\.js|offlineDownloadMath\.js|offlineDownloads\.js|offlineDownloads\.test\.js|playerQueue\.js|playerQueue\.test\.js|serviceWorker\.js|serviceWorker\.test\.js|components/lyrics/LiveLyrics\.jsx|components/pages/(HomePage|LibraryPage|SearchPage)\.jsx|components/ui/TrackArtwork\.jsx)|\.github/workflows/feature-offline-pwa-ci\.yml)$' || true)"
           if [ -n "$bad" ]; then
             echo "Unexpected files changed:"
             echo "$bad"
