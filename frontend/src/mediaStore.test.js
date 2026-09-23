@@ -1932,3 +1932,92 @@ test(
     );
   },
 );
+
+test(
+  "newer existing media database versions reopen without losing cached media",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "newer-db-version-track";
+
+    const mediaVersion =
+      "newer-db-version-media";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const request =
+          indexedDB.open(
+            "hypersynced-media-v1",
+            5,
+          );
+
+        request.onsuccess =
+          () => {
+            request.result.close();
+            resolve();
+          };
+
+        request.onerror =
+          () => {
+            reject(
+              request.error,
+            );
+          };
+      },
+    );
+
+    const compatibleStore =
+      await import(
+        "./mediaStore.js?newer-db-version"
+      );
+
+    const restored =
+      await compatibleStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(
+      restored,
+    );
+
+    assert.equal(
+      restored.key,
+      record.key,
+    );
+
+    assert.equal(
+      restored.state,
+      "PINNED",
+    );
+
+    assert.equal(
+      restored.cachedBytes,
+      1,
+    );
+  },
+);
