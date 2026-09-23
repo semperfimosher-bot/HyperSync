@@ -1953,8 +1953,7 @@ async function downloadOpenedPlaylist() {
           </button>
 
 
-          {!openedPlaylist.is_owner &&
-!openedPlaylist.is_saved ? (
+          {!openedPlaylist.is_owner ? (
 
   <button
     type="button"
@@ -1962,16 +1961,27 @@ async function downloadOpenedPlaylist() {
     disabled={
       playlistActionBusy
     }
+    title={
+      openedPlaylist.is_saved
+        ? "Remove from Library"
+        : "Add to Library"
+    }
     onClick={() => {
       void toggleOpenedPlaylistSaved();
     }}
   >
     <Icon
-      name="plus"
+      name={
+        openedPlaylist.is_saved
+          ? "check"
+          : "plus"
+      }
       size={14}
     />
 
-    Add to Library
+    {openedPlaylist.is_saved
+      ? "In Library"
+      : "Add to Library"}
   </button>
 
 ) : null}
