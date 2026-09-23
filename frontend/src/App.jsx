@@ -42,6 +42,8 @@ import {
 
 import TrackArtwork from "./components/ui/TrackArtwork.jsx";
 
+import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
+
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
 import MobileHeader from "./components/layout/MobileHeader.jsx";
@@ -70,6 +72,20 @@ import {
   deleteCatalogTrack,
   useCatalogTracks,
 } from "./catalogStore.js";
+
+import {
+  downloadTracksForOffline,
+  getDownloadedPlaylists,
+} from "./offlineDownloads.js";
+
+import {
+  getPlaylist,
+} from "./playlistApi.js";
+
+import {
+  findMissingPlaylistTracks,
+  playlistUpdateKey,
+} from "./playlistDownloadUpdates.js";
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -1203,7 +1219,11 @@ function MobileBottomNav({
   );
 }
 
-function PlayerBar() {
+function PlayerBar({
+  playlistUpdate,
+  onDownloadPlaylistUpdate,
+  onDismissPlaylistUpdate,
+}) {
   const [
     state,
     setState,
@@ -1451,6 +1471,18 @@ function PlayerBar() {
         </div>
 
       </div>
+
+
+      <PlaylistUpdateNotice
+        update={playlistUpdate}
+        variant="desktop"
+        onDownload={
+          onDownloadPlaylistUpdate
+        }
+        onDismiss={
+          onDismissPlaylistUpdate
+        }
+      />
 
 
       {/* =================================================
@@ -1842,6 +1874,19 @@ export default function App() {
   const [statusMessage, setStatusMessage] =
     useState("");
 
+  const [
+    playlistUpdates,
+    setPlaylistUpdates,
+  ] = useState([]);
+
+  const playlistUpdateCheckRef =
+    useRef(false);
+
+  const dismissedPlaylistUpdatesRef =
+    useRef(
+      new Set(),
+    );
+
   const searchStateTimerRef =
     useRef(null);
 
@@ -1904,6 +1949,382 @@ const restoreSavedAppView =
   );
 
 
+const checkDownloadedGeneratedPlaylistUpdates =
+  useCallback(
+    async () => {
+      if (
+        currentUser?.account_type !==
+          "registered" ||
+        globalThis.navigator
+          ?.onLine ===
+          false ||
+        playlistUpdateCheckRef
+          .current
+      ) {
+        return;
+      }
+
+      playlistUpdateCheckRef.current =
+        true;
+
+      try {
+        const downloadedPlaylists =
+          await getDownloadedPlaylists();
+
+        const generatedDownloads =
+          downloadedPlaylists.filter(
+            (playlist) =>
+              playlist.visibility ===
+              "generated",
+          );
+
+        const detected =
+          (
+            await Promise.all(
+              generatedDownloads.map(
+                async (
+                  downloadedPlaylist,
+                ) => {
+                  try {
+                    const livePlaylist =
+                      await getPlaylist(
+                        downloadedPlaylist.id,
+                      );
+
+                    const missingTracks =
+                      findMissingPlaylistTracks(
+                        livePlaylist,
+                        downloadedPlaylist,
+                      );
+
+                    if (
+                      missingTracks.length ===
+                      0
+                    ) {
+                      return null;
+                    }
+
+                    const key =
+                      playlistUpdateKey(
+                        livePlaylist,
+                        missingTracks,
+                      );
+
+                    if (
+                      dismissedPlaylistUpdatesRef
+                        .current
+                        .has(
+                          key,
+                        )
+                    ) {
+                      return null;
+                    }
+
+                    return {
+                      key,
+                      playlist:
+                        livePlaylist,
+                      missingTracks,
+                      status:
+                        "ready",
+                      progress:
+                        0,
+                    };
+                  } catch {
+                    return null;
+                  }
+                },
+              ),
+            )
+          ).filter(Boolean);
+
+        setPlaylistUpdates(
+          (current) =>
+            detected.map(
+              (update) => {
+                const existing =
+                  current.find(
+                    (item) =>
+                      item.key ===
+                      update.key,
+                  );
+
+                return (
+                  existing?.status ===
+                    "downloading"
+                    ? existing
+                    : update
+                );
+              },
+            ),
+        );
+      } finally {
+        playlistUpdateCheckRef.current =
+          false;
+      }
+    },
+    [currentUser],
+  );
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+      "registered"
+    ) {
+      setPlaylistUpdates(
+        [],
+      );
+
+      return undefined;
+    }
+
+    void checkDownloadedGeneratedPlaylistUpdates();
+
+    const intervalId =
+      window.setInterval(
+        () => {
+          void checkDownloadedGeneratedPlaylistUpdates();
+        },
+        60000,
+      );
+
+    const handleFocus =
+      () => {
+        void checkDownloadedGeneratedPlaylistUpdates();
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+          "visible"
+        ) {
+          void checkDownloadedGeneratedPlaylistUpdates();
+        }
+      };
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    window.addEventListener(
+      "online",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    return () => {
+      window.clearInterval(
+        intervalId,
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "online",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
+  }, [
+    currentUser,
+    checkDownloadedGeneratedPlaylistUpdates,
+  ]);
+
+
+  const dismissPlaylistUpdate =
+    useCallback(
+      () => {
+        setPlaylistUpdates(
+          (current) => {
+            const [
+              active,
+              ...rest
+            ] =
+              current;
+
+            if (active?.key) {
+              dismissedPlaylistUpdatesRef
+                .current
+                .add(
+                  active.key,
+                );
+            }
+
+            return rest;
+          },
+        );
+      },
+      [],
+    );
+
+
+  const downloadActivePlaylistUpdate =
+    useCallback(
+      async () => {
+        const update =
+          playlistUpdates[0];
+
+        if (
+          !update ||
+          update.status ===
+            "downloading"
+        ) {
+          return;
+        }
+
+        const {
+          playlist,
+          missingTracks,
+          key,
+        } =
+          update;
+
+        setPlaylistUpdates(
+          (current) =>
+            current.map(
+              (item) =>
+                item.key === key
+                  ? {
+                      ...item,
+                      status:
+                        "downloading",
+                      progress:
+                        0,
+                    }
+                  : item,
+            ),
+        );
+
+        try {
+          await downloadTracksForOffline(
+            playlist.tracks,
+            {
+              jobId:
+                "playlist:" +
+                String(
+                  playlist.id,
+                ),
+
+              jobMetadata: {
+                kind:
+                  "playlist",
+                playlistId:
+                  playlist.id,
+                playlistTitle:
+                  playlist.title,
+                playlistDescription:
+                  playlist.description ??
+                  null,
+                playlistArtworkUrl:
+                  playlist.artwork_url ??
+                  null,
+                playlistOwnerUsername:
+                  playlist.owner_username ??
+                  null,
+                playlistVisibility:
+                  playlist.visibility ??
+                  null,
+              },
+
+              onProgress: ({
+                progress,
+              }) => {
+                setPlaylistUpdates(
+                  (current) =>
+                    current.map(
+                      (item) =>
+                        item.key ===
+                        key
+                          ? {
+                              ...item,
+                              status:
+                                "downloading",
+                              progress:
+                                Number.isFinite(
+                                  progress,
+                                )
+                                  ? progress
+                                  : 0,
+                            }
+                          : item,
+                    ),
+                );
+              },
+            },
+          );
+
+          setPlaylistUpdates(
+            (current) =>
+              current.filter(
+                (item) =>
+                  item.key !==
+                  key,
+              ),
+          );
+
+          setStatusMessage(
+            `${missingTracks.length} ${missingTracks.length === 1 ? "new song" : "new songs"} downloaded to ${playlist.title}.`,
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "hypersync:offline-playlist-updated",
+              {
+                detail: {
+                  playlistId:
+                    playlist.id,
+                },
+              },
+            ),
+          );
+        } catch (error) {
+          setPlaylistUpdates(
+            (current) =>
+              current.map(
+                (item) =>
+                  item.key ===
+                  key
+                    ? {
+                        ...item,
+                        status:
+                          "ready",
+                        progress:
+                          0,
+                      }
+                    : item,
+              ),
+          );
+
+          setStatusMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to download new playlist songs.",
+          );
+        }
+      },
+      [playlistUpdates],
+    );
+
+
+  const activePlaylistUpdate =
+    playlistUpdates[0] ??
+    null;
+
+
 const persistAppView =
   useCallback(
     (state) => {
@@ -1948,6 +2369,8 @@ const persistAppView =
   logoutSession();
 
   setCurrentUser(null);
+  setPlaylistUpdates([]);
+  dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
   setActiveProfileUsername("");
@@ -2383,7 +2806,30 @@ const clearPlaylistToOpen =
 
       <DesktopRightRail />
 
-      <PlayerBar />
+      <PlayerBar
+        playlistUpdate={
+          activePlaylistUpdate
+        }
+        onDownloadPlaylistUpdate={() => {
+          void downloadActivePlaylistUpdate();
+        }}
+        onDismissPlaylistUpdate={
+          dismissPlaylistUpdate
+        }
+      />
+
+      <PlaylistUpdateNotice
+        update={
+          activePlaylistUpdate
+        }
+        variant="mobile"
+        onDownload={() => {
+          void downloadActivePlaylistUpdate();
+        }}
+        onDismiss={
+          dismissPlaylistUpdate
+        }
+      />
 
       <MobileBottomNav
         activePage={activePage}
