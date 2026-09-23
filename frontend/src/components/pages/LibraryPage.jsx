@@ -696,11 +696,55 @@ const [
     false;
 
   async function loadInitialPlaylist() {
+    const downloaded =
+      (
+        await getDownloadedPlaylists(
+          offlineOwnerKey,
+        ).catch(
+          () => [],
+        )
+      ).find(
+        (playlist) =>
+          String(
+            playlist.id,
+          ) ===
+          String(
+            initialPlaylistId,
+          ),
+      ) ??
+      null;
+
     const cached =
+      downloaded ??
       getCachedPlaylist(
         libraryCacheKey,
         initialPlaylistId,
       );
+
+    if (downloaded) {
+      setPlaylistDownload({
+        status:
+          "downloaded",
+        progress:
+          1,
+        trackProgress:
+          Object.fromEntries(
+            downloaded.tracks.map(
+              (track) => [
+                String(
+                  track.id,
+                ),
+                {
+                  status:
+                    "downloaded",
+                  progress:
+                    1,
+                },
+              ],
+            ),
+          ),
+      });
+    }
 
     if (cached) {
       setSelectedPlaylist(
@@ -723,7 +767,7 @@ const [
     if (offline) {
       if (!cached) {
         setError(
-          "Open this playlist once while online before using it offline.",
+          "This playlist is not available offline yet.",
         );
       }
 
@@ -798,6 +842,7 @@ const [
 }, [
   initialPlaylistId,
   libraryCacheKey,
+  offlineOwnerKey,
   onInitialPlaylistHandled,
 ]);
 
@@ -853,7 +898,7 @@ useEffect(() => {
     return;
   }
 
-  const downloaded =
+  let downloaded =
     downloadedPlaylists.find(
       (playlist) =>
         String(
@@ -864,6 +909,36 @@ useEffect(() => {
         ),
     ) ??
     null;
+
+  if (
+    !downloaded &&
+    offlineOwnerKey
+  ) {
+    const currentDownloads =
+      await getDownloadedPlaylists(
+        offlineOwnerKey,
+      ).catch(
+        () => [],
+      );
+
+    downloaded =
+      currentDownloads.find(
+        (playlist) =>
+          String(
+            playlist.id,
+          ) ===
+          String(
+            playlistId,
+          ),
+      ) ??
+      null;
+
+    if (downloaded) {
+      setDownloadedPlaylists(
+        currentDownloads,
+      );
+    }
+  }
 
   const cached =
     downloaded ??
@@ -981,7 +1056,7 @@ useEffect(() => {
 if (offline) {
   if (!cached) {
     setError(
-      "Open this playlist once while online before using it offline.",
+      "This playlist is not available offline yet.",
     );
   }
 
@@ -2168,7 +2243,21 @@ if (offline) {
                   return (
                     <div
                       key={
-                        track.playlist_track_id
+                        track.playlist_track_id ??
+                        (
+                          String(
+                            track.id,
+                          ) +
+                          ":" +
+                          String(
+                            track.media_version ??
+                            "",
+                          ) +
+                          ":" +
+                          String(
+                            trackIndex,
+                          )
+                        )
                       }
                       role="button"
                       tabIndex={0}
