@@ -266,6 +266,10 @@ function SearchPage({
   const normalizedQuery =
     query.trim();
 
+  const isRegistered =
+    currentUser?.account_type ===
+    "registered";
+
   const [
   openedPlaylist,
   setOpenedPlaylist,
@@ -1242,56 +1246,111 @@ async function confirmRemoveOpenedPlaylistDownload() {
 
 
 async function downloadOpenedPlaylist() {
-  const tracks =
-    openedPlaylist?.tracks ??
-    [];
-
   if (
-    !tracks.length ||
+    !openedPlaylist ||
     playlistDownload.status ===
       "downloading"
   ) {
     return;
   }
 
+  if (!isRegistered) {
+    onOpenAuth?.();
+    return;
+  }
+
   setPlaylistError("");
 
-  setPlaylistDownload({
-    status:
-      "downloading",
-    progress:
-      0,
-    trackProgress:
-      {},
-  });
+  let playlistForDownload =
+    openedPlaylist;
 
   try {
+    /*
+     * Downloading from Search should also
+     * put the playlist in Library first.
+     * Owned playlists are already there.
+     */
+    if (
+      !playlistForDownload.is_owner &&
+      !playlistForDownload.is_saved
+    ) {
+      setPlaylistActionBusy(
+        true,
+      );
+
+      await savePlaylist(
+        playlistForDownload.id,
+      );
+
+      playlistForDownload = {
+        ...playlistForDownload,
+        is_saved: true,
+      };
+
+      setOpenedPlaylist(
+        playlistForDownload,
+      );
+    }
+
+    /*
+     * Re-fetch after saving so generated
+     * playlists download the newest catalog
+     * membership, not a stale Search snapshot.
+     */
+    playlistForDownload =
+      await getPlaylist(
+        playlistForDownload.id,
+      );
+
+    setOpenedPlaylist(
+      playlistForDownload,
+    );
+
+    const tracks =
+      playlistForDownload.tracks ??
+      [];
+
+    if (!tracks.length) {
+      throw new Error(
+        "This playlist has no tracks to download.",
+      );
+    }
+
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        0,
+      trackProgress:
+        {},
+    });
+
     await downloadTracksForOffline(
       tracks,
       {
         jobId:
           "playlist:" +
           String(
-            openedPlaylist.id,
+            playlistForDownload.id,
           ),
         jobMetadata: {
           kind:
             "playlist",
           playlistId:
-            openedPlaylist.id,
+            playlistForDownload.id,
           playlistTitle:
-            openedPlaylist.title,
+            playlistForDownload.title,
           playlistDescription:
-            openedPlaylist.description ??
+            playlistForDownload.description ??
             null,
           playlistArtworkUrl:
-            openedPlaylist.artwork_url ??
+            playlistForDownload.artwork_url ??
             null,
           playlistOwnerUsername:
-            openedPlaylist.owner_username ??
+            playlistForDownload.owner_username ??
             null,
           playlistVisibility:
-            openedPlaylist.visibility ??
+            playlistForDownload.visibility ??
             null,
         },
         onProgress: ({
@@ -1348,7 +1407,11 @@ async function downloadOpenedPlaylist() {
     setPlaylistError(
       error instanceof Error
         ? error.message
-        : "Unable to download playlist.",
+        : "Unable to add and download playlist.",
+    );
+  } finally {
+    setPlaylistActionBusy(
+      false,
     );
   }
 }
