@@ -1151,6 +1151,13 @@ test(
       "image/webp",
     );
 
+    assert.equal(
+      response.headers.get(
+        "Cache-Control",
+      ),
+      "private, no-store",
+    );
+
     assert.deepEqual(
       Array.from(
         new Uint8Array(
@@ -1163,6 +1170,59 @@ test(
         3,
         4,
       ],
+    );
+  },
+);
+
+
+test(
+  "service worker marks versioned offline artwork immutable",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const serviceWorker =
+      await loadServiceWorkerModule();
+
+    await mediaStore.saveArtwork({
+      trackId:
+        "versioned-offline-art-track",
+      data:
+        new Uint8Array([
+          7,
+          8,
+          9,
+        ]).buffer,
+      mimeType:
+        "image/png",
+      artworkVersion:
+        "art-version-1",
+    });
+
+    const response =
+      await serviceWorker.handleArtworkRequest(
+        new Request(
+          "https://example.test/__hypersync/artwork/versioned-offline-art-track?v=art-version-1",
+        ),
+        async () => {
+          throw new Error(
+            "Versioned artwork should come from IndexedDB.",
+          );
+        },
+      );
+
+    assert.equal(
+      response.status,
+      200,
+    );
+
+    assert.equal(
+      response.headers.get(
+        "Cache-Control",
+      ),
+      "private, max-age=31536000, immutable",
     );
   },
 );
