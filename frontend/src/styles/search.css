@@ -5473,18 +5473,6 @@ button:disabled {
 }
 
 .hs-download-remove-trigger {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  padding: 0;
-  border:
-    1px solid
-    rgba(79, 226, 255, 0.3);
-  border-radius: 50%;
-  color: #73edff;
-  background:
-    rgba(31, 189, 224, 0.08);
   cursor: pointer;
 }
 
