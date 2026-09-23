@@ -5804,7 +5804,7 @@ button.is-active span {
   padding:
     calc(
       env(safe-area-inset-top) +
-      100px
+      200px
     )
     8px
     8px;
