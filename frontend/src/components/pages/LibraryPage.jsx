@@ -669,6 +669,40 @@ useEffect(() => {
       playlistId,
     )
 
+  if (downloaded) {
+    setPlaylistDownload({
+      status:
+        "downloaded",
+      progress:
+        1,
+      trackProgress:
+        Object.fromEntries(
+          downloaded.tracks.map(
+            (track) => [
+              String(
+                track.id,
+              ),
+              {
+                status:
+                  "downloaded",
+                progress:
+                  1,
+              },
+            ],
+          ),
+        ),
+    });
+  } else {
+    setPlaylistDownload({
+      status:
+        "idle",
+      progress:
+        0,
+      trackProgress:
+        {},
+    });
+  }
+
   /*
    * If we've loaded this playlist before,
    * show it immediately.
