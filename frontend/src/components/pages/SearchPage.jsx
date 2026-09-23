@@ -2105,6 +2105,10 @@ async function downloadOpenedPlaylist() {
                       ]
                         .filter(Boolean)
                         .join(" ")}
+                      style={{
+                        "--download-progress":
+                          `${progress}%`,
+                      }}
                       title={
                         done
                           ? "Downloaded"
