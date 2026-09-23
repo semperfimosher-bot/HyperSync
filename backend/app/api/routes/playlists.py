@@ -38,6 +38,10 @@ from .catalog import (
     _track_media_version,
 )
 
+from ...services.generated_playlists import (
+    refresh_generated_playlist_if_stale,
+)
+
 router = APIRouter(
     prefix="/playlists",
     tags=["playlists"],
@@ -598,13 +602,21 @@ async def get_saved_playlists(
 
     playlists = list(result.scalars().all())
 
+    refreshed_playlists = [
+        await refresh_generated_playlist_if_stale(
+            session,
+            playlist,
+        )
+        for playlist in playlists
+    ]
+
     return [
         await serialize_playlist_summary(
             session,
             playlist,
             user,
         )
-        for playlist in playlists
+        for playlist in refreshed_playlists
     ]
 
 
@@ -739,6 +751,13 @@ async def get_playlist(
             status_code=(status.HTTP_404_NOT_FOUND),
             detail=("Playlist not found."),
         )
+
+    playlist = (
+        await refresh_generated_playlist_if_stale(
+            session,
+            playlist,
+        )
+    )
 
     return await serialize_playlist_detail(
         session,
