@@ -201,17 +201,15 @@ async def upload_track(
             "duration_seconds": (track.duration_seconds),
         }
 
-        /*
-         * Generated artist playlists are shared
-         * objects. Refresh the matching playlist
-         * as soon as new published music lands so
-         * every saved copy sees the same membership.
-         *
-         * The playlist read path also performs this
-         * freshness check, so an unexpected refresh
-         * failure must not turn a successfully
-         * committed upload into a false upload error.
-         */
+        # Generated artist playlists are shared
+        # objects. Refresh the matching playlist as
+        # soon as new published music lands so every
+        # saved copy sees the same membership.
+        #
+        # The playlist read path also performs this
+        # freshness check, so an unexpected refresh
+        # failure must not turn a successfully
+        # committed upload into a false upload error.
         try:
             await ensure_artist_playlist(
                 session,
