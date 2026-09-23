@@ -187,6 +187,20 @@ async def upload_track(
 
         await session.commit()
 
+        response_payload = {
+            "success": True,
+            "track_id": str(
+                track.id,
+            ),
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "b2_object_key": (object_key),
+            "artwork_object_key": (artwork_object_key),
+            "file_size": file_size,
+            "duration_seconds": (track.duration_seconds),
+        }
+
         /*
          * Generated artist playlists are shared
          * objects. Refresh the matching playlist
@@ -206,19 +220,7 @@ async def upload_track(
         except Exception:
             await session.rollback()
 
-        return {
-            "success": True,
-            "track_id": str(
-                track.id,
-            ),
-            "title": track.title,
-            "artist": track.artist,
-            "album": track.album,
-            "b2_object_key": (object_key),
-            "artwork_object_key": (artwork_object_key),
-            "file_size": file_size,
-            "duration_seconds": (track.duration_seconds),
-        }
+        return response_payload
 
     except Exception as exc:
         await session.rollback()
