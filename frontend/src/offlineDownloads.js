@@ -262,6 +262,45 @@ function trackFileSize(
 }
 
 
+export function getMissingDownloadBytes(
+  fileSize,
+  record = null,
+) {
+  const normalizedSize =
+    Number(
+      fileSize,
+    );
+
+  if (
+    !Number.isSafeInteger(
+      normalizedSize,
+    ) ||
+    normalizedSize <= 0
+  ) {
+    return 0;
+  }
+
+  const cachedBytes =
+    Number.isFinite(
+      record?.cachedBytes,
+    )
+      ? Math.max(
+          0,
+          Math.min(
+            normalizedSize,
+            record.cachedBytes,
+          ),
+        )
+      : 0;
+
+  return Math.max(
+    0,
+    normalizedSize -
+      cachedBytes,
+  );
+}
+
+
 function trackMimeType(
   track,
 ) {
@@ -592,7 +631,14 @@ async function cacheTrackLyrics(
     );
 
     return payload;
-  } catch {
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw error;
+    }
+
     /*
      * Lyrics are an offline enhancement.
      * A lyrics-provider outage must never
@@ -745,24 +791,10 @@ export async function downloadTrackForOffline(
     });
 
   if (!skipStorageCheck) {
-    const cachedBytes =
-      Number.isFinite(
-        mediaRecord?.cachedBytes,
-      )
-        ? Math.max(
-            0,
-            Math.min(
-              fileSize,
-              mediaRecord.cachedBytes,
-            ),
-          )
-        : 0;
-
     await ensureStorageCapacity(
-      Math.max(
-        0,
-        fileSize -
-          cachedBytes,
+      getMissingDownloadBytes(
+        fileSize,
+        mediaRecord,
       ),
     );
   }
@@ -1101,22 +1133,16 @@ export async function downloadTracksForOffline(
           identity.mediaVersion,
         );
 
-      const cachedBytes =
-        Number.isFinite(
-          existingRecord?.cachedBytes,
-        )
-          ? Math.max(
-              0,
-              Math.min(
-                fileSize,
-                existingRecord.cachedBytes,
-              ),
-            )
-          : 0;
+      const missingBytes =
+        getMissingDownloadBytes(
+          fileSize,
+          existingRecord,
+        );
 
       progressByKey.set(
         identity.key,
-        cachedBytes,
+        fileSize -
+          missingBytes,
       );
 
       pendingTracks.push(
@@ -1138,17 +1164,17 @@ export async function downloadTracksForOffline(
 
         return (
           sum +
-          Math.max(
-            0,
+          getMissingDownloadBytes(
             trackFileSize(
               track,
-            ) -
-              (
+            ),
+            {
+              cachedBytes:
                 progressByKey.get(
                   identity.key,
                 ) ??
-                0
-              ),
+                0,
+            },
           )
         );
       },
