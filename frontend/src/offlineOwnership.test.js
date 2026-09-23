@@ -324,3 +324,163 @@ test(
     );
   },
 );
+
+
+test(
+  "offline downloads reject durable writes without an owner pin",
+  async () => {
+    const offline =
+      await loadOfflineDownloads();
+
+    await assert.rejects(
+      () =>
+        offline.downloadTrackForOffline({
+          id:
+            "unowned-track",
+          media_version:
+            "v1",
+          file_size:
+            1,
+          mime_type:
+            "audio/mpeg",
+        }),
+      {
+        message:
+          "Offline downloads require an account-scoped owner.",
+      },
+    );
+  },
+);
+
+
+test(
+  "legacy unscoped downloads are removed without touching scoped downloads",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const legacy =
+      mediaStore.createMediaRecord({
+        trackId:
+          "legacy-unscoped-track",
+        mediaVersion:
+          "v1",
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    legacy.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      legacy,
+    );
+
+    const scoped =
+      mediaStore.createMediaRecord({
+        trackId:
+          "scoped-survivor-track",
+        mediaVersion:
+          "v1",
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    scoped.cachedBytes =
+      1;
+
+    scoped.pinRefs = [
+      offline.getManualDownloadPinRef(
+        "cleanup-owner",
+      ),
+    ];
+
+    await mediaStore.saveMediaRecord(
+      scoped,
+    );
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "legacy-unscoped-job",
+      state:
+        "complete",
+      trackKeys: [
+        "legacy-unscoped-track:v1",
+      ],
+    });
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "scoped-survivor-job",
+      ownerKey:
+        "cleanup-owner",
+      state:
+        "complete",
+      trackKeys: [
+        "scoped-survivor-track:v1",
+      ],
+    });
+
+    const result =
+      await offline.cleanupLegacyUnscopedDownloads();
+
+    assert.ok(
+      result.removedMedia >=
+        1,
+    );
+
+    assert.ok(
+      result.removedJobs >=
+        1,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        "legacy-unscoped-track",
+        "v1",
+      ),
+      null,
+    );
+
+    assert.ok(
+      await mediaStore.getMediaRecord(
+        "scoped-survivor-track",
+        "v1",
+      ),
+    );
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    assert.equal(
+      jobs.some(
+        (job) =>
+          job.id ===
+          "legacy-unscoped-job",
+      ),
+      false,
+    );
+
+    assert.equal(
+      jobs.some(
+        (job) =>
+          job.id ===
+          "scoped-survivor-job",
+      ),
+      true,
+    );
+  },
+);
