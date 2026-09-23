@@ -287,6 +287,7 @@ const [
 ] = useState({
   status: "idle",
   progress: 0,
+  trackProgress: {},
 });
 
   const [
