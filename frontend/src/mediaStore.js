@@ -22,8 +22,26 @@ const MEDIA_RECORD_STORE =
 const MEDIA_CHUNK_STORE =
   "chunks";
 
+const MEDIA_ARTWORK_STORE =
+  "artwork";
+
+const MEDIA_DOWNLOAD_JOB_STORE =
+  "downloadJobs";
+
+const MEDIA_LYRICS_STORE =
+  "lyrics";
+
+const OFFLINE_DATABASE_NAME =
+  "hypersynced-offline-v1";
+
+const OFFLINE_DATABASE_VERSION =
+  1;
+
 
 let databasePromise = null;
+
+let offlineDatabasePromise =
+  null;
 
 
 export function buildMediaCacheKey(
@@ -172,12 +190,24 @@ function openMediaDatabase() {
                 },
               );
             }
+
           };
 
         request.onsuccess =
           () => {
+            const database =
+              request.result;
+
+            database.onversionchange =
+              () => {
+                database.close();
+
+                databasePromise =
+                  null;
+              };
+
             resolve(
-              request.result,
+              database,
             );
           };
 
@@ -197,6 +227,119 @@ function openMediaDatabase() {
     );
 
   return databasePromise;
+}
+
+
+function openOfflineDatabase() {
+  if (
+    typeof indexedDB ===
+    "undefined"
+  ) {
+    return Promise.reject(
+      new Error(
+        "IndexedDB is unavailable.",
+      ),
+    );
+  }
+
+  if (offlineDatabasePromise) {
+    return offlineDatabasePromise;
+  }
+
+  offlineDatabasePromise =
+    new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const request =
+          indexedDB.open(
+            OFFLINE_DATABASE_NAME,
+            OFFLINE_DATABASE_VERSION,
+          );
+
+        request.onupgradeneeded =
+          () => {
+            const database =
+              request.result;
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_ARTWORK_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_ARTWORK_STORE,
+                {
+                  keyPath: "trackId",
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_DOWNLOAD_JOB_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_DOWNLOAD_JOB_STORE,
+                {
+                  keyPath: "id",
+                },
+              );
+            }
+
+            if (
+              !database.objectStoreNames
+                .contains(
+                  MEDIA_LYRICS_STORE,
+                )
+            ) {
+              database.createObjectStore(
+                MEDIA_LYRICS_STORE,
+                {
+                  keyPath: "trackId",
+                },
+              );
+            }
+          };
+
+        request.onsuccess =
+          () => {
+            const database =
+              request.result;
+
+            database.onversionchange =
+              () => {
+                database.close();
+
+                offlineDatabasePromise =
+                  null;
+              };
+
+            resolve(
+              database,
+            );
+          };
+
+        request.onerror =
+          () => {
+            offlineDatabasePromise =
+              null;
+
+            reject(
+              request.error ??
+                new Error(
+                  "Unable to open offline metadata database.",
+                ),
+            );
+          };
+      },
+    );
+
+  return offlineDatabasePromise;
 }
 
 
@@ -1160,6 +1303,468 @@ export async function getPinnedMediaRecords() {
 }
 
 
+export async function saveArtwork({
+  trackId,
+  data,
+  mimeType = "image/jpeg",
+  sourceUrl = null,
+  artworkVersion = null,
+} = {}) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    throw new TypeError(
+      "Artwork requires a track id.",
+    );
+  }
+
+  if (!(data instanceof ArrayBuffer)) {
+    throw new TypeError(
+      "Artwork data must be an ArrayBuffer.",
+    );
+  }
+
+  const record = {
+    trackId:
+      normalizedTrackId,
+    data,
+    mimeType:
+      mimeType ||
+      "application/octet-stream",
+    byteLength:
+      data.byteLength,
+    sourceUrl,
+    artworkVersion:
+      artworkVersion === null ||
+      artworkVersion === undefined
+        ? null
+        : String(
+            artworkVersion,
+          ),
+    updatedAt:
+      Date.now(),
+  };
+
+  const database =
+    await openOfflineDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_ARTWORK_STORE,
+        )
+        .put(record);
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save artwork.",
+            ),
+        );
+
+      transaction.onabort =
+        transaction.onerror;
+    },
+  );
+
+  return record;
+}
+
+
+export async function getArtwork(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_ARTWORK_STORE,
+          )
+          .get(
+            normalizedTrackId,
+          );
+
+      request.onsuccess =
+        () => resolve(
+          request.result ??
+            null,
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read artwork.",
+            ),
+        );
+    },
+  );
+}
+
+
+export async function removeArtwork(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return false;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_ARTWORK_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_ARTWORK_STORE,
+        )
+        .delete(
+          normalizedTrackId,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to remove artwork.",
+            ),
+        );
+    },
+  );
+
+  return true;
+}
+
+
+export async function saveLyrics(
+  trackId,
+  lyrics,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (
+    !normalizedTrackId ||
+    !lyrics ||
+    typeof lyrics !== "object"
+  ) {
+    throw new TypeError(
+      "Lyrics require a track id and payload.",
+    );
+  }
+
+  const record = {
+    trackId:
+      normalizedTrackId,
+    payload:
+      lyrics,
+    updatedAt:
+      Date.now(),
+  };
+
+  const database =
+    await openOfflineDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_LYRICS_STORE,
+        )
+        .put(
+          record,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to save lyrics.",
+            ),
+        );
+
+      transaction.onabort =
+        transaction.onerror;
+    },
+  );
+
+  return record;
+}
+
+
+export async function getLyrics(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(trackId ?? "").trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_LYRICS_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_LYRICS_STORE,
+          )
+          .get(
+            normalizedTrackId,
+          );
+
+      request.onsuccess =
+        () => resolve(
+          request.result
+            ?.payload ??
+          null,
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read lyrics.",
+            ),
+        );
+    },
+  );
+}
+
+
+export async function saveDownloadJob(
+  job,
+) {
+  if (!job?.id) {
+    throw new TypeError(
+      "Download job requires an id.",
+    );
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  const normalizedId =
+    String(
+      job.id,
+    );
+
+  const record =
+    await new Promise(
+      (resolve, reject) => {
+        const transaction =
+          database.transaction(
+            MEDIA_DOWNLOAD_JOB_STORE,
+            "readwrite",
+          );
+
+        const store =
+          transaction.objectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+          );
+
+        const getRequest =
+          store.get(
+            normalizedId,
+          );
+
+        getRequest.onerror =
+          () => reject(
+            getRequest.error ??
+              new Error(
+                "Unable to read download job.",
+              ),
+          );
+
+        getRequest.onsuccess =
+          () => {
+            const existing =
+              getRequest.result &&
+              typeof getRequest.result ===
+                "object"
+                ? getRequest.result
+                : {};
+
+            const nextRecord = {
+              ...existing,
+              ...job,
+              id:
+                normalizedId,
+              updatedAt:
+                Date.now(),
+            };
+
+            store.put(
+              nextRecord,
+            );
+
+            transaction.oncomplete =
+              () => resolve(
+                nextRecord,
+              );
+
+            transaction.onerror =
+              () => reject(
+                transaction.error ??
+                  new Error(
+                    "Unable to save download job.",
+                  ),
+              );
+          };
+      },
+    );
+
+  return record;
+}
+
+
+export async function getDownloadJobs() {
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_DOWNLOAD_JOB_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+          )
+          .getAll();
+
+      request.onsuccess =
+        () => resolve(
+          Array.isArray(
+            request.result,
+          )
+            ? request.result
+            : [],
+        );
+
+      request.onerror =
+        () => reject(
+          request.error ??
+            new Error(
+              "Unable to read download jobs.",
+            ),
+        );
+    },
+  );
+}
+
+
+export async function deleteDownloadJob(
+  jobId,
+) {
+  const normalizedJobId =
+    String(
+      jobId ?? "",
+    ).trim();
+
+  if (!normalizedJobId) {
+    return false;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_DOWNLOAD_JOB_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_DOWNLOAD_JOB_STORE,
+        )
+        .delete(
+          normalizedJobId,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to remove download job.",
+            ),
+        );
+    },
+  );
+
+  return true;
+}
+
+
 export async function removeDownloadedMedia(
   trackId,
   mediaVersion,
@@ -1174,6 +1779,24 @@ export async function removeDownloadedMedia(
   if (!mediaKey) {
     return false;
   }
+
+
+  const normalizedTrackId =
+    String(trackId);
+
+  const otherPinnedRecords =
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        record.trackId ===
+          normalizedTrackId &&
+        record.key !==
+          mediaKey,
+    );
+
+  const preserveSharedAssets =
+    otherPinnedRecords.length > 0;
 
 
   const database =
@@ -1275,6 +1898,62 @@ export async function removeDownloadedMedia(
         };
     },
   );
+
+
+  if (!preserveSharedAssets) {
+    const offlineDatabase =
+      await openOfflineDatabase();
+
+    await new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const transaction =
+          offlineDatabase.transaction(
+            [
+              MEDIA_ARTWORK_STORE,
+              MEDIA_LYRICS_STORE,
+            ],
+            "readwrite",
+          );
+
+        transaction
+          .objectStore(
+            MEDIA_ARTWORK_STORE,
+          )
+          .delete(
+            normalizedTrackId,
+          );
+
+        transaction
+          .objectStore(
+            MEDIA_LYRICS_STORE,
+          )
+          .delete(
+            normalizedTrackId,
+          );
+
+        transaction.oncomplete =
+          () => {
+            resolve();
+          };
+
+        transaction.onerror =
+          () => {
+            reject(
+              transaction.error ??
+                new Error(
+                  "Unable to remove offline track metadata.",
+                ),
+            );
+          };
+
+        transaction.onabort =
+          transaction.onerror;
+      },
+    );
+  }
 
 
   return true;

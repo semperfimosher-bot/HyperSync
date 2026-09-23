@@ -1370,3 +1370,396 @@ test(
     );
   },
 );
+
+test(
+  "offline artwork persists in IndexedDB",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const data =
+      new Uint8Array([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+      ]).buffer;
+
+    await mediaStore.saveArtwork({
+      trackId:
+        "artwork-track",
+      data,
+      mimeType:
+        "image/png",
+      sourceUrl:
+        "https://example.test/art.png",
+    });
+
+    const stored =
+      await mediaStore.getArtwork(
+        "artwork-track",
+      );
+
+    assert.equal(
+      stored.mimeType,
+      "image/png",
+    );
+
+    assert.deepEqual(
+      Array.from(
+        new Uint8Array(
+          stored.data,
+        ),
+      ),
+      [
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+      ],
+    );
+  },
+);
+
+test(
+  "offline lyrics persist by track",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const lyrics = {
+      status:
+        "synced",
+      synced_lyrics:
+        "[00:01.00]Hello",
+      plain_lyrics:
+        null,
+    };
+
+    await mediaStore.saveLyrics(
+      "lyrics-track",
+      lyrics,
+    );
+
+    assert.deepEqual(
+      await mediaStore.getLyrics(
+        "lyrics-track",
+      ),
+      lyrics,
+    );
+  },
+);
+
+test(
+  "download jobs survive page-level state changes",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:test",
+      state:
+        "downloading",
+      totalBytes:
+        1000,
+      downloadedBytes:
+        400,
+      trackKeys: [
+        "one:v1",
+        "two:v1",
+      ],
+    });
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    const job =
+      jobs.find(
+        (value) =>
+          value.id ===
+          "playlist:test",
+      );
+
+    assert.ok(job);
+
+    assert.equal(
+      job.state,
+      "downloading",
+    );
+
+    assert.equal(
+      job.downloadedBytes,
+      400,
+    );
+  },
+);
+
+
+test(
+  "download job progress updates preserve playlist metadata",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:generated-test",
+      state:
+        "downloading",
+      playlistId:
+        "generated-test",
+      playlistTitle:
+        "Generated Test",
+      playlistVisibility:
+        "generated",
+      trackKeys: [
+        "one:v1",
+      ],
+    });
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:generated-test",
+      state:
+        "complete",
+      downloadedBytes:
+        1000,
+      totalBytes:
+        1000,
+      trackKeys: [
+        "one:v1",
+      ],
+    });
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    const job =
+      jobs.find(
+        (value) =>
+          value.id ===
+          "playlist:generated-test",
+      );
+
+    assert.ok(job);
+
+    assert.equal(
+      job.playlistId,
+      "generated-test",
+    );
+
+    assert.equal(
+      job.playlistTitle,
+      "Generated Test",
+    );
+
+    assert.equal(
+      job.playlistVisibility,
+      "generated",
+    );
+  },
+);
+
+
+test(
+  "removing downloaded media clears audio artwork and lyrics",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "remove-track";
+
+    const mediaVersion =
+      "remove-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await mediaStore.saveMediaChunk({
+      trackId,
+      mediaVersion,
+      chunkIndex:
+        0,
+      byteStart:
+        0,
+      data:
+        new Uint8Array([
+          0x42,
+        ]).buffer,
+    });
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "hello",
+      },
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+      ),
+      true,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      null,
+    );
+  },
+);
+
+
+test(
+  "removing an old media version preserves shared assets for a newer pinned version",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "versioned-track";
+
+    for (
+      const mediaVersion
+      of [
+        "old-version",
+        "new-version",
+      ]
+    ) {
+      const record =
+        mediaStore.createMediaRecord({
+          trackId,
+          mediaVersion,
+          mimeType:
+            "audio/mpeg",
+          fileSize:
+            1,
+          state:
+            "PINNED",
+        });
+
+      record.cachedBytes =
+        1;
+
+      await mediaStore.saveMediaRecord(
+        record,
+      );
+    }
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "still here",
+      },
+    );
+
+    await mediaStore.removeDownloadedMedia(
+      trackId,
+      "old-version",
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        "old-version",
+      ),
+      null,
+    );
+
+    assert.ok(
+      await mediaStore.getMediaRecord(
+        trackId,
+        "new-version",
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+    );
+
+    assert.deepEqual(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "still here",
+      },
+    );
+  },
+);

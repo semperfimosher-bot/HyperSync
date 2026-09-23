@@ -1,25 +1,6 @@
-import { API_BASE } from "../../api/client.js";
-
-function resolveArtworkUrl(src) {
-  if (!src) {
-    return null;
-  }
-
-  if (
-    src.startsWith("http://") ||
-    src.startsWith("https://")
-  ) {
-    return src;
-  }
-
-  if (API_BASE.startsWith("http")) {
-    const apiOrigin = new URL(API_BASE).origin;
-
-    return `${apiOrigin}${src}`;
-  }
-
-  return src;
-}
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
 
 function CoverPlaceholder({
   variant = 1,

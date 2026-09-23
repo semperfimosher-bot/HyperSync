@@ -9,12 +9,18 @@ import {
   API_BASE,
 } from "../../api/client.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import * as player from
   "../../audioPlayer.js";
 
 import {
-  downloadTrackForOffline,
-  isTrackDownloaded,
+  downloadTracksForOffline,
+  getDownloadedPlaylists,
+  removePlaylistFromOffline,
+  searchDownloadedTracks,
 } from "../../offlineDownloads.js";
 
 import {
@@ -41,6 +47,9 @@ import Avatar from
 
 import Icon from
   "../ui/Icon.jsx";
+
+import DownloadRemovalConfirm from
+  "../ui/DownloadRemovalConfirm.jsx";
 
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
@@ -92,25 +101,6 @@ const FILTERS = [
   ["playlists", "Playlists"],
   ["tracks", "Tracks"],
 ];
-
-function resolveArtworkUrl(url) {
-  if (!url) {
-    return null;
-  }
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(
-    /^\/api/,
-    "",
-  )}`;
-}
-
 
 function memberFor(value) {
   if (!value) {
@@ -276,6 +266,10 @@ function SearchPage({
   const normalizedQuery =
     query.trim();
 
+  const isRegistered =
+    currentUser?.account_type ===
+    "registered";
+
   const [
   openedPlaylist,
   setOpenedPlaylist,
@@ -302,7 +296,111 @@ const [
 ] = useState({
   status: "idle",
   progress: 0,
+  trackProgress: {},
 });
+
+const [
+  removeDownloadOpen,
+  setRemoveDownloadOpen,
+] = useState(false);
+
+const [
+  removingDownload,
+  setRemovingDownload,
+] = useState(false);
+
+useEffect(() => {
+  const handleOfflinePlaylistUpdated =
+    async (event) => {
+      const playlistId =
+        event?.detail
+          ?.playlistId;
+
+      if (
+        !playlistId ||
+        String(
+          openedPlaylist?.id ??
+          "",
+        ) !==
+          String(
+            playlistId,
+          )
+      ) {
+        return;
+      }
+
+      try {
+        const [
+          refreshed,
+          downloads,
+        ] =
+          await Promise.all([
+            getPlaylist(
+              playlistId,
+            ),
+            getDownloadedPlaylists(),
+          ]);
+
+        setOpenedPlaylist(
+          refreshed,
+        );
+
+        const downloaded =
+          downloads.find(
+            (playlist) =>
+              String(
+                playlist.id,
+              ) ===
+              String(
+                playlistId,
+              ),
+          );
+
+        if (downloaded) {
+          setPlaylistDownload({
+            status:
+              "downloaded",
+            progress:
+              1,
+            trackProgress:
+              Object.fromEntries(
+                downloaded.tracks.map(
+                  (track) => [
+                    String(
+                      track.id,
+                    ),
+                    {
+                      status:
+                        "downloaded",
+                      progress:
+                        1,
+                    },
+                  ],
+                ),
+              ),
+          });
+        }
+      } catch {
+        // The global update action already
+        // completed; this only syncs visible UI.
+      }
+    };
+
+  window.addEventListener(
+    "hypersync:offline-playlist-updated",
+    handleOfflinePlaylistUpdated,
+  );
+
+  return () => {
+    window.removeEventListener(
+      "hypersync:offline-playlist-updated",
+      handleOfflinePlaylistUpdated,
+    );
+  };
+}, [
+  openedPlaylist?.id,
+]);
+
 
 useEffect(() => {
   setOpenedPlaylist(
@@ -316,6 +414,7 @@ useEffect(() => {
   setPlaylistDownload({
     status: "idle",
     progress: 0,
+    trackProgress: {},
   });
 }, [
   resetToken,
@@ -380,11 +479,6 @@ useEffect(() => {
     searchError,
     setSearchError,
   ] = useState("");
-
-  const [
-    downloadStates,
-    setDownloadStates,
-  ] = useState({});
 
   const searchInputRef =
   useRef(null);
@@ -512,9 +606,85 @@ useEffect(() => {
     setLoading(true);
     setSearchError("");
 
+    const setLocalResults =
+      (localTracks) => {
+        setResults({
+          ...EMPTY_RESULTS,
+          query:
+            normalizedQuery,
+          interpreted_query:
+            normalizedQuery,
+          counts: {
+            ...EMPTY_RESULTS.counts,
+            tracks:
+              localTracks.length,
+          },
+          tracks:
+            localTracks,
+        });
+
+        setSelectedTrackIndex(
+          -1,
+        );
+      };
+
     const timer =
       window.setTimeout(
         async () => {
+          const offline =
+            typeof navigator !==
+              "undefined" &&
+            navigator.onLine ===
+              false;
+
+          if (offline) {
+            try {
+              const localTracks =
+                await searchDownloadedTracks(
+                  normalizedQuery,
+                );
+
+              if (
+                controller.signal
+                  .aborted
+              ) {
+                return;
+              }
+
+              setLocalResults(
+                localTracks,
+              );
+
+              setSearchError(
+                localTracks.length > 0
+                  ? ""
+                  : "No downloaded matches are available offline.",
+              );
+            } catch {
+              if (
+                !controller.signal
+                  .aborted
+              ) {
+                setLocalResults(
+                  [],
+                );
+
+                setSearchError(
+                  "Unable to search downloaded tracks.",
+                );
+              }
+            } finally {
+              if (
+                !controller.signal
+                  .aborted
+              ) {
+                setLoading(false);
+              }
+            }
+
+            return;
+          }
+
           try {
             const data =
               await searchHypersync(
@@ -565,6 +735,9 @@ useEffect(() => {
               -1,
             );
 
+            setSearchError(
+              "",
+            );
           } catch (error) {
             if (
               error?.name ===
@@ -573,12 +746,43 @@ useEffect(() => {
               return;
             }
 
-            setSearchError(
-              error instanceof Error
-                ? error.message
-                : "Unable to search.",
-            );
+            let localTracks =
+              [];
 
+            try {
+              localTracks =
+                await searchDownloadedTracks(
+                  normalizedQuery,
+                );
+            } catch {
+              localTracks =
+                [];
+            }
+
+            if (
+              controller.signal
+                .aborted
+            ) {
+              return;
+            }
+
+            if (
+              localTracks.length > 0
+            ) {
+              setLocalResults(
+                localTracks,
+              );
+
+              setSearchError(
+                "",
+              );
+            } else {
+              setSearchError(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to search.",
+              );
+            }
           } finally {
             if (
               !controller.signal
@@ -615,97 +819,6 @@ useEffect(() => {
   );
 
 
-useEffect(() => {
-  let cancelled =
-    false;
-
-
-  async function loadDownloadStates() {
-    const entries =
-      await Promise.all(
-        alphabeticalResults.tracks.map(
-          async (track) => {
-            try {
-              const downloaded =
-                await isTrackDownloaded(
-                  track,
-                );
-
-              return [
-                String(
-                  track.id,
-                ),
-                downloaded,
-              ];
-            } catch {
-              return [
-                String(
-                  track.id,
-                ),
-                false,
-              ];
-            }
-          },
-        ),
-      );
-
-
-    if (cancelled) {
-      return;
-    }
-
-
-    setDownloadStates(
-      (current) => {
-        const next = {
-          ...current,
-        };
-
-
-        for (
-          const [
-            trackId,
-            downloaded,
-          ] of entries
-        ) {
-          if (
-            downloaded &&
-            next[trackId]?.status !==
-              "downloading"
-          ) {
-            next[trackId] = {
-              status:
-                "downloaded",
-
-              progress:
-                1,
-
-              error:
-                "",
-            };
-          }
-        }
-
-
-        return next;
-      },
-    );
-  }
-
-
-  void loadDownloadStates();
-
-
-  return () => {
-    cancelled =
-      true;
-  };
-
-}, [
-  alphabeticalResults.tracks,
-]);
-
-
   const resultTotal =
     useMemo(
       () =>
@@ -737,99 +850,6 @@ useEffect(() => {
           .current
           ?.focus();
       },
-    );
-  }
-}
-
-async function downloadTrack(
-  track,
-) {
-  const trackId =
-    String(
-      track.id,
-    );
-
-
-  setDownloadStates(
-    (current) => ({
-      ...current,
-
-      [trackId]: {
-        status:
-          "downloading",
-
-        progress:
-          0,
-
-        error:
-          "",
-      },
-    }),
-  );
-
-
-  try {
-    await downloadTrackForOffline(
-      track,
-      {
-        onProgress: ({
-          progress,
-        }) => {
-          setDownloadStates(
-            (current) => ({
-              ...current,
-
-              [trackId]: {
-                status:
-                  "downloading",
-
-                progress,
-
-                error:
-                  "",
-              },
-            }),
-          );
-        },
-      },
-    );
-
-
-    setDownloadStates(
-      (current) => ({
-        ...current,
-
-        [trackId]: {
-          status:
-            "downloaded",
-
-          progress:
-            1,
-
-          error:
-            "",
-        },
-      }),
-    );
-
-  } catch (error) {
-    setDownloadStates(
-      (current) => ({
-        ...current,
-
-        [trackId]: {
-          status:
-            "error",
-
-          progress:
-            0,
-
-          error:
-            error instanceof Error
-              ? error.message
-              : "Download failed.",
-        },
-      }),
     );
   }
 }
@@ -878,6 +898,10 @@ async function downloadTrack(
 
       artist:
         track.artist,
+
+      album:
+        track.album ??
+        "",
     }),
   );
 
@@ -1057,19 +1081,97 @@ async function downloadTrack(
   setPlaylistError("");
 
   try {
-    const playlist =
-      await getPlaylist(
-        playlistId,
-      );
+    const [
+      playlist,
+      downloadedPlaylists,
+    ] =
+      await Promise.all([
+        getPlaylist(
+          playlistId,
+        ),
+        getDownloadedPlaylists()
+          .catch(
+            () => [],
+          ),
+      ]);
 
     setOpenedPlaylist(
       playlist,
     );
 
-    setPlaylistDownload({
-      status: "idle",
-      progress: 0,
-    });
+    const downloaded =
+      downloadedPlaylists.find(
+        (item) =>
+          String(
+            item.id,
+          ) ===
+          String(
+            playlistId,
+          ),
+      ) ??
+      null;
+
+    if (downloaded) {
+      const downloadedIds =
+        new Set(
+          downloaded.tracks.map(
+            (track) =>
+              String(
+                track.id,
+              ),
+          ),
+        );
+
+      const trackProgress =
+        Object.fromEntries(
+          downloaded.tracks.map(
+            (track) => [
+              String(
+                track.id,
+              ),
+              {
+                status:
+                  "downloaded",
+                progress:
+                  1,
+              },
+            ],
+          ),
+        );
+
+      const allCurrentTracksDownloaded =
+        playlist.tracks.length > 0 &&
+        playlist.tracks.every(
+          (track) =>
+            downloadedIds.has(
+              String(
+                track.id,
+              ),
+            ),
+        );
+
+      setPlaylistDownload({
+        status:
+          allCurrentTracksDownloaded
+            ? "downloaded"
+            : "idle",
+        progress:
+          playlist.tracks.length > 0
+            ? Math.min(
+                1,
+                downloadedIds.size /
+                  playlist.tracks.length,
+              )
+            : 0,
+        trackProgress,
+      });
+    } else {
+      setPlaylistDownload({
+        status: "idle",
+        progress: 0,
+        trackProgress: {},
+      });
+    }
   } catch (error) {
     setPlaylistError(
       error instanceof Error
@@ -1090,10 +1192,14 @@ function closeSearchPlaylist() {
   );
 
   setPlaylistError("");
+  setRemoveDownloadOpen(
+    false,
+  );
 
   setPlaylistDownload({
     status: "idle",
     progress: 0,
+    trackProgress: {},
   });
 }
 
@@ -1140,6 +1246,10 @@ function playOpenedPlaylist(
 
         artist:
           track.artist,
+
+        album:
+          track.album ??
+          "",
       }),
     );
 
@@ -1217,82 +1327,196 @@ async function toggleOpenedPlaylistSaved() {
 }
 
 
-async function downloadOpenedPlaylist() {
-  const tracks =
-    openedPlaylist?.tracks ??
-    [];
-
+async function confirmRemoveOpenedPlaylistDownload() {
   if (
-    !tracks.length ||
+    !openedPlaylist ||
+    removingDownload
+  ) {
+    return;
+  }
+
+  setRemovingDownload(
+    true,
+  );
+
+  setPlaylistError("");
+
+  try {
+    await removePlaylistFromOffline(
+      openedPlaylist.id,
+    );
+
+    setPlaylistDownload({
+      status: "idle",
+      progress: 0,
+      trackProgress: {},
+    });
+
+    setRemoveDownloadOpen(
+      false,
+    );
+  } catch (error) {
+    setPlaylistError(
+      error instanceof Error
+        ? error.message
+        : "Unable to remove playlist download.",
+    );
+  } finally {
+    setRemovingDownload(
+      false,
+    );
+  }
+}
+
+
+async function downloadOpenedPlaylist() {
+  if (
+    !openedPlaylist ||
     playlistDownload.status ===
       "downloading"
   ) {
     return;
   }
 
+  if (!isRegistered) {
+    onOpenAuth?.();
+    return;
+  }
+
   setPlaylistError("");
 
-  setPlaylistDownload({
-    status:
-      "downloading",
-    progress:
-      0,
-  });
+  let playlistForDownload =
+    openedPlaylist;
 
   try {
-    for (
-      let index = 0;
-      index < tracks.length;
-      index += 1
+    /*
+     * Downloading from Search should also
+     * put the playlist in Library first.
+     * Owned playlists are already there.
+     */
+    if (
+      !playlistForDownload.is_owner &&
+      !playlistForDownload.is_saved
     ) {
-      const track =
-        tracks[index];
+      setPlaylistActionBusy(
+        true,
+      );
 
-      const downloaded =
-        await isTrackDownloaded(
-          track,
-        );
+      await savePlaylist(
+        playlistForDownload.id,
+      );
 
-      if (!downloaded) {
-        await downloadTrackForOffline(
-          track,
-          {
-            onProgress: ({
-              progress,
-            }) => {
-              setPlaylistDownload({
-                status:
-                  "downloading",
+      playlistForDownload = {
+        ...playlistForDownload,
+        is_saved: true,
+      };
 
-                progress:
-                  (
-                    index +
-                    progress
-                  ) /
-                  tracks.length,
-              });
-            },
-          },
-        );
-      }
-
-      setPlaylistDownload({
-        status:
-          "downloading",
-
-        progress:
-          (
-            index + 1
-          ) /
-          tracks.length,
-      });
+      setOpenedPlaylist(
+        playlistForDownload,
+      );
     }
+
+    /*
+     * Re-fetch after saving so generated
+     * playlists download the newest catalog
+     * membership, not a stale Search snapshot.
+     */
+    playlistForDownload =
+      await getPlaylist(
+        playlistForDownload.id,
+      );
+
+    setOpenedPlaylist(
+      playlistForDownload,
+    );
+
+    const tracks =
+      playlistForDownload.tracks ??
+      [];
+
+    if (!tracks.length) {
+      throw new Error(
+        "This playlist has no tracks to download.",
+      );
+    }
+
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        0,
+      trackProgress:
+        {},
+    });
+
+    await downloadTracksForOffline(
+      tracks,
+      {
+        jobId:
+          "playlist:" +
+          String(
+            playlistForDownload.id,
+          ),
+        jobMetadata: {
+          kind:
+            "playlist",
+          playlistId:
+            playlistForDownload.id,
+          playlistTitle:
+            playlistForDownload.title,
+          playlistDescription:
+            playlistForDownload.description ??
+            null,
+          playlistArtworkUrl:
+            playlistForDownload.artwork_url ??
+            null,
+          playlistOwnerUsername:
+            playlistForDownload.owner_username ??
+            null,
+          playlistVisibility:
+            playlistForDownload.visibility ??
+            null,
+        },
+        onProgress: ({
+          progress,
+          trackProgress,
+        }) => {
+          setPlaylistDownload({
+            status:
+              "downloading",
+            progress:
+              Number.isFinite(
+                progress,
+              )
+                ? progress
+                : 0,
+            trackProgress:
+              trackProgress ??
+              {},
+          });
+        },
+      },
+    );
 
     setPlaylistDownload({
       status:
         "downloaded",
       progress:
         1,
+      trackProgress:
+        Object.fromEntries(
+          tracks.map(
+            (track) => [
+              String(track.id),
+              {
+                status:
+                  "downloaded",
+                progress:
+                  1,
+              },
+            ],
+          ),
+        ),
     });
   } catch (error) {
     setPlaylistDownload({
@@ -1300,12 +1524,18 @@ async function downloadOpenedPlaylist() {
         "error",
       progress:
         0,
+      trackProgress:
+        {},
     });
 
     setPlaylistError(
       error instanceof Error
         ? error.message
-        : "Unable to download playlist.",
+        : "Unable to add and download playlist.",
+    );
+  } finally {
+    setPlaylistActionBusy(
+      false,
     );
   }
 }
@@ -1760,7 +1990,7 @@ async function downloadOpenedPlaylist() {
 
 
       {openedPlaylist ? (
-
+        <>
   <section className="hs-search-playlist-view">
 
     <div className="hs-search-playlist-view__nav">
@@ -1878,7 +2108,16 @@ async function downloadOpenedPlaylist() {
                 "downloading"
             }
             onClick={() => {
-              void downloadOpenedPlaylist();
+              if (
+                playlistDownload.status ===
+                  "downloaded"
+              ) {
+                setRemoveDownloadOpen(
+                  true,
+                );
+              } else {
+                void downloadOpenedPlaylist();
+              }
             }}
           >
             <Icon
@@ -1901,8 +2140,7 @@ async function downloadOpenedPlaylist() {
           </button>
 
 
-          {!openedPlaylist.is_owner &&
-!openedPlaylist.is_saved ? (
+          {!openedPlaylist.is_owner ? (
 
   <button
     type="button"
@@ -1910,16 +2148,27 @@ async function downloadOpenedPlaylist() {
     disabled={
       playlistActionBusy
     }
+    title={
+      openedPlaylist.is_saved
+        ? "Remove from Library"
+        : "Add to Library"
+    }
     onClick={() => {
       void toggleOpenedPlaylistSaved();
     }}
   >
     <Icon
-      name="plus"
+      name={
+        openedPlaylist.is_saved
+          ? "check"
+          : "plus"
+      }
       size={14}
     />
 
-    Add to Library
+    {openedPlaylist.is_saved
+      ? "In Library"
+      : "Add to Library"}
   </button>
 
 ) : null}
@@ -2006,6 +2255,7 @@ async function downloadOpenedPlaylist() {
                 )}
                 className={[
                   "hs-search-track",
+                  "hs-search-track--playlist-download",
 
                   isCurrentTrack
                     ? "is-current-track"
@@ -2115,10 +2365,92 @@ async function downloadOpenedPlaylist() {
                 </span>
 
 
-                <span
-                  className="hs-search-track__download hs-search-playlist-spacer"
-                  aria-hidden="true"
-                />
+                {(() => {
+                  const state =
+                    playlistDownload
+                      .trackProgress?.[
+                        String(
+                          track.id,
+                        )
+                      ] ??
+                    null;
+
+                  if (
+                    !state &&
+                    playlistDownload.status ===
+                      "idle"
+                  ) {
+                    return (
+                      <span
+                        className="hs-search-track__download hs-search-playlist-spacer"
+                        aria-hidden="true"
+                      />
+                    );
+                  }
+
+                  const progress =
+                    Math.round(
+                      (
+                        state?.progress ??
+                        (
+                          playlistDownload.status ===
+                            "downloaded"
+                            ? 1
+                            : 0
+                        )
+                      ) *
+                        100,
+                    );
+
+                  const done =
+                    state?.status ===
+                      "downloaded" ||
+                    playlistDownload.status ===
+                      "downloaded";
+
+                  return (
+                    <span
+                      className={[
+                        "hs-search-track__download",
+                        done
+                          ? "is-downloaded"
+                          : "is-downloading",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      style={{
+                        "--download-progress":
+                          `${progress}%`,
+                      }}
+                      title={
+                        done
+                          ? "Downloaded"
+                          : `Downloading ${progress}%`
+                      }
+                      aria-label={
+                        done
+                          ? `${track.title} downloaded`
+                          : `Downloading ${track.title}: ${progress}%`
+                      }
+                    >
+                      {done ? (
+                        <Icon
+                          name="check"
+                          size={15}
+                        />
+                      ) : progress > 0 ? (
+                        <span className="hs-search-track__download-progress">
+                          {progress}
+                        </span>
+                      ) : (
+                        <Icon
+                          name="download"
+                          size={15}
+                        />
+                      )}
+                    </span>
+                  );
+                })()}
 
 
                 <span className="hs-search-track__play">
@@ -2139,6 +2471,30 @@ async function downloadOpenedPlaylist() {
 
   </section>
 
+    <DownloadRemovalConfirm
+      open={
+        removeDownloadOpen
+      }
+      playlistTitle={
+        openedPlaylist?.title
+      }
+      busy={
+        removingDownload
+      }
+      onCancel={() => {
+        if (
+          !removingDownload
+        ) {
+          setRemoveDownloadOpen(
+            false,
+          );
+        }
+      }}
+      onConfirm={() => {
+        void confirmRemoveOpenedPlaylistDownload();
+      }}
+    />
+        </>
 ) : normalizedQuery ? (
         <>
 
@@ -2421,42 +2777,6 @@ alphabeticalResults.tracks.length > 0 ? (
                       String(track.id) ===
                         currentTrackId;
 
-                    const downloadState =
-  downloadStates[
-    String(
-      track.id,
-    )
-  ] ?? {
-    status:
-      "idle",
-
-    progress:
-      0,
-
-    error:
-      "",
-  };
-
-
-const isDownloading =
-  downloadState.status ===
-  "downloading";
-
-
-const isDownloaded =
-  downloadState.status ===
-  "downloaded";
-
-
-const downloadPercent =
-  Math.round(
-    (
-      downloadState.progress ??
-      0
-    ) *
-      100,
-  );
-
                     return (
                       <div
                         key={track.id}
@@ -2594,74 +2914,6 @@ const downloadPercent =
                             track.duration_seconds,
                           )}
                         </span>
-
-                        <button
-  type="button"
-  className={[
-    "hs-search-track__download",
-
-    isDownloading
-      ? "is-downloading"
-      : "",
-
-    isDownloaded
-      ? "is-downloaded"
-      : "",
-
-    downloadState.status ===
-      "error"
-      ? "has-error"
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" ")}
-  title={
-    isDownloaded
-      ? "Available offline"
-      : isDownloading
-        ? `Downloading ${downloadPercent}%`
-        : downloadState.status ===
-            "error"
-          ? downloadState.error
-          : "Download for offline playback"
-  }
-  aria-label={
-    isDownloaded
-      ? `${track.title} is downloaded`
-      : isDownloading
-        ? `Downloading ${track.title}: ${downloadPercent}%`
-        : `Download ${track.title}`
-  }
-  disabled={
-    isDownloading ||
-    isDownloaded
-  }
-  onClick={(event) => {
-    event.stopPropagation();
-
-    void downloadTrack(
-      track,
-    );
-  }}
-  onKeyDown={(event) => {
-    event.stopPropagation();
-  }}
->
-  {isDownloading ? (
-    <span className="hs-search-track__download-progress">
-      {downloadPercent}
-    </span>
-  ) : (
-    <Icon
-      name={
-        isDownloaded
-          ? "downloaded"
-          : "download"
-      }
-      size={16}
-    />
-  )}
-</button>
 
 
                         <span className="hs-search-track__play">

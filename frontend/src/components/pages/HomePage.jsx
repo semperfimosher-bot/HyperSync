@@ -8,7 +8,9 @@ import {
   resolveMediaUrl,
 } from "../../mediaCache.js";
 
-import { API_BASE } from "../../api/client.js";
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
 
 import * as player from "../../audioPlayer.js";
 
@@ -25,6 +27,10 @@ import {
 import {
   getHomeRecentlyPlayed,
 } from "../../homeRecentlyPlayed.js";
+
+import {
+  getDownloadedTracks,
+} from "../../offlineDownloads.js";
 
 function CachedArtwork({
   src,
@@ -132,6 +138,19 @@ useEffect(() => {
   let cancelled =
     false;
 
+  async function loadDownloadedFallback() {
+    try {
+      return (
+        await getDownloadedTracks()
+      ).slice(
+        0,
+        12,
+      );
+    } catch {
+      return [];
+    }
+  }
+
   async function loadRecentlyPlayed() {
     if (!currentUser) {
       setRecentlyPlayed(
@@ -157,6 +176,37 @@ useEffect(() => {
       "",
     );
 
+    const offline =
+      typeof navigator !==
+        "undefined" &&
+      navigator.onLine ===
+        false;
+
+    if (offline) {
+      const localTracks =
+        await loadDownloadedFallback();
+
+      if (cancelled) {
+        return;
+      }
+
+      setRecentlyPlayed(
+        localTracks,
+      );
+
+      setRecentError(
+        localTracks.length > 0
+          ? ""
+          : "No downloaded tracks are available offline yet.",
+      );
+
+      setRecentLoading(
+        false,
+      );
+
+      return;
+    }
+
     try {
       const profile =
         await getMyProfile();
@@ -170,20 +220,43 @@ useEffect(() => {
           profile,
         ),
       );
+
+      setRecentError(
+        "",
+      );
     } catch (error) {
       if (cancelled) {
         return;
       }
 
-      setRecentlyPlayed(
-        [],
-      );
+      const localTracks =
+        await loadDownloadedFallback();
 
-      setRecentError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load recently played.",
-      );
+      if (cancelled) {
+        return;
+      }
+
+      if (
+        localTracks.length > 0
+      ) {
+        setRecentlyPlayed(
+          localTracks,
+        );
+
+        setRecentError(
+          "",
+        );
+      } else {
+        setRecentlyPlayed(
+          [],
+        );
+
+        setRecentError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load recently played.",
+        );
+      }
     } finally {
       if (!cancelled) {
         setRecentLoading(
@@ -201,18 +274,6 @@ useEffect(() => {
   };
 }, [currentUser]);
 
-  const resolveArtworkUrl = (url) => {
-  if (!url) return null;
-
-  if (
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  ) {
-    return url;
-  }
-
-  return `${API_BASE}${url.replace(/^\/api/, "")}`;
-  };
 
   const playTrack = async (
     trackId,
@@ -238,6 +299,9 @@ useEffect(() => {
 
     artist:
       track?.artist ?? "",
+
+    album:
+      track?.album ?? "",
 
     mimeType:
       track?.mime_type ??
