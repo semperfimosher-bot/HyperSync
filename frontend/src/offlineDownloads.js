@@ -3,6 +3,7 @@ import {
 } from "./api/client.js";
 
 import {
+  deleteDownloadJob,
   ensureMediaRecord,
   getArtwork,
   getDownloadJobs,
@@ -809,6 +810,124 @@ export async function getDownloadedPlaylists() {
         );
       },
     );
+}
+
+
+export async function removePlaylistFromOffline(
+  playlistId,
+) {
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (!normalizedPlaylistId) {
+    return false;
+  }
+
+  const jobId =
+    "playlist:" +
+    normalizedPlaylistId;
+
+  const [
+    jobs,
+    records,
+  ] =
+    await Promise.all([
+      getDownloadJobs(),
+      getPinnedMediaRecords(),
+    ]);
+
+  const targetJob =
+    jobs.find(
+      (job) =>
+        String(
+          job?.id ?? "",
+        ) === jobId,
+    ) ??
+    null;
+
+  if (!targetJob) {
+    return false;
+  }
+
+  const targetKeys =
+    new Set(
+      Array.isArray(
+        targetJob.trackKeys,
+      )
+        ? targetJob.trackKeys
+        : [],
+    );
+
+  const retainedKeys =
+    new Set(
+      jobs
+        .filter(
+          (job) =>
+            String(
+              job?.id ?? "",
+            ) !== jobId &&
+            String(
+              job?.id ?? "",
+            ).startsWith(
+              "playlist:",
+            ) &&
+            job?.state ===
+              "complete",
+        )
+        .flatMap(
+          (job) =>
+            Array.isArray(
+              job.trackKeys,
+            )
+              ? job.trackKeys
+              : [],
+        ),
+    );
+
+  const recordByKey =
+    new Map(
+      records.map(
+        (record) => [
+          record.key,
+          record,
+        ],
+      ),
+    );
+
+  for (
+    const key
+    of targetKeys
+  ) {
+    if (
+      retainedKeys.has(
+        key,
+      )
+    ) {
+      continue;
+    }
+
+    const record =
+      recordByKey.get(
+        key,
+      );
+
+    if (!record) {
+      continue;
+    }
+
+    await removeDownloadedMedia(
+      record.trackId,
+      record.mediaVersion,
+    );
+  }
+
+  await deleteDownloadJob(
+    jobId,
+  );
+
+  return true;
 }
 
 
