@@ -1724,6 +1724,17 @@ export async function downloadTrackForOffline(
       track,
     );
 
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (!normalizedPinRef) {
+    throw new Error(
+      "Offline downloads require an account-scoped owner.",
+    );
+  }
+
   const mimeType =
     trackMimeType(
       track,
@@ -1885,11 +1896,6 @@ export async function downloadTrackForOffline(
       "Downloaded media record disappeared.",
     );
   }
-
-  const normalizedPinRef =
-    String(
-      pinRef ?? "",
-    ).trim();
 
   const existingPinRefs =
     getMediaPinReferences(
@@ -2071,6 +2077,12 @@ export async function downloadTracksForOffline(
       null,
     );
 
+  if (!normalizedOwnerKey) {
+    throw new Error(
+      "Offline downloads require an account owner.",
+    );
+  }
+
   const playlistPinRef =
     jobMetadata?.kind ===
       "playlist"
@@ -2079,6 +2091,22 @@ export async function downloadTracksForOffline(
           jobMetadata?.playlistId,
         )
       : null;
+
+  if (
+    jobMetadata?.kind ===
+      "playlist" &&
+    !playlistPinRef
+  ) {
+    throw new Error(
+      "Playlist downloads require a playlist id.",
+    );
+  }
+
+  const downloadPinRef =
+    playlistPinRef ??
+    getManualDownloadPinRef(
+      normalizedOwnerKey,
+    );
 
   const uniqueTracks =
     [];
@@ -2177,7 +2205,7 @@ export async function downloadTracksForOffline(
         track,
         {
           pinRef:
-            playlistPinRef,
+            downloadPinRef,
         },
       )
     ) {
@@ -2525,7 +2553,7 @@ export async function downloadTracksForOffline(
             skipStorageCheck:
               true,
             pinRef:
-              playlistPinRef,
+              downloadPinRef,
             onProgress: ({
               downloadedBytes,
             }) => {
@@ -2858,6 +2886,70 @@ export async function getPlaylistDownloadJob(
           normalizedPlaylistId,
     ) ?? null
   );
+}
+
+
+export async function cleanupLegacyUnscopedDownloads() {
+  const [
+    records,
+    jobs,
+  ] =
+    await Promise.all([
+      getPinnedMediaRecords(),
+      getDownloadJobs(),
+    ]);
+
+  let removedMedia =
+    0;
+
+  let removedJobs =
+    0;
+
+  for (
+    const record
+    of records
+  ) {
+    if (
+      getMediaPinReferences(
+        record,
+      ).length > 0
+    ) {
+      continue;
+    }
+
+    await removeDownloadedMedia(
+      record.trackId,
+      record.mediaVersion,
+    );
+
+    removedMedia +=
+      1;
+  }
+
+  for (
+    const job
+    of jobs
+  ) {
+    if (
+      normalizeOwnerKey(
+        job?.ownerKey,
+      )
+    ) {
+      continue;
+    }
+
+    await deleteDownloadJob(
+      job.id,
+    );
+
+    removedJobs +=
+      1;
+  }
+
+  return {
+    removedMedia,
+    removedJobs,
+  };
 }
 
 
