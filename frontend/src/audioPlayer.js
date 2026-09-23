@@ -68,6 +68,9 @@ let currentTrackMeta =
 let lastMediaSessionSignature =
   null;
 
+let activeObjectUrl =
+  null;
+
 
 /*
  * When the application is refreshed,
@@ -1120,6 +1123,29 @@ restorePersistedPlayerState();
 function loadAudioSource(
   url,
 ) {
+  if (
+    activeObjectUrl &&
+    activeObjectUrl !==
+      url &&
+    typeof globalThis.URL
+      ?.revokeObjectURL ===
+      "function"
+  ) {
+    globalThis.URL
+      .revokeObjectURL(
+        activeObjectUrl,
+      );
+  }
+
+  activeObjectUrl =
+    typeof url ===
+      "string" &&
+    url.startsWith(
+      "blob:",
+    )
+      ? url
+      : null;
+
   audio.src =
     url;
 }
@@ -1577,6 +1603,11 @@ async function playTrackInternal(
         meta,
         {
           useStableMediaRoute,
+          preferCachedBlob:
+            !useStableMediaRoute &&
+            globalThis.navigator
+              ?.onLine ===
+              false,
         },
       );
   } catch (error) {
