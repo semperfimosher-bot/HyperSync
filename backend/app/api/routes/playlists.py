@@ -34,6 +34,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -126,6 +127,7 @@ class PlaylistTrackResponse(
     file_size: int | None = None
 
     media_version: str | None = None
+    artwork_version: str | None = None
 
 
 class PlaylistSummaryResponse(
@@ -430,6 +432,11 @@ def serialize_playlist_track(
         file_size=(track.file_size),
         media_version=(
             _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
                 track,
             )
         ),

@@ -19,6 +19,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -72,6 +73,7 @@ class AutoplayTrackResponse(
     file_size: int | None
 
     media_version: str | None
+    artwork_version: str | None
 
 
 @router.post(
@@ -139,6 +141,11 @@ async def autoplay(
 
             media_version=(
                 _track_media_version(
+                    track,
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
                     track,
                 )
             ),

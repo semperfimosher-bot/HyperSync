@@ -64,6 +64,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -134,6 +135,7 @@ class SearchTrackResult(
     mime_type: str | None = None
     file_size: int | None = None
     media_version: str | None = None
+    artwork_version: str | None = None
 
     match_label: str
     matched_field: str
@@ -1097,6 +1099,11 @@ def _serialize_tracks(
             file_size=(row["track"].file_size),
             media_version=(
                 _track_media_version(
+                    row["track"],
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
                     row["track"],
                 )
             ),

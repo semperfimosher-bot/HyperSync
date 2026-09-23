@@ -62,6 +62,7 @@ class TrackResponse(BaseModel):
     mime_type: str | None = None
     file_size: int | None = None
     media_version: str | None = None
+    artwork_version: str | None = None
 
 
 def _presigned_or_fallback(
@@ -145,6 +146,19 @@ def _track_media_version(
     ).hexdigest()
 
 
+def _track_artwork_version(
+    track: Track,
+) -> str | None:
+    if not track.artwork_object_key:
+        return None
+
+    return hashlib.sha256(
+        track.artwork_object_key.encode(
+            "utf-8",
+        ),
+    ).hexdigest()
+
+
 @router.get(
     "/tracks",
     response_model=list[TrackResponse],
@@ -194,6 +208,11 @@ async def list_tracks(
                 file_size=(track.file_size),
                 media_version=(
                     _track_media_version(
+                        track,
+                    )
+                ),
+                artwork_version=(
+                    _track_artwork_version(
                         track,
                     )
                 ),
@@ -249,6 +268,11 @@ async def get_track(
         file_size=(track.file_size),
         media_version=(
             _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
                 track,
             )
         ),
