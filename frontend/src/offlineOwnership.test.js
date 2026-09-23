@@ -484,3 +484,174 @@ test(
     );
   },
 );
+
+test(
+  "no-op playlist refresh releases pins for tracks removed from the playlist",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerKey =
+      "shrink-owner-" +
+      suffix;
+
+    const playlistId =
+      "shrink-playlist-" +
+      suffix;
+
+    const retainedTrackId =
+      "shrink-retained-" +
+      suffix;
+
+    const removedTrackId =
+      "shrink-removed-" +
+      suffix;
+
+    const mediaVersion =
+      "v1";
+
+    const pinRef =
+      offline.getPlaylistDownloadPinRef(
+        ownerKey,
+        playlistId,
+      );
+
+    const jobId =
+      offline.getPlaylistDownloadJobId(
+        ownerKey,
+        playlistId,
+      );
+
+    for (
+      const trackId
+      of [
+        retainedTrackId,
+        removedTrackId,
+      ]
+    ) {
+      const record =
+        mediaStore.createMediaRecord({
+          trackId,
+          mediaVersion,
+          mimeType:
+            "audio/mpeg",
+          fileSize:
+            1,
+          state:
+            "PINNED",
+        });
+
+      record.cachedBytes =
+        1;
+
+      record.pinRefs = [
+        pinRef,
+      ];
+
+      await mediaStore.saveMediaRecord(
+        record,
+      );
+    }
+
+    await mediaStore.saveDownloadJob({
+      id:
+        jobId,
+      ownerKey,
+      kind:
+        "playlist",
+      playlistId,
+      state:
+        "complete",
+      totalBytes:
+        2,
+      downloadedBytes:
+        2,
+      trackKeys: [
+        retainedTrackId +
+          ":" +
+          mediaVersion,
+        removedTrackId +
+          ":" +
+          mediaVersion,
+      ],
+    });
+
+    await offline.downloadTracksForOffline(
+      [
+        {
+          id:
+            retainedTrackId,
+          media_version:
+            mediaVersion,
+          mime_type:
+            "audio/mpeg",
+          file_size:
+            1,
+          title:
+            "Retained",
+          artist:
+            "Artist",
+        },
+      ],
+      {
+        ownerKey,
+        jobId,
+        jobMetadata: {
+          kind:
+            "playlist",
+          playlistId,
+          playlistTitle:
+            "Shrinking playlist",
+        },
+      },
+    );
+
+    const retained =
+      await mediaStore.getMediaRecord(
+        retainedTrackId,
+        mediaVersion,
+      );
+
+    const removed =
+      await mediaStore.getMediaRecord(
+        removedTrackId,
+        mediaVersion,
+      );
+
+    assert.ok(
+      retained,
+    );
+
+    assert.equal(
+      removed,
+      null,
+    );
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    const updatedJob =
+      jobs.find(
+        (job) =>
+          job.id ===
+          jobId,
+      );
+
+    assert.deepEqual(
+      updatedJob.trackKeys,
+      [
+        retainedTrackId +
+          ":" +
+          mediaVersion,
+      ],
+    );
+  },
+);
