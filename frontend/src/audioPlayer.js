@@ -1204,6 +1204,11 @@ async function ensureCurrentTrackSource() {
           requestedMeta,
           {
             useStableMediaRoute,
+            preferCachedBlob:
+              !useStableMediaRoute &&
+              globalThis.navigator
+                ?.onLine ===
+                false,
           },
         );
 
