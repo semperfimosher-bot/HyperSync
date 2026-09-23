@@ -18,6 +18,9 @@ from ...services.b2 import (
     delete_all_object_versions,
     get_b2_bucket,
 )
+from ...services.generated_playlists import (
+    ensure_artist_playlist,
+)
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -184,7 +187,7 @@ async def upload_track(
 
         await session.commit()
 
-        return {
+        response_payload = {
             "success": True,
             "track_id": str(
                 track.id,
@@ -197,6 +200,25 @@ async def upload_track(
             "file_size": file_size,
             "duration_seconds": (track.duration_seconds),
         }
+
+        # Generated artist playlists are shared
+        # objects. Refresh the matching playlist as
+        # soon as new published music lands so every
+        # saved copy sees the same membership.
+        #
+        # The playlist read path also performs this
+        # freshness check, so an unexpected refresh
+        # failure must not turn a successfully
+        # committed upload into a false upload error.
+        try:
+            await ensure_artist_playlist(
+                session,
+                track.artist,
+            )
+        except Exception:
+            await session.rollback()
+
+        return response_payload
 
     except Exception as exc:
         await session.rollback()
