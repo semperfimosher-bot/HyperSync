@@ -74,6 +74,7 @@ import {
 } from "./catalogStore.js";
 
 import {
+  cleanupLegacyUnscopedDownloads,
   downloadTracksForOffline,
   getDownloadedPlaylists,
   getOfflineOwnerKey,
@@ -2095,13 +2096,21 @@ const checkDownloadedGeneratedPlaylistUpdates =
       return undefined;
     }
 
-    void recoverInterruptedDownloadJobs(
-      getOfflineOwnerKey(
-        currentUser,
-      ),
-    );
+    void (
+      async () => {
+        await cleanupLegacyUnscopedDownloads();
 
-    void checkDownloadedGeneratedPlaylistUpdates();
+        await recoverInterruptedDownloadJobs(
+          getOfflineOwnerKey(
+            currentUser,
+          ),
+        );
+
+        await checkDownloadedGeneratedPlaylistUpdates();
+      }
+    )().catch(
+      () => {},
+    );
 
     const intervalId =
       window.setInterval(
