@@ -22,6 +22,7 @@ import {
   getOfflineOwnerKey,
   getPlaylistDownloadJob,
   getPlaylistDownloadJobId,
+  reconcileDownloadedPlaylistMembership,
   removePlaylistFromOffline,
   searchDownloadedTracks,
 } from "../../offlineDownloads.js";
@@ -1117,6 +1118,11 @@ useEffect(() => {
           () => null,
         ),
       ]);
+
+    await reconcileDownloadedPlaylistMembership(
+      playlist,
+      offlineOwnerKey,
+    );
 
     setOpenedPlaylist(
       playlist,
