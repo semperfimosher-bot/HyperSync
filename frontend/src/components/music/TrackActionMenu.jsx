@@ -8,6 +8,10 @@ import * as player from
 
 import {
   downloadTrackForOffline,
+  getManualDownloadPinRef,
+  getOfflineOwnerKey,
+  isTrackDownloaded,
+  removeTrackFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -109,6 +113,13 @@ export default function TrackActionMenu({
     false,
   );
 
+  const [
+    downloaded,
+    setDownloaded,
+  ] = useState(
+    false,
+  );
+
   const track =
     menu?.track ??
     null;
@@ -116,6 +127,16 @@ export default function TrackActionMenu({
   const isRegistered =
     currentUser?.account_type ===
     "registered";
+
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
+
+  const manualDownloadPinRef =
+    getManualDownloadPinRef(
+      offlineOwnerKey,
+    );
 
 
   useEffect(() => {
@@ -128,6 +149,8 @@ export default function TrackActionMenu({
     setBusy("");
 
     setLiked(false);
+
+    setDownloaded(false);
   }, [
     track?.id,
   ]);
@@ -163,6 +186,30 @@ export default function TrackActionMenu({
         () => {},
       );
 
+    if (manualDownloadPinRef) {
+      void isTrackDownloaded(
+        track,
+        {
+          pinRef:
+            manualDownloadPinRef,
+        },
+      )
+        .then(
+          (value) => {
+            if (!cancelled) {
+              setDownloaded(
+                Boolean(
+                  value,
+                ),
+              );
+            }
+          },
+        )
+        .catch(
+          () => {},
+        );
+    }
+
     return () => {
       cancelled =
         true;
@@ -171,6 +218,7 @@ export default function TrackActionMenu({
     menu,
     track?.id,
     isRegistered,
+    manualDownloadPinRef,
   ]);
 
 
@@ -357,18 +405,49 @@ export default function TrackActionMenu({
     setNotice("");
 
     try {
-      await downloadTrackForOffline(
-        track,
-      );
+      if (downloaded) {
+        await removeTrackFromOffline(
+          track,
+          offlineOwnerKey,
+        );
 
-      setNotice(
-        "Available offline",
+        setDownloaded(
+          false,
+        );
+
+        setNotice(
+          "Removed from offline downloads",
+        );
+      } else {
+        await downloadTrackForOffline(
+          track,
+          {
+            pinRef:
+              manualDownloadPinRef,
+          },
+        );
+
+        setDownloaded(
+          true,
+        );
+
+        setNotice(
+          "Available offline",
+        );
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "hypersync:offline-downloads-changed",
+        ),
       );
     } catch (error) {
       setNotice(
         error instanceof Error
           ? error.message
-          : "Unable to download song.",
+          : downloaded
+            ? "Unable to remove offline download."
+            : "Unable to download song.",
       );
     } finally {
       setBusy("");
@@ -660,13 +739,19 @@ export default function TrackActionMenu({
             >
               <span className="track-action-icon">
                 <Icon
-                  name="download"
+                  name={
+                    downloaded
+                      ? "check"
+                      : "download"
+                  }
                   size={15}
                 />
               </span>
 
               <span>
-                Download for offline
+                {downloaded
+                  ? "Remove offline download"
+                  : "Download for offline"}
               </span>
             </button>
 
