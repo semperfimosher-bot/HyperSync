@@ -1603,40 +1603,75 @@ export async function saveDownloadJob(
   const database =
     await openOfflineDatabase();
 
-  const record = {
-    ...job,
-    id:
-      String(job.id),
-    updatedAt:
-      Date.now(),
-  };
+  const normalizedId =
+    String(
+      job.id,
+    );
 
-  await new Promise(
-    (resolve, reject) => {
-      const transaction =
-        database.transaction(
-          MEDIA_DOWNLOAD_JOB_STORE,
-          "readwrite",
-        );
+  const record =
+    await new Promise(
+      (resolve, reject) => {
+        const transaction =
+          database.transaction(
+            MEDIA_DOWNLOAD_JOB_STORE,
+            "readwrite",
+          );
 
-      transaction
-        .objectStore(
-          MEDIA_DOWNLOAD_JOB_STORE,
-        )
-        .put(record);
+        const store =
+          transaction.objectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+          );
 
-      transaction.oncomplete =
-        () => resolve();
+        const getRequest =
+          store.get(
+            normalizedId,
+          );
 
-      transaction.onerror =
-        () => reject(
-          transaction.error ??
-            new Error(
-              "Unable to save download job.",
-            ),
-        );
-    },
-  );
+        getRequest.onerror =
+          () => reject(
+            getRequest.error ??
+              new Error(
+                "Unable to read download job.",
+              ),
+          );
+
+        getRequest.onsuccess =
+          () => {
+            const existing =
+              getRequest.result &&
+              typeof getRequest.result ===
+                "object"
+                ? getRequest.result
+                : {};
+
+            const nextRecord = {
+              ...existing,
+              ...job,
+              id:
+                normalizedId,
+              updatedAt:
+                Date.now(),
+            };
+
+            store.put(
+              nextRecord,
+            );
+
+            transaction.oncomplete =
+              () => resolve(
+                nextRecord,
+              );
+
+            transaction.onerror =
+              () => reject(
+                transaction.error ??
+                  new Error(
+                    "Unable to save download job.",
+                  ),
+              );
+          };
+      },
+    );
 
   return record;
 }
