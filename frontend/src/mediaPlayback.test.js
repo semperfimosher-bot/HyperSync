@@ -170,3 +170,102 @@ test(
     );
   },
 );
+
+
+test(
+  "offline playback can build a blob URL from a fully downloaded track",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const mediaPlayback =
+      await loadMediaPlaybackModule();
+
+    const trackId =
+      "offline-blob-track";
+
+    const mediaVersion =
+      "offline-blob-version";
+
+    const bytes =
+      new Uint8Array([
+        1,
+        2,
+        3,
+        4,
+      ]);
+
+    await mediaStore.saveMediaRecord(
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          bytes.byteLength,
+        state:
+          "PINNED",
+      }),
+    );
+
+    await mediaStore.saveMediaChunk({
+      trackId,
+      mediaVersion,
+      chunkIndex:
+        0,
+      byteStart:
+        0,
+      data:
+        bytes.buffer.slice(0),
+    });
+
+    const originalCreateObjectURL =
+      globalThis.URL
+        .createObjectURL;
+
+    globalThis.URL.createObjectURL =
+      (blob) => {
+        assert.equal(
+          blob.type,
+          "audio/mpeg",
+        );
+
+        assert.equal(
+          blob.size,
+          bytes.byteLength,
+        );
+
+        return "blob:hypersync-offline-test";
+      };
+
+    try {
+      const source =
+        await mediaPlayback.prepareTrackAudioSource(
+          trackId,
+          {
+            mediaVersion,
+            mimeType:
+              "audio/mpeg",
+            fileSize:
+              bytes.byteLength,
+          },
+          {
+            useStableMediaRoute:
+              false,
+            preferCachedBlob:
+              true,
+          },
+        );
+
+      assert.equal(
+        source,
+        "blob:hypersync-offline-test",
+      );
+    } finally {
+      globalThis.URL.createObjectURL =
+        originalCreateObjectURL;
+    }
+  },
+);

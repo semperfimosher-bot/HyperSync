@@ -558,7 +558,7 @@ input::-webkit-search-cancel-button {
 
   margin-left: 10px;
 
-  cursor: pointer;
+  cursor: default;
 
   opacity: 0.52;
 
@@ -4128,7 +4128,7 @@ button.is-active strong {
  * Add one extra grid column for
  * the offline-download control.
  */
-.hs-search-track {
+.hs-search-track--playlist-download {
   grid-template-columns:
     28px
     46px
@@ -4165,7 +4165,7 @@ button.is-active strong {
   background:
     rgba(255, 255, 255, 0.015);
 
-  cursor: pointer;
+  cursor: default;
 
   transition:
     color 120ms ease,
@@ -4173,6 +4173,41 @@ button.is-active strong {
     background 120ms ease,
     transform 120ms ease,
     box-shadow 120ms ease;
+}
+
+
+.hs-search-track__download.is-downloading::before {
+  position: absolute;
+
+  inset: 2px;
+
+  border-radius: 50%;
+
+  content: "";
+
+  pointer-events: none;
+
+  background:
+    conic-gradient(
+      currentColor
+        var(--download-progress, 0%),
+      rgba(77, 227, 255, 0.1)
+        0
+    );
+
+  -webkit-mask:
+    radial-gradient(
+      farthest-side,
+      transparent calc(100% - 2px),
+      #000 0
+    );
+
+  mask:
+    radial-gradient(
+      farthest-side,
+      transparent calc(100% - 2px),
+      #000 0
+    );
 }
 
 
@@ -4329,7 +4364,7 @@ button.is-active strong {
    ============================================================ */
 
 @media (max-width: 720px) {
-  .hs-search-track {
+  .hs-search-track--playlist-download {
     grid-template-columns:
       22px
       42px
@@ -4367,7 +4402,7 @@ button.is-active strong {
 
 /* Force mobile track columns into the correct positions */
 @media (max-width: 720px) {
-  .hs-search-track {
+  .hs-search-track--playlist-download {
     grid-template-columns:
       42px
       minmax(0, 1fr)
@@ -5413,4 +5448,38 @@ button:disabled {
     min-width: 0;
   }
 
+}
+
+
+/* Playlist download removal confirmation */
+.hs-download-confirm__copy {
+  margin: 0;
+  color: #8da3ad;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.hs-download-confirm__copy strong {
+  color: #e7f6fb;
+  font-weight: 750;
+}
+
+.hs-download-confirm__remove {
+  border-color:
+    rgba(255, 112, 112, 0.28);
+  color: #ffd4d4;
+  background:
+    rgba(255, 72, 72, 0.07);
+}
+
+.hs-download-remove-trigger {
+  cursor: pointer;
+}
+
+.hs-download-remove-trigger:hover {
+  border-color:
+    rgba(79, 226, 255, 0.55);
+  color: #baf7ff;
+  background:
+    rgba(31, 189, 224, 0.13);
 }

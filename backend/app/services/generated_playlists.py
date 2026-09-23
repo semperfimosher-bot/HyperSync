@@ -108,6 +108,128 @@ async def get_cached_artist_playlist(
     return playlist
 
 
+async def generated_playlist_needs_refresh(
+    session: AsyncSession,
+    playlist: Playlist,
+) -> bool:
+    if (
+        playlist.visibility != "generated"
+        or playlist.owner_id is not None
+        or playlist.generated_kind != "artist"
+        or not playlist.generated_query
+    ):
+        return False
+
+    if (
+        playlist.generator_version
+        != GENERATOR_VERSION
+        or playlist.generated_at
+        is None
+    ):
+        return True
+
+    catalog_result = await session.execute(
+        select(
+            func.count(
+                Track.id,
+            ),
+            func.max(
+                Track.updated_at,
+            ),
+        ).where(
+            Track.is_published.is_(
+                True,
+            ),
+            Track.artist.ilike(
+                playlist.generated_query,
+            ),
+        )
+    )
+
+    (
+        matching_track_count,
+        latest_track_update,
+    ) = catalog_result.one()
+
+    playlist_count_result = (
+        await session.execute(
+            select(
+                func.count(
+                    PlaylistTrack.id,
+                )
+            ).where(
+                PlaylistTrack.playlist_id
+                == playlist.id,
+            )
+        )
+    )
+
+    current_playlist_count = int(
+        playlist_count_result.scalar_one()
+        or 0
+    )
+
+    expected_playlist_count = min(
+        int(
+            matching_track_count
+            or 0
+        ),
+        MAX_GENERATED_TRACKS,
+    )
+
+    if (
+        current_playlist_count
+        != expected_playlist_count
+    ):
+        return True
+
+    if latest_track_update is None:
+        return False
+
+    latest_utc = (
+        latest_track_update.replace(
+            tzinfo=UTC,
+        )
+        if latest_track_update.tzinfo
+        is None
+        else latest_track_update.astimezone(
+            UTC,
+        )
+    )
+
+    generated_utc = (
+        playlist.generated_at.replace(
+            tzinfo=UTC,
+        )
+        if playlist.generated_at.tzinfo
+        is None
+        else playlist.generated_at.astimezone(
+            UTC,
+        )
+    )
+
+    return latest_utc > generated_utc
+
+
+async def refresh_generated_playlist_if_stale(
+    session: AsyncSession,
+    playlist: Playlist,
+) -> Playlist:
+    if not await generated_playlist_needs_refresh(
+        session,
+        playlist,
+    ):
+        return playlist
+
+    refreshed = await ensure_artist_playlist(
+        session,
+        playlist.generated_query
+        or playlist.title,
+    )
+
+    return refreshed or playlist
+
+
 async def _rank_artist_tracks(
     session: AsyncSession,
     artist_name: str,
@@ -186,13 +308,17 @@ async def ensure_artist_playlist(
         )
     )
 
-    # This is the important fast path.
-    #
-    # Existing playlist:
-    # no generation,
-    # no track ranking,
-    # no writes.
-    if cached is not None:
+    # Keep the generated playlist fast when
+    # the matching catalog has not changed,
+    # but regenerate it when newer music for
+    # the same artist appears.
+    if (
+        cached is not None
+        and not await generated_playlist_needs_refresh(
+            session,
+            cached,
+        )
+    ):
         return cached
 
     tracks = (

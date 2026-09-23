@@ -991,6 +991,23 @@
     gap: 2px;
   }
 
+
+  .playlist-update-notice--mobile {
+    display: none;
+  }
+
+  .playlist-update-notice--desktop {
+    display: grid;
+    width: min(100%, 300px);
+    grid-template-columns:
+      auto
+      minmax(0, 1fr)
+      auto
+      auto;
+    justify-self: end;
+    padding: 7px;
+  }
+
   /* Buttons ABOVE progress bar */
 
   .desktop-player-controls {

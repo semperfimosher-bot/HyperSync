@@ -17,6 +17,11 @@ import {
   parseSyncedLyrics,
 } from "../../lyricsSync.js";
 
+import {
+  getLyrics,
+  saveLyrics,
+} from "../../mediaStore.js";
+
 
 function LiveLyrics() {
   const [
@@ -108,6 +113,53 @@ function LiveLyrics() {
       [];
 
     async function loadLyrics() {
+      let cachedLyrics =
+        null;
+
+      try {
+        cachedLyrics =
+          await getLyrics(
+            trackId,
+          );
+
+        if (
+          !cancelled &&
+          cachedLyrics
+        ) {
+          setLyricsData(
+            cachedLyrics,
+          );
+
+          setLoading(
+            false,
+          );
+        }
+      } catch {
+        // Local lyrics are best effort.
+      }
+
+      if (
+        typeof navigator !==
+          "undefined" &&
+        navigator.onLine ===
+          false
+      ) {
+        if (
+          !cancelled &&
+          !cachedLyrics
+        ) {
+          setError(
+            "Lyrics are not downloaded for this track.",
+          );
+
+          setLoading(
+            false,
+          );
+        }
+
+        return;
+      }
+
       try {
         const result =
           await apiRequest(
@@ -131,6 +183,17 @@ function LiveLyrics() {
         setLyricsData(
           result,
         );
+
+        setError(
+          "",
+        );
+
+        void saveLyrics(
+          trackId,
+          result,
+        ).catch(
+          () => null,
+        );
       } catch (loadError) {
         if (
           cancelled ||
@@ -140,15 +203,17 @@ function LiveLyrics() {
           return;
         }
 
-        setError(
-          loadError
-            instanceof Error
-            ? loadError.message
-            : (
-                "Unable to load "
-                + "lyrics."
-              ),
-        );
+        if (!cachedLyrics) {
+          setError(
+            loadError
+              instanceof Error
+              ? loadError.message
+              : (
+                  "Unable to load "
+                  + "lyrics."
+                ),
+          );
+        }
       } finally {
         if (!cancelled) {
           setLoading(

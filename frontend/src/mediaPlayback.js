@@ -1,5 +1,7 @@
 import {
   ensureMediaRecord,
+  getCachedMediaRange,
+  getMediaRecord,
   markMediaPlayed,
 } from "./mediaStore.js";
 
@@ -38,6 +40,70 @@ export async function prepareTrackAudioSource(
       mimeType,
       fileSize,
     });
+  }
+
+  if (
+    options.preferCachedBlob ===
+      true &&
+    mediaVersion &&
+    typeof Blob !==
+      "undefined" &&
+    typeof globalThis.URL
+      ?.createObjectURL ===
+      "function"
+  ) {
+    const record =
+      await getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    const cachedFileSize =
+      Number(
+        fileSize ??
+        record?.fileSize,
+      );
+
+    if (
+      record?.state ===
+        "PINNED" &&
+      Number.isSafeInteger(
+        cachedFileSize,
+      ) &&
+      cachedFileSize > 0 &&
+      Number(
+        record.cachedBytes ??
+        0,
+      ) >=
+        cachedFileSize
+    ) {
+      const cached =
+        await getCachedMediaRange(
+          trackId,
+          mediaVersion,
+          0,
+          cachedFileSize - 1,
+        );
+
+      if (
+        cached &&
+        cached.byteLength ===
+          cachedFileSize
+      ) {
+        return globalThis.URL
+          .createObjectURL(
+            new Blob(
+              [cached],
+              {
+                type:
+                  mimeType ??
+                  record.mimeType ??
+                  "audio/mpeg",
+              },
+            ),
+          );
+      }
+    }
   }
 
   return getTrackAudioSource(
