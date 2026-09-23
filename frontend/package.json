@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/*.test.js src/player/*.test.js"
+    "test": "node --test"
   },
   "dependencies": {
     "music-metadata": "11.15.0",
