@@ -1497,6 +1497,72 @@ test(
 
 
 test(
+  "download job progress updates preserve playlist metadata",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:generated-test",
+      state:
+        "downloading",
+      playlistId:
+        "generated-test",
+      playlistTitle:
+        "Generated Test",
+      playlistVisibility:
+        "generated",
+      trackKeys: [
+        "one:v1",
+      ],
+    });
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "playlist:generated-test",
+      state:
+        "complete",
+      downloadedBytes:
+        1000,
+      totalBytes:
+        1000,
+      trackKeys: [
+        "one:v1",
+      ],
+    });
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    const job =
+      jobs.find(
+        (value) =>
+          value.id ===
+          "playlist:generated-test",
+      );
+
+    assert.ok(job);
+
+    assert.equal(
+      job.playlistId,
+      "generated-test",
+    );
+
+    assert.equal(
+      job.playlistTitle,
+      "Generated Test",
+    );
+
+    assert.equal(
+      job.playlistVisibility,
+      "generated",
+    );
+  },
+);
+
+
+test(
   "removing downloaded media clears audio artwork and lyrics",
   async () => {
     const mediaStore =
