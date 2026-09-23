@@ -408,6 +408,7 @@ useEffect(() => {
     );
   };
 }, [
+  offlineOwnerKey,
   openedPlaylist?.id,
 ]);
 
@@ -817,6 +818,7 @@ useEffect(() => {
 
   }, [
     normalizedQuery,
+    offlineOwnerKey,
     preferenceReady,
     sortMode,
   ]);
