@@ -2086,7 +2086,7 @@ const checkDownloadedGeneratedPlaylistUpdates =
         () => {
           void checkDownloadedGeneratedPlaylistUpdates();
         },
-        60000,
+        15000,
       );
 
     const handleFocus =
