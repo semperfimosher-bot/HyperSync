@@ -2575,6 +2575,124 @@ export async function downloadTracksForOffline(
 }
 
 
+export async function reconcileDownloadedPlaylistMembership(
+  playlist,
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const playlistId =
+    String(
+      playlist?.id ??
+      "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !playlistId
+  ) {
+    return false;
+  }
+
+  const job =
+    await getPlaylistDownloadJob(
+      normalizedOwnerKey,
+      playlistId,
+    );
+
+  if (
+    !job ||
+    !Array.isArray(
+      job.trackKeys,
+    )
+  ) {
+    return false;
+  }
+
+  const liveTrackIds =
+    new Set(
+      (
+        Array.isArray(
+          playlist?.tracks,
+        )
+          ? playlist.tracks
+          : []
+      ).map(
+        (track) =>
+          String(
+            track?.id ??
+            "",
+          ),
+      ).filter(Boolean),
+    );
+
+  const pinRef =
+    getPlaylistDownloadPinRef(
+      normalizedOwnerKey,
+      playlistId,
+    );
+
+  const retainedKeys =
+    [];
+
+  let changed =
+    false;
+
+  for (
+    const key
+    of job.trackKeys
+  ) {
+    const parts =
+      mediaKeyParts(
+        key,
+      );
+
+    if (
+      parts &&
+      liveTrackIds.has(
+        parts.trackId,
+      )
+    ) {
+      retainedKeys.push(
+        key,
+      );
+
+      continue;
+    }
+
+    changed =
+      true;
+
+    const record =
+      await resolvePinnedRecordForKey(
+        key,
+        pinRef,
+      );
+
+    if (record) {
+      await removeDownloadedMedia(
+        record.trackId,
+        record.mediaVersion,
+        pinRef,
+      );
+    }
+  }
+
+  if (changed) {
+    await saveDownloadJob({
+      ...job,
+      trackKeys:
+        retainedKeys,
+    });
+  }
+
+  return changed;
+}
+
+
 export async function getPlaylistDownloadJob(
   ownerKey,
   playlistId,

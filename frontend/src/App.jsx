@@ -78,6 +78,7 @@ import {
   getDownloadedPlaylists,
   getOfflineOwnerKey,
   getPlaylistDownloadJobId,
+  reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
 } from "./offlineDownloads.js";
 
@@ -2000,6 +2001,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
                     ) {
                       return null;
                     }
+
+                    await reconcileDownloadedPlaylistMembership(
+                      livePlaylist,
+                      offlineOwnerKey,
+                    );
 
                     const missingTracks =
                       findMissingPlaylistTracks(
