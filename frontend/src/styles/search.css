@@ -4165,7 +4165,7 @@ button.is-active strong {
   background:
     rgba(255, 255, 255, 0.015);
 
-  cursor: pointer;
+  cursor: default;
 
   transition:
     color 120ms ease,
