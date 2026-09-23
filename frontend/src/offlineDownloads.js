@@ -1963,7 +1963,10 @@ export async function downloadTrackForOffline(
           OFFLINE_ARTWORK_RETRY_MS,
 
     artworkValidatedAt:
-      Date.now(),
+      artwork ||
+      !artworkSourceUrl
+        ? Date.now()
+        : null,
 
     pinRefs: [
       ...existingPinRefs,
