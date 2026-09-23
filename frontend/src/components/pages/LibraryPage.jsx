@@ -32,6 +32,9 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
+import DownloadRemovalConfirm from
+  "../ui/DownloadRemovalConfirm.jsx";
+
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
@@ -41,6 +44,7 @@ import useTrackActionMenu from
 import {
   downloadTracksForOffline,
   getDownloadedPlaylists,
+  removePlaylistFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -294,6 +298,16 @@ const [
     downloadedPlaylists,
     setDownloadedPlaylists,
   ] = useState([]);
+
+  const [
+    removeDownloadTarget,
+    setRemoveDownloadTarget,
+  ] = useState(null);
+
+  const [
+    removingDownload,
+    setRemovingDownload,
+  ] = useState(false);
 
   useEffect(() => {
     let cancelled =
@@ -1149,6 +1163,75 @@ if (offline) {
     }
   }
 
+  async function confirmRemoveDownload() {
+    if (
+      !removeDownloadTarget ||
+      removingDownload
+    ) {
+      return;
+    }
+
+    setRemovingDownload(
+      true,
+    );
+
+    setError("");
+
+    try {
+      await removePlaylistFromOffline(
+        removeDownloadTarget.id,
+      );
+
+      const nextDownloads =
+        await getDownloadedPlaylists();
+
+      setDownloadedPlaylists(
+        nextDownloads,
+      );
+
+      if (
+        selectedPlaylist &&
+        String(
+          selectedPlaylist.id,
+        ) ===
+          String(
+            removeDownloadTarget.id,
+          )
+      ) {
+        setPlaylistDownload({
+          status: "idle",
+          progress: 0,
+          trackProgress: {},
+        });
+
+        if (
+          selectedPlaylist
+            .is_offline_download
+        ) {
+          setSelectedPlaylist(
+            null,
+          );
+        }
+      }
+
+      setRemoveDownloadTarget(
+        null,
+      );
+    } catch (requestError) {
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to remove playlist download.",
+      );
+    } finally {
+      setRemovingDownload(
+        false,
+      );
+    }
+  }
+
+
   function playPlaylist(
     startIndex = 0,
   ) {
@@ -1535,7 +1618,16 @@ if (offline) {
                     "downloading"
                 }
                 onClick={() => {
-                  void downloadPlaylist();
+                  if (
+                    playlistDownload.status ===
+                      "downloaded"
+                  ) {
+                    setRemoveDownloadTarget(
+                      selectedPlaylist,
+                    );
+                  } else {
+                    void downloadPlaylist();
+                  }
                 }}
               >
                 <Icon
@@ -2408,6 +2500,28 @@ if (offline) {
 
                       {opening ? (
                         <span className="library-spinner" />
+                      ) : playlist.is_offline_download ? (
+                        <button
+                          type="button"
+                          className="hs-download-remove-trigger"
+                          title="Remove download"
+                          aria-label={`Remove ${playlist.title} from downloads`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+
+                            setRemoveDownloadTarget(
+                              playlist,
+                            );
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          <Icon
+                            name="downloaded"
+                            size={16}
+                          />
+                        </button>
                       ) : (
                         <Icon
                           name="chevron"
@@ -2429,6 +2543,34 @@ if (offline) {
       </section>
 
     )}
+
+      <DownloadRemovalConfirm
+        open={
+          Boolean(
+            removeDownloadTarget,
+          )
+        }
+        playlistTitle={
+          removeDownloadTarget
+            ?.title
+        }
+        busy={
+          removingDownload
+        }
+        onCancel={() => {
+          if (
+            !removingDownload
+          ) {
+            setRemoveDownloadTarget(
+              null,
+            );
+          }
+        }}
+        onConfirm={() => {
+          void confirmRemoveDownload();
+        }}
+      />
+
 
       {createOpen ? (
         <div
