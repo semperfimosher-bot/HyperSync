@@ -2503,7 +2503,7 @@ if (offline) {
                       ) : playlist.is_offline_download ? (
                         <button
                           type="button"
-                          className="hs-download-remove-trigger"
+                          className="hs-search-track__download is-downloaded hs-download-remove-trigger"
                           title="Remove download"
                           aria-label={`Remove ${playlist.title} from downloads`}
                           onClick={(event) => {
@@ -2518,8 +2518,8 @@ if (offline) {
                           }}
                         >
                           <Icon
-                            name="downloaded"
-                            size={16}
+                            name="check"
+                            size={15}
                           />
                         </button>
                       ) : (
