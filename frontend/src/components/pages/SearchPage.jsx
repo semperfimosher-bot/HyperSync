@@ -310,6 +310,99 @@ const [
 ] = useState(false);
 
 useEffect(() => {
+  const handleOfflinePlaylistUpdated =
+    async (event) => {
+      const playlistId =
+        event?.detail
+          ?.playlistId;
+
+      if (
+        !playlistId ||
+        String(
+          openedPlaylist?.id ??
+          "",
+        ) !==
+          String(
+            playlistId,
+          )
+      ) {
+        return;
+      }
+
+      try {
+        const [
+          refreshed,
+          downloads,
+        ] =
+          await Promise.all([
+            getPlaylist(
+              playlistId,
+            ),
+            getDownloadedPlaylists(),
+          ]);
+
+        setOpenedPlaylist(
+          refreshed,
+        );
+
+        const downloaded =
+          downloads.find(
+            (playlist) =>
+              String(
+                playlist.id,
+              ) ===
+              String(
+                playlistId,
+              ),
+          );
+
+        if (downloaded) {
+          setPlaylistDownload({
+            status:
+              "downloaded",
+            progress:
+              1,
+            trackProgress:
+              Object.fromEntries(
+                downloaded.tracks.map(
+                  (track) => [
+                    String(
+                      track.id,
+                    ),
+                    {
+                      status:
+                        "downloaded",
+                      progress:
+                        1,
+                    },
+                  ],
+                ),
+              ),
+          });
+        }
+      } catch {
+        // The global update action already
+        // completed; this only syncs visible UI.
+      }
+    };
+
+  window.addEventListener(
+    "hypersync:offline-playlist-updated",
+    handleOfflinePlaylistUpdated,
+  );
+
+  return () => {
+    window.removeEventListener(
+      "hypersync:offline-playlist-updated",
+      handleOfflinePlaylistUpdated,
+    );
+  };
+}, [
+  openedPlaylist?.id,
+]);
+
+
+useEffect(() => {
   setOpenedPlaylist(
     null,
   );
