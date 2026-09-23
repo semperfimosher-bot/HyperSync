@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 import Icon from "./Icon.jsx";
 
 
@@ -12,7 +14,7 @@ function DownloadRemovalConfirm({
     return null;
   }
 
-  return (
+  return createPortal(
     <div
       className="library-modal-backdrop"
       role="presentation"
@@ -91,7 +93,8 @@ function DownloadRemovalConfirm({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
