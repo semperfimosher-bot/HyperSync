@@ -76,6 +76,9 @@ import {
 import {
   downloadTracksForOffline,
   getDownloadedPlaylists,
+  getOfflineOwnerKey,
+  getPlaylistDownloadJobId,
+  recoverInterruptedDownloadJobs,
 } from "./offlineDownloads.js";
 
 import {
@@ -1968,8 +1971,15 @@ const checkDownloadedGeneratedPlaylistUpdates =
         true;
 
       try {
+        const offlineOwnerKey =
+          getOfflineOwnerKey(
+            currentUser,
+          );
+
         const downloadedPlaylists =
-          await getDownloadedPlaylists();
+          await getDownloadedPlaylists(
+            offlineOwnerKey,
+          );
 
         const detected =
           (
@@ -2078,6 +2088,12 @@ const checkDownloadedGeneratedPlaylistUpdates =
 
       return undefined;
     }
+
+    void recoverInterruptedDownloadJobs(
+      getOfflineOwnerKey(
+        currentUser,
+      ),
+    );
 
     void checkDownloadedGeneratedPlaylistUpdates();
 
@@ -2214,9 +2230,15 @@ const checkDownloadedGeneratedPlaylistUpdates =
             playlist.tracks,
             {
               jobId:
-                "playlist:" +
-                String(
+                getPlaylistDownloadJobId(
+                  getOfflineOwnerKey(
+                    currentUser,
+                  ),
                   playlist.id,
+                ),
+              ownerKey:
+                getOfflineOwnerKey(
+                  currentUser,
                 ),
 
               jobMetadata: {

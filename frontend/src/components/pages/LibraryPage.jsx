@@ -46,6 +46,9 @@ import useTrackActionMenu from
 import {
   downloadTracksForOffline,
   getDownloadedPlaylists,
+  getOfflineOwnerKey,
+  getPlaylistDownloadJob,
+  getPlaylistDownloadJobId,
   removePlaylistFromOffline,
 } from "../../offlineDownloads.js";
 
@@ -173,6 +176,11 @@ useEffect(() => {
   currentUser?.id ??
   currentUser?.username ??
   "anonymous";
+
+  const offlineOwnerKey =
+  getOfflineOwnerKey(
+    currentUser,
+  );
 
   const cachedLibrary =
   getCachedLibrary(
@@ -315,7 +323,9 @@ const [
     let cancelled =
       false;
 
-    void getDownloadedPlaylists()
+    void getDownloadedPlaylists(
+            offlineOwnerKey,
+          )
       .then((playlists) => {
         if (!cancelled) {
           setDownloadedPlaylists(
@@ -352,7 +362,9 @@ const [
 
         try {
           const nextDownloads =
-            await getDownloadedPlaylists();
+            await getDownloadedPlaylists(
+            offlineOwnerKey,
+          );
 
           setDownloadedPlaylists(
             nextDownloads,
@@ -795,7 +807,17 @@ useEffect(() => {
     getCachedPlaylist(
       libraryCacheKey,
       playlistId,
-    )
+    );
+
+  const downloadJob =
+    downloaded
+      ? null
+      : await getPlaylistDownloadJob(
+          offlineOwnerKey,
+          playlistId,
+        ).catch(
+          () => null,
+        );
 
   if (downloaded) {
     setPlaylistDownload({
@@ -819,6 +841,41 @@ useEffect(() => {
             ],
           ),
         ),
+    });
+  } else if (
+    downloadJob?.state ===
+      "paused" ||
+    downloadJob?.state ===
+      "downloading"
+  ) {
+    const totalBytes =
+      Number(
+        downloadJob.totalBytes ??
+        0,
+      );
+
+    const downloadedBytes =
+      Number(
+        downloadJob.downloadedBytes ??
+        0,
+      );
+
+    setPlaylistDownload({
+      status:
+        "paused",
+      progress:
+        totalBytes > 0
+          ? Math.max(
+              0,
+              Math.min(
+                1,
+                downloadedBytes /
+                  totalBytes,
+              ),
+            )
+          : 0,
+      trackProgress:
+        {},
     });
   } else {
     setPlaylistDownload({
@@ -1242,10 +1299,12 @@ if (offline) {
         tracks,
         {
           jobId:
-            "playlist:" +
-            String(
+            getPlaylistDownloadJobId(
+              offlineOwnerKey,
               selectedPlaylist.id,
             ),
+          ownerKey:
+            offlineOwnerKey,
           jobMetadata: {
             kind:
               "playlist",
@@ -1311,7 +1370,9 @@ if (offline) {
       });
 
       setDownloadedPlaylists(
-        await getDownloadedPlaylists(),
+        await getDownloadedPlaylists(
+            offlineOwnerKey,
+          ),
       );
     } catch (requestError) {
       setPlaylistDownload({
@@ -1349,10 +1410,13 @@ if (offline) {
     try {
       await removePlaylistFromOffline(
         removeDownloadTarget.id,
+        offlineOwnerKey,
       );
 
       const nextDownloads =
-        await getDownloadedPlaylists();
+        await getDownloadedPlaylists(
+            offlineOwnerKey,
+          );
 
       setDownloadedPlaylists(
         nextDownloads,
@@ -1886,7 +1950,10 @@ if (offline) {
                   : playlistDownload.status ===
                       "downloaded"
                     ? "Downloaded"
-                    : "Download"}
+                    : playlistDownload.status ===
+                        "paused"
+                      ? "Resume"
+                      : "Download"}
               </button>
 
 

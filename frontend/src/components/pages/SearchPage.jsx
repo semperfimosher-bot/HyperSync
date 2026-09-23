@@ -19,6 +19,9 @@ import * as player from
 import {
   downloadTracksForOffline,
   getDownloadedPlaylists,
+  getOfflineOwnerKey,
+  getPlaylistDownloadJob,
+  getPlaylistDownloadJobId,
   removePlaylistFromOffline,
   searchDownloadedTracks,
 } from "../../offlineDownloads.js";
@@ -270,6 +273,11 @@ function SearchPage({
     currentUser?.account_type ===
     "registered";
 
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
+
   const [
   openedPlaylist,
   setOpenedPlaylist,
@@ -338,7 +346,9 @@ useEffect(() => {
             getPlaylist(
               playlistId,
             ),
-            getDownloadedPlaylists(),
+            getDownloadedPlaylists(
+              offlineOwnerKey,
+            ),
           ]);
 
         setOpenedPlaylist(
@@ -642,6 +652,7 @@ useEffect(() => {
               const localTracks =
                 await searchDownloadedTracks(
                   normalizedQuery,
+                  offlineOwnerKey,
                 );
 
               if (
@@ -753,6 +764,7 @@ useEffect(() => {
               localTracks =
                 await searchDownloadedTracks(
                   normalizedQuery,
+                  offlineOwnerKey,
                 );
             } catch {
               localTracks =
@@ -1084,15 +1096,24 @@ useEffect(() => {
     const [
       playlist,
       downloadedPlaylists,
+      downloadJob,
     ] =
       await Promise.all([
         getPlaylist(
           playlistId,
         ),
-        getDownloadedPlaylists()
+        getDownloadedPlaylists(
+              offlineOwnerKey,
+            )
           .catch(
             () => [],
           ),
+        getPlaylistDownloadJob(
+          offlineOwnerKey,
+          playlistId,
+        ).catch(
+          () => null,
+        ),
       ]);
 
     setOpenedPlaylist(
@@ -1164,6 +1185,39 @@ useEffect(() => {
               )
             : 0,
         trackProgress,
+      });
+    } else if (
+      downloadJob?.state ===
+        "paused" ||
+      downloadJob?.state ===
+        "downloading"
+    ) {
+      const totalBytes =
+        Number(
+          downloadJob.totalBytes ??
+          0,
+        );
+
+      const downloadedBytes =
+        Number(
+          downloadJob.downloadedBytes ??
+          0,
+        );
+
+      setPlaylistDownload({
+        status: "paused",
+        progress:
+          totalBytes > 0
+            ? Math.max(
+                0,
+                Math.min(
+                  1,
+                  downloadedBytes /
+                    totalBytes,
+                ),
+              )
+            : 0,
+        trackProgress: {},
       });
     } else {
       setPlaylistDownload({
@@ -1344,6 +1398,7 @@ async function confirmRemoveOpenedPlaylistDownload() {
   try {
     await removePlaylistFromOffline(
       openedPlaylist.id,
+      offlineOwnerKey,
     );
 
     setPlaylistDownload({
@@ -1453,10 +1508,12 @@ async function downloadOpenedPlaylist() {
       tracks,
       {
         jobId:
-          "playlist:" +
-          String(
+          getPlaylistDownloadJobId(
+            offlineOwnerKey,
             playlistForDownload.id,
           ),
+        ownerKey:
+          offlineOwnerKey,
         jobMetadata: {
           kind:
             "playlist",
@@ -2136,7 +2193,10 @@ async function downloadOpenedPlaylist() {
               : playlistDownload.status ===
                   "downloaded"
                 ? "Downloaded"
-                : "Download"}
+                : playlistDownload.status ===
+                    "paused"
+                  ? "Resume"
+                  : "Download"}
           </button>
 
 
