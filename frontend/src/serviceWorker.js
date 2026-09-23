@@ -1,4 +1,5 @@
 import {
+  cleanupExpiredMedia,
   getArtwork,
   getMediaRecord,
   MEDIA_CHUNK_SIZE,
@@ -33,6 +34,9 @@ const APP_SHELL_CACHE =
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
+
+const NAVIGATION_NETWORK_TIMEOUT_MS =
+  3500;
 
 
 async function precacheAppShell() {
@@ -185,6 +189,11 @@ globalThis.self?.addEventListener?.(
                   ),
               ),
           );
+
+          await cleanupExpiredMedia()
+            .catch(
+              () => 0,
+            );
 
           await self.clients.claim();
         }
@@ -367,7 +376,9 @@ export async function handleArtworkRequest(
               cached.data.byteLength,
             ),
           "Cache-Control":
-            "private, max-age=31536000, immutable",
+            identity.artworkVersion
+              ? "private, max-age=31536000, immutable"
+              : "private, no-store",
         },
       },
     );
@@ -895,10 +906,27 @@ globalThis.self?.addEventListener?.(
                 APP_SHELL_CACHE,
               );
 
+            const controller =
+              new AbortController();
+
+            const timeoutId =
+              setTimeout(
+                () => {
+                  controller.abort();
+                },
+                NAVIGATION_NETWORK_TIMEOUT_MS,
+              );
+
             try {
               const response =
                 await fetch(
-                  request,
+                  new Request(
+                    request,
+                    {
+                      signal:
+                        controller.signal,
+                    },
+                  ),
                 );
 
               if (
@@ -931,6 +959,10 @@ globalThis.self?.addEventListener?.(
                       "text/plain",
                   },
                 },
+              );
+            } finally {
+              clearTimeout(
+                timeoutId,
               );
             }
           }
