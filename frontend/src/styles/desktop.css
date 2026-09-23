@@ -997,8 +997,9 @@
   }
 
   .playlist-update-notice--desktop {
-    display: grid;
+    display: grid !important;
     width: min(100%, 300px);
+    min-width: 0;
     grid-template-columns:
       auto
       minmax(0, 1fr)
@@ -1006,6 +1007,12 @@
       auto;
     justify-self: end;
     padding: 7px;
+    pointer-events: auto;
+    z-index: 2;
+  }
+
+  .playlist-update-notice--desktop button {
+    pointer-events: auto;
   }
 
   /* Buttons ABOVE progress bar */
