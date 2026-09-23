@@ -2426,6 +2426,61 @@ export async function downloadTracksForOffline(
     });
   };
 
+  const releaseObsoletePlaylistPins =
+    async () => {
+      if (
+        !playlistPinRef ||
+        !Array.isArray(
+          previousJob?.trackKeys,
+        )
+      ) {
+        return;
+      }
+
+      const currentTrackIds =
+        new Set(
+          uniqueTracks.map(
+            (track) =>
+              trackIdentity(
+                track,
+              ).trackId,
+          ),
+        );
+
+      for (
+        const previousKey
+        of previousJob.trackKeys
+      ) {
+        const parts =
+          mediaKeyParts(
+            previousKey,
+          );
+
+        if (
+          !parts ||
+          currentTrackIds.has(
+            parts.trackId,
+          )
+        ) {
+          continue;
+        }
+
+        const obsoleteRecord =
+          await resolvePinnedRecordForKey(
+            previousKey,
+            playlistPinRef,
+          );
+
+        if (obsoleteRecord) {
+          await removeDownloadedMedia(
+            obsoleteRecord.trackId,
+            obsoleteRecord.mediaVersion,
+            playlistPinRef,
+          );
+        }
+      }
+    };
+
   await saveDownloadJob({
     id:
       normalizedJobId,
@@ -2452,6 +2507,8 @@ export async function downloadTracksForOffline(
     pendingTracks.length ===
     0
   ) {
+    await releaseObsoletePlaylistPins();
+
     return Promise.all(
       uniqueTracks.map(
         (track) => {
@@ -2624,55 +2681,7 @@ export async function downloadTracksForOffline(
       ),
     );
 
-    if (
-      playlistPinRef &&
-      Array.isArray(
-        previousJob?.trackKeys,
-      )
-    ) {
-      const currentTrackIds =
-        new Set(
-          uniqueTracks.map(
-            (track) =>
-              trackIdentity(
-                track,
-              ).trackId,
-          ),
-        );
-
-      for (
-        const previousKey
-        of previousJob.trackKeys
-      ) {
-        const parts =
-          mediaKeyParts(
-            previousKey,
-          );
-
-        if (
-          !parts ||
-          currentTrackIds.has(
-            parts.trackId,
-          )
-        ) {
-          continue;
-        }
-
-        const obsoleteRecord =
-          await resolvePinnedRecordForKey(
-            previousKey,
-            playlistPinRef,
-          );
-
-        if (obsoleteRecord) {
-          await removeDownloadedMedia(
-            obsoleteRecord.trackId,
-            obsoleteRecord.mediaVersion,
-            playlistPinRef,
-          );
-        }
-      }
-    }
+    await releaseObsoletePlaylistPins();
 
     await saveDownloadJob({
       id:
