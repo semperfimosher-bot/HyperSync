@@ -1018,36 +1018,67 @@ useEffect(() => {
       ) ??
       null;
 
-    setPlaylistDownload(
-      downloaded
-        ? {
-            status:
-              "downloaded",
-            progress:
-              1,
-            trackProgress:
-              Object.fromEntries(
-                downloaded.tracks.map(
-                  (track) => [
-                    String(
-                      track.id,
-                    ),
-                    {
-                      status:
-                        "downloaded",
-                      progress:
-                        1,
-                    },
-                  ],
-                ),
+    if (downloaded) {
+      const downloadedIds =
+        new Set(
+          downloaded.tracks.map(
+            (track) =>
+              String(
+                track.id,
               ),
-          }
-        : {
-            status: "idle",
-            progress: 0,
-            trackProgress: {},
-          },
-    );
+          ),
+        );
+
+      const trackProgress =
+        Object.fromEntries(
+          downloaded.tracks.map(
+            (track) => [
+              String(
+                track.id,
+              ),
+              {
+                status:
+                  "downloaded",
+                progress:
+                  1,
+              },
+            ],
+          ),
+        );
+
+      const allCurrentTracksDownloaded =
+        playlist.tracks.length > 0 &&
+        playlist.tracks.every(
+          (track) =>
+            downloadedIds.has(
+              String(
+                track.id,
+              ),
+            ),
+        );
+
+      setPlaylistDownload({
+        status:
+          allCurrentTracksDownloaded
+            ? "downloaded"
+            : "idle",
+        progress:
+          playlist.tracks.length > 0
+            ? Math.min(
+                1,
+                downloadedIds.size /
+                  playlist.tracks.length,
+              )
+            : 0,
+        trackProgress,
+      });
+    } else {
+      setPlaylistDownload({
+        status: "idle",
+        progress: 0,
+        trackProgress: {},
+      });
+    }
   } catch (error) {
     setPlaylistError(
       error instanceof Error
