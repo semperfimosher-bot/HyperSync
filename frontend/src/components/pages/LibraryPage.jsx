@@ -1135,7 +1135,11 @@ if (offline) {
   ),
 ];
 
-  if (!isRegistered) {
+  if (
+    !isRegistered &&
+    activeTab !==
+      "Downloads"
+  ) {
   return (
     <div className="page-stack hs-search-page hs-library-page">
 
@@ -1185,20 +1189,39 @@ if (offline) {
           </div>
 
 
-          <button
-            type="button"
-            className="hs-search-primary-action"
-            onClick={
-              onOpenAuth
-            }
-          >
-            <Icon
-              name="library"
-              size={16}
-            />
+          <div className="hs-search-console__actions">
+            <button
+              type="button"
+              className="hs-search-primary-action"
+              onClick={
+                onOpenAuth
+              }
+            >
+              <Icon
+                name="library"
+                size={16}
+              />
 
-            Sign in
-          </button>
+              Sign in
+            </button>
+
+            <button
+              type="button"
+              className="hs-search-playlist-action"
+              onClick={() => {
+                setActiveTab(
+                  "Downloads",
+                );
+              }}
+            >
+              <Icon
+                name="download"
+                size={16}
+              />
+
+              View downloads
+            </button>
+          </div>
 
         </div>
 
