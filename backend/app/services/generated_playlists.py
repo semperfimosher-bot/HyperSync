@@ -147,11 +147,32 @@ async def generated_playlist_needs_refresh(
         result.scalar_one_or_none()
     )
 
-    return bool(
-        latest_track_update
-        and latest_track_update
-        > playlist.generated_at
+    if latest_track_update is None:
+        return False
+
+    latest_utc = (
+        latest_track_update.replace(
+            tzinfo=UTC,
+        )
+        if latest_track_update.tzinfo
+        is None
+        else latest_track_update.astimezone(
+            UTC,
+        )
     )
+
+    generated_utc = (
+        playlist.generated_at.replace(
+            tzinfo=UTC,
+        )
+        if playlist.generated_at.tzinfo
+        is None
+        else playlist.generated_at.astimezone(
+            UTC,
+        )
+    )
+
+    return latest_utc > generated_utc
 
 
 async def refresh_generated_playlist_if_stale(
