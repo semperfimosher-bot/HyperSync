@@ -688,6 +688,245 @@ async def search_public_playlists(
     ]
 
 
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: bool = False,
+) -> Playlist | None:
+    liked_key = (
+        f"liked:{user.id}"
+    )
+
+    result = await session.execute(
+        select(
+            Playlist,
+        ).where(
+            Playlist.generated_key
+            == liked_key,
+            Playlist.owner_id
+            == user.id,
+        )
+    )
+
+    playlist = (
+        result.scalars()
+        .first()
+    )
+
+    if (
+        playlist is None
+        and create
+    ):
+        playlist = Playlist(
+            owner_id=user.id,
+            title="Liked Songs",
+            description=(
+                "Songs you like on HyperSync."
+            ),
+            visibility="private",
+            generated_key=liked_key,
+        )
+
+        session.add(
+            playlist,
+        )
+
+        await session.flush()
+
+    return playlist
+
+
+@router.get(
+    "/liked/tracks/{track_id}",
+)
+async def get_liked_track_state(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> dict[str, bool]:
+    require_registered_user(
+        user,
+    )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+        )
+    )
+
+    if playlist is None:
+        return {
+            "liked": False,
+        }
+
+    result = await session.execute(
+        select(
+            PlaylistTrack.id,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    return {
+        "liked":
+            result.scalar_one_or_none()
+            is not None,
+    }
+
+
+@router.post(
+    "/liked/tracks/{track_id}",
+)
+async def like_track(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> dict[str, bool]:
+    require_registered_user(
+        user,
+    )
+
+    track = await session.get(
+        Track,
+        track_id,
+    )
+
+    if (
+        track is None
+        or not track.is_published
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail="Track not found.",
+        )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+            create=True,
+        )
+    )
+
+    existing = await session.execute(
+        select(
+            PlaylistTrack.id,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    if (
+        existing.scalar_one_or_none()
+        is None
+    ):
+        position_result = (
+            await session.execute(
+                select(
+                    func.coalesce(
+                        func.max(
+                            PlaylistTrack.position,
+                        ),
+                        -1,
+                    )
+                ).where(
+                    PlaylistTrack.playlist_id
+                    == playlist.id,
+                )
+            )
+        )
+
+        next_position = (
+            int(
+                position_result.scalar_one(),
+            )
+            + 1
+        )
+
+        session.add(
+            PlaylistTrack(
+                playlist_id=playlist.id,
+                track_id=track_id,
+                position=next_position,
+            )
+        )
+
+        await session.commit()
+
+    return {
+        "liked": True,
+    }
+
+
+@router.delete(
+    "/liked/tracks/{track_id}",
+)
+async def unlike_track(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> dict[str, bool]:
+    require_registered_user(
+        user,
+    )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+        )
+    )
+
+    if playlist is None:
+        return {
+            "liked": False,
+        }
+
+    result = await session.execute(
+        select(
+            PlaylistTrack,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    playlist_track = (
+        result.scalars()
+        .first()
+    )
+
+    if playlist_track is not None:
+        await session.delete(
+            playlist_track,
+        )
+
+        await session.flush()
+
+        await renumber_playlist_tracks(
+            session,
+            playlist.id,
+        )
+
+        await session.commit()
+
+    return {
+        "liked": False,
+    }
+
+
 @router.post(
     "",
     response_model=(PlaylistDetailResponse),
