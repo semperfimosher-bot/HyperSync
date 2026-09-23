@@ -5449,3 +5449,49 @@ button:disabled {
   }
 
 }
+
+
+/* Playlist download removal confirmation */
+.hs-download-confirm__copy {
+  margin: 0;
+  color: #8da3ad;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+.hs-download-confirm__copy strong {
+  color: #e7f6fb;
+  font-weight: 750;
+}
+
+.hs-download-confirm__remove {
+  border-color:
+    rgba(255, 112, 112, 0.28);
+  color: #ffd4d4;
+  background:
+    rgba(255, 72, 72, 0.07);
+}
+
+.hs-download-remove-trigger {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border:
+    1px solid
+    rgba(79, 226, 255, 0.3);
+  border-radius: 50%;
+  color: #73edff;
+  background:
+    rgba(31, 189, 224, 0.08);
+  cursor: pointer;
+}
+
+.hs-download-remove-trigger:hover {
+  border-color:
+    rgba(79, 226, 255, 0.55);
+  color: #baf7ff;
+  background:
+    rgba(31, 189, 224, 0.13);
+}
