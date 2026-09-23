@@ -600,33 +600,6 @@ export async function handleMediaRequest(
   scheduleBackgroundTask =
     null,
 ) {
-  const now =
-    Date.now();
-
-  if (
-    now - lastMediaCleanupAt >=
-      MEDIA_CLEANUP_INTERVAL_MS
-  ) {
-    lastMediaCleanupAt =
-      now;
-
-    const cleanupTask =
-      cleanupExpiredMedia(
-        now,
-      ).catch(
-        () => 0,
-      );
-
-    if (
-      typeof scheduleBackgroundTask ===
-        "function"
-    ) {
-      scheduleBackgroundTask(
-        cleanupTask,
-      );
-    }
-  }
-
   const identity =
     parseMediaRoute(
       request,
@@ -835,6 +808,25 @@ export function registerMediaFetchHandler(
 
       const backgroundTasks =
         [];
+
+      const now =
+        Date.now();
+
+      if (
+        now - lastMediaCleanupAt >=
+          MEDIA_CLEANUP_INTERVAL_MS
+      ) {
+        lastMediaCleanupAt =
+          now;
+
+        backgroundTasks.push(
+          cleanupExpiredMedia(
+            now,
+          ).catch(
+            () => 0,
+          ),
+        );
+      }
 
       const scheduleTask =
         (
