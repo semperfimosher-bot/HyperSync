@@ -46,6 +46,7 @@ import useTrackActionMenu from
 import {
   downloadTracksForOffline,
   getDownloadedPlaylists,
+  getDownloadedTracks,
   getOfflineOwnerKey,
   getPlaylistDownloadJob,
   getPlaylistDownloadJobId,
@@ -310,6 +311,11 @@ const [
   ] = useState([]);
 
   const [
+    downloadedTracks,
+    setDownloadedTracks,
+  ] = useState([]);
+
+  const [
     removeDownloadTarget,
     setRemoveDownloadTarget,
   ] = useState(null);
@@ -323,28 +329,66 @@ const [
     let cancelled =
       false;
 
-    void getDownloadedPlaylists(
-            offlineOwnerKey,
-          )
-      .then((playlists) => {
-        if (!cancelled) {
-          setDownloadedPlaylists(
+    const refreshDownloads =
+      async () => {
+        try {
+          const [
             playlists,
-          );
+            tracks,
+          ] =
+            await Promise.all([
+              getDownloadedPlaylists(
+                offlineOwnerKey,
+              ),
+              getDownloadedTracks(
+                offlineOwnerKey,
+              ),
+            ]);
+
+          if (!cancelled) {
+            setDownloadedPlaylists(
+              playlists,
+            );
+
+            setDownloadedTracks(
+              tracks,
+            );
+          }
+        } catch {
+          if (!cancelled) {
+            setDownloadedPlaylists(
+              [],
+            );
+
+            setDownloadedTracks(
+              [],
+            );
+          }
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDownloadedPlaylists(
-            [],
-          );
-        }
-      });
+      };
+
+    void refreshDownloads();
+
+    const handleDownloadsChanged =
+      () => {
+        void refreshDownloads();
+      };
+
+    window.addEventListener(
+      "hypersync:offline-downloads-changed",
+      handleDownloadsChanged,
+    );
 
     return () => {
       cancelled = true;
+
+      window.removeEventListener(
+        "hypersync:offline-downloads-changed",
+        handleDownloadsChanged,
+      );
     };
   }, [
+    offlineOwnerKey,
     resetToken,
     playlistDownload.status,
   ]);
@@ -361,13 +405,25 @@ const [
         }
 
         try {
-          const nextDownloads =
-            await getDownloadedPlaylists(
-            offlineOwnerKey,
-          );
+          const [
+            nextDownloads,
+            nextTracks,
+          ] =
+            await Promise.all([
+              getDownloadedPlaylists(
+                offlineOwnerKey,
+              ),
+              getDownloadedTracks(
+                offlineOwnerKey,
+              ),
+            ]);
 
           setDownloadedPlaylists(
             nextDownloads,
+          );
+
+          setDownloadedTracks(
+            nextTracks,
           );
 
           if (
@@ -458,6 +514,7 @@ const [
     };
   }, [
     libraryCacheKey,
+    offlineOwnerKey,
     selectedPlaylist?.id,
   ]);
 
@@ -2583,6 +2640,10 @@ if (offline) {
               <strong>
                 {visiblePlaylists.length}
               </strong>
+            ) : tab === "Songs" ? (
+              <strong>
+                {downloadedTracks.length}
+              </strong>
             ) : null}
 
             </button>
@@ -2637,7 +2698,226 @@ if (offline) {
     ) : null}
 
 
-    {activeTab !== "Playlists" ? (
+    {activeTab === "Songs" ? (
+
+      <section className="hs-search-section hs-library-collection">
+
+        <div className="hs-search-section__heading">
+
+          <div>
+            <span>
+              OFFLINE CONTENT
+            </span>
+
+            <h3>
+              Downloaded songs
+            </h3>
+          </div>
+
+          <strong>
+            {downloadedTracks.length}
+          </strong>
+
+        </div>
+
+        {downloadedTracks.length === 0 ? (
+
+          <div className="hs-library-empty">
+
+            <Icon
+              name="music"
+              size={22}
+            />
+
+            <div>
+              <strong>
+                No downloaded songs yet
+              </strong>
+
+              <p>
+                Download a song or playlist and its
+                offline tracks will appear here.
+              </p>
+            </div>
+
+          </div>
+
+        ) : (
+
+          <div className="hs-search-track-list">
+
+            {downloadedTracks.map(
+              (
+                track,
+                index,
+              ) => {
+                const artwork =
+                  resolveArtworkUrl(
+                    track.artwork_url,
+                  );
+
+                const isCurrentTrack =
+                  currentTrackId !== null &&
+                  String(
+                    track.id,
+                  ) ===
+                    currentTrackId;
+
+                const playDownloadedTrack =
+                  () => {
+                    void player.playTrack(
+                      track.id,
+                      {
+                        artworkUrl:
+                          track.artwork_url ??
+                          null,
+                        title:
+                          track.title ??
+                          "",
+                        artist:
+                          track.artist ??
+                          "",
+                        mimeType:
+                          track.mime_type ??
+                          null,
+                        fileSize:
+                          track.file_size ??
+                          null,
+                        mediaVersion:
+                          track.media_version ??
+                          null,
+                      },
+                    ).catch(
+                      () => {},
+                    );
+                  };
+
+                return (
+                  <div
+                    key={
+                      String(
+                        track.id,
+                      ) +
+                      ":" +
+                      String(
+                        track.media_version ??
+                        "",
+                      )
+                    }
+                    role="button"
+                    tabIndex={0}
+                    {...trackActionMenu.getTriggerProps(
+                      track,
+                    )}
+                    className={[
+                      "hs-search-track",
+                      "hs-library-track-row",
+
+                      isCurrentTrack
+                        ? "is-current-track"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={
+                      playDownloadedTrack
+                    }
+                    onKeyDown={(
+                      event,
+                    ) => {
+                      if (
+                        event.key ===
+                          "Enter" ||
+                        event.key ===
+                          " "
+                      ) {
+                        event.preventDefault();
+                        playDownloadedTrack();
+                      }
+                    }}
+                  >
+
+                    <span className="hs-search-track__rank">
+                      {String(
+                        index + 1,
+                      ).padStart(
+                        2,
+                        "0",
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__art">
+                      {artwork ? (
+                        <img
+                          src={artwork}
+                          alt=""
+                        />
+                      ) : (
+                        <Icon
+                          name="music"
+                          size={20}
+                        />
+                      )}
+
+                      <i aria-hidden="true">
+                        <Icon
+                          name="play"
+                          size={15}
+                        />
+                      </i>
+                    </span>
+
+                    <span className="hs-search-track__copy">
+                      <strong>
+                        {track.title}
+                      </strong>
+
+                      <small>
+                        {track.artist ||
+                          "Unknown Artist"}
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__signals">
+                      <em>
+                        DOWNLOADED
+                      </em>
+
+                      <small>
+                        {track.album ||
+                          "Offline"}
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__duration">
+                      {formatTrackDuration(
+                        track.duration_seconds,
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__play">
+                      <Icon
+                        name={
+                          isCurrentTrack
+                            ? "pause"
+                            : "play"
+                        }
+                        size={16}
+                      />
+                    </span>
+
+                  </div>
+                );
+              },
+            )}
+
+          </div>
+
+        )}
+
+      </section>
+
+    ) : activeTab !== "Playlists" ? (
 
       <section className="hs-search-message">
 
@@ -2648,8 +2928,8 @@ if (offline) {
 
           <p>
             Playlists are live first. Saved
-            albums, artists, and liked songs can
-            use this same Library interface.
+            albums and artists can use this same
+            Library interface.
           </p>
         </div>
 
@@ -2937,6 +3217,22 @@ if (offline) {
         onConfirm={() => {
           void confirmRemoveDownload();
         }}
+      />
+
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
       />
 
 
