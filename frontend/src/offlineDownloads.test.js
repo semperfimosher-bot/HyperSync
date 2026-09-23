@@ -50,9 +50,9 @@ if (
 }
 
 
-async function loadDownloads() {
+async function loadDownloadMath() {
   return import(
-    "./offlineDownloads.js"
+    "./offlineDownloadMath.js"
   );
 }
 
@@ -63,7 +63,7 @@ test(
     const {
       getMissingDownloadBytes,
     } =
-      await loadDownloads();
+      await loadDownloadMath();
 
     assert.equal(
       getMissingDownloadBytes(
@@ -85,7 +85,7 @@ test(
     const {
       getMissingDownloadBytes,
     } =
-      await loadDownloads();
+      await loadDownloadMath();
 
     assert.equal(
       getMissingDownloadBytes(
@@ -118,7 +118,7 @@ test(
     const {
       getMissingDownloadBytes,
     } =
-      await loadDownloads();
+      await loadDownloadMath();
 
     assert.equal(
       getMissingDownloadBytes(
