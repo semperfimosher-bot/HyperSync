@@ -1971,17 +1971,10 @@ const checkDownloadedGeneratedPlaylistUpdates =
         const downloadedPlaylists =
           await getDownloadedPlaylists();
 
-        const generatedDownloads =
-          downloadedPlaylists.filter(
-            (playlist) =>
-              playlist.visibility ===
-              "generated",
-          );
-
         const detected =
           (
             await Promise.all(
-              generatedDownloads.map(
+              downloadedPlaylists.map(
                 async (
                   downloadedPlaylist,
                 ) => {
@@ -1990,6 +1983,13 @@ const checkDownloadedGeneratedPlaylistUpdates =
                       await getPlaylist(
                         downloadedPlaylist.id,
                       );
+
+                    if (
+                      livePlaylist.visibility !==
+                      "generated"
+                    ) {
+                      return null;
+                    }
 
                     const missingTracks =
                       findMissingPlaylistTracks(
