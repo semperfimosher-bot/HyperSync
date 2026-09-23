@@ -23,6 +23,8 @@ import {
   getSavedPlaylists,
   removeTrackFromPlaylist,
   reorderPlaylistTracks,
+  savePlaylist,
+  unsavePlaylist,
 } from "../../playlistApi.js";
 
 import {
@@ -1232,6 +1234,77 @@ if (offline) {
   }
 
 
+  async function toggleSelectedPlaylistSaved() {
+    if (
+      !selectedPlaylist ||
+      selectedPlaylist.is_owner ||
+      actionBusy
+    ) {
+      return;
+    }
+
+    if (!currentUser) {
+      onOpenAuth?.();
+      return;
+    }
+
+    const shouldSave =
+      !selectedPlaylist.is_saved;
+
+    setActionBusy(
+      true,
+    );
+
+    setError("");
+
+    setSelectedPlaylist(
+      (current) => ({
+        ...current,
+        is_saved:
+          shouldSave,
+      }),
+    );
+
+    try {
+      if (shouldSave) {
+        await savePlaylist(
+          selectedPlaylist.id,
+        );
+      } else {
+        await unsavePlaylist(
+          selectedPlaylist.id,
+        );
+      }
+
+      const nextSaved =
+        await getSavedPlaylists();
+
+      setSavedPlaylists(
+        nextSaved,
+      );
+    } catch (requestError) {
+      setSelectedPlaylist(
+        (current) => ({
+          ...current,
+          is_saved:
+            !shouldSave,
+        }),
+      );
+
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to update your Library.",
+      );
+    } finally {
+      setActionBusy(
+        false,
+      );
+    }
+  }
+
+
   function playPlaylist(
     startIndex = 0,
   ) {
@@ -1648,6 +1721,39 @@ if (offline) {
                     ? "Downloaded"
                     : "Download"}
               </button>
+
+
+              {!selectedPlaylist.is_owner &&
+              isRegistered ? (
+                <button
+                  type="button"
+                  className="hs-search-playlist-action"
+                  disabled={
+                    actionBusy
+                  }
+                  title={
+                    selectedPlaylist.is_saved
+                      ? "Remove from Library"
+                      : "Add to Library"
+                  }
+                  onClick={() => {
+                    void toggleSelectedPlaylistSaved();
+                  }}
+                >
+                  <Icon
+                    name={
+                      selectedPlaylist.is_saved
+                        ? "check"
+                        : "plus"
+                    }
+                    size={14}
+                  />
+
+                  {selectedPlaylist.is_saved
+                    ? "In Library"
+                    : "Add to Library"}
+                </button>
+              ) : null}
 
 
               {selectedPlaylist.is_owner ? (
@@ -2069,6 +2175,34 @@ if (offline) {
         </section>
 
       </section>
+
+
+      <DownloadRemovalConfirm
+        open={
+          Boolean(
+            removeDownloadTarget,
+          )
+        }
+        playlistTitle={
+          removeDownloadTarget
+            ?.title
+        }
+        busy={
+          removingDownload
+        }
+        onCancel={() => {
+          if (
+            !removingDownload
+          ) {
+            setRemoveDownloadTarget(
+              null,
+            );
+          }
+        }}
+        onConfirm={() => {
+          void confirmRemoveDownload();
+        }}
+      />
 
 
       <TrackActionMenu
