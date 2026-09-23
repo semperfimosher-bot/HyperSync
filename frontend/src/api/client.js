@@ -5,8 +5,8 @@ import {
 } from "./storage.js";
 
 export const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV
+  import.meta.env?.VITE_API_BASE_URL ??
+  (import.meta.env?.DEV
     ? "/api"
     : "https://api.hypersynced.app/api");
 
