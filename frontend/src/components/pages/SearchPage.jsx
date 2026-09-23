@@ -18,6 +18,8 @@ import * as player from
 
 import {
   downloadTracksForOffline,
+  getDownloadedPlaylists,
+  removePlaylistFromOffline,
   searchDownloadedTracks,
 } from "../../offlineDownloads.js";
 
@@ -45,6 +47,9 @@ import Avatar from
 
 import Icon from
   "../ui/Icon.jsx";
+
+import DownloadRemovalConfirm from
+  "../ui/DownloadRemovalConfirm.jsx";
 
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
@@ -289,6 +294,16 @@ const [
   progress: 0,
   trackProgress: {},
 });
+
+const [
+  removeDownloadOpen,
+  setRemoveDownloadOpen,
+] = useState(false);
+
+const [
+  removingDownload,
+  setRemovingDownload,
+] = useState(false);
 
 useEffect(() => {
   setOpenedPlaylist(
@@ -969,19 +984,66 @@ useEffect(() => {
   setPlaylistError("");
 
   try {
-    const playlist =
-      await getPlaylist(
-        playlistId,
-      );
+    const [
+      playlist,
+      downloadedPlaylists,
+    ] =
+      await Promise.all([
+        getPlaylist(
+          playlistId,
+        ),
+        getDownloadedPlaylists()
+          .catch(
+            () => [],
+          ),
+      ]);
 
     setOpenedPlaylist(
       playlist,
     );
 
-    setPlaylistDownload({
-      status: "idle",
-      progress: 0,
-    });
+    const downloaded =
+      downloadedPlaylists.find(
+        (item) =>
+          String(
+            item.id,
+          ) ===
+          String(
+            playlistId,
+          ),
+      ) ??
+      null;
+
+    setPlaylistDownload(
+      downloaded
+        ? {
+            status:
+              "downloaded",
+            progress:
+              1,
+            trackProgress:
+              Object.fromEntries(
+                downloaded.tracks.map(
+                  (track) => [
+                    String(
+                      track.id,
+                    ),
+                    {
+                      status:
+                        "downloaded",
+                      progress:
+                        1,
+                    },
+                  ],
+                ),
+              ),
+          }
+        : {
+            status: "idle",
+            progress: 0,
+            trackProgress: {},
+          },
+    );
   } catch (error) {
     setPlaylistError(
       error instanceof Error
@@ -1002,6 +1064,9 @@ function closeSearchPlaylist() {
   );
 
   setPlaylistError("");
+  setRemoveDownloadOpen(
+    false,
+  );
 
   setPlaylistDownload({
     status: "idle",
@@ -1128,6 +1193,48 @@ async function toggleOpenedPlaylistSaved() {
     );
   } finally {
     setPlaylistActionBusy(
+      false,
+    );
+  }
+}
+
+
+async function confirmRemoveOpenedPlaylistDownload() {
+  if (
+    !openedPlaylist ||
+    removingDownload
+  ) {
+    return;
+  }
+
+  setRemovingDownload(
+    true,
+  );
+
+  setPlaylistError("");
+
+  try {
+    await removePlaylistFromOffline(
+      openedPlaylist.id,
+    );
+
+    setPlaylistDownload({
+      status: "idle",
+      progress: 0,
+      trackProgress: {},
+    });
+
+    setRemoveDownloadOpen(
+      false,
+    );
+  } catch (error) {
+    setPlaylistError(
+      error instanceof Error
+        ? error.message
+        : "Unable to remove playlist download.",
+    );
+  } finally {
+    setRemovingDownload(
       false,
     );
   }
@@ -1814,7 +1921,16 @@ async function downloadOpenedPlaylist() {
                 "downloading"
             }
             onClick={() => {
-              void downloadOpenedPlaylist();
+              if (
+                playlistDownload.status ===
+                  "downloaded"
+              ) {
+                setRemoveDownloadOpen(
+                  true,
+                );
+              } else {
+                void downloadOpenedPlaylist();
+              }
             }}
           >
             <Icon
@@ -2157,6 +2273,30 @@ async function downloadOpenedPlaylist() {
     </section>
 
   </section>
+
+    <DownloadRemovalConfirm
+      open={
+        removeDownloadOpen
+      }
+      playlistTitle={
+        openedPlaylist?.title
+      }
+      busy={
+        removingDownload
+      }
+      onCancel={() => {
+        if (
+          !removingDownload
+        ) {
+          setRemoveDownloadOpen(
+            false,
+          );
+        }
+      }}
+      onConfirm={() => {
+        void confirmRemoveOpenedPlaylistDownload();
+      }}
+    />
 
 ) : normalizedQuery ? (
         <>
