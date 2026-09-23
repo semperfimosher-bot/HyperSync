@@ -1682,6 +1682,54 @@ export async function getDownloadJobs() {
 }
 
 
+export async function deleteDownloadJob(
+  jobId,
+) {
+  const normalizedJobId =
+    String(
+      jobId ?? "",
+    ).trim();
+
+  if (!normalizedJobId) {
+    return false;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  await new Promise(
+    (resolve, reject) => {
+      const transaction =
+        database.transaction(
+          MEDIA_DOWNLOAD_JOB_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          MEDIA_DOWNLOAD_JOB_STORE,
+        )
+        .delete(
+          normalizedJobId,
+        );
+
+      transaction.oncomplete =
+        () => resolve();
+
+      transaction.onerror =
+        () => reject(
+          transaction.error ??
+            new Error(
+              "Unable to remove download job.",
+            ),
+        );
+    },
+  );
+
+  return true;
+}
+
+
 export async function removeDownloadedMedia(
   trackId,
   mediaVersion,
