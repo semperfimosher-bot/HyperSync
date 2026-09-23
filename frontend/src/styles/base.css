@@ -6415,3 +6415,139 @@ button > span:nth-child(2) {
       );
   }
 }
+
+
+/* =========================================================
+   DOWNLOADED GENERATED PLAYLIST UPDATES
+   ========================================================= */
+
+.playlist-update-notice {
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border:
+    1px solid
+    rgba(47, 213, 255, 0.28);
+  border-radius: 11px;
+  color: #dff9ff;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(4, 26, 38, 0.98),
+      rgba(3, 13, 21, 0.98)
+    );
+  box-shadow:
+    0 12px 34px
+    rgba(0, 0, 0, 0.34),
+    inset 0 1px
+    rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+}
+
+.playlist-update-notice__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border:
+    1px solid
+    rgba(54, 216, 255, 0.24);
+  border-radius: 8px;
+  color: #51dfff;
+  background:
+    rgba(0, 154, 214, 0.08);
+}
+
+.playlist-update-notice__copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.playlist-update-notice__copy strong,
+.playlist-update-notice__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-update-notice__copy strong {
+  font-size: 9px;
+}
+
+.playlist-update-notice__copy small {
+  color: #78929f;
+  font-size: 7px;
+}
+
+.playlist-update-notice__download {
+  min-height: 28px;
+  padding: 0 9px;
+  border:
+    1px solid
+    rgba(46, 211, 255, 0.28);
+  border-radius: 8px;
+  color: #bdf6ff;
+  background:
+    rgba(0, 151, 214, 0.12);
+  font-size: 7px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.playlist-update-notice__download:hover:not(:disabled) {
+  border-color:
+    rgba(68, 224, 255, 0.52);
+  color: white;
+  background:
+    rgba(0, 167, 230, 0.18);
+}
+
+.playlist-update-notice__download:disabled {
+  cursor: progress;
+  opacity: 0.8;
+}
+
+.playlist-update-notice__dismiss {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: 7px;
+  color: #58717f;
+  background: transparent;
+}
+
+.playlist-update-notice__dismiss:hover:not(:disabled) {
+  color: #b8eefa;
+  background:
+    rgba(255, 255, 255, 0.045);
+}
+
+.playlist-update-notice--desktop {
+  display: none;
+}
+
+.playlist-update-notice--mobile {
+  position: fixed;
+  right: 10px;
+  bottom:
+    calc(
+      var(--nav-mobile-height) +
+      var(--player-mobile-height) +
+      23px +
+      env(safe-area-inset-bottom)
+    );
+  left: 10px;
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto
+    auto;
+  padding: 8px;
+  z-index: 49;
+}
