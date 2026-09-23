@@ -558,7 +558,7 @@ input::-webkit-search-cancel-button {
 
   margin-left: 10px;
 
-  cursor: pointer;
+  cursor: default;
 
   opacity: 0.52;
 
@@ -4128,7 +4128,7 @@ button.is-active strong {
  * Add one extra grid column for
  * the offline-download control.
  */
-.hs-search-track {
+.hs-search-track--playlist-download {
   grid-template-columns:
     28px
     46px
@@ -4329,7 +4329,7 @@ button.is-active strong {
    ============================================================ */
 
 @media (max-width: 720px) {
-  .hs-search-track {
+  .hs-search-track--playlist-download {
     grid-template-columns:
       22px
       42px
@@ -4367,7 +4367,7 @@ button.is-active strong {
 
 /* Force mobile track columns into the correct positions */
 @media (max-width: 720px) {
-  .hs-search-track {
+  .hs-search-track--playlist-download {
     grid-template-columns:
       42px
       minmax(0, 1fr)
