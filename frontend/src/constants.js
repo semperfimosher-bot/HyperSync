@@ -30,7 +30,6 @@ export const ADMIN_NAV_ITEMS = [
 
 export const LIBRARY_TABS = [
   "Playlists",
-  "Downloads",
   "Artists",
   "Albums",
   "Songs",
