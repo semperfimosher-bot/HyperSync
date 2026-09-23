@@ -339,6 +339,117 @@ const [
     playlistDownload.status,
   ]);
 
+  useEffect(() => {
+    const handleOfflinePlaylistUpdated =
+      async (event) => {
+        const playlistId =
+          event?.detail
+            ?.playlistId;
+
+        if (!playlistId) {
+          return;
+        }
+
+        try {
+          const nextDownloads =
+            await getDownloadedPlaylists();
+
+          setDownloadedPlaylists(
+            nextDownloads,
+          );
+
+          if (
+            String(
+              selectedPlaylist?.id ??
+              "",
+            ) !==
+              String(
+                playlistId,
+              )
+          ) {
+            return;
+          }
+
+          const downloaded =
+            nextDownloads.find(
+              (playlist) =>
+                String(
+                  playlist.id,
+                ) ===
+                String(
+                  playlistId,
+                ),
+            );
+
+          if (!downloaded) {
+            return;
+          }
+
+          setPlaylistDownload({
+            status:
+              "downloaded",
+            progress:
+              1,
+            trackProgress:
+              Object.fromEntries(
+                downloaded.tracks.map(
+                  (track) => [
+                    String(
+                      track.id,
+                    ),
+                    {
+                      status:
+                        "downloaded",
+                      progress:
+                        1,
+                    },
+                  ],
+                ),
+              ),
+          });
+
+          if (
+            globalThis.navigator
+              ?.onLine !==
+              false
+          ) {
+            const refreshed =
+              await getPlaylist(
+                playlistId,
+              );
+
+            setCachedPlaylist(
+              libraryCacheKey,
+              refreshed,
+            );
+
+            setSelectedPlaylist(
+              refreshed,
+            );
+          }
+        } catch {
+          // The underlying offline job is already
+          // complete even if this UI refresh fails.
+        }
+      };
+
+    window.addEventListener(
+      "hypersync:offline-playlist-updated",
+      handleOfflinePlaylistUpdated,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "hypersync:offline-playlist-updated",
+        handleOfflinePlaylistUpdated,
+      );
+    };
+  }, [
+    libraryCacheKey,
+    selectedPlaylist?.id,
+  ]);
+
+
   const isRegistered =
     currentUser?.account_type ===
     "registered";
