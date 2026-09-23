@@ -5,6 +5,7 @@ import {
 import {
   ensureMediaRecord,
   getArtwork,
+  getDownloadJobs,
   getMediaChunk,
   getMediaRecord,
   getPinnedMediaRecords,
@@ -548,6 +549,62 @@ async function cacheTrackLyrics(
 }
 
 
+function downloadedTrackFromRecord(
+  record,
+  serviceWorkerControlled,
+) {
+  return {
+    id:
+      record.trackId,
+
+    title:
+      record.title ||
+      "Unknown Track",
+
+    artist:
+      record.artist ||
+      "Unknown Artist",
+
+    album:
+      record.album ||
+      "",
+
+    duration_seconds:
+      record.durationSeconds ??
+      null,
+
+    artwork_url:
+      (
+        serviceWorkerControlled
+          ? record.artworkUrl
+          : (
+              record.artworkSourceUrl ??
+              record.artworkUrl
+            )
+      ) ??
+      null,
+
+    offline_artwork_url:
+      record.artworkUrl ??
+      null,
+
+    mime_type:
+      record.mimeType ??
+      null,
+
+    file_size:
+      record.fileSize ??
+      null,
+
+    media_version:
+      record.mediaVersion,
+
+    downloaded:
+      true,
+  };
+}
+
+
 export async function getDownloadedTracks() {
   const records =
     await getPinnedMediaRecords();
@@ -560,56 +617,198 @@ export async function getDownloadedTracks() {
     );
 
   return records.map(
-    (record) => ({
-      id:
-        record.trackId,
-
-      title:
-        record.title ||
-        "Unknown Track",
-
-      artist:
-        record.artist ||
-        "Unknown Artist",
-
-      album:
-        record.album ||
-        "",
-
-      duration_seconds:
-        record.durationSeconds ??
-        null,
-
-      artwork_url:
-        (
-          serviceWorkerControlled
-            ? record.artworkUrl
-            : (
-                record.artworkSourceUrl ??
-                record.artworkUrl
-              )
-        ) ??
-        null,
-
-      offline_artwork_url:
-        record.artworkUrl ??
-        null,
-
-      mime_type:
-        record.mimeType ??
-        null,
-
-      file_size:
-        record.fileSize ??
-        null,
-
-      media_version:
-        record.mediaVersion,
-
-      downloaded:
-        true,
-    }),
+    (record) =>
+      downloadedTrackFromRecord(
+        record,
+        serviceWorkerControlled,
+      ),
   );
+}
+
+
+export async function getDownloadedPlaylists() {
+  const [
+    jobs,
+    records,
+  ] =
+    await Promise.all([
+      getDownloadJobs(),
+      getPinnedMediaRecords(),
+    ]);
+
+  const recordByKey =
+    new Map(
+      records.map(
+        (record) => [
+          record.key,
+          record,
+        ],
+      ),
+    );
+
+  const serviceWorkerControlled =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
+  return jobs
+    .filter(
+      (job) =>
+        String(
+          job?.id ??
+          "",
+        ).startsWith(
+          "playlist:",
+        ) &&
+        job?.state ===
+          "complete",
+    )
+    .map(
+      (job) => {
+        const tracks =
+          (
+            Array.isArray(
+              job.trackKeys,
+            )
+              ? job.trackKeys
+              : []
+          )
+            .map(
+              (key) =>
+                recordByKey.get(
+                  key,
+                ) ??
+                null,
+            )
+            .filter(Boolean)
+            .map(
+              (record) =>
+                downloadedTrackFromRecord(
+                  record,
+                  serviceWorkerControlled,
+                ),
+            );
+
+        if (
+          tracks.length === 0
+        ) {
+          return null;
+        }
+
+        const fallbackPlaylistId =
+          String(
+            job.id,
+          ).slice(
+            "playlist:".length,
+          );
+
+        return {
+          id:
+            job.playlistId ??
+            fallbackPlaylistId,
+
+          title:
+            job.playlistTitle ??
+            "Downloaded playlist",
+
+          description:
+            job.playlistDescription ??
+            null,
+
+          artwork_url:
+            job.playlistArtworkUrl ??
+            tracks[0]
+              ?.artwork_url ??
+            null,
+
+          owner_username:
+            job.playlistOwnerUsername ??
+            null,
+
+          visibility:
+            job.playlistVisibility ??
+            "downloaded",
+
+          track_count:
+            tracks.length,
+
+          total_duration_seconds:
+            tracks.reduce(
+              (
+                total,
+                track,
+              ) =>
+                total +
+                (
+                  Number(
+                    track.duration_seconds,
+                  ) || 0
+                ),
+              0,
+            ),
+
+          tracks,
+
+          downloaded:
+            true,
+
+          is_offline_download:
+            true,
+        };
+      },
+    )
+    .filter(Boolean)
+    .sort(
+      (
+        first,
+        second,
+      ) => {
+        const firstJob =
+          jobs.find(
+            (job) =>
+              String(
+                job.playlistId ??
+                String(
+                  job.id,
+                ).slice(
+                  "playlist:".length,
+                ),
+              ) ===
+              String(
+                first.id,
+              ),
+          );
+
+        const secondJob =
+          jobs.find(
+            (job) =>
+              String(
+                job.playlistId ??
+                String(
+                  job.id,
+                ).slice(
+                  "playlist:".length,
+                ),
+              ) ===
+              String(
+                second.id,
+              ),
+          );
+
+        return (
+          Number(
+            secondJob?.updatedAt ??
+              0,
+          ) -
+          Number(
+            firstJob?.updatedAt ??
+              0,
+          )
+        );
+      },
+    );
 }
 
 
@@ -928,6 +1127,7 @@ export async function downloadTracksForOffline(
     onProgress = null,
     signal = null,
     jobId = null,
+    jobMetadata = null,
   } = {},
 ) {
   const uniqueTracks =
@@ -1102,6 +1302,41 @@ export async function downloadTracksForOffline(
           Date.now()
         );
 
+  const normalizedJobMetadata =
+    jobMetadata &&
+    typeof jobMetadata ===
+      "object"
+      ? {
+          kind:
+            jobMetadata.kind ??
+            null,
+
+          playlistId:
+            jobMetadata.playlistId ??
+            null,
+
+          playlistTitle:
+            jobMetadata.playlistTitle ??
+            null,
+
+          playlistDescription:
+            jobMetadata.playlistDescription ??
+            null,
+
+          playlistArtworkUrl:
+            jobMetadata.playlistArtworkUrl ??
+            null,
+
+          playlistOwnerUsername:
+            jobMetadata.playlistOwnerUsername ??
+            null,
+
+          playlistVisibility:
+            jobMetadata.playlistVisibility ??
+            null,
+        }
+      : {};
+
   const downloadedBytesNow =
     () =>
       Array.from(
@@ -1119,6 +1354,57 @@ export async function downloadTracksForOffline(
     const downloadedBytes =
       downloadedBytesNow();
 
+    const trackProgress =
+      Object.fromEntries(
+        uniqueTracks.map(
+          (track) => {
+            const identity =
+              trackIdentity(
+                track,
+              );
+
+            const fileSize =
+              trackFileSize(
+                track,
+              );
+
+            const downloadedForTrack =
+              progressByKey.get(
+                identity.key,
+              ) ??
+              0;
+
+            const progress =
+              fileSize > 0
+                ? Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      downloadedForTrack /
+                        fileSize,
+                    ),
+                  )
+                : 0;
+
+            return [
+              identity.trackId,
+              {
+                status:
+                  completedKeys.has(
+                    identity.key,
+                  )
+                    ? "downloaded"
+                    : progress > 0
+                      ? "downloading"
+                      : "queued",
+
+                progress,
+              },
+            ];
+          },
+        ),
+      );
+
     onProgress?.({
       downloadedBytes,
       totalBytes,
@@ -1134,12 +1420,14 @@ export async function downloadTracksForOffline(
       totalTracks:
         uniqueTracks.length,
       currentTrackId,
+      trackProgress,
     });
   };
 
   await saveDownloadJob({
     id:
       normalizedJobId,
+    ...normalizedJobMetadata,
     state:
       pendingTracks.length > 0
         ? "downloading"
