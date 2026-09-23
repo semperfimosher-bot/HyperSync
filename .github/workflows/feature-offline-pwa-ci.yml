@@ -1,0 +1,66 @@
+name: Playlist refresh notification validation
+
+on:
+  push:
+    branches:
+      - feature/offline-pwa-downloads
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL: sqlite+aiosqlite:///./ci.db
+      MIGRATION_DATABASE_URL: sqlite+aiosqlite:///./ci.db
+      JWT_SECRET: ci-test-jwt-secret-that-is-longer-than-thirty-two-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.backend.txt
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.backend.txt
+          pip install pytest pytest-asyncio
+      - name: Create schema
+        run: |
+          python - <<'PY'
+          import asyncio
+          from backend.app.database import ensure_demo_data
+          asyncio.run(ensure_demo_data())
+          PY
+      - name: Test generated playlist refresh
+        run: python -m pytest -q -W error tests/test_generated_playlist_refresh.py
+      - name: Compile backend
+        run: python -m compileall -q backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: |
+          node --test \
+            src/playlistDownloadUpdates.test.js \
+            src/mediaStore.test.js \
+            src/offlineDownloads.test.js \
+            src/mediaPlayback.test.js \
+            src/serviceWorker.test.js
+      - name: Build
+        run: npm run build
