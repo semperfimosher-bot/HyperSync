@@ -38,6 +38,12 @@ const MAX_CACHED_ARTWORK_BYTES =
 const NAVIGATION_NETWORK_TIMEOUT_MS =
   3500;
 
+const MEDIA_CLEANUP_INTERVAL_MS =
+  6 * 60 * 60 * 1000;
+
+let lastMediaCleanupAt =
+  0;
+
 
 async function precacheAppShell() {
   const cache =
@@ -594,6 +600,33 @@ export async function handleMediaRequest(
   scheduleBackgroundTask =
     null,
 ) {
+  const now =
+    Date.now();
+
+  if (
+    now - lastMediaCleanupAt >=
+      MEDIA_CLEANUP_INTERVAL_MS
+  ) {
+    lastMediaCleanupAt =
+      now;
+
+    const cleanupTask =
+      cleanupExpiredMedia(
+        now,
+      ).catch(
+        () => 0,
+      );
+
+    if (
+      typeof scheduleBackgroundTask ===
+        "function"
+    ) {
+      scheduleBackgroundTask(
+        cleanupTask,
+      );
+    }
+  }
+
   const identity =
     parseMediaRoute(
       request,
