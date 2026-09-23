@@ -2769,6 +2769,15 @@ const clearPlaylistToOpen =
     currentUser={currentUser}
     onNavigate={navigate}
     onOpenAuth={openAuth}
+    playlistUpdate={
+      activePlaylistUpdate
+    }
+    onDownloadPlaylistUpdate={() => {
+      void downloadActivePlaylistUpdate();
+    }}
+    onDismissPlaylistUpdate={
+      dismissPlaylistUpdate
+    }
     />
 
         <DesktopTopbar
@@ -2837,19 +2846,6 @@ const clearPlaylistToOpen =
           void downloadActivePlaylistUpdate();
         }}
         onDismissPlaylistUpdate={
-          dismissPlaylistUpdate
-        }
-      />
-
-      <PlaylistUpdateNotice
-        update={
-          activePlaylistUpdate
-        }
-        variant="mobile"
-        onDownload={() => {
-          void downloadActivePlaylistUpdate();
-        }}
-        onDismiss={
           dismissPlaylistUpdate
         }
       />
