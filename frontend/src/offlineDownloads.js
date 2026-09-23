@@ -13,6 +13,7 @@ import {
   getMediaPinReferences,
   getPinnedMediaRecords,
   MEDIA_CHUNK_SIZE,
+  removeArtwork,
   removeDownloadedMedia,
   saveArtwork,
   saveDownloadJob,
@@ -43,6 +44,9 @@ const MAX_OFFLINE_ARTWORK_BYTES =
 
 const OFFLINE_ARTWORK_RETRY_MS =
   5 * 60 * 1000;
+
+const OFFLINE_METADATA_REVALIDATE_MS =
+  15 * 60 * 1000;
 
 const offlineArtworkObjectUrls =
   new Map();
@@ -896,16 +900,53 @@ async function cacheTrackLyrics(
 }
 
 
+async function fetchCurrentTrackMetadata(
+  trackId,
+  {
+    signal = null,
+  } = {},
+) {
+  const response =
+    await fetch(
+      buildApiUrl(
+        "/api/catalog/tracks/" +
+          encodeURIComponent(
+            trackId,
+          ),
+      ),
+      {
+        method:
+          "GET",
+        credentials:
+          "include",
+        cache:
+          "no-cache",
+        signal,
+      },
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to refresh downloaded track metadata (${response.status}).`,
+    );
+  }
+
+  return response.json();
+}
+
+
 async function repairDownloadedArtworkRecord(
   record,
 ) {
   if (
     globalThis.navigator
-      ?.onLine === false ||
-    !record?.artworkSourceUrl
+      ?.onLine === false
   ) {
     return record;
   }
+
+  const now =
+    Date.now();
 
   const retryAfter =
     Number(
@@ -917,48 +958,131 @@ async function repairDownloadedArtworkRecord(
     Number.isFinite(
       retryAfter,
     ) &&
-    retryAfter > Date.now()
+    retryAfter > now
   ) {
     return record;
   }
 
-  const desiredVersion =
-    record.artworkVersion ??
-    artworkVersionFromSource(
-      record.artworkSourceUrl,
+  const validatedAt =
+    Number(
+      record.artworkValidatedAt ??
+      0,
     );
 
-  try {
-    const artwork =
-      await cacheTrackArtwork({
-        id:
-          record.trackId,
-        artwork_url:
-          record.artworkSourceUrl,
-        artwork_version:
-          desiredVersion,
-      });
+  if (
+    Number.isFinite(
+      validatedAt,
+    ) &&
+    validatedAt > 0 &&
+    now - validatedAt <
+      OFFLINE_METADATA_REVALIDATE_MS
+  ) {
+    return record;
+  }
 
-    if (!artwork) {
-      return record;
+  try {
+    const currentTrack =
+      await fetchCurrentTrackMetadata(
+        record.trackId,
+      );
+
+    const artworkSourceUrl =
+      currentTrack?.artwork_url ??
+      currentTrack?.artworkUrl ??
+      null;
+
+    const artworkVersion =
+      artworkVersionFromTrack(
+        currentTrack,
+      );
+
+    if (!artworkSourceUrl) {
+      await removeArtwork(
+        record.trackId,
+      ).catch(
+        () => null,
+      );
+
+      const updated = {
+        ...record,
+        title:
+          currentTrack?.title ??
+          record.title,
+        artist:
+          currentTrack?.artist ??
+          record.artist,
+        album:
+          currentTrack?.album ??
+          record.album,
+        durationSeconds:
+          currentTrack?.duration_seconds ??
+          currentTrack?.durationSeconds ??
+          record.durationSeconds,
+        artworkSourceUrl:
+          null,
+        artworkVersion:
+          null,
+        artworkUrl:
+          null,
+        artworkCached:
+          false,
+        artworkRetryAfter:
+          null,
+        artworkValidatedAt:
+          now,
+      };
+
+      await saveMediaRecord(
+        updated,
+      );
+
+      return updated;
     }
+
+    const artwork =
+      await cacheTrackArtwork(
+        currentTrack,
+      );
 
     const updated = {
       ...record,
+      title:
+        currentTrack?.title ??
+        record.title,
+      artist:
+        currentTrack?.artist ??
+        record.artist,
+      album:
+        currentTrack?.album ??
+        record.album,
+      durationSeconds:
+        currentTrack?.duration_seconds ??
+        currentTrack?.durationSeconds ??
+        record.durationSeconds,
+      artworkSourceUrl,
       artworkVersion:
-        artwork.artworkVersion ??
-        desiredVersion ??
+        artwork?.artworkVersion ??
+        artworkVersion ??
         null,
       artworkUrl:
-        getOfflineArtworkUrl(
-          record.trackId,
-          artwork.artworkVersion ??
-            desiredVersion,
-        ),
+        artwork
+          ? getOfflineArtworkUrl(
+              record.trackId,
+              artwork.artworkVersion ??
+                artworkVersion,
+            )
+          : null,
       artworkCached:
-        true,
+        Boolean(
+          artwork,
+        ),
       artworkRetryAfter:
-        null,
+        artwork
+          ? null
+          : now +
+            OFFLINE_ARTWORK_RETRY_MS,
+      artworkValidatedAt:
+        now,
     };
 
     await saveMediaRecord(
@@ -969,10 +1093,8 @@ async function repairDownloadedArtworkRecord(
   } catch {
     const updated = {
       ...record,
-      artworkCached:
-        false,
       artworkRetryAfter:
-        Date.now() +
+        now +
         OFFLINE_ARTWORK_RETRY_MS,
     };
 
@@ -985,7 +1107,6 @@ async function repairDownloadedArtworkRecord(
     return updated;
   }
 }
-
 
 async function resolveDownloadedArtworkUrl(
   record,
@@ -1840,6 +1961,9 @@ export async function downloadTrackForOffline(
         ? null
         : Date.now() +
           OFFLINE_ARTWORK_RETRY_MS,
+
+    artworkValidatedAt:
+      Date.now(),
 
     pinRefs: [
       ...existingPinRefs,
