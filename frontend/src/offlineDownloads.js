@@ -277,55 +277,8 @@ function trackMimeType(
 }
 
 
-async function requestDirectMediaSource(
-  trackId,
-  mediaVersion,
-  signal,
-) {
-  try {
-    const response =
-      await fetch(
-        buildApiUrl(
-          "/api/media/" +
-            encodeURIComponent(
-              trackId,
-            ) +
-            "/source?version=" +
-            encodeURIComponent(
-              mediaVersion,
-            ),
-        ),
-        {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          signal,
-        },
-      );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload =
-      await response.json();
-
-    return (
-      typeof payload?.url ===
-        "string" &&
-      payload.url
-        ? payload.url
-        : null
-    );
-  } catch {
-    return null;
-  }
-}
-
-
 async function fetchAudioRange({
   trackId,
-  directSource,
   byteStart,
   byteEnd,
   signal,
@@ -335,31 +288,12 @@ async function fetchAudioRange({
       `bytes=${byteStart}-${byteEnd}`,
   };
 
-  if (directSource) {
-    try {
-      const response =
-        await fetch(
-          directSource,
-          {
-            method: "GET",
-            headers,
-            credentials: "omit",
-            cache: "no-store",
-            signal,
-          },
-        );
-
-      if (
-        response.status ===
-        206
-      ) {
-        return response;
-      }
-    } catch {
-      // Fall back through the API below.
-    }
-  }
-
+  /*
+   * Offline downloads intentionally use HyperSync's
+   * same-origin Range endpoint. Fetching a presigned B2
+   * URL directly requires bucket CORS and fails in local
+   * development when B2 omits Access-Control-Allow-Origin.
+   */
   const response =
     await fetch(
       buildApiUrl(
@@ -618,6 +552,13 @@ export async function getDownloadedTracks() {
   const records =
     await getPinnedMediaRecords();
 
+  const serviceWorkerControlled =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
   return records.map(
     (record) => ({
       id:
@@ -640,6 +581,17 @@ export async function getDownloadedTracks() {
         null,
 
       artwork_url:
+        (
+          serviceWorkerControlled
+            ? record.artworkUrl
+            : (
+                record.artworkSourceUrl ??
+                record.artworkUrl
+              )
+        ) ??
+        null,
+
+      offline_artwork_url:
         record.artworkUrl ??
         null,
 
@@ -764,13 +716,6 @@ export async function downloadTrackForOffline(
     );
   }
 
-  const directSource =
-    await requestDirectMediaSource(
-      trackId,
-      mediaVersion,
-      signal,
-    );
-
   let completedBytes =
     0;
 
@@ -806,7 +751,6 @@ export async function downloadTrackForOffline(
       const response =
         await fetchAudioRange({
           trackId,
-          directSource,
           byteStart,
           byteEnd,
           signal,
