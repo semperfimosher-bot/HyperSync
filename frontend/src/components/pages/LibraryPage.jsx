@@ -50,6 +50,7 @@ import {
   getOfflineOwnerKey,
   getPlaylistDownloadJob,
   getPlaylistDownloadJobId,
+  reconcileDownloadedPlaylistMembership,
   removePlaylistFromOffline,
 } from "../../offlineDownloads.js";
 
@@ -741,6 +742,11 @@ const [
           initialPlaylistId,
         );
 
+      await reconcileDownloadedPlaylistMembership(
+        playlist,
+        offlineOwnerKey,
+      );
+
       if (cancelled) {
         return;
       }
@@ -995,6 +1001,11 @@ if (offline) {
       await getPlaylist(
         playlistId,
       );
+
+    await reconcileDownloadedPlaylistMembership(
+      playlist,
+      offlineOwnerKey,
+    );
 
     setCachedPlaylist(
   libraryCacheKey,
