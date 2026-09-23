@@ -2241,8 +2241,31 @@ const checkDownloadedGeneratedPlaylistUpdates =
               },
 
               onProgress: ({
-                progress,
+                trackProgress,
               }) => {
+                const missingProgress =
+                  missingTracks.length > 0
+                    ? (
+                        missingTracks.reduce(
+                          (
+                            total,
+                            track,
+                          ) =>
+                            total +
+                            (
+                              trackProgress?.[
+                                String(
+                                  track.id,
+                                )
+                              ]?.progress ??
+                              0
+                            ),
+                          0,
+                        ) /
+                        missingTracks.length
+                      )
+                    : 1;
+
                 setPlaylistUpdates(
                   (current) =>
                     current.map(
@@ -2255,9 +2278,9 @@ const checkDownloadedGeneratedPlaylistUpdates =
                                 "downloading",
                               progress:
                                 Number.isFinite(
-                                  progress,
+                                  missingProgress,
                                 )
-                                  ? progress
+                                  ? missingProgress
                                   : 0,
                             }
                           : item,
