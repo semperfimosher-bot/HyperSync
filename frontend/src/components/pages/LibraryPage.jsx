@@ -1841,22 +1841,39 @@ if (offline) {
         </div>
 
 
-        <button
-          type="button"
-          className="hs-search-primary-action"
-          onClick={() => {
-            setCreateOpen(
-              true,
-            );
-          }}
-        >
-          <Icon
-            name="plus"
-            size={16}
-          />
+        {isRegistered ? (
+          <button
+            type="button"
+            className="hs-search-primary-action"
+            onClick={() => {
+              setCreateOpen(
+                true,
+              );
+            }}
+          >
+            <Icon
+              name="plus"
+              size={16}
+            />
 
-          New Playlist
-        </button>
+            New Playlist
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="hs-search-primary-action"
+            onClick={
+              onOpenAuth
+            }
+          >
+            <Icon
+              name="library"
+              size={16}
+            />
+
+            Sign in
+          </button>
+        )}
 
       </div>
 
