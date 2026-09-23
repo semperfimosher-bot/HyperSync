@@ -39,10 +39,8 @@ import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
 import {
-  downloadTrackForOffline,
   downloadTracksForOffline,
-  getDownloadedTracks,
-  isTrackDownloaded,
+  getDownloadedPlaylists,
 } from "../../offlineDownloads.js";
 
 import {
@@ -214,6 +212,7 @@ const [
   setPlaylistDownload({
     status: "idle",
     progress: 0,
+    trackProgress: {},
   });
 }, [
   resetToken,
@@ -291,32 +290,25 @@ const [
 });
 
   const [
-    downloadedTracks,
-    setDownloadedTracks,
+    downloadedPlaylists,
+    setDownloadedPlaylists,
   ] = useState([]);
 
   useEffect(() => {
-    if (
-      activeTab !==
-      "Downloads"
-    ) {
-      return undefined;
-    }
-
     let cancelled =
       false;
 
-    void getDownloadedTracks()
-      .then((tracks) => {
+    void getDownloadedPlaylists()
+      .then((playlists) => {
         if (!cancelled) {
-          setDownloadedTracks(
-            tracks,
+          setDownloadedPlaylists(
+            playlists,
           );
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setDownloadedTracks(
+          setDownloadedPlaylists(
             [],
           );
         }
@@ -326,7 +318,6 @@ const [
       cancelled = true;
     };
   }, [
-    activeTab,
     resetToken,
     playlistDownload.status,
   ]);
@@ -659,11 +650,24 @@ useEffect(() => {
     return;
   }
 
+  const downloaded =
+    downloadedPlaylists.find(
+      (playlist) =>
+        String(
+          playlist.id,
+        ) ===
+        String(
+          playlistId,
+        ),
+    ) ??
+    null;
+
   const cached =
+    downloaded ??
     getCachedPlaylist(
-  libraryCacheKey,
-  playlistId,
-)
+      libraryCacheKey,
+      playlistId,
+    )
 
   /*
    * If we've loaded this playlist before,
@@ -1011,6 +1015,8 @@ if (offline) {
         "downloading",
       progress:
         0,
+      trackProgress:
+        {},
     });
 
     try {
@@ -1022,8 +1028,29 @@ if (offline) {
             String(
               selectedPlaylist.id,
             ),
+          jobMetadata: {
+            kind:
+              "playlist",
+            playlistId:
+              selectedPlaylist.id,
+            playlistTitle:
+              selectedPlaylist.title,
+            playlistDescription:
+              selectedPlaylist.description ??
+              null,
+            playlistArtworkUrl:
+              selectedPlaylist.artwork_url ??
+              null,
+            playlistOwnerUsername:
+              selectedPlaylist.owner_username ??
+              null,
+            playlistVisibility:
+              selectedPlaylist.visibility ??
+              null,
+          },
           onProgress: ({
             progress,
+            trackProgress,
           }) => {
             setPlaylistDownload({
               status:
@@ -1034,6 +1061,9 @@ if (offline) {
                 )
                   ? progress
                   : 0,
+              trackProgress:
+                trackProgress ??
+                {},
             });
           },
         },
@@ -1044,13 +1074,35 @@ if (offline) {
           "downloaded",
         progress:
           1,
+        trackProgress:
+          Object.fromEntries(
+            tracks.map(
+              (track) => [
+                String(
+                  track.id,
+                ),
+                {
+                  status:
+                    "downloaded",
+                  progress:
+                    1,
+                },
+              ],
+            ),
+          ),
       });
+
+      setDownloadedPlaylists(
+        await getDownloadedPlaylists(),
+      );
     } catch (requestError) {
       setPlaylistDownload({
         status:
           "error",
         progress:
           0,
+        trackProgress:
+          {},
       });
 
       setError(
@@ -1122,23 +1174,69 @@ if (offline) {
   }
 
 
-  const visiblePlaylists = [
-  ...ownedPlaylists,
+  const onlinePlaylists = [
+    ...ownedPlaylists,
 
-  ...savedPlaylists.filter(
-    (savedPlaylist) =>
-      !ownedPlaylists.some(
-        (ownedPlaylist) =>
-          ownedPlaylist.id ===
-          savedPlaylist.id,
+    ...savedPlaylists.filter(
+      (savedPlaylist) =>
+        !ownedPlaylists.some(
+          (ownedPlaylist) =>
+            ownedPlaylist.id ===
+            savedPlaylist.id,
+        ),
+    ),
+  ];
+
+  const downloadedById =
+    new Map(
+      downloadedPlaylists.map(
+        (playlist) => [
+          String(
+            playlist.id,
+          ),
+          playlist,
+        ],
       ),
-  ),
-];
+    );
+
+  const visiblePlaylists = [
+    ...onlinePlaylists.map(
+      (playlist) => {
+        const downloaded =
+          downloadedById.get(
+            String(
+              playlist.id,
+            ),
+          );
+
+        return downloaded
+          ? {
+              ...playlist,
+              is_offline_download:
+                true,
+            }
+          : playlist;
+      },
+    ),
+
+    ...downloadedPlaylists.filter(
+      (downloaded) =>
+        !onlinePlaylists.some(
+          (playlist) =>
+            String(
+              playlist.id,
+            ) ===
+            String(
+              downloaded.id,
+            ),
+        ),
+    ),
+  ];
 
   if (
     !isRegistered &&
-    activeTab !==
-      "Downloads"
+    downloadedPlaylists.length ===
+      0
   ) {
   return (
     <div className="page-stack hs-search-page hs-library-page">
@@ -1205,22 +1303,6 @@ if (offline) {
               Sign in
             </button>
 
-            <button
-              type="button"
-              className="hs-search-playlist-action"
-              onClick={() => {
-                setActiveTab(
-                  "Downloads",
-                );
-              }}
-            >
-              <Icon
-                name="download"
-                size={16}
-              />
-
-              View downloads
-            </button>
           </div>
 
         </div>
@@ -1560,6 +1642,7 @@ if (offline) {
                       )}
                       className={[
                         "hs-search-track",
+                        "hs-search-track--playlist-download",
                         "hs-library-track-row",
 
                         selectedPlaylist.is_owner
@@ -1667,6 +1750,90 @@ if (offline) {
                           track.duration_seconds,
                         )}
                       </span>
+
+
+                      {(() => {
+                        const state =
+                          playlistDownload
+                            .trackProgress?.[
+                              String(
+                                track.id,
+                              )
+                            ] ??
+                          null;
+
+                        if (
+                          !state &&
+                          playlistDownload.status ===
+                            "idle"
+                        ) {
+                          return (
+                            <span
+                              className="hs-search-track__download hs-search-playlist-spacer"
+                              aria-hidden="true"
+                            />
+                          );
+                        }
+
+                        const progress =
+                          Math.round(
+                            (
+                              state?.progress ??
+                              (
+                                playlistDownload.status ===
+                                  "downloaded"
+                                  ? 1
+                                  : 0
+                              )
+                            ) *
+                              100,
+                          );
+
+                        const done =
+                          state?.status ===
+                            "downloaded" ||
+                          playlistDownload.status ===
+                            "downloaded";
+
+                        return (
+                          <span
+                            className={[
+                              "hs-search-track__download",
+                              done
+                                ? "is-downloaded"
+                                : "is-downloading",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            title={
+                              done
+                                ? "Downloaded"
+                                : `Downloading ${progress}%`
+                            }
+                            aria-label={
+                              done
+                                ? `${track.title} downloaded`
+                                : `Downloading ${track.title}: ${progress}%`
+                            }
+                          >
+                            {done ? (
+                              <Icon
+                                name="check"
+                                size={15}
+                              />
+                            ) : progress > 0 ? (
+                              <span className="hs-search-track__download-progress">
+                                {progress}
+                              </span>
+                            ) : (
+                              <Icon
+                                name="download"
+                                size={15}
+                              />
+                            )}
+                          </span>
+                        );
+                      })()}
 
 
                       {selectedPlaylist.is_owner ? (
@@ -1971,186 +2138,7 @@ if (offline) {
     ) : null}
 
 
-    {activeTab === "Downloads" ? (
-
-      <section className="hs-search-section hs-library-collection">
-
-        <div className="hs-search-section__heading">
-          <div>
-            <span>
-              OFFLINE CONTENT
-            </span>
-
-            <h3>
-              Downloads
-            </h3>
-          </div>
-
-          <strong>
-            {downloadedTracks.length}
-          </strong>
-        </div>
-
-        {downloadedTracks.length === 0 ? (
-          <div className="hs-library-empty">
-            <Icon
-              name="download"
-              size={22}
-            />
-
-            <div>
-              <strong>
-                Nothing downloaded yet
-              </strong>
-
-              <p>
-                Download a track or playlist and it will be available here without internet.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="hs-search-track-list">
-            {downloadedTracks.map(
-              (track, index) => {
-                const artwork =
-                  resolveArtworkUrl(
-                    track.artwork_url,
-                  );
-
-                const current =
-                  currentTrackId !== null &&
-                  String(
-                    track.id,
-                  ) ===
-                    currentTrackId;
-
-                return (
-                  <div
-                    key={
-                      track.id
-                    }
-                    role="button"
-                    tabIndex={0}
-                    className={[
-                      "hs-search-track",
-                      current
-                        ? "is-current-track"
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onClick={() => {
-                      void player.playTrack(
-                        track.id,
-                        {
-                          artworkUrl:
-                            artwork,
-                          title:
-                            track.title,
-                          artist:
-                            track.artist,
-                          album:
-                            track.album,
-                          mimeType:
-                            track.mime_type,
-                          fileSize:
-                            track.file_size,
-                          mediaVersion:
-                            track.media_version,
-                        },
-                      );
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key ===
-                          "Enter" ||
-                        event.key ===
-                          " "
-                      ) {
-                        event.preventDefault();
-
-                        event.currentTarget.click();
-                      }
-                    }}
-                  >
-                    <span className="hs-search-track__rank">
-                      {String(
-                        index + 1,
-                      ).padStart(
-                        2,
-                        "0",
-                      )}
-                    </span>
-
-                    <span className="hs-search-track__art">
-                      {artwork ? (
-                        <img
-                          src={
-                            artwork
-                          }
-                          alt=""
-                          loading="lazy"
-                        />
-                      ) : (
-                        <Icon
-                          name="music"
-                          size={20}
-                        />
-                      )}
-
-                      <i aria-hidden="true">
-                        <Icon
-                          name="play"
-                          size={15}
-                        />
-                      </i>
-                    </span>
-
-                    <span className="hs-search-track__copy">
-                      <strong>
-                        {track.title}
-                      </strong>
-
-                      <small>
-                        {track.artist}
-                        {track.album
-                          ? ` • ${track.album}`
-                          : ""}
-                      </small>
-                    </span>
-
-                    <span className="hs-search-track__signals">
-                      <em>
-                        AVAILABLE OFFLINE
-                      </em>
-
-                      <small>
-                        Stored on this device
-                      </small>
-                    </span>
-
-                    <span className="hs-search-track__duration">
-                      {formatDuration(
-                        track.duration_seconds,
-                      )}
-                    </span>
-
-                    <span className="hs-search-track__play">
-                      <Icon
-                        name="play"
-                        size={16}
-                      />
-                    </span>
-                  </div>
-                );
-              },
-            )}
-          </div>
-        )}
-
-      </section>
-
-    ) : activeTab !== "Playlists" ? (
+    {activeTab !== "Playlists" ? (
 
       <section className="hs-search-message">
 
@@ -2350,10 +2338,12 @@ if (offline) {
                     <span className="hs-search-track__signals">
 
                       <em>
-                        {String(
-                          playlist.visibility ||
-                            "playlist",
-                        ).toUpperCase()}
+                        {playlist.is_offline_download
+                          ? "DOWNLOADED"
+                          : String(
+                              playlist.visibility ||
+                                "playlist",
+                            ).toUpperCase()}
                       </em>
 
                       <small>
