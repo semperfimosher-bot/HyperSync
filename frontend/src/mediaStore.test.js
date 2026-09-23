@@ -1763,3 +1763,172 @@ test(
     );
   },
 );
+
+
+test(
+  "scoped pin removal preserves media until the final reference is removed",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "pin-reference-track";
+
+    const mediaVersion =
+      "pin-reference-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await mediaStore.saveMediaChunk({
+      trackId,
+      mediaVersion,
+      chunkIndex:
+        0,
+      byteStart:
+        0,
+      data:
+        new Uint8Array([
+          0x42,
+        ]).buffer,
+    });
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "shared",
+      },
+    );
+
+    const manualPin =
+      "owner:user-a|manual";
+
+    const playlistPin =
+      "owner:user-a|playlist:list-a";
+
+    await mediaStore.addMediaPinReference(
+      trackId,
+      mediaVersion,
+      manualPin,
+    );
+
+    await mediaStore.addMediaPinReference(
+      trackId,
+      mediaVersion,
+      playlistPin,
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+        playlistPin,
+      ),
+      true,
+    );
+
+    const retained =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(retained);
+
+    assert.deepEqual(
+      mediaStore.getMediaPinReferences(
+        retained,
+      ),
+      [manualPin],
+    );
+
+    assert.ok(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+        manualPin,
+      ),
+      true,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      null,
+    );
+  },
+);
