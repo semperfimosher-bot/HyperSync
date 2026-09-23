@@ -302,6 +302,7 @@ useEffect(() => {
   setPlaylistDownload({
     status: "idle",
     progress: 0,
+    trackProgress: {},
   });
 }, [
   resetToken,
@@ -1005,6 +1006,7 @@ function closeSearchPlaylist() {
   setPlaylistDownload({
     status: "idle",
     progress: 0,
+    trackProgress: {},
   });
 }
 
@@ -1152,6 +1154,8 @@ async function downloadOpenedPlaylist() {
       "downloading",
     progress:
       0,
+    trackProgress:
+      {},
   });
 
   try {
