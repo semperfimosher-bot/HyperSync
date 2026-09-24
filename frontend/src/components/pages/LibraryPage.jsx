@@ -344,6 +344,33 @@ const [
             ),
           ),
         );
+
+        const activeSelectedDownload =
+          activeDownloads.find(
+            (download) =>
+              String(
+                download.playlistId,
+              ) ===
+              String(
+                selectedPlaylist?.id ??
+                "",
+              ),
+          ) ??
+          null;
+
+        if (activeSelectedDownload) {
+          setPlaylistDownload({
+            status:
+              "downloading",
+            progress:
+              activeSelectedDownload
+                .progress,
+            trackProgress:
+              activeSelectedDownload
+                .trackProgress ??
+              {},
+          });
+        }
       };
 
     syncActivePlaylistDownloads();
@@ -380,6 +407,7 @@ const [
     };
   }, [
     offlineOwnerKey,
+    selectedPlaylist?.id,
   ]);
 
   const [
@@ -1046,7 +1074,31 @@ useEffect(() => {
           () => null,
         );
 
-  if (downloaded) {
+  const activeDownload =
+    getActivePlaylistDownloads(
+      offlineOwnerKey,
+    ).find(
+      (item) =>
+        String(
+          item.playlistId,
+        ) ===
+        String(
+          playlistId,
+        ),
+    ) ??
+    null;
+
+  if (activeDownload) {
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        activeDownload.progress,
+      trackProgress:
+        activeDownload.trackProgress ??
+        {},
+    });
+  } else if (downloaded) {
     setPlaylistDownload({
       status:
         "downloaded",
