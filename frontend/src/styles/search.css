@@ -4246,18 +4246,20 @@ button.is-active strong {
  */
 .hs-search-track__download.is-downloading {
   border-color:
-    rgba(77, 227, 255, 0.38);
+    transparent;
+
+  border-radius:
+    50%;
 
   color: #70eaff;
 
   background:
-    rgba(38, 186, 223, 0.08);
+    transparent;
 
   cursor: progress;
 
   box-shadow:
-    inset 0 0 0 1px
-    rgba(77, 227, 255, 0.04);
+    none;
 }
 
 
@@ -4365,10 +4367,10 @@ button.is-active strong {
  * brighter when its track row is hovered.
  */
 .hs-search-track:hover
-.hs-search-track__download:not(.is-downloaded),
+.hs-search-track__download:not(.is-downloaded):not(.is-downloading),
 
 .hs-search-track.is-selected
-.hs-search-track__download:not(.is-downloaded) {
+.hs-search-track__download:not(.is-downloaded):not(.is-downloading) {
   border-color:
     rgba(77, 227, 255, 0.26);
 
@@ -4377,14 +4379,26 @@ button.is-active strong {
 
 
 .hs-search-track:hover
-.hs-search-track__download.hs-playlist-row-download-progress,
+.hs-search-track__download.is-downloading,
 .hs-search-track.is-selected
-.hs-search-track__download.hs-playlist-row-download-progress {
+.hs-search-track__download.is-downloading {
   border-color:
     transparent;
 
+  border-radius:
+    50%;
+
   color:
     #70eaff;
+
+  background:
+    transparent;
+
+  box-shadow:
+    none;
+
+  transform:
+    none;
 }
 
 
