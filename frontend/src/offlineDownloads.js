@@ -52,6 +52,171 @@ const offlineArtworkObjectUrls =
   new Map();
 
 
+const activePlaylistDownloadJobs =
+  new Map();
+
+const activePlaylistDownloadPromises =
+  new Map();
+
+
+function activePlaylistDownloadKey(
+  ownerKey,
+  playlistId,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !normalizedPlaylistId
+  ) {
+    return null;
+  }
+
+  return (
+    normalizedOwnerKey +
+    "::" +
+    normalizedPlaylistId
+  );
+}
+
+
+function emitPlaylistDownloadProgress(
+  snapshot,
+) {
+  const key =
+    activePlaylistDownloadKey(
+      snapshot?.ownerKey,
+      snapshot?.playlistId,
+    );
+
+  if (!key) {
+    return;
+  }
+
+  const normalizedSnapshot = {
+    ownerKey:
+      normalizeOwnerKey(
+        snapshot.ownerKey,
+      ),
+    playlistId:
+      String(
+        snapshot.playlistId,
+      ),
+    jobId:
+      snapshot.jobId
+        ? String(
+            snapshot.jobId,
+          )
+        : null,
+    state:
+      snapshot.state ??
+      "downloading",
+    downloadedBytes:
+      Number(
+        snapshot.downloadedBytes ??
+        0,
+      ) || 0,
+    totalBytes:
+      Number(
+        snapshot.totalBytes ??
+        0,
+      ) || 0,
+    progress:
+      Math.max(
+        0,
+        Math.min(
+          1,
+          Number(
+            snapshot.progress ??
+            0,
+          ) || 0,
+        ),
+      ),
+    updatedAt:
+      Date.now(),
+  };
+
+  if (
+    normalizedSnapshot.state ===
+      "downloading"
+  ) {
+    activePlaylistDownloadJobs.set(
+      key,
+      normalizedSnapshot,
+    );
+  } else {
+    activePlaylistDownloadJobs.delete(
+      key,
+    );
+  }
+
+  if (
+    typeof globalThis.window
+      ?.dispatchEvent ===
+      "function" &&
+    typeof globalThis.CustomEvent ===
+      "function"
+  ) {
+    globalThis.window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:offline-download-progress",
+        {
+          detail:
+            normalizedSnapshot,
+        },
+      ),
+    );
+  }
+}
+
+
+function emitOfflineDownloadsChanged() {
+  if (
+    typeof globalThis.window
+      ?.dispatchEvent ===
+      "function" &&
+    typeof globalThis.CustomEvent ===
+      "function"
+  ) {
+    globalThis.window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:offline-downloads-changed",
+      ),
+    );
+  }
+}
+
+
+export function getActivePlaylistDownloads(
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalizedOwnerKey) {
+    return [];
+  }
+
+  return Array.from(
+    activePlaylistDownloadJobs.values(),
+  ).filter(
+    (snapshot) =>
+      snapshot.ownerKey ===
+      normalizedOwnerKey,
+  );
+}
+
+
 function normalizeApiBase() {
   return API_BASE.replace(
     /\/+$/,
@@ -2367,6 +2532,11 @@ export async function downloadTracksForOffline(
         0,
       );
 
+  let runtimeJobState =
+    pendingTracks.length > 0
+      ? "downloading"
+      : "complete";
+
   const report = (
     currentTrackId =
       null,
@@ -2425,16 +2595,18 @@ export async function downloadTracksForOffline(
         ),
       );
 
+    const progress =
+      totalBytes > 0
+        ? (
+            downloadedBytes /
+            totalBytes
+          )
+        : 1;
+
     onProgress?.({
       downloadedBytes,
       totalBytes,
-      progress:
-        totalBytes > 0
-          ? (
-              downloadedBytes /
-              totalBytes
-            )
-          : 1,
+      progress,
       completedTracks:
         completedKeys.size,
       totalTracks:
@@ -2442,6 +2614,26 @@ export async function downloadTracksForOffline(
       currentTrackId,
       trackProgress,
     });
+
+    if (
+      normalizedJobMetadata.kind ===
+        "playlist" &&
+      normalizedJobMetadata.playlistId
+    ) {
+      emitPlaylistDownloadProgress({
+        ownerKey:
+          normalizedOwnerKey,
+        playlistId:
+          normalizedJobMetadata.playlistId,
+        jobId:
+          normalizedJobId,
+        state:
+          runtimeJobState,
+        downloadedBytes,
+        totalBytes,
+        progress,
+      });
+    }
   };
 
   const releaseObsoletePlaylistPins =
@@ -2526,6 +2718,8 @@ export async function downloadTracksForOffline(
     0
   ) {
     await releaseObsoletePlaylistPins();
+
+    emitOfflineDownloadsChanged();
 
     return Promise.all(
       uniqueTracks.map(
@@ -2718,17 +2912,25 @@ export async function downloadTracksForOffline(
         ),
     });
 
+    runtimeJobState =
+      "complete";
+
     report();
+
+    emitOfflineDownloadsChanged();
 
     return results;
   } catch (error) {
+    runtimeJobState =
+      signal?.aborted
+        ? "paused"
+        : "error";
+
     await saveDownloadJob({
       id:
         normalizedJobId,
       state:
-        signal?.aborted
-          ? "paused"
-          : "error",
+        runtimeJobState,
       totalBytes,
       downloadedBytes:
         downloadedBytesNow(),
@@ -2747,6 +2949,8 @@ export async function downloadTracksForOffline(
       () => null,
     );
 
+    report();
+
     throw error;
   } finally {
     signal?.removeEventListener?.(
@@ -2754,6 +2958,71 @@ export async function downloadTracksForOffline(
       abortFromCaller,
     );
   }
+}
+
+
+export function startPlaylistDownloadForOffline(
+  tracks,
+  options = {},
+) {
+  const ownerKey =
+    normalizeOwnerKey(
+      options?.ownerKey ??
+      options?.jobMetadata
+        ?.ownerKey ??
+      null,
+    );
+
+  const playlistId =
+    String(
+      options?.jobMetadata
+        ?.playlistId ??
+      "",
+    ).trim();
+
+  const key =
+    activePlaylistDownloadKey(
+      ownerKey,
+      playlistId,
+    );
+
+  if (!key) {
+    return downloadTracksForOffline(
+      tracks,
+      options,
+    );
+  }
+
+  const existing =
+    activePlaylistDownloadPromises.get(
+      key,
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  const operation =
+    downloadTracksForOffline(
+      tracks,
+      {
+        ...options,
+        ownerKey,
+      },
+    ).finally(
+      () => {
+        activePlaylistDownloadPromises.delete(
+          key,
+        );
+      },
+    );
+
+  activePlaylistDownloadPromises.set(
+    key,
+    operation,
+  );
+
+  return operation;
 }
 
 
