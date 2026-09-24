@@ -11,7 +11,6 @@ import {
   getManualDownloadPinRef,
   getOfflineOwnerKey,
   isTrackDownloaded,
-  removeTrackFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -150,7 +149,11 @@ export default function TrackActionMenu({
 
     setLiked(false);
 
-    setDownloaded(false);
+    setDownloaded(
+      Boolean(
+        track?.downloaded,
+      ),
+    );
   }, [
     track?.id,
   ]);
@@ -186,12 +189,12 @@ export default function TrackActionMenu({
         () => {},
       );
 
-    if (manualDownloadPinRef) {
+    if (offlineOwnerKey) {
       void isTrackDownloaded(
         track,
         {
-          pinRef:
-            manualDownloadPinRef,
+          ownerKey:
+            offlineOwnerKey,
         },
       )
         .then(
@@ -219,6 +222,7 @@ export default function TrackActionMenu({
     track?.id,
     isRegistered,
     manualDownloadPinRef,
+    offlineOwnerKey,
   ]);
 
 
@@ -404,37 +408,26 @@ export default function TrackActionMenu({
 
     setNotice("");
 
+    if (downloaded) {
+      return;
+    }
+
     try {
-      if (downloaded) {
-        await removeTrackFromOffline(
-          track,
-          offlineOwnerKey,
-        );
+      await downloadTrackForOffline(
+        track,
+        {
+          pinRef:
+            manualDownloadPinRef,
+        },
+      );
 
-        setDownloaded(
-          false,
-        );
+      setDownloaded(
+        true,
+      );
 
-        setNotice(
-          "Removed from offline downloads",
-        );
-      } else {
-        await downloadTrackForOffline(
-          track,
-          {
-            pinRef:
-              manualDownloadPinRef,
-          },
-        );
-
-        setDownloaded(
-          true,
-        );
-
-        setNotice(
-          "Available offline",
-        );
-      }
+      setNotice(
+        "Available offline",
+      );
 
       window.dispatchEvent(
         new CustomEvent(
@@ -445,9 +438,7 @@ export default function TrackActionMenu({
       setNotice(
         error instanceof Error
           ? error.message
-          : downloaded
-            ? "Unable to remove offline download."
-            : "Unable to download song.",
+          : "Unable to download song.",
       );
     } finally {
       setBusy("");
@@ -730,8 +721,9 @@ export default function TrackActionMenu({
               type="button"
               role="menuitem"
               disabled={
+                downloaded ||
                 busy ===
-                "download"
+                  "download"
               }
               onClick={() => {
                 void downloadTrack();
@@ -750,7 +742,7 @@ export default function TrackActionMenu({
 
               <span>
                 {downloaded
-                  ? "Remove offline download"
+                  ? "Downloaded for offline"
                   : "Download for offline"}
               </span>
             </button>
