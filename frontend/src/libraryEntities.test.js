@@ -273,3 +273,72 @@ test(
     );
   },
 );
+
+test(
+  "artist and album tabs stay alphabetized across mixed case and numeric names",
+  () => {
+    const tracks = [
+      {
+        id: "1",
+        title: "Track",
+        artist: "zebra",
+        album: "Volume 10",
+      },
+      {
+        id: "2",
+        title: "Track",
+        artist: "Alpha",
+        album: "volume 2",
+      },
+      {
+        id: "3",
+        title: "Track",
+        artist: "beta",
+        album: "Alpha",
+      },
+      {
+        id: "4",
+        title: "Track",
+        artist: "ALPHA 2",
+        album: "alpha 10",
+      },
+    ];
+
+    const artists =
+      buildLibraryArtists(
+        tracks,
+      );
+
+    const albums =
+      buildLibraryAlbums(
+        tracks,
+      );
+
+    assert.deepEqual(
+      artists.map(
+        (artist) =>
+          artist.name,
+      ),
+      [
+        "Alpha",
+        "ALPHA 2",
+        "beta",
+        "zebra",
+      ],
+    );
+
+    assert.deepEqual(
+      albums.map(
+        (album) =>
+          album.title,
+      ),
+      [
+        "Alpha",
+        "alpha 10",
+        "volume 2",
+        "Volume 10",
+      ],
+    );
+  },
+);
+
