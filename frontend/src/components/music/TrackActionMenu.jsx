@@ -402,15 +402,15 @@ export default function TrackActionMenu({
 
 
   async function downloadTrack() {
+    if (downloaded) {
+      return;
+    }
+
     setBusy(
       "download",
     );
 
     setNotice("");
-
-    if (downloaded) {
-      return;
-    }
 
     try {
       await downloadTrackForOffline(
