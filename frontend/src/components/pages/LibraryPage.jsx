@@ -332,6 +332,11 @@ const [
     setRemovingDownloadedTrackKey,
   ] = useState(null);
 
+  const [
+    removeDownloadedSongTarget,
+    setRemoveDownloadedSongTarget,
+  ] = useState(null);
+
   useEffect(() => {
     let cancelled =
       false;
@@ -1614,6 +1619,10 @@ if (offline) {
 
       setDownloadedPlaylists(
         nextPlaylists,
+      );
+
+      setRemoveDownloadedSongTarget(
+        null,
       );
 
       globalThis.window
@@ -3118,7 +3127,7 @@ if (offline) {
                         onClick={(event) => {
                           event.stopPropagation();
 
-                          void removeDownloadedSong(
+                          setRemoveDownloadedSongTarget(
                             track,
                           );
                         }}
@@ -3432,6 +3441,43 @@ if (offline) {
       </section>
 
     )}
+
+      <DownloadRemovalConfirm
+        open={
+          Boolean(
+            removeDownloadedSongTarget,
+          )
+        }
+        itemTitle={
+          removeDownloadedSongTarget
+            ?.title
+        }
+        itemKind="song"
+        busy={
+          Boolean(
+            removingDownloadedTrackKey,
+          )
+        }
+        onCancel={() => {
+          if (
+            !removingDownloadedTrackKey
+          ) {
+            setRemoveDownloadedSongTarget(
+              null,
+            );
+          }
+        }}
+        onConfirm={() => {
+          if (
+            removeDownloadedSongTarget
+          ) {
+            void removeDownloadedSong(
+              removeDownloadedSongTarget,
+            );
+          }
+        }}
+      />
+
 
       <DownloadRemovalConfirm
         open={
