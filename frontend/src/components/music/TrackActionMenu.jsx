@@ -342,6 +342,12 @@ export default function TrackActionMenu({
       setNotice(
         `Added to ${playlist.title}`,
       );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "hypersync:library-changed",
+        ),
+      );
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -389,6 +395,12 @@ export default function TrackActionMenu({
           "Added to Liked Songs",
         );
       }
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "hypersync:library-changed",
+        ),
+      );
     } catch (error) {
       setNotice(
         error instanceof Error
