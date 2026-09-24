@@ -19,6 +19,7 @@ import * as player from
 import {
   createPlaylist,
   deletePlaylist,
+  getLibraryTracks,
   getMyPlaylists,
   getPlaylist,
   getSavedPlaylists,
@@ -210,6 +211,23 @@ const [
     [],
 );
 
+const [
+  libraryTracks,
+  setLibraryTracks,
+] = useState(
+  () =>
+    Array.isArray(
+      cachedLibrary?.tracks,
+    )
+      ? cachedLibrary.tracks
+      : [],
+);
+
+const [
+  selectedLibraryEntity,
+  setSelectedLibraryEntity,
+] = useState(null);
+
   const [
     selectedPlaylist,
     setSelectedPlaylist,
@@ -219,6 +237,10 @@ const [
 
   useEffect(() => {
   setSelectedPlaylist(
+    null,
+  );
+
+  setSelectedLibraryEntity(
     null,
   );
 
@@ -608,6 +630,7 @@ const [
       if (!isRegistered) {
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
+        setLibraryTracks([]);
 
         return;
       }
@@ -649,10 +672,19 @@ const [
               : [],
           );
 
+          setLibraryTracks(
+            Array.isArray(
+              cached.tracks,
+            )
+              ? cached.tracks
+              : [],
+          );
+
           setError("");
         } else {
           setOwnedPlaylists([]);
           setSavedPlaylists([]);
+          setLibraryTracks([]);
 
           setError(
             "This Library has not been cached on this device yet.",
@@ -675,10 +707,12 @@ const [
         const [
           mine,
           saved,
+          tracks,
         ] =
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
+            getLibraryTracks(),
           ]);
 
         const nextOwned =
@@ -691,12 +725,21 @@ const [
             ? saved
             : [];
 
+        const nextTracks =
+          Array.isArray(tracks)
+            ? tracks
+            : [];
+
         setOwnedPlaylists(
           nextOwned,
         );
 
         setSavedPlaylists(
           nextSaved,
+        );
+
+        setLibraryTracks(
+          nextTracks,
         );
 
         setCachedLibrary(
@@ -707,6 +750,9 @@ const [
 
             saved:
               nextSaved,
+
+            tracks:
+              nextTracks,
           },
         );
       } catch (requestError) {
@@ -737,6 +783,14 @@ const [
               : [],
           );
 
+          setLibraryTracks(
+            Array.isArray(
+              fallback.tracks,
+            )
+              ? fallback.tracks
+              : [],
+          );
+
           setError("");
         } else {
           setError(
@@ -757,6 +811,28 @@ const [
 
   useEffect(() => {
     void loadLibrary();
+  }, [
+    loadLibrary,
+  ]);
+
+
+  useEffect(() => {
+    const handleLibraryChanged =
+      () => {
+        void loadLibrary();
+      };
+
+    window.addEventListener(
+      "hypersync:library-changed",
+      handleLibraryChanged,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "hypersync:library-changed",
+        handleLibraryChanged,
+      );
+    };
   }, [
     loadLibrary,
   ]);
