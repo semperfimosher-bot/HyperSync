@@ -1,9 +1,51 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
+function createStorage() {
+  const values =
+    new Map();
+
+  return {
+    getItem(key) {
+      return values.has(key)
+        ? values.get(key)
+        : null;
+    },
+
+    setItem(key, value) {
+      values.set(
+        key,
+        String(value),
+      );
+    },
+
+    removeItem(key) {
+      values.delete(
+        key,
+      );
+    },
+
+    clear() {
+      values.clear();
+    },
+  };
+}
+
+
+globalThis.localStorage =
+  globalThis.localStorage ??
+  createStorage();
+
+globalThis.sessionStorage =
+  globalThis.sessionStorage ??
+  createStorage();
+
+const {
   resolveMediaUrl,
-} from "./mediaCache.js";
+} =
+  await import(
+    "./mediaCache.js"
+  );
 
 
 test(
