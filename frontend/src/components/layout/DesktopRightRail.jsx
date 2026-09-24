@@ -24,8 +24,19 @@ import {
   TrackArtwork,
 } from "../ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
 
-function DesktopRightRail() {
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
+
+function DesktopRightRail({
+  currentUser,
+  onOpenAuth,
+}) {
+  const trackActionMenu =
+    useTrackActionMenu();
   const [
     state,
     setState,
@@ -285,6 +296,34 @@ function DesktopRightRail() {
               key={
                 `${track.id}-${queueIndex}`
               }
+              {...trackActionMenu.getTriggerProps({
+                id:
+                  track.id,
+                title:
+                  track.meta?.title ??
+                  "",
+                artist:
+                  track.meta?.artist ??
+                  "",
+                album:
+                  track.meta?.album ??
+                  "",
+                audio_url:
+                  track.meta?.audioUrl ??
+                  null,
+                artwork_url:
+                  track.meta?.artworkUrl ??
+                  null,
+                mime_type:
+                  track.meta?.mimeType ??
+                  null,
+                file_size:
+                  track.meta?.fileSize ??
+                  null,
+                media_version:
+                  track.meta?.mediaVersion ??
+                  null,
+              })}
               onClick={() => {
                 void player
                   .playQueueIndex(
@@ -370,6 +409,21 @@ function DesktopRightRail() {
         )}
 
       </div>
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
 
     </aside>
   );
