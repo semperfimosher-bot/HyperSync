@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -44,7 +45,6 @@ import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
 import {
-  getActivePlaylistDownloads,
   getDownloadedPlaylists,
   getDownloadedTracks,
   getOfflineOwnerKey,
@@ -140,6 +140,7 @@ function LibraryPage({
   initialPlaylistId = null,
   onInitialPlaylistHandled,
   resetToken = 0,
+  activePlaylistDownloads = [],
 }) {
   const trackActionMenu =
   useTrackActionMenu();
@@ -308,10 +309,28 @@ const [
   trackProgress: {},
 });
 
-  const [
-    playlistRowDownloads,
-    setPlaylistRowDownloads,
-  ] = useState({});
+  const playlistRowDownloads =
+    useMemo(
+      () =>
+        Object.fromEntries(
+          activePlaylistDownloads.map(
+            (download) => [
+              String(
+                download.playlistId,
+              ),
+              {
+                status:
+                  download.state,
+                progress:
+                  download.progress,
+              },
+            ],
+          ),
+        ),
+      [
+        activePlaylistDownloads,
+      ],
+    );
 
   const [
     downloadedPlaylists,
@@ -320,93 +339,34 @@ const [
 
 
   useEffect(() => {
-    const syncActivePlaylistDownloads =
-      () => {
-        const activeDownloads =
-          getActivePlaylistDownloads(
-            offlineOwnerKey,
-          );
-
-        setPlaylistRowDownloads(
-          Object.fromEntries(
-            activeDownloads.map(
-              (download) => [
-                String(
-                  download.playlistId,
-                ),
-                {
-                  status:
-                    download.state,
-                  progress:
-                    download.progress,
-                },
-              ],
-            ),
+    const activeSelectedDownload =
+      activePlaylistDownloads.find(
+        (download) =>
+          String(
+            download.playlistId,
+          ) ===
+          String(
+            selectedPlaylist?.id ??
+            "",
           ),
-        );
+      ) ??
+      null;
 
-        const activeSelectedDownload =
-          activeDownloads.find(
-            (download) =>
-              String(
-                download.playlistId,
-              ) ===
-              String(
-                selectedPlaylist?.id ??
-                "",
-              ),
-          ) ??
-          null;
-
-        if (activeSelectedDownload) {
-          setPlaylistDownload({
-            status:
-              "downloading",
-            progress:
-              activeSelectedDownload
-                .progress,
-            trackProgress:
-              activeSelectedDownload
-                .trackProgress ??
-              {},
-          });
-        }
-      };
-
-    syncActivePlaylistDownloads();
-
-    const handleProgress =
-      (event) => {
-        if (
-          String(
-            event?.detail
-              ?.ownerKey ??
-            "",
-          ) !==
-          String(
-            offlineOwnerKey ??
-            "",
-          )
-        ) {
-          return;
-        }
-
-        syncActivePlaylistDownloads();
-      };
-
-    window.addEventListener(
-      "hypersync:offline-download-progress",
-      handleProgress,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "hypersync:offline-download-progress",
-        handleProgress,
-      );
-    };
+    if (activeSelectedDownload) {
+      setPlaylistDownload({
+        status:
+          "downloading",
+        progress:
+          activeSelectedDownload
+            .progress,
+        trackProgress:
+          activeSelectedDownload
+            .trackProgress ??
+          {},
+      });
+    }
   }, [
-    offlineOwnerKey,
+    activePlaylistDownloads,
     selectedPlaylist?.id,
   ]);
 
@@ -1075,9 +1035,7 @@ useEffect(() => {
         );
 
   const activeDownload =
-    getActivePlaylistDownloads(
-      offlineOwnerKey,
-    ).find(
+    activePlaylistDownloads.find(
       (item) =>
         String(
           item.playlistId,
@@ -1576,18 +1534,6 @@ if (offline) {
 
     setError("");
 
-    setPlaylistRowDownloads(
-      (current) => ({
-        ...current,
-        [playlistId]: {
-          status:
-            "downloading",
-          progress:
-            0,
-        },
-      }),
-    );
-
     setPlaylistDownload({
       status:
         "downloading",
@@ -1649,17 +1595,6 @@ if (offline) {
                 {},
             });
 
-            setPlaylistRowDownloads(
-              (current) => ({
-                ...current,
-                [playlistId]: {
-                  status:
-                    "downloading",
-                  progress:
-                    safeProgress,
-                },
-              }),
-            );
           },
         },
       );
@@ -1693,19 +1628,6 @@ if (offline) {
           ),
       );
 
-      setPlaylistRowDownloads(
-        (current) => {
-          const next = {
-            ...current,
-          };
-
-          delete next[
-            playlistId
-          ];
-
-          return next;
-        },
-      );
     } catch (requestError) {
       setPlaylistDownload({
         status:
@@ -1715,20 +1637,6 @@ if (offline) {
         trackProgress:
           {},
       });
-
-      setPlaylistRowDownloads(
-        (current) => {
-          const next = {
-            ...current,
-          };
-
-          delete next[
-            playlistId
-          ];
-
-          return next;
-        },
-      );
 
       setError(
         requestError
