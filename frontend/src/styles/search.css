@@ -4376,6 +4376,18 @@ button.is-active strong {
 }
 
 
+.hs-search-track:hover
+.hs-search-track__download.hs-playlist-row-download-progress,
+.hs-search-track.is-selected
+.hs-search-track__download.hs-playlist-row-download-progress {
+  border-color:
+    transparent;
+
+  color:
+    #70eaff;
+}
+
+
 /*
  * Do not let the normal track-row hover
  * treatment overpower downloaded state.
