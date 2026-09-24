@@ -75,7 +75,6 @@ import {
 
 import {
   cleanupLegacyUnscopedDownloads,
-  downloadTracksForOffline,
   getDownloadedPlaylists,
   getOfflineOwnerKey,
   getPlaylistDownloadJobId,
@@ -2241,7 +2240,7 @@ const checkDownloadedGeneratedPlaylistUpdates =
         );
 
         try {
-          await downloadTracksForOffline(
+          await startPlaylistDownloadForOffline(
             playlist.tracks,
             {
               jobId:
