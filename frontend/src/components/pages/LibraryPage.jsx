@@ -308,6 +308,11 @@ const [
 });
 
   const [
+    playlistRowDownloads,
+    setPlaylistRowDownloads,
+  ] = useState({});
+
+  const [
     downloadedPlaylists,
     setDownloadedPlaylists,
   ] = useState([]);
@@ -1437,7 +1442,14 @@ if (offline) {
       selectedPlaylist?.tracks ??
       [];
 
+    const playlistId =
+      String(
+        selectedPlaylist?.id ??
+        "",
+      );
+
     if (
+      !playlistId ||
       tracks.length === 0 ||
       playlistDownload.status ===
         "downloading"
@@ -1446,6 +1458,18 @@ if (offline) {
     }
 
     setError("");
+
+    setPlaylistRowDownloads(
+      (current) => ({
+        ...current,
+        [playlistId]: {
+          status:
+            "downloading",
+          progress:
+            0,
+        },
+      }),
+    );
 
     setPlaylistDownload({
       status:
@@ -1491,19 +1515,34 @@ if (offline) {
             progress,
             trackProgress,
           }) => {
+            const safeProgress =
+              Number.isFinite(
+                progress,
+              )
+                ? progress
+                : 0;
+
             setPlaylistDownload({
               status:
                 "downloading",
               progress:
-                Number.isFinite(
-                  progress,
-                )
-                  ? progress
-                  : 0,
+                safeProgress,
               trackProgress:
                 trackProgress ??
                 {},
             });
+
+            setPlaylistRowDownloads(
+              (current) => ({
+                ...current,
+                [playlistId]: {
+                  status:
+                    "downloading",
+                  progress:
+                    safeProgress,
+                },
+              }),
+            );
           },
         },
       );
@@ -1536,6 +1575,20 @@ if (offline) {
             offlineOwnerKey,
           ),
       );
+
+      setPlaylistRowDownloads(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            playlistId
+          ];
+
+          return next;
+        },
+      );
     } catch (requestError) {
       setPlaylistDownload({
         status:
@@ -1545,6 +1598,20 @@ if (offline) {
         trackProgress:
           {},
       });
+
+      setPlaylistRowDownloads(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            playlistId
+          ];
+
+          return next;
+        },
+      );
 
       setError(
         requestError
@@ -3261,6 +3328,30 @@ if (offline) {
                   openingPlaylistId ===
                   playlist.id;
 
+                const rowDownload =
+                  playlistRowDownloads[
+                    String(
+                      playlist.id,
+                    )
+                  ] ??
+                  null;
+
+                const rowDownloadPercent =
+                  Math.round(
+                    Math.max(
+                      0,
+                      Math.min(
+                        1,
+                        Number(
+                          rowDownload
+                            ?.progress ??
+                          0,
+                        ) || 0,
+                      ),
+                    ) *
+                      100,
+                  );
+
                 return (
                   <div
                     key={
@@ -3396,7 +3487,22 @@ if (offline) {
 
                     <span className="hs-search-track__play">
 
-                      {opening ? (
+                      {rowDownload?.status ===
+                      "downloading" ? (
+                        <span
+                          className="hs-search-track__download is-downloading hs-playlist-row-download-progress"
+                          style={{
+                            "--download-progress":
+                              `${rowDownloadPercent}%`,
+                          }}
+                          title={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                          aria-label={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                        >
+                          <span className="hs-search-track__download-progress">
+                            {rowDownloadPercent}
+                          </span>
+                        </span>
+                      ) : opening ? (
                         <span className="library-spinner" />
                       ) : playlist.is_offline_download ? (
                         <button
