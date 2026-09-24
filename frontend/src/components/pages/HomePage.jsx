@@ -20,6 +20,12 @@ import {
 
 import SectionHeading from "../ui/SectionHeading.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
+
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
 import {
   getMyProfile,
 } from "../../profileApi.js";
@@ -114,6 +120,9 @@ function HomePage({
   onNavigate,
   onOpenAuth,
 }) {
+  const trackActionMenu =
+    useTrackActionMenu();
+
   const greetingName =
     getGreetingName(currentUser);
 
@@ -448,6 +457,9 @@ useEffect(() => {
           key={track.id}
           type="button"
           className="home-track-card"
+          {...trackActionMenu.getTriggerProps(
+            track,
+          )}
           onClick={() =>
             playTrack(
               track.id,
@@ -533,6 +545,22 @@ useEffect(() => {
 
 )}
      </section>
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
+
            </div>
   );
 }
