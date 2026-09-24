@@ -64,6 +64,11 @@ import {
   setCachedPlaylist,
 } from "../../libraryCache.js";
 
+import {
+  buildLibraryAlbums,
+  buildLibraryArtists,
+} from "../../libraryEntities.js";
+
 function formatDuration(
   seconds,
 ) {
@@ -2082,103 +2087,10 @@ if (offline) {
 
   const libraryArtists =
     useMemo(
-      () => {
-        const artists =
-          new Map();
-
-        for (
-          const track
-          of libraryTracks
-        ) {
-          const name =
-            String(
-              track?.artist ??
-              "",
-            ).trim() ||
-            "Unknown Artist";
-
-          const key =
-            name.toLocaleLowerCase();
-
-          let artist =
-            artists.get(
-              key,
-            );
-
-          if (!artist) {
-            artist = {
-              key,
-              name,
-              artwork_url:
-                track?.artwork_url ??
-                null,
-              tracks: [],
-              albums:
-                new Set(),
-            };
-
-            artists.set(
-              key,
-              artist,
-            );
-          }
-
-          artist.tracks.push(
-            track,
-          );
-
-          if (
-            !artist.artwork_url &&
-            track?.artwork_url
-          ) {
-            artist.artwork_url =
-              track.artwork_url;
-          }
-
-          const album =
-            String(
-              track?.album ??
-              "",
-            ).trim();
-
-          if (album) {
-            artist.albums.add(
-              album.toLocaleLowerCase(),
-            );
-          }
-        }
-
-        return Array.from(
-          artists.values(),
-        )
-          .map(
-            (artist) => ({
-              key:
-                artist.key,
-              name:
-                artist.name,
-              artwork_url:
-                artist.artwork_url,
-              tracks:
-                artist.tracks,
-              track_count:
-                artist.tracks.length,
-              album_count:
-                artist.albums.size,
-            }),
-          )
-          .sort(
-            (left, right) =>
-              left.name.localeCompare(
-                right.name,
-                undefined,
-                {
-                  sensitivity:
-                    "base",
-                },
-              ),
-          );
-      },
+      () =>
+        buildLibraryArtists(
+          libraryTracks,
+        ),
       [
         libraryTracks,
       ],
@@ -2187,107 +2099,10 @@ if (offline) {
 
   const libraryAlbums =
     useMemo(
-      () => {
-        const albums =
-          new Map();
-
-        for (
-          const track
-          of libraryTracks
-        ) {
-          const artist =
-            String(
-              track?.artist ??
-              "",
-            ).trim() ||
-            "Unknown Artist";
-
-          const title =
-            String(
-              track?.album ??
-              "",
-            ).trim() ||
-            "Unknown Album";
-
-          const key =
-            (
-              artist.toLocaleLowerCase() +
-              "::" +
-              title.toLocaleLowerCase()
-            );
-
-          let album =
-            albums.get(
-              key,
-            );
-
-          if (!album) {
-            album = {
-              key,
-              title,
-              artist,
-              artwork_url:
-                track?.artwork_url ??
-                null,
-              tracks: [],
-            };
-
-            albums.set(
-              key,
-              album,
-            );
-          }
-
-          album.tracks.push(
-            track,
-          );
-
-          if (
-            !album.artwork_url &&
-            track?.artwork_url
-          ) {
-            album.artwork_url =
-              track.artwork_url;
-          }
-        }
-
-        return Array.from(
-          albums.values(),
-        )
-          .map(
-            (album) => ({
-              ...album,
-              track_count:
-                album.tracks.length,
-            }),
-          )
-          .sort(
-            (left, right) => {
-              const titleOrder =
-                left.title.localeCompare(
-                  right.title,
-                  undefined,
-                  {
-                    sensitivity:
-                      "base",
-                  },
-                );
-
-              if (titleOrder !== 0) {
-                return titleOrder;
-              }
-
-              return left.artist.localeCompare(
-                right.artist,
-                undefined,
-                {
-                  sensitivity:
-                    "base",
-                },
-              );
-            },
-          );
-      },
+      () =>
+        buildLibraryAlbums(
+          libraryTracks,
+        ),
       [
         libraryTracks,
       ],
