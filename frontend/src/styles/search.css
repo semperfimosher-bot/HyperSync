@@ -4262,6 +4262,39 @@ button.is-active strong {
 
 
 /*
+ * Playlist rows use the download ring without
+ * the square button chrome while downloading.
+ */
+.hs-playlist-row-download-progress {
+  border-color:
+    transparent;
+
+  border-radius:
+    50%;
+
+  background:
+    transparent;
+
+  box-shadow:
+    none;
+}
+
+.hs-search-track:hover
+.hs-playlist-row-download-progress,
+.hs-search-track.is-selected
+.hs-playlist-row-download-progress {
+  border-color:
+    transparent;
+
+  background:
+    transparent;
+
+  color:
+    #70eaff;
+}
+
+
+/*
  * Song is fully downloaded and
  * PINNED for offline playback.
  */
