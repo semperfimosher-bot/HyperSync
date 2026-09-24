@@ -838,3 +838,184 @@ test(
     );
   },
 );
+
+test(
+  "manual-only downloaded tracks exclude playlist-only downloads",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const owner =
+      "manual-list-owner-" +
+      suffix;
+
+    const playlistId =
+      "manual-list-playlist-" +
+      suffix;
+
+    const manualPin =
+      offline.getManualDownloadPinRef(
+        owner,
+      );
+
+    const playlistPin =
+      offline.getPlaylistDownloadPinRef(
+        owner,
+        playlistId,
+      );
+
+    const fixtures = [
+      {
+        trackId:
+          "manual-only-" +
+          suffix,
+        pinRefs: [
+          manualPin,
+        ],
+      },
+      {
+        trackId:
+          "playlist-only-" +
+          suffix,
+        pinRefs: [
+          playlistPin,
+        ],
+      },
+      {
+        trackId:
+          "manual-and-playlist-" +
+          suffix,
+        pinRefs: [
+          manualPin,
+          playlistPin,
+        ],
+      },
+    ];
+
+    for (
+      const fixture
+      of fixtures
+    ) {
+      const record =
+        mediaStore.createMediaRecord({
+          trackId:
+            fixture.trackId,
+          mediaVersion:
+            "v1",
+          mimeType:
+            "audio/mpeg",
+          fileSize:
+            1,
+          state:
+            "PINNED",
+        });
+
+      record.cachedBytes =
+        1;
+
+      record.title =
+        fixture.trackId;
+
+      record.pinRefs = [
+        ...fixture.pinRefs,
+      ];
+
+      record.artworkValidatedAt =
+        Date.now();
+
+      await mediaStore.saveMediaRecord(
+        record,
+      );
+    }
+
+    const allTracks =
+      await offline.getDownloadedTracks(
+        owner,
+      );
+
+    const individualTracks =
+      await offline.getDownloadedTracks(
+        owner,
+        {
+          manualOnly:
+            true,
+        },
+      );
+
+    const allIds =
+      new Set(
+        allTracks.map(
+          (track) =>
+            String(
+              track.id,
+            ),
+        ),
+      );
+
+    const individualIds =
+      new Set(
+        individualTracks.map(
+          (track) =>
+            String(
+              track.id,
+            ),
+        ),
+      );
+
+    assert.equal(
+      allIds.has(
+        "manual-only-" +
+        suffix,
+      ),
+      true,
+    );
+
+    assert.equal(
+      allIds.has(
+        "playlist-only-" +
+        suffix,
+      ),
+      true,
+    );
+
+    assert.equal(
+      allIds.has(
+        "manual-and-playlist-" +
+        suffix,
+      ),
+      true,
+    );
+
+    assert.equal(
+      individualIds.has(
+        "manual-only-" +
+        suffix,
+      ),
+      true,
+    );
+
+    assert.equal(
+      individualIds.has(
+        "manual-and-playlist-" +
+        suffix,
+      ),
+      true,
+    );
+
+    assert.equal(
+      individualIds.has(
+        "playlist-only-" +
+        suffix,
+      ),
+      false,
+    );
+  },
+);
