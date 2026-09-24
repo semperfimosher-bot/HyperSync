@@ -29,6 +29,57 @@ function normalizedKey(
 }
 
 
+const libraryAlphabeticalCollator =
+  new Intl.Collator(
+    undefined,
+    {
+      sensitivity:
+        "base",
+      numeric:
+        true,
+      ignorePunctuation:
+        false,
+    },
+  );
+
+
+function compareLibraryLabels(
+  left,
+  right,
+) {
+  const leftLabel =
+    cleanLabel(
+      left,
+    );
+
+  const rightLabel =
+    cleanLabel(
+      right,
+    );
+
+  const primaryOrder =
+    libraryAlphabeticalCollator.compare(
+      leftLabel,
+      rightLabel,
+    );
+
+  if (
+    primaryOrder !==
+    0
+  ) {
+    return primaryOrder;
+  }
+
+  return normalizedKey(
+    leftLabel,
+  ).localeCompare(
+    normalizedKey(
+      rightLabel,
+    ),
+  );
+}
+
+
 function trackIdentity(
   track,
   fallbackIndex,
@@ -240,13 +291,9 @@ export function buildLibraryArtists(
     )
     .sort(
       (left, right) =>
-        left.name.localeCompare(
+        compareLibraryLabels(
+          left.name,
           right.name,
-          undefined,
-          {
-            sensitivity:
-              "base",
-          },
         ),
     );
 }
@@ -343,13 +390,9 @@ export function buildLibraryAlbums(
     .sort(
       (left, right) => {
         const titleOrder =
-          left.title.localeCompare(
+          compareLibraryLabels(
+            left.title,
             right.title,
-            undefined,
-            {
-              sensitivity:
-                "base",
-            },
           );
 
         if (
@@ -359,13 +402,9 @@ export function buildLibraryAlbums(
           return titleOrder;
         }
 
-        return left.artist.localeCompare(
+        return compareLibraryLabels(
+          left.artist,
           right.artist,
-          undefined,
-          {
-            sensitivity:
-              "base",
-          },
         );
       },
     );
