@@ -51,8 +51,8 @@ import {
   getPlaylistDownloadJob,
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
-  removeDownloadedTrackForOwner,
   removePlaylistFromOffline,
+  removeTrackFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -349,6 +349,10 @@ const [
               ),
               getDownloadedTracks(
                 offlineOwnerKey,
+                {
+                  manualOnly:
+                    true,
+                },
               ),
             ]);
 
@@ -422,6 +426,10 @@ const [
               ),
               getDownloadedTracks(
                 offlineOwnerKey,
+                {
+                  manualOnly:
+                    true,
+                },
               ),
             ]);
 
@@ -1572,7 +1580,7 @@ if (offline) {
 
     try {
       const removed =
-        await removeDownloadedTrackForOwner(
+        await removeTrackFromOffline(
           track,
           offlineOwnerKey,
         );
@@ -1590,6 +1598,10 @@ if (offline) {
         await Promise.all([
           getDownloadedTracks(
             offlineOwnerKey,
+            {
+              manualOnly:
+                true,
+            },
           ),
           getDownloadedPlaylists(
             offlineOwnerKey,
