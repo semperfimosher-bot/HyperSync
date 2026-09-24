@@ -1840,6 +1840,34 @@ function AuthOverlay({
 // App shell
 // ======================================================================================
 
+function shouldIgnorePlaybackShortcut(
+  target,
+) {
+  if (
+    !(target instanceof Element)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "input",
+        "textarea",
+        "select",
+        "button",
+        "a[href]",
+        "[contenteditable='true']",
+        "[role='button']",
+        "[role='textbox']",
+        "[role='slider']",
+        "[role='menuitem']",
+      ].join(", "),
+    ),
+  );
+}
+
+
 export default function App() {
   const [currentUser, setCurrentUser] =
     useState(null);
@@ -1896,6 +1924,78 @@ export default function App() {
     activePlaylistDownloads,
     setActivePlaylistDownloads,
   ] = useState([]);
+
+
+  useEffect(() => {
+    const handlePlaybackShortcut =
+      (event) => {
+        const isSpace =
+          event.code ===
+            "Space" ||
+          event.key ===
+            " ";
+
+        if (
+          !isSpace ||
+          event.repeat ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          event.defaultPrevented
+        ) {
+          return;
+        }
+
+        if (
+          typeof window.matchMedia ===
+            "function" &&
+          !window.matchMedia(
+            "(pointer: fine)",
+          ).matches
+        ) {
+          return;
+        }
+
+        if (
+          shouldIgnorePlaybackShortcut(
+            event.target,
+          )
+        ) {
+          return;
+        }
+
+        const playerState =
+          player.getState();
+
+        if (
+          !playerState?.trackId
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        void player
+          .togglePlay()
+          .catch(
+            () => {},
+          );
+      };
+
+    window.addEventListener(
+      "keydown",
+      handlePlaybackShortcut,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handlePlaybackShortcut,
+      );
+    };
+  }, []);
+
 
   useEffect(() => {
     const syncActivePlaylistDownloads =
