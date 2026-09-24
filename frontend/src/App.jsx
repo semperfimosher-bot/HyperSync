@@ -80,6 +80,7 @@ import {
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
+  startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
 
 import {
