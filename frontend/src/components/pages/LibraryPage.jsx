@@ -3828,21 +3828,226 @@ if (offline) {
 
       </section>
 
-    ) : activeTab !== "Playlists" ? (
+    ) : (
+      activeTab === "Artists" ||
+      activeTab === "Albums"
+    ) ? (
 
-      <section className="hs-search-message">
+      <section className="hs-search-section hs-library-collection">
 
-        <div>
+        <div className="hs-search-section__heading">
+
+          <div>
+
+            {activeLibraryEntity ? (
+              <button
+                type="button"
+                className="hs-search-playlist-back hs-library-entity-back"
+                onClick={() => {
+                  setSelectedLibraryEntity(
+                    null,
+                  );
+                }}
+              >
+                <Icon
+                  name="chevron"
+                  size={14}
+                />
+
+                Back to
+                {" "}
+                {activeTab}
+              </button>
+            ) : (
+              <span>
+                LIBRARY INDEX
+              </span>
+            )}
+
+            <h3>
+              {activeLibraryEntity
+                ? (
+                    activeTab ===
+                    "Artists"
+                      ? activeLibraryEntity
+                          .name
+                      : activeLibraryEntity
+                          .title
+                  )
+                : activeTab}
+            </h3>
+
+            {activeLibraryEntity ? (
+              <small className="hs-library-entity-subtitle">
+                {activeTab ===
+                "Artists"
+                  ? `${activeLibraryEntity.album_count} ${activeLibraryEntity.album_count === 1 ? "album" : "albums"}`
+                  : activeLibraryEntity.artist}
+              </small>
+            ) : null}
+
+          </div>
+
           <strong>
-            {activeTab} are coming next
+            {activeLibraryEntity
+              ? activeLibraryEntity.track_count
+              : activeLibraryCollection.length}
           </strong>
 
-          <p>
-            Playlists are live first. Saved
-            albums and artists can use this same
-            Library interface.
-          </p>
         </div>
+
+        {loading ? (
+
+          <div className="hs-library-loading">
+
+            <span className="library-spinner" />
+
+            <span>
+              Loading
+              {" "}
+              {activeTab.toLowerCase()}
+              ...
+            </span>
+
+          </div>
+
+        ) : activeLibraryEntity ? (
+
+          renderLibraryEntityTracks(
+            activeLibraryEntity,
+          )
+
+        ) : activeLibraryCollection.length ===
+          0 ? (
+
+          <div className="hs-library-empty">
+
+            <Icon
+              name={
+                activeTab ===
+                  "Artists"
+                  ? "music"
+                  : "disc"
+              }
+              size={22}
+            />
+
+            <div>
+              <strong>
+                No
+                {" "}
+                {activeTab.toLowerCase()}
+                {" "}
+                in your Library yet
+              </strong>
+
+              <p>
+                Like songs or add music to a
+                playlist and its
+                {" "}
+                {activeTab ===
+                "Artists"
+                  ? "artists"
+                  : "albums"}
+                {" "}
+                will appear here.
+              </p>
+            </div>
+
+          </div>
+
+        ) : (
+
+          <div className="hs-search-entity-grid hs-library-entity-grid">
+
+            {activeLibraryCollection.map(
+              (entity) => {
+                const artwork =
+                  resolveArtworkUrl(
+                    entity.artwork_url,
+                  );
+
+                const isArtist =
+                  activeTab ===
+                  "Artists";
+
+                return (
+                  <button
+                    type="button"
+                    className="hs-search-entity-card hs-library-entity-card"
+                    key={
+                      entity.key
+                    }
+                    onClick={() => {
+                      setSelectedLibraryEntity({
+                        kind:
+                          isArtist
+                            ? "artist"
+                            : "album",
+                        key:
+                          entity.key,
+                      });
+                    }}
+                  >
+                    <span className="hs-search-entity-card__art">
+
+                      {artwork ? (
+                        <img
+                          src={artwork}
+                          alt=""
+                        />
+                      ) : (
+                        <Icon
+                          name={
+                            isArtist
+                              ? "music"
+                              : "disc"
+                          }
+                          size={26}
+                        />
+                      )}
+
+                    </span>
+
+                    <span>
+
+                      <small>
+                        {isArtist
+                          ? "ARTIST"
+                          : "ALBUM"}
+                      </small>
+
+                      <strong>
+                        {isArtist
+                          ? entity.name
+                          : entity.title}
+                      </strong>
+
+                      <em>
+                        {isArtist
+                          ? (
+                              `${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"} • ${entity.album_count} ${entity.album_count === 1 ? "album" : "albums"}`
+                            )
+                          : (
+                              `${entity.artist} • ${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"}`
+                            )}
+                      </em>
+
+                    </span>
+
+                    <Icon
+                      name="chevron"
+                      size={16}
+                    />
+
+                  </button>
+                );
+              },
+            )}
+
+          </div>
+
+        )}
 
       </section>
 
