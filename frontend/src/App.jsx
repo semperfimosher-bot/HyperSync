@@ -42,6 +42,12 @@ import {
 
 import TrackArtwork from "./components/ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "./components/music/TrackActionMenu.jsx";
+
+import useTrackActionMenu from
+  "./hooks/useTrackActionMenu.js";
+
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
@@ -1236,7 +1242,11 @@ function PlayerBar({
   playlistUpdate,
   onDownloadPlaylistUpdate,
   onDismissPlaylistUpdate,
+  currentUser,
+  onOpenAuth,
 }) {
+  const trackActionMenu =
+    useTrackActionMenu();
   const [
     state,
     setState,
@@ -1339,6 +1349,62 @@ function PlayerBar({
       progressMax,
     );
 
+  const currentQueueTrack =
+    Array.isArray(
+      state.queue,
+    ) &&
+    Number.isInteger(
+      state.queueIndex,
+    )
+      ? state.queue[
+          state.queueIndex
+        ] ??
+        null
+      : null;
+
+  const currentTrackAction =
+    state.trackId
+      ? {
+          id:
+            state.trackId,
+          title:
+            state.title ??
+            currentQueueTrack?.meta
+              ?.title ??
+            "",
+          artist:
+            state.artist ??
+            currentQueueTrack?.meta
+              ?.artist ??
+            "",
+          album:
+            currentQueueTrack?.meta
+              ?.album ??
+            "",
+          audio_url:
+            currentQueueTrack?.meta
+              ?.audioUrl ??
+            null,
+          artwork_url:
+            state.artworkUrl ??
+            currentQueueTrack?.meta
+              ?.artworkUrl ??
+            null,
+          mime_type:
+            currentQueueTrack?.meta
+              ?.mimeType ??
+            null,
+          file_size:
+            currentQueueTrack?.meta
+              ?.fileSize ??
+            null,
+          media_version:
+            currentQueueTrack?.meta
+              ?.mediaVersion ??
+            null,
+        }
+      : null;
+
   return (
     <section
       className="player-bar"
@@ -1349,7 +1415,16 @@ function PlayerBar({
           LEFT - CURRENT TRACK
           ================================================= */}
 
-      <div className="player-bar__track">
+      <div
+        className="player-bar__track"
+        {...(
+          currentTrackAction
+            ? trackActionMenu.getTriggerProps(
+                currentTrackAction,
+              )
+            : {}
+        )}
+      >
 
         <TrackArtwork
           src={state.artworkUrl}
@@ -1518,6 +1593,22 @@ function PlayerBar({
           size={19}
         />
       </button>
+
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
 
 
     </section>
@@ -3039,7 +3130,14 @@ const clearPlaylistToOpen =
         </main>
       </section>
 
-      <DesktopRightRail />
+      <DesktopRightRail
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={() => {
+          openAuth("signin");
+        }}
+      />
 
       <PlayerBar
         playlistUpdate={
@@ -3051,6 +3149,12 @@ const clearPlaylistToOpen =
         onDismissPlaylistUpdate={
           dismissPlaylistUpdate
         }
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={() => {
+          openAuth("signin");
+        }}
       />
 
       <MobileBottomNav
