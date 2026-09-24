@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildLibraryAlbums,
   buildLibraryArtists,
+  mergeLibraryTracks,
 } from "./libraryEntities.js";
 
 
@@ -184,6 +185,91 @@ test(
         tracks,
       ),
       snapshot,
+    );
+  },
+);
+
+test(
+  "offline-only tracks merge into the library index without duplicating server tracks",
+  () => {
+    const primaryTracks = [
+      {
+        id: "shared-track",
+        title: "Server Title",
+        artist: "Primary Artist",
+        album: "Primary Album",
+        audio_url: "/server-audio",
+      },
+    ];
+
+    const offlineTracks = [
+      {
+        id: "shared-track",
+        title: "Cached Title",
+        artist: "Cached Artist",
+        album: "Cached Album",
+        downloaded: true,
+      },
+      {
+        id: "offline-only",
+        title: "Legacy Download",
+        artist: "Offline Artist",
+        album: "Offline Album",
+        downloaded: true,
+      },
+    ];
+
+    const merged =
+      mergeLibraryTracks(
+        primaryTracks,
+        offlineTracks,
+      );
+
+    assert.equal(
+      merged.length,
+      2,
+    );
+
+    assert.equal(
+      merged[0].title,
+      "Server Title",
+    );
+
+    assert.equal(
+      merged.some(
+        (track) =>
+          track.id ===
+          "offline-only",
+      ),
+      true,
+    );
+
+    const artists =
+      buildLibraryArtists(
+        merged,
+      );
+
+    const albums =
+      buildLibraryAlbums(
+        merged,
+      );
+
+    assert.equal(
+      artists.some(
+        (artist) =>
+          artist.name ===
+          "Offline Artist",
+      ),
+      true,
+    );
+
+    assert.equal(
+      albums.some(
+        (album) =>
+          album.title ===
+          "Offline Album",
+      ),
+      true,
     );
   },
 );
