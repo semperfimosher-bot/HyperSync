@@ -17,7 +17,6 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
-  getActivePlaylistDownloads,
   getDownloadedPlaylists,
   getOfflineOwnerKey,
   getPlaylistDownloadJob,
@@ -264,6 +263,7 @@ function SearchPage({
   onOpenAuth,
   currentUser,
   resetToken = 0,
+  activePlaylistDownloads = [],
 }) {
   const trackActionMenu =
   useTrackActionMenu();
@@ -309,10 +309,28 @@ const [
   trackProgress: {},
 });
 
-const [
-  playlistRowDownloads,
-  setPlaylistRowDownloads,
-] = useState({});
+const playlistRowDownloads =
+  useMemo(
+    () =>
+      Object.fromEntries(
+        activePlaylistDownloads.map(
+          (download) => [
+            String(
+              download.playlistId,
+            ),
+            {
+              status:
+                download.state,
+              progress:
+                download.progress,
+            },
+          ],
+        ),
+      ),
+    [
+      activePlaylistDownloads,
+    ],
+  );
 
 const [
   removeDownloadOpen,
@@ -321,93 +339,34 @@ const [
 
 
 useEffect(() => {
-  const syncActivePlaylistDownloads =
-    () => {
-      const activeDownloads =
-        getActivePlaylistDownloads(
-          offlineOwnerKey,
-        );
-
-      setPlaylistRowDownloads(
-        Object.fromEntries(
-          activeDownloads.map(
-            (download) => [
-              String(
-                download.playlistId,
-              ),
-              {
-                status:
-                  download.state,
-                progress:
-                  download.progress,
-              },
-            ],
-          ),
+  const activeOpenedDownload =
+    activePlaylistDownloads.find(
+      (download) =>
+        String(
+          download.playlistId,
+        ) ===
+        String(
+          openedPlaylist?.id ??
+          "",
         ),
-      );
+    ) ??
+    null;
 
-      const activeOpenedDownload =
-        activeDownloads.find(
-          (download) =>
-            String(
-              download.playlistId,
-            ) ===
-            String(
-              openedPlaylist?.id ??
-              "",
-            ),
-        ) ??
-        null;
-
-      if (activeOpenedDownload) {
-        setPlaylistDownload({
-          status:
-            "downloading",
-          progress:
-            activeOpenedDownload
-              .progress,
-          trackProgress:
-            activeOpenedDownload
-              .trackProgress ??
-            {},
-        });
-      }
-    };
-
-  syncActivePlaylistDownloads();
-
-  const handleProgress =
-    (event) => {
-      if (
-        String(
-          event?.detail
-            ?.ownerKey ??
-          "",
-        ) !==
-        String(
-          offlineOwnerKey ??
-          "",
-        )
-      ) {
-        return;
-      }
-
-      syncActivePlaylistDownloads();
-    };
-
-  window.addEventListener(
-    "hypersync:offline-download-progress",
-    handleProgress,
-  );
-
-  return () => {
-    window.removeEventListener(
-      "hypersync:offline-download-progress",
-      handleProgress,
-    );
-  };
+  if (activeOpenedDownload) {
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        activeOpenedDownload
+          .progress,
+      trackProgress:
+        activeOpenedDownload
+          .trackProgress ??
+        {},
+    });
+  }
 }, [
-  offlineOwnerKey,
+  activePlaylistDownloads,
   openedPlaylist?.id,
 ]);
 
@@ -1630,18 +1589,6 @@ async function downloadOpenedPlaylist() {
         playlistForDownload.id,
       );
 
-    setPlaylistRowDownloads(
-      (current) => ({
-        ...current,
-        [playlistId]: {
-          status:
-            "downloading",
-          progress:
-            0,
-        },
-      }),
-    );
-
     setPlaylistDownload({
       status:
         "downloading",
@@ -1702,17 +1649,6 @@ async function downloadOpenedPlaylist() {
               {},
           });
 
-          setPlaylistRowDownloads(
-            (current) => ({
-              ...current,
-              [playlistId]: {
-                status:
-                  "downloading",
-                progress:
-                  safeProgress,
-              },
-            }),
-          );
         },
       },
     );
@@ -1738,19 +1674,6 @@ async function downloadOpenedPlaylist() {
         ),
     });
 
-    setPlaylistRowDownloads(
-      (current) => {
-        const next = {
-          ...current,
-        };
-
-        delete next[
-          playlistId
-        ];
-
-        return next;
-      },
-    );
   } catch (error) {
     setPlaylistDownload({
       status:
@@ -1770,19 +1693,6 @@ async function downloadOpenedPlaylist() {
           playlistForDownload.id,
         );
 
-      setPlaylistRowDownloads(
-        (current) => {
-          const next = {
-            ...current,
-          };
-
-          delete next[
-            failedPlaylistId
-          ];
-
-          return next;
-        },
-      );
     }
 
     setPlaylistError(
@@ -2890,7 +2800,7 @@ async function downloadOpenedPlaylist() {
                         }
                         role="button"
                         tabIndex={0}
-                        className="hs-search-track hs-search-track--playlist-download"
+                        className="hs-search-track"
                         onClick={() => {
                         void openSearchPlaylist(
                         playlist.id,
@@ -2993,34 +2903,28 @@ async function downloadOpenedPlaylist() {
                         </span>
 
 
-                        {rowDownload?.status ===
-                        "downloading" ? (
-                          <span
-                            className="hs-search-track__download is-downloading hs-playlist-row-download-progress"
-                            style={{
-                              "--download-progress":
-                                `${rowDownloadPercent}%`,
-                            }}
-                            title={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
-                            aria-label={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
-                          >
-                            <span className="hs-search-track__download-progress">
-                              {rowDownloadPercent}
-                            </span>
-                          </span>
-                        ) : (
-                          <span
-                            className="hs-search-track__download hs-search-playlist-spacer"
-                            aria-hidden="true"
-                          />
-                        )}
-
-
                         <span className="hs-search-track__play">
-                          <Icon
-                            name="chevron"
-                            size={16}
-                          />
+                          {rowDownload?.status ===
+                          "downloading" ? (
+                            <span
+                              className="hs-search-track__download is-downloading hs-playlist-row-download-progress"
+                              style={{
+                                "--download-progress":
+                                  `${rowDownloadPercent}%`,
+                              }}
+                              title={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                              aria-label={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                            >
+                              <span className="hs-search-track__download-progress">
+                                {rowDownloadPercent}
+                              </span>
+                            </span>
+                          ) : (
+                            <Icon
+                              name="chevron"
+                              size={16}
+                            />
+                          )}
                         </span>
 
                       </div>
