@@ -3888,55 +3888,67 @@ if (offline) {
                     key={
                       entity.key
                     }
-                    {...(
-                      isArtist
-                        ? {}
-                        : collectionActionMenu.getTriggerProps({
-                            key:
-                              `album:${entity.key}`,
-                            kind:
-                              "album",
-                            title:
-                              entity.title,
-                            subtitle:
+                    {...collectionActionMenu.getTriggerProps({
+                      key:
+                        `${isArtist ? "artist" : "album"}:${entity.key}`,
+                      kind:
+                        isArtist
+                          ? "artist"
+                          : "album",
+                      title:
+                        isArtist
+                          ? entity.name
+                          : entity.title,
+                      subtitle:
+                        isArtist
+                          ? "Artist"
+                          : (
                               entity.artist ||
-                              "Album",
-                            actions: [
-                              {
-                                id:
-                                  "open",
-                                label:
-                                  "Open album",
-                                icon:
-                                  "disc",
-                                onSelect:
-                                  () => {
-                                    setSelectedLibraryEntity({
-                                      kind:
-                                        "album",
-                                      key:
-                                        entity.key,
-                                    });
-                                  },
-                              },
-                              {
-                                id:
-                                  "play",
-                                label:
-                                  "Play album",
-                                icon:
-                                  "play",
-                                onSelect:
-                                  () => {
-                                    playLibraryTrackCollection(
-                                      entity.tracks,
-                                      0,
-                                    );
-                                  },
-                              },
-                            ],
-                          })
-                    )}
+                              "Album"
+                            ),
+                      actions: [
+                        {
+                          id:
+                            "open",
+                          label:
+                            isArtist
+                              ? "Open artist"
+                              : "Open album",
+                          icon:
+                            isArtist
+                              ? "music"
+                              : "disc",
+                          onSelect:
+                            () => {
+                              setSelectedLibraryEntity({
+                                kind:
+                                  isArtist
+                                    ? "artist"
+                                    : "album",
+                                key:
+                                  entity.key,
+                              });
+                            },
+                        },
+                        {
+                          id:
+                            "play",
+                          label:
+                            isArtist
+                              ? "Play artist"
+                              : "Play album",
+                          icon:
+                            "play",
+                          onSelect:
+                            () => {
+                              playLibraryTrackCollection(
+                                entity.tracks,
+                                0,
+                              );
+                            },
+                        },
+                      ],
+                    })}
                     onClick={() => {
                       setSelectedLibraryEntity({
                         kind:
