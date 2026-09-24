@@ -17,7 +17,7 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
-  downloadTracksForOffline,
+  getActivePlaylistDownloads,
   getDownloadedPlaylists,
   getOfflineOwnerKey,
   getPlaylistDownloadJob,
@@ -25,6 +25,7 @@ import {
   reconcileDownloadedPlaylistMembership,
   removePlaylistFromOffline,
   searchDownloadedTracks,
+  startPlaylistDownloadForOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -317,6 +318,70 @@ const [
   removeDownloadOpen,
   setRemoveDownloadOpen,
 ] = useState(false);
+
+
+useEffect(() => {
+  const syncActivePlaylistDownloads =
+    () => {
+      const activeDownloads =
+        getActivePlaylistDownloads(
+          offlineOwnerKey,
+        );
+
+      setPlaylistRowDownloads(
+        Object.fromEntries(
+          activeDownloads.map(
+            (download) => [
+              String(
+                download.playlistId,
+              ),
+              {
+                status:
+                  download.state,
+                progress:
+                  download.progress,
+              },
+            ],
+          ),
+        ),
+      );
+    };
+
+  syncActivePlaylistDownloads();
+
+  const handleProgress =
+    (event) => {
+      if (
+        String(
+          event?.detail
+            ?.ownerKey ??
+          "",
+        ) !==
+        String(
+          offlineOwnerKey ??
+          "",
+        )
+      ) {
+        return;
+      }
+
+      syncActivePlaylistDownloads();
+    };
+
+  window.addEventListener(
+    "hypersync:offline-download-progress",
+    handleProgress,
+  );
+
+  return () => {
+    window.removeEventListener(
+      "hypersync:offline-download-progress",
+      handleProgress,
+    );
+  };
+}, [
+  offlineOwnerKey,
+]);
 
 const [
   removingDownload,
@@ -1534,7 +1599,7 @@ async function downloadOpenedPlaylist() {
         {},
     });
 
-    await downloadTracksForOffline(
+    await startPlaylistDownloadForOffline(
       tracks,
       {
         jobId:
