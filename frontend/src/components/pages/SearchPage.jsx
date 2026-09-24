@@ -345,6 +345,33 @@ useEffect(() => {
           ),
         ),
       );
+
+      const activeOpenedDownload =
+        activeDownloads.find(
+          (download) =>
+            String(
+              download.playlistId,
+            ) ===
+            String(
+              openedPlaylist?.id ??
+              "",
+            ),
+        ) ??
+        null;
+
+      if (activeOpenedDownload) {
+        setPlaylistDownload({
+          status:
+            "downloading",
+          progress:
+            activeOpenedDownload
+              .progress,
+          trackProgress:
+            activeOpenedDownload
+              .trackProgress ??
+            {},
+        });
+      }
     };
 
   syncActivePlaylistDownloads();
@@ -381,6 +408,7 @@ useEffect(() => {
   };
 }, [
   offlineOwnerKey,
+  openedPlaylist?.id,
 ]);
 
 const [
@@ -1210,7 +1238,31 @@ useEffect(() => {
       ) ??
       null;
 
-    if (downloaded) {
+    const activeDownload =
+      getActivePlaylistDownloads(
+        offlineOwnerKey,
+      ).find(
+        (item) =>
+          String(
+            item.playlistId,
+          ) ===
+          String(
+            playlistId,
+          ),
+      ) ??
+      null;
+
+    if (activeDownload) {
+      setPlaylistDownload({
+        status:
+          "downloading",
+        progress:
+          activeDownload.progress,
+        trackProgress:
+          activeDownload.trackProgress ??
+          {},
+      });
+    } else if (downloaded) {
       const downloadedIds =
         new Set(
           downloaded.tracks.map(
@@ -2838,7 +2890,7 @@ async function downloadOpenedPlaylist() {
                         }
                         role="button"
                         tabIndex={0}
-                        className="hs-search-track"
+                        className="hs-search-track hs-search-track--playlist-download"
                         onClick={() => {
                         void openSearchPlaylist(
                         playlist.id,
