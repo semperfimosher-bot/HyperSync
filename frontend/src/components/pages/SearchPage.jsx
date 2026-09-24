@@ -1765,6 +1765,32 @@ async function downloadOpenedPlaylist() {
               type="button"
               key={artist.name}
               className="hs-search-entity-card"
+              {...collectionActionMenu.getTriggerProps({
+                key:
+                  `artist:${artist.name}`,
+                kind:
+                  "artist",
+                title:
+                  artist.name,
+                subtitle:
+                  "Artist",
+                actions: [
+                  {
+                    id:
+                      "open",
+                    label:
+                      "Open artist",
+                    icon:
+                      "music",
+                    onSelect:
+                      () => {
+                        onQueryChange(
+                          `songs by ${artist.name}`,
+                        );
+                      },
+                  },
+                ],
+              })}
               onClick={() => {
                 onQueryChange(
                   `songs by ${artist.name}`,
