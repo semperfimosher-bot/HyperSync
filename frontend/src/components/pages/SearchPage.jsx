@@ -58,8 +58,14 @@ import DownloadRemovalConfirm from
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
+import CollectionActionMenu from
+  "../music/CollectionActionMenu.jsx";
+
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
+
+import useCollectionActionMenu from
+  "../../hooks/useCollectionActionMenu.js";
 
 import {
   getPlaylist,
@@ -267,6 +273,9 @@ function SearchPage({
 }) {
   const trackActionMenu =
   useTrackActionMenu();
+
+  const collectionActionMenu =
+    useCollectionActionMenu();
 
   const normalizedQuery =
     query.trim();
@@ -1929,6 +1938,33 @@ async function downloadOpenedPlaylist() {
                 `${album.artist}:${album.title}`
               }
               className="hs-search-entity-card"
+              {...collectionActionMenu.getTriggerProps({
+                key:
+                  `album:${album.artist}:${album.title}`,
+                kind:
+                  "album",
+                title:
+                  album.title,
+                subtitle:
+                  album.artist ||
+                  "Album",
+                actions: [
+                  {
+                    id:
+                      "open",
+                    label:
+                      "Open album",
+                    icon:
+                      "disc",
+                    onSelect:
+                      () => {
+                        onQueryChange(
+                          album.title,
+                        );
+                      },
+                  },
+                ],
+              })}
               onClick={() => {
                 onQueryChange(
                   album.title,
@@ -2799,6 +2835,33 @@ async function downloadOpenedPlaylist() {
                         role="button"
                         tabIndex={0}
                         className="hs-search-track"
+                        {...collectionActionMenu.getTriggerProps({
+                          key:
+                            `playlist:${playlist.id}`,
+                          kind:
+                            "playlist",
+                          title:
+                            playlist.title,
+                          subtitle:
+                            playlist.owner_username ||
+                            "Playlist",
+                          actions: [
+                            {
+                              id:
+                                "open",
+                              label:
+                                "Open playlist",
+                              icon:
+                                "playlist",
+                              onSelect:
+                                () => {
+                                  void openSearchPlaylist(
+                                    playlist.id,
+                                  );
+                                },
+                            },
+                          ],
+                        })}
                         onClick={() => {
                         void openSearchPlaylist(
                         playlist.id,
@@ -3337,6 +3400,15 @@ alphabeticalResults.tracks.length > 0 ? (
         }
         onRequireAuth={
           onOpenAuth
+        }
+      />
+
+      <CollectionActionMenu
+        menu={
+          collectionActionMenu.menu
+        }
+        onClose={
+          collectionActionMenu.closeMenu
         }
       />
 
