@@ -6,6 +6,8 @@ import Icon from "./Icon.jsx";
 function DownloadRemovalConfirm({
   open,
   playlistTitle,
+  itemTitle = null,
+  itemKind = "playlist",
   busy = false,
   onCancel,
   onConfirm,
@@ -62,13 +64,20 @@ function DownloadRemovalConfirm({
           Remove
           {" "}
           <strong>
-            {playlistTitle ||
-              "this playlist"}
+            {itemTitle ||
+              playlistTitle ||
+              (
+                itemKind === "song"
+                  ? "this song"
+                  : "this playlist"
+              )}
           </strong>
           {" "}
-          from downloads? The playlist will stay
-          in your Library, but its offline files
-          will be removed from this device.
+          from downloads?
+          {" "}
+          {itemKind === "song"
+            ? "The song will stay in your Library, but its offline file will be removed from this device."
+            : "The playlist will stay in your Library, but its offline files will be removed from this device."}
         </p>
 
         <div className="library-modal__actions">
