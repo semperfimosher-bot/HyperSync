@@ -130,6 +130,31 @@ class PlaylistTrackResponse(
     artwork_version: str | None = None
 
 
+class LibraryTrackResponse(
+    BaseModel,
+):
+    id: UUID
+
+    title: str
+
+    artist: str
+
+    album: str | None
+
+    duration_seconds: int | None
+
+    audio_url: str | None = None
+
+    artwork_url: str | None = None
+
+    mime_type: str | None = None
+
+    file_size: int | None = None
+
+    media_version: str | None = None
+    artwork_version: str | None = None
+
+
 class PlaylistSummaryResponse(
     BaseModel,
 ):
@@ -624,6 +649,126 @@ async def get_saved_playlists(
             user,
         )
         for playlist in refreshed_playlists
+    ]
+
+
+@router.get(
+    "/library/tracks",
+    response_model=list[LibraryTrackResponse],
+)
+async def get_library_tracks(
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> list[LibraryTrackResponse]:
+    require_registered_user(
+        user,
+    )
+
+    owned_track_ids = (
+        select(
+            PlaylistTrack.track_id,
+        )
+        .join(
+            Playlist,
+            Playlist.id
+            == PlaylistTrack.playlist_id,
+        )
+        .where(
+            Playlist.owner_id
+            == user.id,
+        )
+    )
+
+    saved_track_ids = (
+        select(
+            PlaylistTrack.track_id,
+        )
+        .join(
+            SavedPlaylist,
+            SavedPlaylist.playlist_id
+            == PlaylistTrack.playlist_id,
+        )
+        .where(
+            SavedPlaylist.user_id
+            == user.id,
+        )
+    )
+
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            or_(
+                Track.id.in_(
+                    owned_track_ids,
+                ),
+                Track.id.in_(
+                    saved_track_ids,
+                ),
+            ),
+        )
+        .order_by(
+            func.lower(
+                Track.artist,
+            ).asc(),
+            func.lower(
+                func.coalesce(
+                    Track.album,
+                    "",
+                )
+            ).asc(),
+            func.lower(
+                Track.title,
+            ).asc(),
+            Track.id.asc(),
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    return [
+        LibraryTrackResponse(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            duration_seconds=(
+                track.duration_seconds
+            ),
+            audio_url=(
+                _track_audio_url(
+                    track,
+                )
+            ),
+            artwork_url=(
+                _track_artwork_url(
+                    track,
+                )
+            ),
+            mime_type=(
+                track.mime_type
+            ),
+            file_size=(
+                track.file_size
+            ),
+            media_version=(
+                _track_media_version(
+                    track,
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
+                    track,
+                )
+            ),
+        )
+        for track in tracks
     ]
 
 
