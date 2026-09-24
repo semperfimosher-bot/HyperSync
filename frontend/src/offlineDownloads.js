@@ -3002,6 +3002,22 @@ export function startPlaylistDownloadForOffline(
     return existing;
   }
 
+  emitPlaylistDownloadProgress({
+    ownerKey,
+    playlistId,
+    jobId:
+      options?.jobId ??
+      null,
+    state:
+      "downloading",
+    downloadedBytes:
+      0,
+    totalBytes:
+      0,
+    progress:
+      0,
+  });
+
   const operation =
     downloadTracksForOffline(
       tracks,
@@ -3009,13 +3025,32 @@ export function startPlaylistDownloadForOffline(
         ...options,
         ownerKey,
       },
-    ).finally(
-      () => {
-        activePlaylistDownloadPromises.delete(
-          key,
-        );
-      },
-    );
+    )
+      .catch(
+        (error) => {
+          const active =
+            activePlaylistDownloadJobs.get(
+              key,
+            );
+
+          if (active) {
+            emitPlaylistDownloadProgress({
+              ...active,
+              state:
+                "error",
+            });
+          }
+
+          throw error;
+        },
+      )
+      .finally(
+        () => {
+          activePlaylistDownloadPromises.delete(
+            key,
+          );
+        },
+      );
 
   activePlaylistDownloadPromises.set(
     key,
