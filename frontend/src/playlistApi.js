@@ -17,6 +17,13 @@ export function getSavedPlaylists() {
 }
 
 
+export function getLibraryTracks() {
+  return apiRequest(
+    "/playlists/library/tracks",
+  );
+}
+
+
 export function getPlaylist(
   playlistId,
 ) {
