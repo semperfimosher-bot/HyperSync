@@ -425,6 +425,29 @@ export default function TrackActionMenu({
     setNotice("");
 
     try {
+      /*
+       * Individual downloads are Library music.
+       * Add the track to Liked Songs first so
+       * Artists/Albums update immediately and
+       * the download never becomes orphaned
+       * from the user's Library index.
+       */
+      if (!liked) {
+        await likeTrack(
+          track.id,
+        );
+
+        setLiked(
+          true,
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+      }
+
       await downloadTrackForOffline(
         track,
         {
