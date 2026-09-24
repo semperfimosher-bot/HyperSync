@@ -655,3 +655,186 @@ test(
     );
   },
 );
+
+test(
+  "song-level removal clears the owner's pins without removing another owner's download",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerA =
+      "song-remove-owner-a-" +
+      suffix;
+
+    const ownerB =
+      "song-remove-owner-b-" +
+      suffix;
+
+    const playlistId =
+      "song-remove-playlist-" +
+      suffix;
+
+    const trackId =
+      "song-remove-track-" +
+      suffix;
+
+    const mediaVersion =
+      "v1";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    record.title =
+      "Pinned song";
+
+    record.artworkValidatedAt =
+      Date.now();
+
+    record.pinRefs = [
+      offline.getManualDownloadPinRef(
+        ownerA,
+      ),
+      offline.getPlaylistDownloadPinRef(
+        ownerA,
+        playlistId,
+      ),
+      offline.getManualDownloadPinRef(
+        ownerB,
+      ),
+    ];
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    const jobId =
+      offline.getPlaylistDownloadJobId(
+        ownerA,
+        playlistId,
+      );
+
+    await mediaStore.saveDownloadJob({
+      id:
+        jobId,
+      kind:
+        "playlist",
+      ownerKey:
+        ownerA,
+      playlistId,
+      state:
+        "complete",
+      trackKeys: [
+        record.key,
+      ],
+      totalBytes:
+        1,
+      downloadedBytes:
+        1,
+    });
+
+    assert.equal(
+      await offline.removeDownloadedTrackForOwner(
+        {
+          id:
+            trackId,
+          media_version:
+            mediaVersion,
+        },
+        ownerA,
+      ),
+      true,
+    );
+
+    const remaining =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(
+      remaining,
+    );
+
+    assert.deepEqual(
+      mediaStore.getMediaPinReferences(
+        remaining,
+      ),
+      [
+        offline.getManualDownloadPinRef(
+          ownerB,
+        ),
+      ],
+    );
+
+    assert.equal(
+      (
+        await offline.getDownloadedTracks(
+          ownerA,
+        )
+      ).some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      false,
+    );
+
+    assert.equal(
+      (
+        await offline.getDownloadedTracks(
+          ownerB,
+        )
+      ).some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      true,
+    );
+
+    const updatedJob =
+      await offline.getPlaylistDownloadJob(
+        ownerA,
+        playlistId,
+      );
+
+    assert.equal(
+      updatedJob.state,
+      "paused",
+    );
+
+    assert.deepEqual(
+      updatedJob.trackKeys,
+      [],
+    );
+
+    assert.equal(
+      updatedJob.downloadedBytes,
+      0,
+    );
+  },
+);
