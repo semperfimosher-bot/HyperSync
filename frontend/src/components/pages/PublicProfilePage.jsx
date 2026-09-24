@@ -17,6 +17,18 @@ import SocialModal from "../profile/SocialModal.jsx";
 import Icon from "../ui/Icon.jsx";
 import TrackArtwork from "../ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
+
+import CollectionActionMenu from
+  "../music/CollectionActionMenu.jsx";
+
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
+import useCollectionActionMenu from
+  "../../hooks/useCollectionActionMenu.js";
+
 
 function memberFor(value) {
   if (!value) {
@@ -68,6 +80,12 @@ export default function PublicProfilePage({
   onOpenProfile,
   onSearchArtist,
 }) {
+  const trackActionMenu =
+    useTrackActionMenu();
+
+  const collectionActionMenu =
+    useCollectionActionMenu();
+
   const [profile, setProfile] =
     useState(null);
 
@@ -465,6 +483,9 @@ export default function PublicProfilePage({
                       className="hs-recent-card"
                       type="button"
                       key={track.id}
+                      {...trackActionMenu.getTriggerProps(
+                        track,
+                      )}
                       onClick={() => {
                         player.playTrack(
                     track.id,
@@ -567,6 +588,32 @@ export default function PublicProfilePage({
                       className="hs-artist-row"
                       type="button"
                       key={artist.artist}
+                      {...collectionActionMenu.getTriggerProps({
+                        key:
+                          `artist:${artist.artist}`,
+                        kind:
+                          "artist",
+                        title:
+                          artist.artist,
+                        subtitle:
+                          "Artist",
+                        actions: [
+                          {
+                            id:
+                              "open",
+                            label:
+                              "Open artist",
+                            icon:
+                              "music",
+                            onSelect:
+                              () => {
+                                onSearchArtist?.(
+                                  artist.artist,
+                                );
+                              },
+                          },
+                        ],
+                      })}
                       onClick={() => {
                         onSearchArtist?.(
                           artist.artist,
@@ -605,6 +652,31 @@ export default function PublicProfilePage({
           {error}
         </p>
       ) : null}
+
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
+
+      <CollectionActionMenu
+        menu={
+          collectionActionMenu.menu
+        }
+        onClose={
+          collectionActionMenu.closeMenu
+        }
+      />
 
 
       {socialMode ? (
