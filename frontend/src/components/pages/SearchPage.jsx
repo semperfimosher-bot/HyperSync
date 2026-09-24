@@ -1198,9 +1198,7 @@ useEffect(() => {
       null;
 
     const activeDownload =
-      getActivePlaylistDownloads(
-        offlineOwnerKey,
-      ).find(
+      activePlaylistDownloads.find(
         (item) =>
           String(
             item.playlistId,
