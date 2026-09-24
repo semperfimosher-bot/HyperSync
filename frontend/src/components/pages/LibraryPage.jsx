@@ -1440,6 +1440,8 @@ if (offline) {
       setSelectedPlaylist(
         null,
       );
+
+      await loadLibrary();
     } catch (requestError) {
       setError(
         requestError
@@ -1928,12 +1930,7 @@ if (offline) {
         );
       }
 
-      const nextSaved =
-        await getSavedPlaylists();
-
-      setSavedPlaylists(
-        nextSaved,
-      );
+      await loadLibrary();
     } catch (requestError) {
       setSelectedPlaylist(
         (current) => ({
