@@ -51,6 +51,7 @@ import {
   getPlaylistDownloadJob,
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
+  removeDownloadedTrackForOwner,
   removePlaylistFromOffline,
 } from "../../offlineDownloads.js";
 
@@ -325,6 +326,11 @@ const [
     removingDownload,
     setRemovingDownload,
   ] = useState(false);
+
+  const [
+    removingDownloadedTrackKey,
+    setRemovingDownloadedTrackKey,
+  ] = useState(null);
 
   useEffect(() => {
     let cancelled =
@@ -1535,6 +1541,89 @@ if (offline) {
       );
     }
   }
+
+  async function removeDownloadedSong(
+    track,
+  ) {
+    const trackKey =
+      String(
+        track?.id ??
+        "",
+      ) +
+      ":" +
+      String(
+        track?.media_version ??
+        "",
+      );
+
+    if (
+      !track?.id ||
+      removingDownloadedTrackKey ===
+        trackKey
+    ) {
+      return;
+    }
+
+    setRemovingDownloadedTrackKey(
+      trackKey,
+    );
+
+    setError("");
+
+    try {
+      const removed =
+        await removeDownloadedTrackForOwner(
+          track,
+          offlineOwnerKey,
+        );
+
+      if (!removed) {
+        throw new Error(
+          "Unable to remove this song from downloads.",
+        );
+      }
+
+      const [
+        nextTracks,
+        nextPlaylists,
+      ] =
+        await Promise.all([
+          getDownloadedTracks(
+            offlineOwnerKey,
+          ),
+          getDownloadedPlaylists(
+            offlineOwnerKey,
+          ),
+        ]);
+
+      setDownloadedTracks(
+        nextTracks,
+      );
+
+      setDownloadedPlaylists(
+        nextPlaylists,
+      );
+
+      globalThis.window
+        ?.dispatchEvent(
+          new CustomEvent(
+            "hypersync:offline-downloads-changed",
+          ),
+        );
+    } catch (requestError) {
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to remove this song from downloads.",
+      );
+    } finally {
+      setRemovingDownloadedTrackKey(
+        null,
+      );
+    }
+  }
+
 
   async function confirmRemoveDownload() {
     if (
@@ -2996,14 +3085,54 @@ if (offline) {
                     </span>
 
                     <span className="hs-search-track__play">
-                      <Icon
-                        name={
-                          isCurrentTrack
-                            ? "pause"
-                            : "play"
+                      <button
+                        type="button"
+                        className="hs-search-track__download is-downloaded hs-download-remove-trigger"
+                        disabled={
+                          removingDownloadedTrackKey ===
+                          (
+                            String(
+                              track.id,
+                            ) +
+                            ":" +
+                            String(
+                              track.media_version ??
+                              "",
+                            )
+                          )
                         }
-                        size={16}
-                      />
+                        title="Remove from downloads"
+                        aria-label={`Remove ${track.title} from downloads`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+
+                          void removeDownloadedSong(
+                            track,
+                          );
+                        }}
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                      >
+                        {removingDownloadedTrackKey ===
+                        (
+                          String(
+                            track.id,
+                          ) +
+                          ":" +
+                          String(
+                            track.media_version ??
+                            "",
+                          )
+                        ) ? (
+                          <span className="library-spinner" />
+                        ) : (
+                          <Icon
+                            name="check"
+                            size={15}
+                          />
+                        )}
+                      </button>
                     </span>
 
                   </div>
