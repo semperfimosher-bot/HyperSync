@@ -1266,6 +1266,9 @@ async function downloadedTrackFromRecord(
 
 export async function getDownloadedTracks(
   ownerKey,
+  {
+    manualOnly = false,
+  } = {},
 ) {
   const normalizedOwnerKey =
     normalizeOwnerKey(
@@ -1276,6 +1279,13 @@ export async function getDownloadedTracks(
     return [];
   }
 
+  const manualPinRef =
+    manualOnly
+      ? getManualDownloadPinRef(
+          normalizedOwnerKey,
+        )
+      : null;
+
   const records =
     (
       await getPinnedMediaRecords()
@@ -1284,6 +1294,14 @@ export async function getDownloadedTracks(
         recordBelongsToOwner(
           record,
           normalizedOwnerKey,
+        ) &&
+        (
+          !manualOnly ||
+          getMediaPinReferences(
+            record,
+          ).includes(
+            manualPinRef,
+          )
         ),
     );
 
