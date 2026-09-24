@@ -124,6 +124,29 @@ function uniqueTracks(
 }
 
 
+export function mergeLibraryTracks(
+  primaryTracks,
+  offlineTracks,
+) {
+  return uniqueTracks([
+    ...(
+      Array.isArray(
+        primaryTracks,
+      )
+        ? primaryTracks
+        : []
+    ),
+    ...(
+      Array.isArray(
+        offlineTracks,
+      )
+        ? offlineTracks
+        : []
+    ),
+  ]);
+}
+
+
 export function buildLibraryArtists(
   tracks,
 ) {
