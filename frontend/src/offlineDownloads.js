@@ -140,6 +140,12 @@ function emitPlaylistDownloadProgress(
           ) || 0,
         ),
       ),
+    trackProgress:
+      snapshot.trackProgress &&
+      typeof snapshot.trackProgress ===
+        "object"
+        ? snapshot.trackProgress
+        : {},
     updatedAt:
       Date.now(),
   };
@@ -2603,17 +2609,25 @@ export async function downloadTracksForOffline(
           )
         : 1;
 
-    onProgress?.({
-      downloadedBytes,
-      totalBytes,
-      progress,
-      completedTracks:
-        completedKeys.size,
-      totalTracks:
-        uniqueTracks.length,
-      currentTrackId,
-      trackProgress,
-    });
+    try {
+      onProgress?.({
+        downloadedBytes,
+        totalBytes,
+        progress,
+        completedTracks:
+          completedKeys.size,
+        totalTracks:
+          uniqueTracks.length,
+        currentTrackId,
+        trackProgress,
+      });
+    } catch {
+      /*
+       * UI listeners are optional observers.
+       * Navigation/unmount failures must never
+       * cancel the underlying download.
+       */
+    }
 
     if (
       normalizedJobMetadata.kind ===
@@ -2632,6 +2646,7 @@ export async function downloadTracksForOffline(
         downloadedBytes,
         totalBytes,
         progress,
+        trackProgress,
       });
     }
   };
@@ -3016,6 +3031,8 @@ export function startPlaylistDownloadForOffline(
       0,
     progress:
       0,
+    trackProgress:
+      {},
   });
 
   const operation =
