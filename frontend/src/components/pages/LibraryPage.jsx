@@ -42,8 +42,14 @@ import DownloadRemovalConfirm from
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
+import CollectionActionMenu from
+  "../music/CollectionActionMenu.jsx";
+
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
+
+import useCollectionActionMenu from
+  "../../hooks/useCollectionActionMenu.js";
 
 import {
   getDownloadedPlaylists,
@@ -151,6 +157,10 @@ function LibraryPage({
 }) {
   const trackActionMenu =
   useTrackActionMenu();
+
+  const collectionActionMenu =
+    useCollectionActionMenu();
+
   const [
   currentTrackId,
   setCurrentTrackId,
@@ -3245,6 +3255,15 @@ if (offline) {
         }
       />
 
+      <CollectionActionMenu
+        menu={
+          collectionActionMenu.menu
+        }
+        onClose={
+          collectionActionMenu.closeMenu
+        }
+      />
+
     </div>
   );
 }
@@ -3869,6 +3888,55 @@ if (offline) {
                     key={
                       entity.key
                     }
+                    {...(
+                      isArtist
+                        ? {}
+                        : collectionActionMenu.getTriggerProps({
+                            key:
+                              `album:${entity.key}`,
+                            kind:
+                              "album",
+                            title:
+                              entity.title,
+                            subtitle:
+                              entity.artist ||
+                              "Album",
+                            actions: [
+                              {
+                                id:
+                                  "open",
+                                label:
+                                  "Open album",
+                                icon:
+                                  "disc",
+                                onSelect:
+                                  () => {
+                                    setSelectedLibraryEntity({
+                                      kind:
+                                        "album",
+                                      key:
+                                        entity.key,
+                                    });
+                                  },
+                              },
+                              {
+                                id:
+                                  "play",
+                                label:
+                                  "Play album",
+                                icon:
+                                  "play",
+                                onSelect:
+                                  () => {
+                                    playLibraryTrackCollection(
+                                      entity.tracks,
+                                      0,
+                                    );
+                                  },
+                              },
+                            ],
+                          })
+                    )}
                     onClick={() => {
                       setSelectedLibraryEntity({
                         kind:
@@ -4054,6 +4122,34 @@ if (offline) {
                         openingPlaylistId,
                       )
                     }
+                    {...collectionActionMenu.getTriggerProps({
+                      key:
+                        `playlist:${playlist.id}`,
+                      kind:
+                        "playlist",
+                      title:
+                        playlist.title,
+                      subtitle:
+                        playlist.owner_username ||
+                        currentUser?.username ||
+                        "Playlist",
+                      actions: [
+                        {
+                          id:
+                            "open",
+                          label:
+                            "Open playlist",
+                          icon:
+                            "playlist",
+                          onSelect:
+                            () => {
+                              void openPlaylist(
+                                playlist.id,
+                              );
+                            },
+                        },
+                      ],
+                    })}
                     className={[
                       "hs-search-track",
                       "hs-library-playlist-row",
