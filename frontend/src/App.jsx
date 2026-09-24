@@ -75,6 +75,7 @@ import {
 
 import {
   cleanupLegacyUnscopedDownloads,
+  getActivePlaylistDownloads,
   getDownloadedPlaylists,
   getOfflineOwnerKey,
   getPlaylistDownloadJobId,
@@ -972,6 +973,7 @@ function MainPage({
   onStatusMessage,
   searchResetToken,
   libraryResetToken,
+  activePlaylistDownloads,
 }) {
   const adminPage =
     ADMIN_NAV_ITEMS.some(
@@ -1075,6 +1077,9 @@ function MainPage({
   onOpenAuth={
     onOpenAuth
   }
+  activePlaylistDownloads={
+    activePlaylistDownloads
+  }
 />
     );
   }
@@ -1098,6 +1103,9 @@ if (
       }
       onInitialPlaylistHandled={
         onPlaylistOpened
+      }
+      activePlaylistDownloads={
+        activePlaylistDownloads
       }
     />
   );
@@ -1883,6 +1891,61 @@ export default function App() {
     playlistUpdates,
     setPlaylistUpdates,
   ] = useState([]);
+
+  const [
+    activePlaylistDownloads,
+    setActivePlaylistDownloads,
+  ] = useState([]);
+
+  useEffect(() => {
+    const syncActivePlaylistDownloads =
+      () => {
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          setActivePlaylistDownloads(
+            [],
+          );
+
+          return;
+        }
+
+        setActivePlaylistDownloads(
+          getActivePlaylistDownloads(
+            getOfflineOwnerKey(
+              currentUser,
+            ),
+          ),
+        );
+      };
+
+    syncActivePlaylistDownloads();
+
+    window.addEventListener(
+      "hypersync:offline-download-progress",
+      syncActivePlaylistDownloads,
+    );
+
+    window.addEventListener(
+      "hypersync:offline-downloads-changed",
+      syncActivePlaylistDownloads,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "hypersync:offline-download-progress",
+        syncActivePlaylistDownloads,
+      );
+
+      window.removeEventListener(
+        "hypersync:offline-downloads-changed",
+        syncActivePlaylistDownloads,
+      );
+    };
+  }, [
+    currentUser,
+  ]);
 
   const playlistUpdateCheckRef =
     useRef(false);
@@ -2869,6 +2932,9 @@ const clearPlaylistToOpen =
             }}
             statusMessage={statusMessage}
             onStatusMessage={setStatusMessage}
+            activePlaylistDownloads={
+              activePlaylistDownloads
+            }
           />
         </main>
       </section>
