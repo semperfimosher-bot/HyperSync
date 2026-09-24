@@ -2329,6 +2329,175 @@ if (offline) {
     );
 
 
+  const activeLibraryCollection =
+    activeTab === "Artists"
+      ? libraryArtists
+      : activeTab === "Albums"
+        ? libraryAlbums
+        : [];
+
+
+  function renderLibraryEntityTracks(
+    entity,
+  ) {
+    const tracks =
+      Array.isArray(
+        entity?.tracks,
+      )
+        ? entity.tracks
+        : [];
+
+    return (
+      <div className="hs-search-track-list">
+        {tracks.map(
+          (
+            track,
+            index,
+          ) => {
+            const artwork =
+              resolveArtworkUrl(
+                track.artwork_url,
+              );
+
+            const isCurrentTrack =
+              currentTrackId !== null &&
+              String(
+                track.id,
+              ) ===
+                currentTrackId;
+
+            const playTrack =
+              () => {
+                playLibraryTrackCollection(
+                  tracks,
+                  index,
+                );
+              };
+
+            return (
+              <div
+                key={
+                  String(
+                    track.id,
+                  )
+                }
+                role="button"
+                tabIndex={0}
+                {...trackActionMenu.getTriggerProps(
+                  track,
+                )}
+                className={[
+                  "hs-search-track",
+                  "hs-library-track-row",
+
+                  isCurrentTrack
+                    ? "is-current-track"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={
+                  playTrack
+                }
+                onKeyDown={(
+                  event,
+                ) => {
+                  if (
+                    event.key ===
+                      "Enter" ||
+                    event.key ===
+                      " "
+                  ) {
+                    event.preventDefault();
+                    playTrack();
+                  }
+                }}
+              >
+                <span className="hs-search-track__rank">
+                  {String(
+                    index + 1,
+                  ).padStart(
+                    2,
+                    "0",
+                  )}
+                </span>
+
+                <span className="hs-search-track__art">
+                  {artwork ? (
+                    <img
+                      src={artwork}
+                      alt=""
+                    />
+                  ) : (
+                    <Icon
+                      name="music"
+                      size={20}
+                    />
+                  )}
+
+                  <i aria-hidden="true">
+                    <Icon
+                      name="play"
+                      size={15}
+                    />
+                  </i>
+                </span>
+
+                <span className="hs-search-track__copy">
+                  <strong>
+                    {track.title}
+                  </strong>
+
+                  <small>
+                    {track.artist ||
+                      "Unknown Artist"}
+
+                    {track.album
+                      ? ` • ${track.album}`
+                      : ""}
+                  </small>
+                </span>
+
+                <span className="hs-search-track__signals">
+                  <em>
+                    IN LIBRARY
+                  </em>
+
+                  <small>
+                    {activeTab ===
+                    "Artists"
+                      ? (
+                          track.album ||
+                          "Single"
+                        )
+                      : (
+                          track.artist ||
+                          "Unknown Artist"
+                        )}
+                  </small>
+                </span>
+
+                <span className="hs-search-track__duration">
+                  {formatTrackDuration(
+                    track.duration_seconds,
+                  )}
+                </span>
+
+                <span className="hs-search-track__play">
+                  <Icon
+                    name="play"
+                    size={16}
+                  />
+                </span>
+              </div>
+            );
+          },
+        )}
+      </div>
+    );
+  }
+
+
   const onlinePlaylists = [
     ...ownedPlaylists,
 
