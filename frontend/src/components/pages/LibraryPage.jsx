@@ -67,6 +67,7 @@ import {
 import {
   buildLibraryAlbums,
   buildLibraryArtists,
+  mergeLibraryTracks,
 } from "../../libraryEntities.js";
 
 function formatDuration(
@@ -403,6 +404,11 @@ const [
   ] = useState([]);
 
   const [
+    allDownloadedTracks,
+    setAllDownloadedTracks,
+  ] = useState([]);
+
+  const [
     removeDownloadTarget,
     setRemoveDownloadTarget,
   ] = useState(null);
@@ -432,6 +438,7 @@ const [
           const [
             playlists,
             tracks,
+            allTracks,
           ] =
             await Promise.all([
               getDownloadedPlaylists(
@@ -444,6 +451,9 @@ const [
                     true,
                 },
               ),
+              getDownloadedTracks(
+                offlineOwnerKey,
+              ),
             ]);
 
           if (!cancelled) {
@@ -454,6 +464,10 @@ const [
             setDownloadedTracks(
               tracks,
             );
+
+            setAllDownloadedTracks(
+              allTracks,
+            );
           }
         } catch {
           if (!cancelled) {
@@ -462,6 +476,10 @@ const [
             );
 
             setDownloadedTracks(
+              [],
+            );
+
+            setAllDownloadedTracks(
               [],
             );
           }
@@ -509,6 +527,7 @@ const [
           const [
             nextDownloads,
             nextTracks,
+            nextAllTracks,
           ] =
             await Promise.all([
               getDownloadedPlaylists(
@@ -521,6 +540,9 @@ const [
                     true,
                 },
               ),
+              getDownloadedTracks(
+                offlineOwnerKey,
+              ),
             ]);
 
           setDownloadedPlaylists(
@@ -529,6 +551,10 @@ const [
 
           setDownloadedTracks(
             nextTracks,
+          );
+
+          setAllDownloadedTracks(
+            nextAllTracks,
           );
 
           if (
@@ -2085,14 +2111,45 @@ if (offline) {
   }
 
 
+  const libraryEntityTracks =
+    useMemo(
+      () =>
+        mergeLibraryTracks(
+          libraryTracks,
+          allDownloadedTracks,
+        ),
+      [
+        libraryTracks,
+        allDownloadedTracks,
+      ],
+    );
+
+
+  const downloadedTrackIds =
+    useMemo(
+      () =>
+        new Set(
+          allDownloadedTracks.map(
+            (track) =>
+              String(
+                track.id,
+              ),
+          ),
+        ),
+      [
+        allDownloadedTracks,
+      ],
+    );
+
+
   const libraryArtists =
     useMemo(
       () =>
         buildLibraryArtists(
-          libraryTracks,
+          libraryEntityTracks,
         ),
       [
-        libraryTracks,
+        libraryEntityTracks,
       ],
     );
 
@@ -2101,10 +2158,10 @@ if (offline) {
     useMemo(
       () =>
         buildLibraryAlbums(
-          libraryTracks,
+          libraryEntityTracks,
         ),
       [
-        libraryTracks,
+        libraryEntityTracks,
       ],
     );
 
@@ -2272,7 +2329,13 @@ if (offline) {
 
                 <span className="hs-search-track__signals">
                   <em>
-                    IN LIBRARY
+                    {downloadedTrackIds.has(
+                      String(
+                        track.id,
+                      ),
+                    )
+                      ? "OFFLINE"
+                      : "IN LIBRARY"}
                   </em>
 
                   <small>
@@ -3783,6 +3846,22 @@ if (offline) {
                   activeTab ===
                   "Artists";
 
+                const offlineTrackCount =
+                  (
+                    Array.isArray(
+                      entity.tracks,
+                    )
+                      ? entity.tracks
+                      : []
+                  ).filter(
+                    (track) =>
+                      downloadedTrackIds.has(
+                        String(
+                          track.id,
+                        ),
+                      ),
+                  ).length;
+
                 return (
                   <button
                     type="button"
@@ -3838,10 +3917,10 @@ if (offline) {
                       <em>
                         {isArtist
                           ? (
-                              `${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"} • ${entity.album_count} ${entity.album_count === 1 ? "album" : "albums"}`
+                              `${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"} • ${entity.album_count} ${entity.album_count === 1 ? "album" : "albums"} • ${offlineTrackCount}/${entity.track_count} offline`
                             )
                           : (
-                              `${entity.artist} • ${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"}`
+                              `${entity.artist} • ${entity.track_count} ${entity.track_count === 1 ? "song" : "songs"} • ${offlineTrackCount}/${entity.track_count} offline`
                             )}
                       </em>
 
