@@ -309,6 +309,11 @@ const [
 });
 
 const [
+  playlistRowDownloads,
+  setPlaylistRowDownloads,
+] = useState({});
+
+const [
   removeDownloadOpen,
   setRemoveDownloadOpen,
 ] = useState(false);
@@ -1503,6 +1508,23 @@ async function downloadOpenedPlaylist() {
       );
     }
 
+    const playlistId =
+      String(
+        playlistForDownload.id,
+      );
+
+    setPlaylistRowDownloads(
+      (current) => ({
+        ...current,
+        [playlistId]: {
+          status:
+            "downloading",
+          progress:
+            0,
+        },
+      }),
+    );
+
     setPlaylistDownload({
       status:
         "downloading",
@@ -1546,19 +1568,34 @@ async function downloadOpenedPlaylist() {
           progress,
           trackProgress,
         }) => {
+          const safeProgress =
+            Number.isFinite(
+              progress,
+            )
+              ? progress
+              : 0;
+
           setPlaylistDownload({
             status:
               "downloading",
             progress:
-              Number.isFinite(
-                progress,
-              )
-                ? progress
-                : 0,
+              safeProgress,
             trackProgress:
               trackProgress ??
               {},
           });
+
+          setPlaylistRowDownloads(
+            (current) => ({
+              ...current,
+              [playlistId]: {
+                status:
+                  "downloading",
+                progress:
+                  safeProgress,
+              },
+            }),
+          );
         },
       },
     );
@@ -1583,6 +1620,20 @@ async function downloadOpenedPlaylist() {
           ),
         ),
     });
+
+    setPlaylistRowDownloads(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[
+          playlistId
+        ];
+
+        return next;
+      },
+    );
   } catch (error) {
     setPlaylistDownload({
       status:
@@ -1592,6 +1643,30 @@ async function downloadOpenedPlaylist() {
       trackProgress:
         {},
     });
+
+    if (
+      typeof playlistForDownload?.id !==
+        "undefined"
+    ) {
+      const failedPlaylistId =
+        String(
+          playlistForDownload.id,
+        );
+
+      setPlaylistRowDownloads(
+        (current) => {
+          const next = {
+            ...current,
+          };
+
+          delete next[
+            failedPlaylistId
+          ];
+
+          return next;
+        },
+      );
+    }
 
     setPlaylistError(
       error instanceof Error
@@ -2667,6 +2742,30 @@ async function downloadOpenedPlaylist() {
                         playlist.artwork_url,
                       );
 
+                    const rowDownload =
+                      playlistRowDownloads[
+                        String(
+                          playlist.id,
+                        )
+                      ] ??
+                      null;
+
+                    const rowDownloadPercent =
+                      Math.round(
+                        Math.max(
+                          0,
+                          Math.min(
+                            1,
+                            Number(
+                              rowDownload
+                                ?.progress ??
+                              0,
+                            ) || 0,
+                          ),
+                        ) *
+                          100,
+                      );
+
                     return (
                       <div
                         key={
@@ -2777,10 +2876,27 @@ async function downloadOpenedPlaylist() {
                         </span>
 
 
-                        <span
-                          className="hs-search-track__download hs-search-playlist-spacer"
-                          aria-hidden="true"
-                        />
+                        {rowDownload?.status ===
+                        "downloading" ? (
+                          <span
+                            className="hs-search-track__download is-downloading hs-playlist-row-download-progress"
+                            style={{
+                              "--download-progress":
+                                `${rowDownloadPercent}%`,
+                            }}
+                            title={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                            aria-label={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                          >
+                            <span className="hs-search-track__download-progress">
+                              {rowDownloadPercent}
+                            </span>
+                          </span>
+                        ) : (
+                          <span
+                            className="hs-search-track__download hs-search-playlist-spacer"
+                            aria-hidden="true"
+                          />
+                        )}
 
 
                         <span className="hs-search-track__play">
