@@ -270,6 +270,7 @@ function SearchPage({
   query,
   onQueryChange,
   onOpenProfile,
+  onMessageUser,
   onOpenPlaylist,
   onOpenAuth,
   currentUser,
@@ -3319,60 +3320,95 @@ displayResults.tracks.length > 0 ? (
               <div className="hs-search-people-list">
 
                 {displayResults.people.map(
-                  (person) => (
+                  (person) => {
+                    const canMessage =
+                      isRegistered &&
+                      String(
+                        person.username,
+                      ).toLocaleLowerCase()
+                      !==
+                      String(
+                        currentUser?.username ??
+                        "",
+                      ).toLocaleLowerCase();
 
-                    <button
-                      type="button"
-                      className="hs-search-person"
-                      key={
-                        person.username
-                      }
-                      onClick={() => {
-                        onOpenProfile?.(
-                          person.username,
-                        );
-                      }}
-                    >
-
-                      <Avatar
-                        src={
-                          person.avatar_url
+                    return (
+                      <div
+                        className="hs-search-person hs-search-person--messageable"
+                        key={
+                          person.username
                         }
-                        name={
-                          person.display_name
-                        }
-                        size="small"
-                      />
+                      >
+                        <button
+                          type="button"
+                          className="hs-search-person__profile"
+                          onClick={() => {
+                            onOpenProfile?.(
+                              person.username,
+                            );
+                          }}
+                        >
+                          <Avatar
+                            src={
+                              person.avatar_url
+                            }
+                            name={
+                              person.display_name
+                            }
+                            size="small"
+                          />
 
-                      <span>
+                          <span>
+                            <small>
+                              {person.match_label}
+                            </small>
 
-                        <small>
-                          {person.match_label}
-                        </small>
+                            <strong>
+                              {person.display_name}
+                            </strong>
 
-                        <strong>
-                          {person.display_name}
-                        </strong>
+                            <em>
+                              @{person.username}
+                              {" • "}
+                              {person.followers_count}
+                              {" followers • "}
+                              {memberFor(
+                                person.member_since,
+                              )}
+                            </em>
+                          </span>
+                        </button>
 
-                        <em>
-                          @{person.username}
-                          {" • "}
-                          {person.followers_count}
-                          {" followers • "}
-                          {memberFor(
-                            person.member_since,
-                          )}
-                        </em>
-
-                      </span>
-
-                      <Icon
-                        name="chevron"
-                        size={16}
-                      />
-
-                    </button>
-                  ),
+                        {canMessage ? (
+                          <button
+                            type="button"
+                            className="hs-search-person__message"
+                            title={
+                              `Message @${person.username}`
+                            }
+                            aria-label={
+                              `Message @${person.username}`
+                            }
+                            onClick={() => {
+                              onMessageUser?.(
+                                person.username,
+                              );
+                            }}
+                          >
+                            <Icon
+                              name="mail"
+                              size={17}
+                            />
+                          </button>
+                        ) : (
+                          <Icon
+                            name="chevron"
+                            size={16}
+                          />
+                        )}
+                      </div>
+                    );
+                  },
                 )}
 
               </div>
