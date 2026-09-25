@@ -409,8 +409,10 @@ async def _delete_all_database_rows(
                 )
             )
 
-            rowcount = (
-                result.rowcount
+            rowcount = getattr(
+                result,
+                "rowcount",
+                None,
             )
 
             deleted_rows[
