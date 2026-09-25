@@ -2,6 +2,7 @@ import BrandLogo from "../ui/BrandLogo.jsx";
 import Icon from "../ui/Icon.jsx";
 import Avatar from "../profile/Avatar.jsx";
 import PlaylistUpdateNotice from "../ui/PlaylistUpdateNotice.jsx";
+import MessageNotificationPanel from "../ui/MessageNotificationPanel.jsx";
 
 import { useEffect, useState } from "react";
 
@@ -14,6 +15,10 @@ function MobileHeader({
   playlistUpdate,
   onDownloadPlaylistUpdate,
   onDismissPlaylistUpdate,
+  messageNotifications,
+  onOpenMessage,
+  onEnablePush,
+  pushBusy,
 }) {
   const [
     notificationsOpen,
@@ -21,12 +26,18 @@ function MobileHeader({
   ] = useState(false);
 
   useEffect(() => {
-    if (!playlistUpdate) {
+    if (
+      !playlistUpdate &&
+      !messageNotifications?.unread_count
+    ) {
       setNotificationsOpen(
         false,
       );
     }
-  }, [playlistUpdate]);
+  }, [
+    playlistUpdate,
+    messageNotifications?.unread_count,
+  ]);
   function openProfile() {
     if (currentUser) {
       onNavigate("profile");
@@ -71,7 +82,8 @@ function MobileHeader({
               size={18}
             />
 
-            {playlistUpdate ? (
+            {playlistUpdate ||
+            messageNotifications?.unread_count ? (
               <span
                 className="icon-button__dot"
                 aria-hidden="true"
@@ -96,22 +108,32 @@ function MobileHeader({
                   }
                   onDismiss={() => {
                     onDismissPlaylistUpdate?.();
-                    setNotificationsOpen(
-                      false,
-                    );
                   }}
                 />
-              ) : (
-                <div className="mobile-notification-empty">
-                  <strong>
-                    No new notifications
-                  </strong>
+              ) : null}
 
-                  <small>
-                    Playlist download updates will appear here.
-                  </small>
-                </div>
-              )}
+              <MessageNotificationPanel
+                data={
+                  messageNotifications
+                }
+                onOpenMessage={(
+                  username,
+                ) => {
+                  setNotificationsOpen(
+                    false,
+                  );
+
+                  onOpenMessage?.(
+                    username,
+                  );
+                }}
+                onEnablePush={
+                  onEnablePush
+                }
+                pushBusy={
+                  pushBusy
+                }
+              />
             </div>
           ) : null}
         </div>
