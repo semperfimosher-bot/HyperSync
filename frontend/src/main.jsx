@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 
 import App from "./App.jsx";
 import {
+  syncGlobalResetState,
+} from "./globalResetSync.js";
+import {
   registerHyperSyncServiceWorker,
 } from "./serviceWorkerRegistration.js";
 import "./styles.css";
@@ -18,6 +21,56 @@ createRoot(rootElement).render(
     <App />
   </StrictMode>,
 );
+
+let resetSyncInFlight =
+  null;
+
+
+function syncResetAndReload() {
+  if (resetSyncInFlight) {
+    return resetSyncInFlight;
+  }
+
+  resetSyncInFlight =
+    syncGlobalResetState()
+      .then(
+        (result) => {
+          if (
+            result
+              ?.resetApplied
+          ) {
+            window.location.replace(
+              "/",
+            );
+          }
+
+          return result;
+        },
+      )
+      .catch(
+        () => null,
+      )
+      .finally(
+        () => {
+          resetSyncInFlight =
+            null;
+        },
+      );
+
+  return resetSyncInFlight;
+}
+
+
+void syncResetAndReload();
+
+
+window.addEventListener(
+  "online",
+  () => {
+    void syncResetAndReload();
+  },
+);
+
 
 if (import.meta.env.PROD) {
   window.addEventListener(
