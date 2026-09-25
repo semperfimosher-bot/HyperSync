@@ -74,6 +74,8 @@ import LibraryPage from "./components/pages/LibraryPage.jsx";
 
 import SearchPage from "./components/pages/SearchPage.jsx";
 
+import MessagesPage from "./components/pages/MessagesPage.jsx";
+
 import ProfilePage from "./components/pages/ProfilePage.jsx";
 
 import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
@@ -106,6 +108,15 @@ import {
   findMissingPlaylistTracks,
   playlistUpdateKey,
 } from "./playlistDownloadUpdates.js";
+
+import {
+  getMessageNotifications,
+} from "./messageApi.js";
+
+import {
+  enablePushNotifications,
+  syncExistingPushSubscription,
+} from "./pushNotifications.js";
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -2437,6 +2448,10 @@ function MainPage({
   onOpenPlaylist,
   onPlaylistOpened,
   onOpenProfile,
+  onMessageUser,
+  messageUsername,
+  onMessageUsernameHandled,
+  onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
   onOpenAuth,
@@ -2551,6 +2566,9 @@ function MainPage({
   onOpenProfile={
     onOpenProfile
   }
+  onMessageUser={
+    onMessageUser
+  }
   onOpenPlaylist={
     onOpenPlaylist
   }
@@ -2563,6 +2581,65 @@ function MainPage({
 />
     );
   }
+
+if (
+  activePage === "messages"
+) {
+  if (
+    currentUser?.account_type !==
+      "registered"
+  ) {
+    return (
+      <div className="page-stack">
+        <section className="admin-page__denied">
+          <Icon
+            name="mail"
+            size={28}
+          />
+
+          <h2>
+            Sign in to message
+          </h2>
+
+          <p>
+            Private messages are available
+            to registered HyperSync accounts.
+          </p>
+
+          <button
+            type="button"
+            className="hs-search-primary-action"
+            onClick={
+              onOpenAuth
+            }
+          >
+            Sign in
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <MessagesPage
+      currentUser={
+        currentUser
+      }
+      initialUsername={
+        messageUsername
+      }
+      onInitialUsernameHandled={
+        onMessageUsernameHandled
+      }
+      onUnreadChange={
+        onMessageNotificationsChanged
+      }
+      onOpenProfile={
+        onOpenProfile
+      }
+    />
+  );
+}
 
 if (
   activePage === "library"
@@ -2676,13 +2753,20 @@ if (
 function MobileBottomNav({
   activePage,
   onNavigate,
+  currentUser,
 }) {
   return (
     <nav
       className="mobile-bottom-nav"
       aria-label="Mobile navigation"
     >
-      {NAV_ITEMS.map((item) => (
+      {NAV_ITEMS
+        .filter(
+          (item) =>
+            !item.requiresAuth ||
+            Boolean(currentUser),
+        )
+        .map((item) => (
         <button
           className={
             activePage === item.id
