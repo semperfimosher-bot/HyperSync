@@ -4889,6 +4889,247 @@ const clearPlaylistToOpen =
     setAuthOpen(true);
   }, []);
 
+
+  const openMessageUser =
+  useCallback(
+    (username) => {
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        openAuth(
+          "signin",
+        );
+
+        return;
+      }
+
+      const normalized =
+        String(
+          username ??
+          "",
+        ).trim();
+
+      setMessageToOpen(
+        normalized,
+      );
+
+      navigate(
+        "messages",
+      );
+    },
+    [
+      currentUser?.account_type,
+      navigate,
+      openAuth,
+    ],
+  );
+
+
+  const clearMessageToOpen =
+  useCallback(
+    () => {
+      setMessageToOpen(
+        "",
+      );
+    },
+    [],
+  );
+
+
+  const handleEnablePush =
+  useCallback(
+    async () => {
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        openAuth(
+          "signin",
+        );
+
+        return;
+      }
+
+      setPushBusy(
+        true,
+      );
+
+      try {
+        const result =
+          await enablePushNotifications();
+
+        if (
+          !result?.supported
+        ) {
+          setStatusMessage(
+            "Push notifications are not supported by this browser.",
+          );
+
+          return;
+        }
+
+        if (
+          result?.configured ===
+          false
+        ) {
+          setStatusMessage(
+            "Push notifications need VAPID keys configured on the server.",
+          );
+
+          return;
+        }
+
+        if (
+          !result?.enabled
+        ) {
+          setStatusMessage(
+            "Push notification permission was not granted.",
+          );
+
+          return;
+        }
+
+        setStatusMessage(
+          "Push notifications enabled.",
+        );
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to enable push notifications.",
+        );
+      } finally {
+        setPushBusy(
+          false,
+        );
+      }
+    },
+    [
+      currentUser?.account_type,
+      openAuth,
+    ],
+  );
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      setMessageNotifications({
+        unread_count:
+          0,
+        notifications:
+          [],
+      });
+
+      return undefined;
+    }
+
+    void refreshMessageNotifications();
+
+    void syncExistingPushSubscription()
+      .catch(
+        () => {},
+      );
+
+    const interval =
+      window.setInterval(
+        () => {
+          void refreshMessageNotifications();
+        },
+        12_000,
+      );
+
+    const handleFocus =
+      () => {
+        void refreshMessageNotifications();
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+            "visible"
+        ) {
+          void refreshMessageNotifications();
+        }
+      };
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    return () => {
+      window.clearInterval(
+        interval,
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    currentUser?.id,
+    refreshMessageNotifications,
+  ]);
+
+
+  useEffect(() => {
+    const serviceWorker =
+      globalThis.navigator
+        ?.serviceWorker;
+
+    if (
+      !serviceWorker
+    ) {
+      return undefined;
+    }
+
+    const handleWorkerMessage =
+      (event) => {
+        if (
+          event.data?.type !==
+            "HYPERSYNC_OPEN_MESSAGE"
+        ) {
+          return;
+        }
+
+        openMessageUser(
+          event.data?.username,
+        );
+      };
+
+    serviceWorker.addEventListener(
+      "message",
+      handleWorkerMessage,
+    );
+
+    return () => {
+      serviceWorker.removeEventListener(
+        "message",
+        handleWorkerMessage,
+      );
+    };
+  }, [
+    openMessageUser,
+  ]);
+
+
   const openSignIn = useCallback(() => {
     openAuth("signin");
   }, [openAuth]);
@@ -4956,6 +5197,18 @@ const clearPlaylistToOpen =
     onDismissPlaylistUpdate={
       dismissPlaylistUpdate
     }
+    messageNotifications={
+      messageNotifications
+    }
+    onOpenMessage={
+      openMessageUser
+    }
+    onEnablePush={() => {
+      void handleEnablePush();
+    }}
+    pushBusy={
+      pushBusy
+    }
     />
 
         <DesktopTopbar
@@ -4972,6 +5225,18 @@ const clearPlaylistToOpen =
           onOpenAuth={() => {
             openAuth("signin");
           }}
+          messageNotifications={
+            messageNotifications
+          }
+          onOpenMessage={
+            openMessageUser
+          }
+          onEnablePush={() => {
+            void handleEnablePush();
+          }}
+          pushBusy={
+            pushBusy
+          }
         />
 
         <main className="main-content">
@@ -4999,6 +5264,18 @@ const clearPlaylistToOpen =
             }
             onOpenProfile={
               openUserProfile
+            }
+            onMessageUser={
+              openMessageUser
+            }
+            messageUsername={
+              messageToOpen
+            }
+            onMessageUsernameHandled={
+              clearMessageToOpen
+            }
+            onMessageNotificationsChanged={
+              refreshMessageNotifications
             }
             onNavigate={navigate}
             onOpenAuth={() => {
@@ -5052,6 +5329,9 @@ const clearPlaylistToOpen =
       <MobileBottomNav
         activePage={activePage}
         onNavigate={navigate}
+        currentUser={
+          currentUser
+        }
       />
 
 <AuthOverlay
