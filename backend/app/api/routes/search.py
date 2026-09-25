@@ -345,7 +345,7 @@ async def _load_history_track_ids(
             ListeningEvent.listened_at,
         ).desc()
 
-    result = await session.execute(
+    statement = (
         select(
             ListeningEvent.track_id,
         )
@@ -358,9 +358,15 @@ async def _load_history_track_ids(
         .order_by(
             ordering,
         )
-        .limit(
+    )
+
+    if intent != "recent":
+        statement = statement.limit(
             HISTORY_COMMAND_LIMIT,
         )
+
+    result = await session.execute(
+        statement,
     )
 
     return list(result.scalars().all())
@@ -792,6 +798,12 @@ async def _build_track_rows(
         sort_mode,
         parsed.intent,
     )
+
+    if (
+        parsed.intent == "recent"
+        and not parsed.term
+    ):
+        return sorted_rows
 
     return sorted_rows[:TRACK_RESULT_LIMIT]
 
