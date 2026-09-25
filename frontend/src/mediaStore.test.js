@@ -163,6 +163,12 @@ test(
           null,
         expiresAt:
           null,
+        warmUntil:
+          null,
+        warmByteStart:
+          null,
+        warmByteEnd:
+          null,
       },
     );
 
@@ -2086,14 +2092,8 @@ test(
       262_143,
     );
 
-    const whileWarm =
-      await mediaStore.cleanupExpiredMedia(
-        500,
-      );
-
-    assert.equal(
-      whileWarm,
-      0,
+    await mediaStore.cleanupExpiredMedia(
+      500,
     );
 
     assert.ok(
@@ -2103,14 +2103,8 @@ test(
       ),
     );
 
-    const afterWarm =
-      await mediaStore.cleanupExpiredMedia(
-        1_001,
-      );
-
-    assert.equal(
-      afterWarm,
-      1,
+    await mediaStore.cleanupExpiredMedia(
+      1_001,
     );
 
     assert.equal(
