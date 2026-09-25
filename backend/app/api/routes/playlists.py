@@ -129,6 +129,8 @@ class PlaylistTrackResponse(
     media_version: str | None = None
     artwork_version: str | None = None
 
+    added_at: datetime | None = None
+
 
 class LibraryTrackResponse(
     BaseModel,
@@ -153,6 +155,8 @@ class LibraryTrackResponse(
 
     media_version: str | None = None
     artwork_version: str | None = None
+
+    created_at: datetime | None = None
 
 
 class PlaylistSummaryResponse(
@@ -465,6 +469,9 @@ def serialize_playlist_track(
                 track,
             )
         ),
+        added_at=(
+            playlist_track.created_at
+        ),
     )
 
 
@@ -766,6 +773,9 @@ async def get_library_tracks(
                 _track_artwork_version(
                     track,
                 )
+            ),
+            created_at=(
+                track.created_at
             ),
         )
         for track in tracks
