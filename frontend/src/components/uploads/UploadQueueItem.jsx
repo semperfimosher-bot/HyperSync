@@ -103,6 +103,20 @@ export default function UploadQueueItem({
               item.duration,
             )}
           </small>
+
+          {isSuccess &&
+          item.response
+            ?.compression
+            ?.applied ? (
+            <small className="upload-compression-result">
+              {item.response.compression.saved_percent}%
+              {" smaller • "}
+              {formatFileSize(
+                item.response.compression.saved_bytes,
+              )}
+              {" saved in B2"}
+            </small>
+          ) : null}
         </div>
 
         <div className="upload-queue-item__status">
