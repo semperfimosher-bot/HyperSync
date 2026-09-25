@@ -191,8 +191,47 @@ async function clearAllWorkerCaches() {
 globalThis.self?.addEventListener?.(
   "message",
   (event) => {
+    const type =
+      event.data?.type;
+
     if (
-      event.data?.type !==
+      type ===
+      "HYPERSYNC_PREPARE_OFFLINE_APP"
+    ) {
+      const requestId =
+        event.data?.requestId ??
+        null;
+
+      event.waitUntil(
+        (
+          async () => {
+            let ok =
+              true;
+
+            try {
+              await precacheAppShell();
+            } catch {
+              ok =
+                false;
+            }
+
+            event.source?.postMessage?.({
+              type:
+                "HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE",
+
+              requestId,
+
+              ok,
+            });
+          }
+        )(),
+      );
+
+      return;
+    }
+
+    if (
+      type !==
       "HYPERSYNC_CLEAR_ALL_CLIENT_DATA"
     ) {
       return;
