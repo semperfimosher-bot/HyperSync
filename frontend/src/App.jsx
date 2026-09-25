@@ -4080,6 +4080,23 @@ export default function App() {
           return;
         }
 
+        /*
+         * Space is a HyperSync playback
+         * shortcut only while this browser
+         * tab is actually open and focused.
+         * It must never behave like a
+         * system-wide media hotkey.
+         */
+        if (
+          document.visibilityState !==
+            "visible" ||
+          typeof document.hasFocus ===
+            "function" &&
+          !document.hasFocus()
+        ) {
+          return;
+        }
+
         if (
           typeof window.matchMedia ===
             "function" &&
