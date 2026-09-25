@@ -17,6 +17,9 @@ from ...models import (
     SystemResetState,
 )
 from ...models.media import Track
+from ...services.audio_compression import (
+    compress_audio_for_storage,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
@@ -409,7 +412,9 @@ async def upload_track(
 
     try:
         file_content = await file.read()
-        file_size = len(file_content)
+        original_file_size = len(
+            file_content,
+        )
 
         embedded_metadata = extract_embedded_audio_metadata(
             file_content,
@@ -470,12 +475,6 @@ async def upload_track(
                 ),
             )
 
-        file_ext = (
-            file.filename.split(".")[-1] if (file.filename and "." in file.filename) else "wav"
-        )
-
-        object_key = f"{settings.b2_audio_prefix}/{uuid4()}.{file_ext}"
-
         artwork_data = None
         artwork_mime_type = None
 
@@ -524,13 +523,96 @@ async def upload_track(
             # never prevent the upload.
             pass
 
+        compression = (
+            await asyncio.to_thread(
+                compress_audio_for_storage,
+                file_content,
+                filename=(
+                    file.filename
+                ),
+                mime_type=(
+                    file.content_type
+                    or "application/octet-stream"
+                ),
+                title=(
+                    resolved_metadata[
+                        "title"
+                    ]
+                ),
+                artist=(
+                    resolved_metadata[
+                        "artist"
+                    ]
+                ),
+                album=(
+                    resolved_metadata[
+                        "album"
+                    ]
+                ),
+                genre=(
+                    resolved_metadata[
+                        "genre"
+                    ]
+                ),
+                artwork_data=(
+                    artwork_data
+                ),
+                artwork_mime_type=(
+                    artwork_mime_type
+                ),
+                enabled=(
+                    settings
+                    .audio_compression_enabled
+                ),
+                mp3_vbr_quality=(
+                    settings
+                    .audio_compression_mp3_vbr_quality
+                ),
+                min_source_kbps=(
+                    settings
+                    .audio_compression_min_source_kbps
+                ),
+                min_savings_percent=(
+                    settings
+                    .audio_compression_min_savings_percent
+                ),
+                timeout_seconds=(
+                    settings
+                    .audio_compression_timeout_seconds
+                ),
+            )
+        )
+
+        file_content = (
+            compression.content
+        )
+
+        file_size = (
+            compression.final_size
+        )
+
+        upload_mime_type = (
+            compression.mime_type
+        )
+
+        file_ext = (
+            compression.extension
+        )
+
+        object_key = (
+            f"{settings.b2_audio_prefix}/"
+            f"{uuid4()}.{file_ext}"
+        )
+
         bucket = get_b2_bucket()
 
         await asyncio.to_thread(
             bucket.upload_bytes,
             file_content,
             object_key,
-            content_type=(file.content_type),
+            content_type=(
+                upload_mime_type
+            ),
         )
 
         artwork_object_key = None
@@ -555,7 +637,9 @@ async def upload_track(
             genre=(resolved_metadata["genre"]),
             b2_object_key=(object_key),
             artwork_object_key=(artwork_object_key),
-            mime_type=(file.content_type),
+            mime_type=(
+                upload_mime_type
+            ),
             file_size=file_size,
             duration_seconds=(resolved_metadata["duration_seconds"]),
             is_published=True,
@@ -575,8 +659,39 @@ async def upload_track(
             "album": track.album,
             "b2_object_key": (object_key),
             "artwork_object_key": (artwork_object_key),
-            "file_size": file_size,
-            "duration_seconds": (track.duration_seconds),
+            "file_size":
+                file_size,
+            "original_file_size":
+                original_file_size,
+            "compression": {
+                "applied":
+                    compression.compressed,
+                "saved_bytes":
+                    compression.savings_bytes,
+                "saved_percent":
+                    round(
+                        compression.savings_percent,
+                        1,
+                    ),
+                "source_codec":
+                    compression.source_codec,
+                "source_bitrate_kbps":
+                    (
+                        round(
+                            compression
+                            .source_bitrate_kbps,
+                            1,
+                        )
+                        if compression
+                        .source_bitrate_kbps
+                        is not None
+                        else None
+                    ),
+                "stored_mime_type":
+                    upload_mime_type,
+            },
+            "duration_seconds":
+                track.duration_seconds,
         }
 
         # Generated artist playlists are shared
