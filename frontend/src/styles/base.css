@@ -7813,3 +7813,82 @@ button > span:nth-child(2) {
   }
 }
 
+
+
+/* =========================================================
+   MOBILE DOUBLE-TAP SEEK
+   ========================================================= */
+
+.mobile-seek-feedback {
+  position: fixed;
+  top: 46%;
+  z-index: 180;
+
+  display: none;
+
+  min-width: 76px;
+  min-height: 76px;
+
+  place-items: center;
+
+  align-content: center;
+
+  gap: 2px;
+
+  padding: 12px;
+
+  pointer-events: none;
+
+  border:
+    1px solid
+    rgba(77, 227, 255, 0.22);
+
+  border-radius: 50%;
+
+  color: #dff8ff;
+
+  background:
+    rgba(3, 15, 23, 0.88);
+
+  box-shadow:
+    0 12px 34px
+    rgba(0, 0, 0, 0.42),
+    inset 0 0 24px
+    rgba(36, 191, 235, 0.06);
+
+  backdrop-filter:
+    blur(12px);
+
+  transform:
+    translateY(-50%);
+}
+
+.mobile-seek-feedback--back {
+  left: 12%;
+}
+
+.mobile-seek-feedback--forward {
+  right: 12%;
+}
+
+.mobile-seek-feedback strong {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.mobile-seek-feedback span {
+  color: #74a6b7;
+  font-size: 6.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 979px) and (pointer: coarse) {
+  .app-shell {
+    touch-action: manipulation;
+  }
+
+  .mobile-seek-feedback {
+    display: grid;
+  }
+}
