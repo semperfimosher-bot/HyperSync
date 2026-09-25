@@ -134,32 +134,51 @@ export default function MessageNotificationPanel({
       )}
 
       {onEnablePush ? (
-        <button
-          type="button"
-          className={
-            pushEnabled
-              ? "message-push-enable is-enabled"
-              : "message-push-enable"
-          }
-          disabled={
-            pushBusy ||
-            pushEnabled
-          }
-          onClick={
-            onEnablePush
-          }
-        >
-          <Icon
-            name="bell"
-            size={14}
-          />
+        <>
+          <button
+            type="button"
+            className={
+              pushEnabled
+                ? "message-push-enable is-enabled"
+                : "message-push-enable"
+            }
+            disabled={
+              pushBusy ||
+              pushEnabled
+            }
+            onClick={
+              onEnablePush
+            }
+          >
+            <Icon
+              name="bell"
+              size={14}
+            />
 
-          {pushEnabled
-            ? "Push notifications on"
-            : pushBusy
-              ? "Turning on..."
-              : "Enable push notifications"}
-        </button>
+            {pushEnabled
+              ? "Push notifications on"
+              : pushBusy
+                ? "Turning on..."
+                : "Enable push notifications"}
+          </button>
+
+          {pushEnabled ? (
+            <div
+              className="message-push-success"
+              role="status"
+              aria-live="polite"
+            >
+              <Icon
+                name="check"
+                size={13}
+              />
+
+              <span>
+                Push notifications enabled successfully.
+              </span>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
