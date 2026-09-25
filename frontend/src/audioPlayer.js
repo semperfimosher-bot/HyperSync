@@ -14,6 +14,7 @@ import {
   buildTrackQueue,
   getNextQueueIndex,
   getQueueTrackAtIndex,
+  insertQueueEntryAsNext,
 } from "./playerQueue.js";
 
 import {
@@ -270,6 +271,16 @@ function normalizeTrackMeta(
     mediaVersion:
       meta.mediaVersion ??
       meta.media_version ??
+      null,
+
+    artworkVersion:
+      meta.artworkVersion ??
+      meta.artwork_version ??
+      null,
+
+    durationSeconds:
+      meta.durationSeconds ??
+      meta.duration_seconds ??
       null,
 
     title:
@@ -850,6 +861,30 @@ export function getState() {
 
     artist:
       currentTrackArtist,
+
+    album:
+      currentTrackMeta?.album ??
+      "",
+
+    mimeType:
+      currentTrackMeta?.mimeType ??
+      null,
+
+    fileSize:
+      currentTrackMeta?.fileSize ??
+      null,
+
+    mediaVersion:
+      currentTrackMeta?.mediaVersion ??
+      null,
+
+    artworkVersion:
+      currentTrackMeta?.artworkVersion ??
+      null,
+
+    durationSeconds:
+      currentTrackMeta?.durationSeconds ??
+      null,
 
     queue:
       currentQueue,
@@ -1906,7 +1941,7 @@ export async function playTrackQueue(
   return state;
 }
 
-export function addTrackToQueue(
+export function playTrackNext(
   track,
 ) {
   const entries =
@@ -1922,42 +1957,42 @@ export function addTrackToQueue(
   }
 
   /*
-   * If a song is already playing outside
-   * a queue, turn the current song into
-   * the first queue item before adding
-   * the new song.
+   * Manual queue choices always win over
+   * autoplay. If the current song started
+   * outside a queue, materialize it first
+   * so "Play next" has a stable insertion
+   * point.
    */
-  if (
-    currentQueue.length === 0 &&
-    currentTrackId &&
-    currentTrackMeta
-  ) {
-    currentQueue = [
-      {
-        id:
-          String(
-            currentTrackId,
-          ),
+  ensureCurrentTrackInQueue();
 
-        meta: {
-          ...currentTrackMeta,
-        },
-      },
-
+  currentQueue =
+    insertQueueEntryAsNext(
+      currentQueue,
+      currentQueueIndex,
       entry,
-    ];
+    );
 
-    currentQueueIndex = 0;
-  } else {
-    currentQueue = [
-      ...currentQueue,
-      entry,
-    ];
-  }
+  /*
+   * Any recommendation request that began
+   * before this manual edit is stale. Its
+   * response will be ignored by the
+   * revision guard in ensureAutoplayQueue.
+   */
+  queueRevision +=
+    1;
 
   notify();
 
   return true;
+}
+
+
+export function addTrackToQueue(
+  track,
+) {
+  return playTrackNext(
+    track,
+  );
 }
 
 export async function playUrl(
@@ -2267,6 +2302,7 @@ if (
   window.__HYPERSYNC_PLAYER = {
     playTrack,
     playTrackQueue,
+    playTrackNext,
     addTrackToQueue,
     playQueueIndex,
     playUrl,
