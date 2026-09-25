@@ -368,13 +368,17 @@ export default function useUploadQueue({
       };
 
       try {
+        const workerCount =
+          getUploadConcurrency({
+            queuedCount:
+              pendingIds.length,
+          });
+
         await Promise.all(
           Array.from(
             {
-              length: Math.min(
-                MAX_CONCURRENT_UPLOADS,
-                pendingIds.length,
-              ),
+              length:
+                workerCount,
             },
             () => worker(),
           ),
