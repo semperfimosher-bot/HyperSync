@@ -180,6 +180,7 @@ def test_catalog_track_response_exposes_media_cache_metadata() -> None:
         title="Fast Song",
         artist="HyperSync",
         album="Direct B2",
+        genre="Electronic",
         duration_seconds=180,
         mime_type="audio/mpeg",
         file_size=5_000_000,
@@ -208,6 +209,7 @@ async def test_get_track_returns_media_cache_metadata(
             title="Fast Song",
             artist="HyperSync",
             album="Direct B2",
+            genre="Electronic",
             duration_seconds=180,
             mime_type="audio/mpeg",
             file_size=5_000_000,
@@ -258,6 +260,8 @@ async def test_get_track_returns_media_cache_metadata(
     response = await catalog_route.get_track(
         track_id,
     )
+
+    assert response.genre == ("Electronic")
 
     assert response.mime_type == ("audio/mpeg")
 
