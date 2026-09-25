@@ -16,6 +16,10 @@ import {
   findQueuedUploadDuplicates,
 } from "../uploadIdentity.js";
 
+import {
+  getUploadConcurrency,
+} from "../uploadConcurrency.js";
+
 const MAX_CONCURRENT_UPLOADS = 2;
 
 export default function useUploadQueue({
