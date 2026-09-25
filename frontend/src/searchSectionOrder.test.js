@@ -16,11 +16,11 @@ const searchPageSource =
 
 
 test(
-  "search result sections are alphabetically ordered after Top Signal",
+  "search result sections preserve the current discovery layout",
   () => {
-    const topSignalIndex =
+    const playlistIndex =
       searchPageSource.indexOf(
-        'className="hs-search-top-signal"',
+        "{showPlaylists &&",
       );
 
     const discoveryIndex =
@@ -64,8 +64,8 @@ test(
 
 
     assert.ok(
-      topSignalIndex >= 0,
-      "Top Signal section was not found.",
+      playlistIndex >= 0,
+      "Playlist section was not found.",
     );
 
     assert.ok(
@@ -100,9 +100,9 @@ test(
 
 
     assert.ok(
-      topSignalIndex <
+      playlistIndex <
         discoveryIndex,
-      "Top Signal must stay above the alphabetical sections.",
+      "Playlists must stay above the discovery deck.",
     );
 
     assert.ok(
