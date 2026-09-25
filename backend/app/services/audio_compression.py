@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mutagen import File as MutagenFile
+from mutagen._file import File as MutagenFile
 from mutagen.id3._frames import (
     APIC,
     TALB,
