@@ -1,3 +1,8 @@
+import {
+  registerHyperSyncServiceWorker,
+} from "./serviceWorkerRegistration.js";
+
+
 let deferredInstallPrompt =
   null;
 
@@ -6,6 +11,15 @@ let initialized =
 
 let installedThisSession =
   false;
+
+let preparingSystem =
+  false;
+
+let offlineSystemReady =
+  false;
+
+let prepareInFlight =
+  null;
 
 const listeners =
   new Set();
@@ -131,6 +145,12 @@ export function getPwaInstallState() {
         navigatorLike()
           ?.serviceWorker,
       ),
+
+    preparing:
+      preparingSystem,
+
+    systemReady:
+      offlineSystemReady,
   };
 }
 
@@ -151,6 +171,288 @@ async function requestPersistentAppStorage() {
   }
 
   return false;
+}
+
+
+function wait(
+  milliseconds,
+) {
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds,
+      );
+    },
+  );
+}
+
+
+async function waitForActiveRegistration(
+  registration,
+  timeoutMs =
+    8000,
+) {
+  const nav =
+    navigatorLike();
+
+  if (
+    registration?.active
+  ) {
+    return registration;
+  }
+
+  const startedAt =
+    Date.now();
+
+  while (
+    Date.now() -
+      startedAt <
+    timeoutMs
+  ) {
+    if (
+      registration?.active
+    ) {
+      return registration;
+    }
+
+    await wait(
+      100,
+    );
+  }
+
+  try {
+    const ready =
+      await Promise.race([
+        nav?.serviceWorker
+          ?.ready,
+
+        wait(
+          1200,
+        ).then(
+          () => null,
+        ),
+      ]);
+
+    return ready ??
+      registration;
+  } catch {
+    return registration;
+  }
+}
+
+
+async function prepareOfflineSystemInternal() {
+  const nav =
+    navigatorLike();
+
+  if (
+    !nav?.serviceWorker
+  ) {
+    return {
+      ready:
+        false,
+
+      reason:
+        "unsupported",
+    };
+  }
+
+  void requestPersistentAppStorage();
+
+  let registration =
+    null;
+
+  try {
+    registration =
+      await registerHyperSyncServiceWorker(
+        nav,
+      );
+
+    await registration
+      ?.update?.()
+      .catch?.(
+        () => {},
+      );
+
+    registration =
+      await waitForActiveRegistration(
+        registration,
+      );
+  } catch {
+    return {
+      ready:
+        false,
+
+      reason:
+        "registration",
+    };
+  }
+
+  const worker =
+    nav.serviceWorker
+      .controller ??
+    registration?.active ??
+    registration?.waiting ??
+    registration?.installing ??
+    null;
+
+  if (
+    !worker?.postMessage
+  ) {
+    return {
+      ready:
+        false,
+
+      reason:
+        "worker",
+    };
+  }
+
+  const requestId =
+    globalThis.crypto
+      ?.randomUUID?.() ??
+    (
+      "prepare-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random()
+        .toString(36)
+        .slice(
+          2,
+          10,
+        )
+    );
+
+  return new Promise(
+    (resolve) => {
+      let settled =
+        false;
+
+      const finish =
+        (result) => {
+          if (settled) {
+            return;
+          }
+
+          settled =
+            true;
+
+          nav.serviceWorker
+            .removeEventListener?.(
+              "message",
+              handleMessage,
+            );
+
+          clearTimeout(
+            timeoutId,
+          );
+
+          resolve(
+            result,
+          );
+        };
+
+      const handleMessage =
+        (event) => {
+          if (
+            event.data?.type !==
+              "HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE" ||
+            event.data?.requestId !==
+              requestId
+          ) {
+            return;
+          }
+
+          finish({
+            ready:
+              event.data?.ok !==
+              false,
+
+            reason:
+              event.data?.ok ===
+                false
+                ? "cache"
+                : null,
+          });
+        };
+
+      nav.serviceWorker
+        .addEventListener?.(
+          "message",
+          handleMessage,
+        );
+
+      const timeoutId =
+        setTimeout(
+          () => {
+            finish({
+              ready:
+                false,
+
+              reason:
+                "timeout",
+            });
+          },
+          12000,
+        );
+
+      worker.postMessage({
+        type:
+          "HYPERSYNC_PREPARE_OFFLINE_APP",
+
+        requestId,
+      });
+    },
+  );
+}
+
+
+export function prepareOfflineAppSystem() {
+  if (offlineSystemReady) {
+    return Promise.resolve({
+      ready:
+        true,
+
+      reason:
+        null,
+    });
+  }
+
+  if (prepareInFlight) {
+    return prepareInFlight;
+  }
+
+  preparingSystem =
+    true;
+
+  emitState();
+
+  prepareInFlight =
+    prepareOfflineSystemInternal()
+      .then(
+        (result) => {
+          offlineSystemReady =
+            Boolean(
+              result?.ready,
+            );
+
+          return result;
+        },
+      )
+      .finally(
+        () => {
+          preparingSystem =
+            false;
+
+          prepareInFlight =
+            null;
+
+          emitState();
+        },
+      );
+
+  return prepareInFlight;
 }
 
 
@@ -257,14 +559,27 @@ export function subscribePwaInstall(
 export async function requestPwaInstall() {
   initializePwaInstall();
 
+  const systemPreparation =
+    prepareOfflineAppSystem();
+
   const state =
     getPwaInstallState();
 
   if (state.installed) {
+    const system =
+      await systemPreparation;
+
     return {
       status:
         "installed",
-      state,
+
+      systemReady:
+        Boolean(
+          system?.ready,
+        ),
+
+      state:
+        getPwaInstallState(),
     };
   }
 
@@ -302,6 +617,11 @@ export async function requestPwaInstall() {
         void requestPersistentAppStorage();
       }
 
+      const system =
+        accepted
+          ? await systemPreparation
+          : null;
+
       emitState();
 
       return {
@@ -309,6 +629,13 @@ export async function requestPwaInstall() {
           accepted
             ? "accepted"
             : "dismissed",
+
+        systemReady:
+          accepted
+            ? Boolean(
+                system?.ready,
+              )
+            : false,
 
         state:
           getPwaInstallState(),
@@ -326,12 +653,21 @@ export async function requestPwaInstall() {
     }
   }
 
+  const system =
+    await systemPreparation;
+
   return {
     status:
       state.ios
         ? "manual-ios"
         : "manual",
 
-    state,
+    systemReady:
+      Boolean(
+        system?.ready,
+      ),
+
+    state:
+      getPwaInstallState(),
   };
 }
