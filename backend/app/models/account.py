@@ -226,6 +226,23 @@ class UserSession(
         unique=True,
     )
 
+    previous_refresh_token_hash: Mapped[
+        str | None
+    ] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    previous_refresh_valid_until: Mapped[
+        datetime | None
+    ] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=True,
+    )
+
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

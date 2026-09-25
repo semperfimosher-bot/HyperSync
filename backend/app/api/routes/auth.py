@@ -3,7 +3,7 @@ import hmac
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -29,6 +29,9 @@ router = APIRouter(
     prefix="/auth",
     tags=["authentication"],
 )
+
+
+REFRESH_ROTATION_GRACE_SECONDS = 120
 
 
 class RegisterRequest(BaseModel):
@@ -259,15 +262,27 @@ async def create_session(
     )
 
     if existing_refresh_token:
+        existing_token_hash = (
+            hash_refresh_token(
+                existing_refresh_token,
+            )
+        )
+
         existing_result = (
             await database_session.execute(
                 select(
                     UserSession,
                 )
                 .where(
-                    UserSession.refresh_token_hash
-                    == hash_refresh_token(
-                        existing_refresh_token,
+                    or_(
+                        UserSession.refresh_token_hash
+                        == existing_token_hash,
+                        and_(
+                            UserSession.previous_refresh_token_hash
+                            == existing_token_hash,
+                            UserSession.previous_refresh_valid_until
+                            > now,
+                        ),
                     )
                 )
                 .with_for_update()
@@ -304,6 +319,29 @@ async def create_session(
                 same_user
                 and still_live
             ):
+                replacement_refresh_token = (
+                    create_refresh_token()
+                )
+
+                existing_session.previous_refresh_token_hash = (
+                    existing_session.refresh_token_hash
+                )
+
+                existing_session.previous_refresh_valid_until = (
+                    now
+                    + timedelta(
+                        seconds=(
+                            REFRESH_ROTATION_GRACE_SECONDS
+                        ),
+                    )
+                )
+
+                existing_session.refresh_token_hash = (
+                    hash_refresh_token(
+                        replacement_refresh_token,
+                    )
+                )
+
                 existing_session.last_used_at = (
                     now
                 )
@@ -341,7 +379,7 @@ async def create_session(
 
                 return (
                     existing_session,
-                    existing_refresh_token,
+                    replacement_refresh_token,
                 )
 
             # The cookie points at a dead
@@ -726,16 +764,32 @@ async def refresh(
         get_session_factory()
     )
 
+    now = datetime.now(
+        UTC,
+    )
+
+    presented_token_hash = (
+        hash_refresh_token(
+            refresh_token,
+        )
+    )
+
     async with session_factory() as session:
         result = await session.execute(
             select(
                 UserSession,
             )
             .where(
-                UserSession.refresh_token_hash
-                == hash_refresh_token(
-                    refresh_token,
-                ),
+                or_(
+                    UserSession.refresh_token_hash
+                    == presented_token_hash,
+                    and_(
+                        UserSession.previous_refresh_token_hash
+                        == presented_token_hash,
+                        UserSession.previous_refresh_valid_until
+                        > now,
+                    ),
+                )
             )
             .with_for_update()
         )
@@ -753,10 +807,6 @@ async def refresh(
                     "Refresh token is invalid."
                 ),
             )
-
-        now = datetime.now(
-            UTC,
-        )
 
         # Old builds left rotated/revoked
         # rows behind. A request carrying
@@ -848,12 +898,34 @@ async def refresh(
             )
 
         # Keep one stable database session
-        # for this browser. Refreshing an
-        # access token updates the row in
-        # place instead of creating/revoking
-        # a chain of rows. Normal tab/request
-        # concurrency therefore cannot be
-        # mistaken for refresh-token reuse.
+        # for this browser while still
+        # rotating the secret itself. The
+        # immediately previous secret stays
+        # valid briefly so overlapping tabs
+        # cannot kill the legitimate session.
+        replacement_refresh_token = (
+            create_refresh_token()
+        )
+
+        current_session.previous_refresh_token_hash = (
+            current_session.refresh_token_hash
+        )
+
+        current_session.previous_refresh_valid_until = (
+            now
+            + timedelta(
+                seconds=(
+                    REFRESH_ROTATION_GRACE_SECONDS
+                ),
+            )
+        )
+
+        current_session.refresh_token_hash = (
+            hash_refresh_token(
+                replacement_refresh_token,
+            )
+        )
+
         current_session.last_used_at = (
             now
         )
@@ -901,12 +973,12 @@ async def refresh(
             )
         )
 
-        # Re-set the same opaque HttpOnly
-        # refresh secret to roll the browser
-        # cookie lifetime forward.
+        # Roll the HttpOnly browser secret
+        # forward without changing the
+        # database session identity.
         set_refresh_cookie(
             response,
-            refresh_token,
+            replacement_refresh_token,
             request,
         )
 

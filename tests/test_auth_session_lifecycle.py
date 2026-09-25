@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -175,12 +175,59 @@ async def test_refresh_keeps_one_stable_browser_session_and_purges_dead_rows() -
             == first_claims.session_id
         )
 
-        assert (
+        rotated_refresh_token = (
             client.cookies.get(
                 "hypersync_refresh",
             )
-            == refresh_token
         )
+
+        assert rotated_refresh_token
+        assert (
+            rotated_refresh_token
+            != refresh_token
+        )
+
+        # Simulate a second tab that started
+        # refreshing with the just-rotated
+        # token before the first response
+        # updated the shared browser cookie.
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={
+                "Cookie":
+                    f"hypersync_refresh={refresh_token}",
+            },
+        ) as stale_tab:
+            concurrent = await stale_tab.post(
+                "/api/auth/refresh",
+            )
+
+            assert (
+                concurrent.status_code
+                == 200
+            ), concurrent.text
+
+            concurrent_claims = (
+                decode_access_token(
+                    concurrent.json()[
+                        "access_token"
+                    ],
+                )
+            )
+
+            assert (
+                concurrent_claims.session_id
+                == first_claims.session_id
+            )
+
+            concurrent_refresh_token = (
+                stale_tab.cookies.get(
+                    "hypersync_refresh",
+                )
+            )
+
+            assert concurrent_refresh_token
 
         async with session_factory() as session:
             row = await session.get(
@@ -193,8 +240,20 @@ async def test_refresh_keeps_one_stable_browser_session_and_purges_dead_rows() -
             assert (
                 row.refresh_token_hash
                 == hash_refresh_token(
-                    refresh_token,
+                    concurrent_refresh_token,
                 )
+            )
+
+            assert (
+                row.previous_refresh_token_hash
+                == hash_refresh_token(
+                    rotated_refresh_token,
+                )
+            )
+
+            assert (
+                row.previous_refresh_valid_until
+                is not None
             )
 
             count_result = (
