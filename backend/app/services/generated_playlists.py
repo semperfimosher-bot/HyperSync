@@ -360,7 +360,7 @@ async def ensure_artist_playlist(
 
             description=(
                 "Automatically generated "
-                "from the HyperSync catalog."
+                "from the catalog."
             ),
 
             visibility="generated",
@@ -422,7 +422,7 @@ async def ensure_artist_playlist(
 
         playlist.description = (
             "Automatically generated "
-            "from the HyperSync catalog."
+            "from the HyperSynced catalog."
         )
 
         playlist.generated_query = (
