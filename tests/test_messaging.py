@@ -38,9 +38,15 @@ async def test_messages_expire_only_one_week_after_viewing() -> None:
         await connection.run_sync(
             Base.metadata.create_all,
             tables=[
-                User.__table__,
-                Message.__table__,
-                PushSubscription.__table__,
+                Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
+                    Message.__tablename__
+                ],
+                Base.metadata.tables[
+                    PushSubscription.__tablename__
+                ],
             ],
         )
 
