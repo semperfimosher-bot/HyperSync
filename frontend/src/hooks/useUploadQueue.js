@@ -11,9 +11,16 @@ import {
   createUploadItem,
 } from "../utils/audioMetadata.js";
 
+import {
+  findCatalogDuplicate,
+  findQueuedUploadDuplicates,
+} from "../uploadIdentity.js";
+
 const MAX_CONCURRENT_UPLOADS = 2;
 
-export default function useUploadQueue() {
+export default function useUploadQueue({
+  existingTracks = [],
+} = {}) {
   const [queue, setQueue] = useState([]);
   const [isUploading, setIsUploading] =
     useState(false);
@@ -236,13 +243,102 @@ export default function useUploadQueue() {
 
   const startUploads = useCallback(
     async () => {
+      const snapshot =
+        queueRef.current;
+
+      const queueDuplicates =
+        findQueuedUploadDuplicates(
+          snapshot,
+        );
+
+      const catalogDuplicates =
+        new Map();
+
+      for (const item of snapshot) {
+        if (
+          item.status !== "queued"
+        ) {
+          continue;
+        }
+
+        const duplicate =
+          findCatalogDuplicate(
+            item,
+            existingTracks,
+          );
+
+        if (duplicate) {
+          catalogDuplicates.set(
+            item.id,
+            duplicate,
+          );
+        }
+      }
+
+      if (
+        queueDuplicates.size > 0 ||
+        catalogDuplicates.size > 0
+      ) {
+        updateQueue(
+          (current) =>
+            current.map(
+              (item) => {
+                const queuedOriginal =
+                  queueDuplicates.get(
+                    item.id,
+                  );
+
+                if (queuedOriginal) {
+                  return {
+                    ...item,
+                    status:
+                      "failed",
+                    progress:
+                      0,
+                    error:
+                      `Duplicate in upload queue: "${queuedOriginal.title}" by ${queuedOriginal.artist} is already queued.`,
+                  };
+                }
+
+                const catalogDuplicate =
+                  catalogDuplicates.get(
+                    item.id,
+                  );
+
+                if (catalogDuplicate) {
+                  return {
+                    ...item,
+                    status:
+                      "failed",
+                    progress:
+                      0,
+                    error:
+                      `Duplicate track prevented: "${catalogDuplicate.title}" by ${catalogDuplicate.artist} already exists in the catalog.`,
+                  };
+                }
+
+                return item;
+              },
+            ),
+        );
+      }
+
       const pendingIds =
-        queueRef.current
+        snapshot
           .filter(
             (item) =>
-              item.status === "queued",
+              item.status === "queued" &&
+              !queueDuplicates.has(
+                item.id,
+              ) &&
+              !catalogDuplicates.has(
+                item.id,
+              ),
           )
-          .map((item) => item.id);
+          .map(
+            (item) =>
+              item.id,
+          );
 
       if (pendingIds.length === 0) {
         return;
@@ -287,7 +383,11 @@ export default function useUploadQueue() {
         setIsUploading(false);
       }
     },
-    [uploadOne],
+    [
+      existingTracks,
+      updateQueue,
+      uploadOne,
+    ],
   );
 
   const queuedCount = queue.filter(
