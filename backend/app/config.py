@@ -66,6 +66,8 @@ class Settings(BaseSettings):
 
     admin_database_delete_password: str = ""
 
+    admin_account_creation_password: str = ""
+
     bot_jwt_secret: str = ""
     bot_jwt_audience: str = "hypersync-bot"
     bot_token_ttl_minutes: int = 60
