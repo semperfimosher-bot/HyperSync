@@ -157,8 +157,7 @@ async def deliver_message_push(
     if not stale_endpoints:
         return
 
-    session_factory =
-        get_session_factory()
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         await session.execute(
