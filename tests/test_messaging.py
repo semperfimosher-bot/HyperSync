@@ -5,6 +5,7 @@ from datetime import (
     datetime,
     timedelta,
 )
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -152,6 +153,7 @@ def test_viewed_message_expiry_is_exactly_seven_days() -> None:
     )
 
     sender = User(
+        id=uuid4(),
         account_type=(
             AccountType.REGISTERED
         ),
@@ -162,6 +164,7 @@ def test_viewed_message_expiry_is_exactly_seven_days() -> None:
     )
 
     recipient = User(
+        id=uuid4(),
         account_type=(
             AccountType.REGISTERED
         ),
@@ -171,10 +174,8 @@ def test_viewed_message_expiry_is_exactly_seven_days() -> None:
         password_hash="hash",
     )
 
-    sender.id = sender.id
-    recipient.id = recipient.id
-
     message = Message(
+        id=uuid4(),
         sender_id=sender.id,
         recipient_id=recipient.id,
         body="Hello",
