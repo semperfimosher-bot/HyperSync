@@ -238,14 +238,15 @@ async def recommend_autoplay_tracks(
         ]
 
 
-    if (
-        current_track
-        and (
-            not context_tracks
-            or context_tracks[-1].id
+    if current_track:
+        context_tracks = [
+            track
+            for track
+            in context_tracks
+            if track.id
             != current_track.id
-        )
-    ):
+        ]
+
         context_tracks.append(
             current_track,
         )
