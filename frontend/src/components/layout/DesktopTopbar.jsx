@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import Icon from "../ui/Icon.jsx";
 import Avatar from "../profile/Avatar.jsx";
+import MessageNotificationPanel from "../ui/MessageNotificationPanel.jsx";
 
 import { PAGE_TITLES } from "../../constants.js";
 
@@ -16,7 +19,16 @@ function DesktopTopbar({
   currentUser,
   onNavigate,
   onOpenAuth,
+  messageNotifications,
+  onOpenMessage,
+  onEnablePush,
+  pushBusy,
 }) {
+  const [
+    notificationsOpen,
+    setNotificationsOpen,
+  ] = useState(false);
+
   const greetingName =
     getGreetingName(currentUser);
 
@@ -94,6 +106,71 @@ function DesktopTopbar({
           />
         </label>
       )}
+
+
+      <div className="desktop-notification-center">
+        <button
+          type="button"
+          className="icon-button desktop-notification-button"
+          aria-label="Open notifications"
+          aria-expanded={
+            notificationsOpen
+          }
+          onClick={() => {
+            if (!currentUser) {
+              onOpenAuth();
+              return;
+            }
+
+            setNotificationsOpen(
+              (open) => !open,
+            );
+          }}
+        >
+          <Icon
+            name="bell"
+            size={18}
+          />
+
+          {messageNotifications?.unread_count ? (
+            <span
+              className="icon-button__dot"
+              aria-hidden="true"
+            />
+          ) : null}
+        </button>
+
+        {notificationsOpen ? (
+          <div
+            className="desktop-notification-panel"
+            role="region"
+            aria-label="Notifications"
+          >
+            <MessageNotificationPanel
+              data={
+                messageNotifications
+              }
+              onOpenMessage={(
+                username,
+              ) => {
+                setNotificationsOpen(
+                  false,
+                );
+
+                onOpenMessage?.(
+                  username,
+                );
+              }}
+              onEnablePush={
+                onEnablePush
+              }
+              pushBusy={
+                pushBusy
+              }
+            />
+          </div>
+        ) : null}
+      </div>
 
 
       <button
