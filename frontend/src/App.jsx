@@ -2760,6 +2760,11 @@ function MobileBottomNav({
   onNavigate,
   currentUser,
 }) {
+  const mobileActivePage =
+    activePage === "messages"
+      ? "search"
+      : activePage;
+
   return (
     <nav
       className="mobile-bottom-nav"
@@ -2778,7 +2783,7 @@ function MobileBottomNav({
         .map((item) => (
         <button
           className={
-            activePage === item.id
+            mobileActivePage === item.id
               ? "is-active"
               : ""
           }
@@ -2788,7 +2793,7 @@ function MobileBottomNav({
             onNavigate(item.id);
           }}
           aria-current={
-            activePage === item.id
+            mobileActivePage === item.id
               ? "page"
               : undefined
           }
