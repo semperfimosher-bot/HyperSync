@@ -2021,3 +2021,104 @@ test(
     );
   },
 );
+
+
+test(
+  "warm playback lease protects expired media until the lease ends",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "warm-lease-track-" +
+      Date.now();
+
+    const mediaVersion =
+      "warm-lease-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1_000_000,
+        state:
+          "PARTIAL",
+      });
+
+    record.expiresAt =
+      100;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    const warm =
+      await mediaStore.markMediaWarm(
+        trackId,
+        mediaVersion,
+        {
+          warmUntil:
+            1_000,
+
+          byteStart:
+            0,
+
+          byteEnd:
+            262_143,
+        },
+      );
+
+    assert.equal(
+      warm.warmUntil,
+      1_000,
+    );
+
+    assert.equal(
+      warm.warmByteStart,
+      0,
+    );
+
+    assert.equal(
+      warm.warmByteEnd,
+      262_143,
+    );
+
+    const whileWarm =
+      await mediaStore.cleanupExpiredMedia(
+        500,
+      );
+
+    assert.equal(
+      whileWarm,
+      0,
+    );
+
+    assert.ok(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+    );
+
+    const afterWarm =
+      await mediaStore.cleanupExpiredMedia(
+        1_001,
+      );
+
+    assert.equal(
+      afterWarm,
+      1,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
+    );
+  },
+);
