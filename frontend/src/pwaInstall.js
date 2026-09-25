@@ -131,6 +131,25 @@ export function getPwaInstallState() {
 }
 
 
+async function requestPersistentAppStorage() {
+  try {
+    if (
+      navigatorLike()
+        ?.storage
+        ?.persist
+    ) {
+      return await navigatorLike()
+        .storage
+        .persist();
+    }
+  } catch {
+    // Persistence is best-effort.
+  }
+
+  return false;
+}
+
+
 function emitState() {
   const state =
     getPwaInstallState();
@@ -183,6 +202,8 @@ export function initializePwaInstall() {
     () => {
       deferredInstallPrompt =
         null;
+
+      void requestPersistentAppStorage();
 
       emitState();
     },
@@ -266,6 +287,10 @@ export async function requestPwaInstall() {
       const accepted =
         choice?.outcome ===
           "accepted";
+
+      if (accepted) {
+        void requestPersistentAppStorage();
+      }
 
       emitState();
 
