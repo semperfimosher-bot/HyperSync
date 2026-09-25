@@ -6430,3 +6430,123 @@ button:disabled {
     justify-self: start;
   }
 }
+
+
+/* ============================================================
+   PEOPLE — DIRECT MESSAGE ACTION
+   ============================================================ */
+
+.hs-search-person--messageable {
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto;
+
+  gap: 6px;
+
+  padding: 0;
+
+  cursor: default;
+}
+
+.hs-search-person__profile {
+  display: grid;
+
+  min-width: 0;
+  min-height: 64px;
+
+  grid-template-columns:
+    auto
+    minmax(0, 1fr);
+
+  align-items: center;
+
+  gap: 11px;
+
+  padding:
+    9px
+    6px
+    9px
+    12px;
+
+  color: inherit;
+
+  background: transparent;
+
+  text-align: left;
+}
+
+.hs-search-person__profile > span {
+  display: grid;
+
+  min-width: 0;
+
+  gap: 2px;
+}
+
+.hs-search-person__message {
+  display: grid;
+
+  width: 34px;
+  height: 34px;
+
+  place-items: center;
+
+  margin-right: 11px;
+
+  border:
+    1px solid
+    rgba(77, 227, 255, 0.16);
+
+  border-radius: 8px;
+
+  color: #55cfe9;
+
+  background:
+    rgba(21, 152, 190, 0.045);
+
+  cursor: pointer;
+
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.hs-search-person__message:hover {
+  border-color:
+    rgba(77, 227, 255, 0.42);
+
+  color: #9af3ff;
+
+  background:
+    rgba(31, 189, 224, 0.1);
+
+  transform:
+    translateY(-1px);
+}
+
+@media (max-width: 520px) {
+  .hs-search-person--messageable {
+    padding: 0;
+  }
+
+  .hs-search-person__profile {
+    min-height: 58px;
+
+    gap: 9px;
+
+    padding:
+      8px
+      4px
+      8px
+      9px;
+  }
+
+  .hs-search-person__message {
+    width: 32px;
+    height: 32px;
+
+    margin-right: 8px;
+  }
+}
