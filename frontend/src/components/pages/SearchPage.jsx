@@ -39,7 +39,7 @@ import {
 } from "../../constants.js";
 
 import {
-  alphabetizeSearchResults,
+  orderSearchResultsForDisplay,
 } from "../../searchAlphabetical.js";
 
 import {
@@ -890,10 +890,10 @@ useEffect(() => {
     sortMode,
   ]);
 
-  const alphabeticalResults =
+  const displayResults =
   useMemo(
     () =>
-      alphabetizeSearchResults(
+      orderSearchResultsForDisplay(
         results,
       ),
     [results],
@@ -949,7 +949,7 @@ useEffect(() => {
     trackIndex,
   ) {
     const queue =
-  alphabeticalResults.tracks.map(
+  displayResults.tracks.map(
     (track) => ({
       id:
         track.id,
@@ -1046,7 +1046,7 @@ useEffect(() => {
     event,
   ) {
     const trackCount =
-  alphabeticalResults.tracks.length;
+  displayResults.tracks.length;
 
     if (
       event.key ===
@@ -1718,9 +1718,9 @@ async function downloadOpenedPlaylist() {
   useMemo(
     () =>
       pickTopSignal(
-        alphabeticalResults,
+        displayResults,
       ),
-    [alphabeticalResults],
+    [displayResults],
   );
 
   const playlistDownloadPercent =
@@ -1745,7 +1745,7 @@ async function downloadOpenedPlaylist() {
     activeFilter === "playlists";
 
   const artistPanel =
-    alphabeticalResults.artists.length > 0 ? (
+    displayResults.artists.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="ENTITY INDEX"
@@ -1758,7 +1758,7 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.artists.map(
+        {displayResults.artists.map(
           (artist) => (
 
             <button
@@ -1853,7 +1853,7 @@ async function downloadOpenedPlaylist() {
 
 
   const collaborationPanel =
-    alphabeticalResults.collaborations.length >
+    displayResults.collaborations.length >
     0 ? (
 
       <SearchEntityPanel
@@ -1868,7 +1868,7 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.collaborations.map(
+        {displayResults.collaborations.map(
           (collaboration) => (
 
             <button
@@ -1968,7 +1968,7 @@ async function downloadOpenedPlaylist() {
 
 
   const albumPanel =
-    alphabeticalResults.albums.length > 0 ? (
+    displayResults.albums.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="RELEASE INDEX"
@@ -1981,7 +1981,7 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.albums.map(
+        {displayResults.albums.map(
           (album) => (
 
             <button
@@ -3053,7 +3053,7 @@ async function downloadOpenedPlaylist() {
 
 
           {showTracks &&
-alphabeticalResults.tracks.length > 0 ? (
+displayResults.tracks.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -3078,7 +3078,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
               <div className="hs-search-track-list">
 
-                {alphabeticalResults.tracks.map(
+                {displayResults.tracks.map(
                   (
                     track,
                     trackIndex,
@@ -3308,7 +3308,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
 
           {showPeople &&
-          alphabeticalResults.people.length > 0 ? (
+          displayResults.people.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -3333,7 +3333,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
               <div className="hs-search-people-list">
 
-                {alphabeticalResults.people.map(
+                {displayResults.people.map(
                   (person) => (
 
                     <button
