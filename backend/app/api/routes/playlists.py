@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, overload
 from uuid import UUID
 
 from fastapi import (
@@ -890,6 +890,26 @@ async def search_public_playlists(
         )
         for playlist in playlists
     ]
+
+
+@overload
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: Literal[True],
+) -> Playlist:
+    ...
+
+
+@overload
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: Literal[False] = False,
+) -> Playlist | None:
+    ...
 
 
 async def get_liked_playlist(
