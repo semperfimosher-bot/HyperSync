@@ -28,11 +28,14 @@ from ..models.playlist import (
 )
 from .search import normalize_text
 
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 MIN_GENERATED_TRACKS = 2
 
-MAX_GENERATED_TRACKS = 500
+# Artist-generated playlists should include the full published
+# HyperSync catalog for that artist, bounded only to keep a
+# single playlist from growing without limit.
+MAX_GENERATED_TRACKS = 700
 
 
 def artist_cache_key(
@@ -357,7 +360,7 @@ async def ensure_artist_playlist(
 
             description=(
                 "Automatically generated "
-                "from thecatalog."
+                "from the HyperSync catalog."
             ),
 
             visibility="generated",
