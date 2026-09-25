@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     b2_presigned_url_ttl_seconds: int = 86400
     b2_media_source_ttl_seconds: int = 300
 
+    audio_compression_enabled: bool = True
+    audio_compression_mp3_vbr_quality: int = 2
+    audio_compression_min_source_kbps: int = 224
+    audio_compression_min_savings_percent: int = 10
+    audio_compression_timeout_seconds: int = 180
+
     local_temp_root: str = "storage/temporary"
     local_upload_root: str = "storage/uploads"
     local_log_root: str = "storage/logs"
