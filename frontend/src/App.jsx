@@ -25,6 +25,10 @@ import {
 
 import { apiRequest } from "./api/client.js";
 
+import {
+  clearAllHyperSyncClientData,
+} from "./clientDataReset.js";
+
 import { normalizeAppViewState } from "./appViewState.js";
 
 import HexBackdrop from "./components/HexBackdrop.jsx";
@@ -570,14 +574,28 @@ function AdminDashboardPage() {
             },
           );
 
+        player.stopTrack();
+
+        const clientReset =
+          await clearAllHyperSyncClientData();
+
         setTracks([]);
 
         setWipeResult(
-          `Deleted ${result?.deleted_row_count ?? 0} database rows and ${result?.deleted_b2_versions ?? 0} B2 file versions. The admin account used for this reset was deleted too.`,
+          `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches. Local/session storage, downloads, service-worker data, and stored browser state were cleared too.`,
         );
 
         setWipePassword("");
         setWipeConfirmation("");
+
+        window.setTimeout(
+          () => {
+            window.location.replace(
+              "/",
+            );
+          },
+          250,
+        );
       } catch (error) {
         setMessage(
           error instanceof Error
