@@ -13,6 +13,10 @@ from .media import (
     Track,
     TrackLyrics,
 )
+from .messaging import (
+    Message,
+    PushSubscription,
+)
 from .playlist import (
     Playlist,
     PlaylistTrack,
@@ -25,6 +29,8 @@ __all__ = [
     "Base",
     "Track",
     "TrackLyrics",
+    "Message",
+    "PushSubscription",
     "ListeningEvent",
     "User",
     "UserAppState",
