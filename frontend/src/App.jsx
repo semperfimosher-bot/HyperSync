@@ -57,6 +57,7 @@ import useTrackActionMenu from
   "./hooks/useTrackActionMenu.js";
 
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
+import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.jsx";
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
@@ -2803,9 +2804,18 @@ function PlayerBar({
   onDismissPlaylistUpdate,
   currentUser,
   onOpenAuth,
+  messageNotifications,
+  onOpenMessage,
+  onEnablePush,
+  pushBusy,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
+
+  const [
+    notificationsOpen,
+    setNotificationsOpen,
+  ] = useState(false);
   const [
     state,
     setState,
@@ -3140,16 +3150,85 @@ function PlayerBar({
       </div>
 
 
-      <PlaylistUpdateNotice
-        update={playlistUpdate}
-        variant="desktop"
-        onDownload={
-          onDownloadPlaylistUpdate
-        }
-        onDismiss={
-          onDismissPlaylistUpdate
-        }
-      />
+      <div className="player-bar__right">
+        <PlaylistUpdateNotice
+          update={playlistUpdate}
+          variant="desktop"
+          onDownload={
+            onDownloadPlaylistUpdate
+          }
+          onDismiss={
+            onDismissPlaylistUpdate
+          }
+        />
+
+        <div className="desktop-player-notification-center">
+          <button
+            type="button"
+            className="icon-button desktop-player-notification-button"
+            aria-label="Open notifications"
+            aria-expanded={
+              notificationsOpen
+            }
+            onClick={() => {
+              if (
+                currentUser?.account_type !==
+                  "registered"
+              ) {
+                onOpenAuth?.();
+                return;
+              }
+
+              setNotificationsOpen(
+                (open) => !open,
+              );
+            }}
+          >
+            <Icon
+              name="bell"
+              size={18}
+            />
+
+            {messageNotifications?.unread_count ? (
+              <span
+                className="icon-button__dot"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+
+          {notificationsOpen ? (
+            <div
+              className="desktop-player-notification-panel"
+              role="region"
+              aria-label="Notifications"
+            >
+              <MessageNotificationPanel
+                data={
+                  messageNotifications
+                }
+                onOpenMessage={(
+                  username,
+                ) => {
+                  setNotificationsOpen(
+                    false,
+                  );
+
+                  onOpenMessage?.(
+                    username,
+                  );
+                }}
+                onEnablePush={
+                  onEnablePush
+                }
+                pushBusy={
+                  pushBusy
+                }
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
 
 
       {/* =================================================
@@ -5226,18 +5305,6 @@ const clearPlaylistToOpen =
           onOpenAuth={() => {
             openAuth("signin");
           }}
-          messageNotifications={
-            messageNotifications
-          }
-          onOpenMessage={
-            openMessageUser
-          }
-          onEnablePush={() => {
-            void handleEnablePush();
-          }}
-          pushBusy={
-            pushBusy
-          }
         />
 
         <main className="main-content">
@@ -5325,6 +5392,18 @@ const clearPlaylistToOpen =
         onOpenAuth={() => {
           openAuth("signin");
         }}
+        messageNotifications={
+          messageNotifications
+        }
+        onOpenMessage={
+          openMessageUser
+        }
+        onEnablePush={() => {
+          void handleEnablePush();
+        }}
+        pushBusy={
+          pushBusy
+        }
       />
 
       <MobileBottomNav
