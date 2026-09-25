@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes.admin import (
     _find_duplicate_track,
@@ -110,7 +111,10 @@ async def test_duplicate_lookup_matches_normalized_artist_and_title() -> None:
 
     duplicate = (
         await _find_duplicate_track(
-            session,
+            cast(
+                AsyncSession,
+                session,
+            ),
             title="  BLINDING   LIGHTS ",
             artist=" the   weeknd ",
         )
@@ -134,7 +138,10 @@ async def test_duplicate_lookup_allows_same_title_for_different_artist() -> None
 
     duplicate = (
         await _find_duplicate_track(
-            session,
+            cast(
+                AsyncSession,
+                session,
+            ),
             title="Home",
             artist="Artist Two",
         )
