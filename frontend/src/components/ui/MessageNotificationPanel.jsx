@@ -148,9 +148,7 @@ export default function MessageNotificationPanel({
             size={14}
           />
 
-          {pushBusy
-            ? "Enabling..."
-            : "Enable push notifications"}
+          Enable push notifications
         </button>
       ) : null}
     </div>
