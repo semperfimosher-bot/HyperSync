@@ -406,38 +406,669 @@ function AdminBotPage() {
     refreshCatalog,
   } = useCatalogTracks();
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-  const deleteTrack = async (trackId) => {
-    setMessage("");
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState("");
 
-    try {
-      await deleteCatalogTrack(trackId);
+  const [
+    category,
+    setCategory,
+  ] = useState(null);
 
-      setMessage(
-        "Track permanently deleted.",
-      );
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete track.",
-      );
-    }
+  const [
+    folderValue,
+    setFolderValue,
+  ] = useState(null);
+
+
+  const normalizedSearch =
+    searchQuery
+      .trim()
+      .toLocaleLowerCase();
+
+
+  const folderConfig = {
+    artists: {
+      label: "Artists",
+      icon: "people",
+      value:
+        (track) =>
+          track.artist ||
+          "Unknown Artist",
+    },
+
+    albums: {
+      label: "Albums",
+      icon: "disc",
+      value:
+        (track) =>
+          track.album ||
+          "No Album",
+    },
+
+    genres: {
+      label: "Genres",
+      icon: "music",
+      value:
+        (track) =>
+          track.genre ||
+          "No Genre",
+    },
   };
 
+
+  const searchResults =
+    useMemo(
+      () => {
+        if (!normalizedSearch) {
+          return [];
+        }
+
+        return tracks.filter(
+          (track) =>
+            [
+              track.title,
+              track.artist,
+              track.album,
+              track.genre,
+            ]
+              .filter(Boolean)
+              .some(
+                (value) =>
+                  String(value)
+                    .toLocaleLowerCase()
+                    .includes(
+                      normalizedSearch,
+                    ),
+              ),
+        );
+      },
+      [
+        normalizedSearch,
+        tracks,
+      ],
+    );
+
+
+  const folders =
+    useMemo(
+      () => {
+        if (!category) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        if (!config) {
+          return [];
+        }
+
+        const grouped =
+          new Map();
+
+        tracks.forEach(
+          (track) => {
+            const value =
+              config.value(
+                track,
+              );
+
+            const key =
+              String(
+                value,
+              )
+                .trim()
+                .toLocaleLowerCase();
+
+            if (
+              !grouped.has(
+                key,
+              )
+            ) {
+              grouped.set(
+                key,
+                {
+                  key,
+                  value,
+                  tracks: [],
+                },
+              );
+            }
+
+            grouped
+              .get(
+                key,
+              )
+              .tracks
+              .push(
+                track,
+              );
+          },
+        );
+
+        return Array.from(
+          grouped.values(),
+        ).sort(
+          (
+            left,
+            right,
+          ) =>
+            String(
+              left.value,
+            ).localeCompare(
+              String(
+                right.value,
+              ),
+              undefined,
+              {
+                sensitivity:
+                  "base",
+              },
+            ),
+        );
+      },
+      [
+        category,
+        tracks,
+      ],
+    );
+
+
+  const folderTracks =
+    useMemo(
+      () => {
+        if (
+          !category ||
+          !folderValue
+        ) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        return tracks.filter(
+          (track) =>
+            String(
+              config.value(
+                track,
+              ),
+            )
+              .trim()
+              .toLocaleLowerCase()
+              ===
+            String(
+              folderValue,
+            )
+              .trim()
+              .toLocaleLowerCase(),
+        );
+      },
+      [
+        category,
+        folderValue,
+        tracks,
+      ],
+    );
+
+
+  const deleteTrack =
+    async (
+      track,
+    ) => {
+      const confirmed =
+        window.confirm(
+          `Permanently delete "${track.title}" by ${track.artist} from the catalog and storage?`,
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setMessage("");
+
+      try {
+        await deleteCatalogTrack(
+          track.id,
+        );
+
+        setMessage(
+          `Deleted "${track.title}".`,
+        );
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete track.",
+        );
+      }
+    };
+
+
+  const renderFile =
+    (
+      track,
+    ) => (
+      <div
+        className="admin-explorer-file"
+        key={track.id}
+      >
+        <TrackArtwork
+          src={track.artwork_url}
+          alt={track.title}
+          variant={1}
+        />
+
+        <div className="admin-explorer-file__copy">
+          <strong>
+            {track.title}
+          </strong>
+
+          <span>
+            {track.artist}
+            {" • "}
+            {track.album ||
+              "No album"}
+            {" • "}
+            {track.genre ||
+              "No genre"}
+          </span>
+        </div>
+
+        <span className="admin-explorer-file__type">
+          {String(
+            track.mime_type ||
+              "audio",
+          )
+            .replace(
+              "audio/",
+              "",
+            )
+            .toUpperCase()}
+        </span>
+
+        <button
+          type="button"
+          className="danger-button"
+          onClick={() => {
+            void deleteTrack(
+              track,
+            );
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    );
+
+
+  let explorerBody = null;
+
+  if (loading) {
+    explorerBody = (
+      <div className="admin-empty-state">
+        <Icon
+          name="chart"
+          size={28}
+        />
+
+        <strong>
+          Loading catalog...
+        </strong>
+      </div>
+    );
+
+  } else if (
+    normalizedSearch
+  ) {
+    explorerBody =
+      searchResults.length > 0
+        ? (
+          <div className="admin-explorer-files">
+            {searchResults.map(
+              renderFile,
+            )}
+          </div>
+        )
+        : (
+          <div className="admin-empty-state">
+            <Icon
+              name="search"
+              size={28}
+            />
+
+            <strong>
+              No files or folders match
+            </strong>
+
+            <p>
+              Search title, artist,
+              album, or genre.
+            </p>
+          </div>
+        );
+
+  } else if (!category) {
+    explorerBody = (
+      <div className="admin-explorer-folder-grid">
+        {Object.entries(
+          folderConfig,
+        ).map(
+          ([
+            key,
+            config,
+          ]) => {
+            const count =
+              new Set(
+                tracks.map(
+                  (track) =>
+                    String(
+                      config.value(
+                        track,
+                      ),
+                    )
+                      .trim()
+                      .toLocaleLowerCase(),
+                ),
+              ).size;
+
+            return (
+              <button
+                type="button"
+                className="admin-explorer-folder"
+                key={key}
+                onClick={() => {
+                  setCategory(
+                    key,
+                  );
+
+                  setFolderValue(
+                    null,
+                  );
+                }}
+              >
+                <span className="admin-explorer-folder__icon">
+                  <Icon
+                    name={
+                      config.icon
+                    }
+                    size={24}
+                  />
+                </span>
+
+                <span>
+                  <strong>
+                    {config.label}
+                  </strong>
+
+                  <small>
+                    {count}
+                    {" folders"}
+                  </small>
+                </span>
+
+                <Icon
+                  name="chevron"
+                  size={15}
+                />
+              </button>
+            );
+          },
+        )}
+
+        <button
+          type="button"
+          className="admin-explorer-folder"
+          onClick={() => {
+            setSearchQuery(
+              " ",
+            );
+
+            window.setTimeout(
+              () => {
+                setSearchQuery(
+                  "",
+                );
+              },
+              0,
+            );
+          }}
+        >
+          <span className="admin-explorer-folder__icon">
+            <Icon
+              name="music"
+              size={24}
+            />
+          </span>
+
+          <span>
+            <strong>
+              All Files
+            </strong>
+
+            <small>
+              {tracks.length}
+              {" tracks"}
+            </small>
+          </span>
+
+          <span className="admin-tool-light is-on" />
+        </button>
+      </div>
+    );
+
+  } else if (
+    category &&
+    !folderValue
+  ) {
+    explorerBody = (
+      <div className="admin-explorer-folder-list">
+        {folders.map(
+          (folder) => (
+            <button
+              type="button"
+              className="admin-explorer-folder admin-explorer-folder--row"
+              key={folder.key}
+              onClick={() => {
+                setFolderValue(
+                  folder.value,
+                );
+              }}
+            >
+              <span className="admin-explorer-folder__icon">
+                <Icon
+                  name={
+                    folderConfig[
+                      category
+                    ].icon
+                  }
+                  size={20}
+                />
+              </span>
+
+              <span>
+                <strong>
+                  {folder.value}
+                </strong>
+
+                <small>
+                  {folder.tracks.length}
+                  {" files"}
+                </small>
+              </span>
+
+              <Icon
+                name="chevron"
+                size={15}
+              />
+            </button>
+          ),
+        )}
+      </div>
+    );
+
+  } else {
+    explorerBody = (
+      <div className="admin-explorer-files">
+        {folderTracks.map(
+          renderFile,
+        )}
+      </div>
+    );
+  }
+
+
   return (
-    <div className="page-stack admin-page">
-      <section className="admin-page__header">
-        <span>ADMINISTRATION</span>
+    <div className="page-stack hs-search-page admin-page admin-catalog-explorer-page">
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-        <h2>Media Catalog</h2>
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
 
-        <p>
-          Review and manage every published
-          HyperSync track.
-        </p>
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                MEDIA STORAGE
+              </span>
+            </div>
+
+            <h2>
+              Catalog Explorer
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Browse the music catalog like a
+              file system or search across
+              artists, albums, genres, and tracks.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            disabled={loading}
+            onClick={() => {
+              refreshCatalog({
+                force: true,
+              });
+            }}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+        </div>
+
+        <label className="hs-search-input admin-explorer-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={searchQuery}
+            placeholder="Search files, artists, albums, or genres..."
+            onChange={(
+              event,
+            ) => {
+              setSearchQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        <div className="admin-explorer-breadcrumb">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory(null);
+              setFolderValue(null);
+              setSearchQuery("");
+            }}
+          >
+            Catalog
+          </button>
+
+          {category ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFolderValue(
+                    null,
+                  );
+
+                  setSearchQuery(
+                    "",
+                  );
+                }}
+              >
+                {folderConfig[
+                  category
+                ].label}
+              </button>
+            </>
+          ) : null}
+
+          {folderValue ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                {folderValue}
+              </span>
+            </>
+          ) : null}
+
+          {normalizedSearch ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                Search
+              </span>
+            </>
+          ) : null}
+        </div>
       </section>
 
       {message || error ? (
@@ -453,117 +1084,41 @@ function AdminBotPage() {
         </div>
       ) : null}
 
-      <section className="admin-panel">
+      <section className="admin-panel admin-explorer-shell">
         <div className="admin-panel__heading">
           <div>
-            <span>CATALOG</span>
+            <span>
+              FILE EXPLORER
+            </span>
 
-            <h3>Published Tracks</h3>
+            <h3>
+              {normalizedSearch
+                ? "Search Results"
+                : folderValue ||
+                  (
+                    category
+                      ? folderConfig[
+                          category
+                        ].label
+                      : "Catalog Root"
+                  )}
+            </h3>
           </div>
 
           <strong className="admin-panel-count">
-            {tracks.length} total
+            {normalizedSearch
+              ? searchResults.length
+              : folderValue
+                ? folderTracks.length
+                : category
+                  ? folders.length
+                  : tracks.length}
+            {" items"}
           </strong>
         </div>
 
-        {loading ? (
-          <div className="admin-empty-state">
-            <Icon
-              name="chart"
-              size={28}
-            />
-
-            <strong>
-              Loading catalog...
-            </strong>
-          </div>
-        ) : tracks.length === 0 ? (
-          <div className="admin-empty-state">
-            <Icon
-              name="music"
-              size={28}
-            />
-
-            <strong>
-              No published tracks
-            </strong>
-
-            <p>
-              Upload a track to populate
-              the catalog.
-            </p>
-          </div>
-        ) : (
-          <div className="admin-recent-list">
-            {tracks.map((track) => (
-              <div
-                className="admin-recent-item"
-                key={track.id}
-              >
-                <TrackArtwork
-                  src={track.artwork_url}
-                  alt={track.title}
-                  variant={1}
-                />
-
-                <div className="admin-recent-copy">
-                  <strong>
-                    {track.title}
-                  </strong>
-
-                  <span>
-                    {track.artist}
-
-                    {track.album
-                      ? ` • ${track.album}`
-                      : ""}
-                  </span>
-                </div>
-
-                <span className="admin-track-duration">
-                  {track.duration_seconds
-                    ? `${Math.floor(
-                        track.duration_seconds / 60,
-                      )}:${String(
-                        track.duration_seconds % 60,
-                      ).padStart(2, "0")}`
-                    : "—"}
-                </span>
-
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    deleteTrack(track.id)
-                  }
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        {explorerBody}
       </section>
-
-      <button
-        type="button"
-        className="secondary-admin-button"
-        onClick={() =>
-          refreshCatalog({
-            force: true,
-          })
-        }
-        disabled={loading}
-      >
-        {loading
-          ? "Refreshing..."
-          : "Refresh Catalog"}
-
-        <Icon
-          name="chevron"
-          size={14}
-        />
-      </button>
     </div>
   );
 }
@@ -598,6 +1153,26 @@ function AdminDashboardPage() {
     duplicateBusy,
     setDuplicateBusy,
   ] = useState(false);
+
+  const [
+    userQuery,
+    setUserQuery,
+  ] = useState("");
+
+  const [
+    userResults,
+    setUserResults,
+  ] = useState([]);
+
+  const [
+    userSearchBusy,
+    setUserSearchBusy,
+  ] = useState(false);
+
+  const [
+    userDeleteBusy,
+    setUserDeleteBusy,
+  ] = useState(null);
 
   const [
     message,
@@ -826,6 +1401,132 @@ function AdminDashboardPage() {
 
 
   useEffect(() => {
+    const term =
+      userQuery.trim();
+
+    if (!term) {
+      setUserResults([]);
+      setUserSearchBusy(false);
+
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          setUserSearchBusy(
+            true,
+          );
+
+          try {
+            const result =
+              await apiRequest(
+                `/admin/users?q=${encodeURIComponent(
+                  term,
+                )}`,
+              );
+
+            if (!cancelled) {
+              setUserResults(
+                result?.users ||
+                  [],
+              );
+            }
+          } catch (searchError) {
+            if (!cancelled) {
+              setUserResults([]);
+
+              setMessage(
+                searchError instanceof Error
+                  ? searchError.message
+                  : "User search failed.",
+              );
+            }
+          } finally {
+            if (!cancelled) {
+              setUserSearchBusy(
+                false,
+              );
+            }
+          }
+        },
+        220,
+      );
+
+    return () => {
+      cancelled = true;
+
+      window.clearTimeout(
+        timer,
+      );
+    };
+  }, [
+    userQuery,
+  ]);
+
+
+  const deleteUserAccount =
+    useCallback(
+      async (
+        foundUser,
+      ) => {
+        const confirmed =
+          window.confirm(
+            `Permanently delete @${foundUser.username} and all server-side account data, playlists, listening history, sessions, follows, and avatar storage?`,
+          );
+
+        if (!confirmed) {
+          return;
+        }
+
+        setUserDeleteBusy(
+          foundUser.id,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              `/admin/users/${foundUser.id}`,
+              {
+                method:
+                  "DELETE",
+              },
+            );
+
+          setUserResults(
+            (current) =>
+              current.filter(
+                (entry) =>
+                  entry.id !==
+                  foundUser.id,
+              ),
+          );
+
+          setMessage(
+            result?.message ||
+              `Deleted @${foundUser.username}.`,
+          );
+        } catch (deleteError) {
+          setMessage(
+            deleteError instanceof Error
+              ? deleteError.message
+              : "Unable to delete user.",
+          );
+        } finally {
+          setUserDeleteBusy(
+            null,
+          );
+        }
+      },
+      [],
+    );
+
+
+  useEffect(() => {
     void loadDashboard();
 
     const interval =
@@ -890,12 +1591,6 @@ function AdminDashboardPage() {
       [
         tracks,
       ],
-    );
-
-  const recentTracks =
-    tracks.slice(
-      0,
-      6,
     );
 
   const apiHealthy =
@@ -1286,7 +1981,7 @@ function AdminDashboardPage() {
           <AdminQuickAction
             icon="music"
             title="Media Catalog"
-            description="Review and remove tracks."
+            description="Browse artists, albums, genres, and files."
             active={
               catalogHealthy
             }
@@ -1446,79 +2141,135 @@ function AdminDashboardPage() {
       </section>
 
 
-      <section className="admin-panel">
+      <section className="admin-panel admin-user-manager admin-panel--interactive">
         <div className="admin-panel__heading">
           <div>
-            <span>CATALOG</span>
-            <h3>Recent Tracks</h3>
+            <span>USER ADMINISTRATION</span>
+            <h3>Find & Delete Account</h3>
           </div>
 
-          <strong className="admin-panel-count">
-            {tracks.length} total
-          </strong>
+          <span className="admin-status admin-status--online">
+            ADMIN ONLY
+          </span>
         </div>
 
-        {recentTracks.length > 0 ? (
-          <div className="admin-recent-list">
-            {recentTracks.map(
-              (track) => (
-                <div
-                  className="admin-recent-item"
-                  key={track.id}
-                >
-                  <TrackArtwork
-                    src={track.artwork_url}
-                    alt={track.title}
-                    variant={1}
-                  />
+        <p className="admin-user-manager__copy">
+          Search registered accounts by username,
+          display name, or email. Deleting an
+          account removes its server-side account
+          rows and profile avatar storage.
+        </p>
 
-                  <div className="admin-recent-copy">
+        <label className="hs-search-input admin-user-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={userQuery}
+            placeholder="Search username, display name, or email..."
+            onChange={(
+              event,
+            ) => {
+              setUserQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        {userSearchBusy ? (
+          <div className="admin-user-search-state">
+            <span className="library-spinner" />
+            <span>
+              Searching accounts...
+            </span>
+          </div>
+        ) : userQuery.trim() &&
+          userResults.length === 0 ? (
+          <div className="admin-user-search-state">
+            <Icon
+              name="people"
+              size={18}
+            />
+
+            <span>
+              No matching accounts.
+            </span>
+          </div>
+        ) : (
+          <div className="admin-user-results">
+            {userResults.map(
+              (foundUser) => (
+                <div
+                  className="admin-user-result"
+                  key={foundUser.id}
+                >
+                  <span className="admin-user-result__avatar">
+                    {foundUser.has_avatar ? (
+                      <img
+                        src={
+                          `/api/users/${encodeURIComponent(
+                            foundUser.username,
+                          )}/avatar`
+                        }
+                        alt=""
+                      />
+                    ) : (
+                      <Icon
+                        name="people"
+                        size={18}
+                      />
+                    )}
+                  </span>
+
+                  <div className="admin-user-result__copy">
                     <strong>
-                      {track.title}
+                      {foundUser.display_name}
                     </strong>
 
                     <span>
-                      {track.artist}
-
-                      {track.album
-                        ? ` • ${track.album}`
-                        : ""}
+                      {"@"}
+                      {foundUser.username}
+                      {" • "}
+                      {foundUser.email}
                     </span>
                   </div>
 
-                  <span className="admin-track-duration">
-                    {track.duration_seconds
-                      ? `${Math.floor(
-                          track.duration_seconds /
-                            60,
-                        )}:${String(
-                          track.duration_seconds %
-                            60,
-                        ).padStart(
-                          2,
-                          "0",
-                        )}`
-                      : "—"}
+                  <span className="admin-user-result__role">
+                    {String(
+                      foundUser.role,
+                    ).toUpperCase()}
                   </span>
+
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={
+                      foundUser.is_current_admin ||
+                      userDeleteBusy ===
+                        foundUser.id
+                    }
+                    onClick={() => {
+                      void deleteUserAccount(
+                        foundUser,
+                      );
+                    }}
+                  >
+                    {foundUser.is_current_admin
+                      ? "Current Admin"
+                      : userDeleteBusy ===
+                          foundUser.id
+                        ? "Deleting..."
+                        : "Delete Account"}
+                  </button>
                 </div>
               ),
             )}
-          </div>
-        ) : (
-          <div className="admin-empty-state">
-            <Icon
-              name="music"
-              size={28}
-            />
-
-            <strong>
-              No published tracks
-            </strong>
-
-            <p>
-              Upload your first track to populate
-              the catalog.
-            </p>
           </div>
         )}
       </section>
