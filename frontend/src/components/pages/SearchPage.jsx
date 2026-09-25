@@ -51,6 +51,9 @@ import Avatar from
 import Icon from
   "../ui/Icon.jsx";
 
+import PlaylistArtwork from
+  "../ui/PlaylistArtwork.jsx";
+
 import DownloadRemovalConfirm from
   "../ui/DownloadRemovalConfirm.jsx";
 
@@ -2256,25 +2259,18 @@ async function downloadOpenedPlaylist() {
 
       <div className="hs-search-playlist-view__art">
 
-        {resolveArtworkUrl(
-          openedPlaylist.artwork_url,
-        ) ? (
-          <img
-            src={
-              resolveArtworkUrl(
-                openedPlaylist.artwork_url,
-              )
-            }
-            alt=""
-          />
-        ) : (
-          <div className="hs-search-playlist-view__fallback">
-            <Icon
-              name="playlist"
-              size={32}
-            />
-          </div>
-        )}
+        <PlaylistArtwork
+          tracks={
+            openedPlaylist.tracks
+          }
+          artworkUrls={
+            openedPlaylist.artwork_urls
+          }
+          artworkUrl={
+            openedPlaylist.artwork_url
+          }
+          fallbackSize={32}
+        />
 
       </div>
 
@@ -2836,11 +2832,6 @@ async function downloadOpenedPlaylist() {
                     playlistIndex,
                   ) => {
 
-                    const artworkUrl =
-                      resolveArtworkUrl(
-                        playlist.artwork_url,
-                      );
-
                     const rowDownload =
                       playlistRowDownloads[
                         String(
@@ -2936,19 +2927,15 @@ async function downloadOpenedPlaylist() {
 
                         <span className="hs-search-track__art">
 
-                          {artworkUrl ? (
-                            <img
-                              src={
-                                artworkUrl
-                              }
-                              alt=""
-                            />
-                          ) : (
-                            <Icon
-                              name="playlist"
-                              size={20}
-                            />
-                          )}
+                          <PlaylistArtwork
+                            artworkUrls={
+                              playlist.artwork_urls
+                            }
+                            artworkUrl={
+                              playlist.artwork_url
+                            }
+                            fallbackSize={20}
+                          />
 
                           <i aria-hidden="true">
                             <Icon
