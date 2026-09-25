@@ -3,6 +3,7 @@ const APP_PAGES =
     "home",
     "search",
     "library",
+    "messages",
     "profile",
     "public-profile",
     "admin",
