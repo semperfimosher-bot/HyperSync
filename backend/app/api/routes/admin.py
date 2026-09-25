@@ -1,14 +1,17 @@
 import asyncio
 import base64
+import hmac
 from io import BytesIO
 from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from mutagen._file import File as MutagenFile
+from pydantic import BaseModel
 from mutagen.flac import Picture
 
 from ...config import get_settings
+from ...models import Base
 from ...models.media import Track
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -29,6 +32,65 @@ router = APIRouter(
 )
 
 
+ADMIN_DATABASE_DELETE_PASSWORD = "2009"
+
+ADMIN_DATABASE_DELETE_CONFIRMATION = (
+    "DELETE ALL DATA"
+)
+
+
+class DeleteAllDatabaseDataRequest(
+    BaseModel,
+):
+    password: str
+
+    confirmation: str
+
+
+async def _delete_all_database_rows(
+    session: DatabaseSession,
+) -> dict[str, int]:
+    deleted_rows: dict[
+        str,
+        int,
+    ] = {}
+
+    try:
+        for table in reversed(
+            Base.metadata.sorted_tables,
+        ):
+            result = (
+                await session.execute(
+                    table.delete(),
+                )
+            )
+
+            rowcount = (
+                result.rowcount
+            )
+
+            deleted_rows[
+                table.name
+            ] = max(
+                int(
+                    rowcount
+                    if rowcount
+                    is not None
+                    else 0
+                ),
+                0,
+            )
+
+        await session.commit()
+
+    except Exception:
+        await session.rollback()
+
+        raise
+
+    return deleted_rows
+
+
 @router.get("/access")
 async def check_admin_access(
     user: AdminUser,
@@ -39,6 +101,85 @@ async def check_admin_access(
         "username": user.username,
         "role": user.role.value,
         "message": "Administrator access granted.",
+    }
+
+
+@router.post(
+    "/database/delete-all",
+)
+async def delete_all_database_data(
+    payload: DeleteAllDatabaseDataRequest,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    """
+    Permanently delete every application
+    row from the database.
+
+    The schema and Alembic migration state
+    are intentionally preserved. External
+    B2 objects are not deleted here.
+    """
+
+    password_ok = (
+        hmac.compare_digest(
+            payload.password,
+            ADMIN_DATABASE_DELETE_PASSWORD,
+        )
+    )
+
+    confirmation_ok = (
+        payload.confirmation
+        ==
+        ADMIN_DATABASE_DELETE_CONFIRMATION
+    )
+
+    if (
+        not password_ok
+        or not confirmation_ok
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Invalid database deletion "
+                "verification."
+            ),
+        )
+
+    try:
+        deleted_rows = (
+            await _delete_all_database_rows(
+                session,
+            )
+        )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Failed to delete all "
+                f"database data: {exc}"
+            ),
+        ) from exc
+
+    return {
+        "success": True,
+        "deleted_rows":
+            deleted_rows,
+        "deleted_row_count":
+            sum(
+                deleted_rows.values()
+            ),
+        "message": (
+            "All application database "
+            "data was deleted. Database "
+            "schema and B2 files were "
+            "left intact."
+        ),
     }
 
 
