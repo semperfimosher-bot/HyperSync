@@ -260,23 +260,17 @@ def resolve_local_audio_fallback(
         object_key,
     )
 
-    candidates: list[Path] = []
-
     if (
-        not raw_path.is_absolute()
-        and ".." not in raw_path.parts
+        raw_path.is_absolute()
+        or ".." in raw_path.parts
     ):
-        candidates.append(
-            raw_path.resolve(),
-        )
+        return None
+
+    candidate = raw_path.resolve()
 
     demo_path = Path(
         settings.demo_audio_path,
     ).resolve()
-
-    candidates.append(
-        demo_path,
-    )
 
     allowed_roots = [
         Path(
@@ -285,24 +279,23 @@ def resolve_local_audio_fallback(
         demo_path.parent,
     ]
 
-    for candidate in candidates:
-        try:
-            allowed = any(
-                candidate.is_relative_to(
-                    root,
-                )
-                for root
-                in allowed_roots
+    try:
+        allowed = any(
+            candidate.is_relative_to(
+                root,
             )
-        except ValueError:
-            allowed = False
+            for root
+            in allowed_roots
+        )
+    except ValueError:
+        allowed = False
 
-        if (
-            allowed
-            and candidate.exists()
-            and candidate.is_file()
-        ):
-            return candidate
+    if (
+        allowed
+        and candidate.exists()
+        and candidate.is_file()
+    ):
+        return candidate
 
     return None
 
