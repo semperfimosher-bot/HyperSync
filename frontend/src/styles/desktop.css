@@ -218,9 +218,18 @@
     min-height: 39px;
   }
 
+  .desktop-topbar__actions {
+    display: flex;
+    min-width: 0;
+    justify-self: end;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
   .desktop-profile-button {
     display: flex;
-    justify-self: end;
+    justify-self: auto;
     align-items: center;
     gap: 8px;
     padding: 4px 8px 4px 4px;
@@ -875,6 +884,10 @@
       minmax(240px, 1fr)
       auto;
     padding-inline: 18px;
+  }
+
+  .desktop-topbar__actions {
+    gap: 8px;
   }
 
   .desktop-profile-button >
