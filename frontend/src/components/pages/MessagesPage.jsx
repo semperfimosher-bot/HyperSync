@@ -64,6 +64,7 @@ export default function MessagesPage({
   onInitialUsernameHandled,
   onUnreadChange,
   onOpenProfile,
+  resetToken = 0,
 }) {
   const [
     conversations,
@@ -122,6 +123,11 @@ export default function MessagesPage({
 
   const endRef =
     useRef(null);
+
+  const resetTokenRef =
+    useRef(
+      resetToken,
+    );
 
 
   const loadConversations =
@@ -261,6 +267,24 @@ export default function MessagesPage({
         loadConversations,
       ],
     );
+
+
+  useEffect(() => {
+    if (
+      resetTokenRef.current ===
+        resetToken
+    ) {
+      return;
+    }
+
+    resetTokenRef.current =
+      resetToken;
+
+    closeConversation();
+  }, [
+    closeConversation,
+    resetToken,
+  ]);
 
 
   useEffect(() => {
