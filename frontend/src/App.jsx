@@ -4853,11 +4853,6 @@ export default function App() {
       handleFocus,
     );
 
-    window.addEventListener(
-      "hypersync:library-changed",
-      handleFocus,
-    );
-
     document.addEventListener(
       "visibilitychange",
       handleVisibility,
@@ -4885,11 +4880,6 @@ export default function App() {
 
       window.removeEventListener(
         "online",
-        handleFocus,
-      );
-
-      window.removeEventListener(
-        "hypersync:library-changed",
         handleFocus,
       );
 
@@ -5337,6 +5327,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
       handleFocus,
     );
 
+    window.addEventListener(
+      "hypersync:library-changed",
+      handleFocus,
+    );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibility,
@@ -5354,6 +5349,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
 
       window.removeEventListener(
         "online",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "hypersync:library-changed",
         handleFocus,
       );
 
