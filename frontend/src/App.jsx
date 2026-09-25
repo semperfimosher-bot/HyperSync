@@ -1085,7 +1085,9 @@ function AdminBotPage() {
   );
 }
 
-function AdminDashboardPage() {
+function AdminDashboardPage({
+  onNavigate,
+}) {
   const [
     tracks,
     setTracks,
@@ -1886,10 +1888,8 @@ function AdminDashboardPage() {
             type="button"
             className="secondary-admin-button"
             onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "hypersync:navigate-admin-bot",
-                ),
+              onNavigate(
+                "admin-bot",
               );
             }}
           >
@@ -1932,10 +1932,8 @@ function AdminDashboardPage() {
                 : "CHECK"
             }
             onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "hypersync:navigate-admin-uploads",
-                ),
+              onNavigate(
+                "admin-uploads",
               );
             }}
           />
@@ -1953,10 +1951,8 @@ function AdminDashboardPage() {
                 : "CHECK"
             }
             onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "hypersync:navigate-admin-catalog",
-                ),
+              onNavigate(
+                "admin-catalog",
               );
             }}
           />
@@ -1974,10 +1970,8 @@ function AdminDashboardPage() {
                 : "CHECK"
             }
             onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent(
-                  "hypersync:navigate-admin-bot",
-                ),
+              onNavigate(
+                "admin-bot",
               );
             }}
           />
@@ -2002,6 +1996,17 @@ function AdminDashboardPage() {
                   : "RUN"
             }
             onClick={() => {
+              document
+                .getElementById(
+                  "admin-duplicate-tool",
+                )
+                ?.scrollIntoView({
+                  behavior:
+                    "smooth",
+                  block:
+                    "start",
+                });
+
               void runDuplicateCheck();
             }}
           />
@@ -2009,7 +2014,10 @@ function AdminDashboardPage() {
       </section>
 
 
-      <section className="admin-panel admin-duplicate-panel admin-panel--interactive">
+      <section
+        id="admin-duplicate-tool"
+        className="admin-panel admin-duplicate-panel admin-panel--interactive"
+      >
         <div className="admin-panel__heading">
           <div>
             <span>CATALOG INTEGRITY</span>
@@ -2483,7 +2491,11 @@ function MainPage({
       activePage === "admin"
     ) {
       return (
-        <AdminDashboardPage />
+        <AdminDashboardPage
+          onNavigate={
+            onNavigate
+          }
+        />
       );
     }
 
