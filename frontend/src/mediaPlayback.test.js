@@ -339,6 +339,82 @@ test(
               requestedOptions =
                 options;
 
+              const match =
+                /^bytes=(\d+)-(\d+)$/.exec(
+                  options
+                    ?.headers
+                    ?.Range ??
+                  "",
+                );
+
+              assert.ok(
+                match,
+              );
+
+              const byteStart =
+                Number(
+                  match[1],
+                );
+
+              const byteEnd =
+                Number(
+                  match[2],
+                );
+
+              const firstChunk =
+                Math.floor(
+                  byteStart /
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE,
+                );
+
+              const lastChunk =
+                Math.floor(
+                  byteEnd /
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE,
+                );
+
+              for (
+                let chunkIndex =
+                  firstChunk;
+                chunkIndex <=
+                lastChunk;
+                chunkIndex += 1
+              ) {
+                const chunkByteStart =
+                  chunkIndex *
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE;
+
+                const chunkByteEnd =
+                  Math.min(
+                    fileSize - 1,
+                    chunkByteStart +
+                      mediaStore
+                        .MEDIA_CHUNK_SIZE -
+                      1,
+                  );
+
+                const byteLength =
+                  chunkByteEnd -
+                  chunkByteStart +
+                  1;
+
+                await mediaStore
+                  .saveMediaChunk({
+                    trackId,
+                    mediaVersion,
+                    chunkIndex,
+                    byteStart:
+                      chunkByteStart,
+                    data:
+                      new ArrayBuffer(
+                        byteLength,
+                      ),
+                  });
+              }
+
               return {
                 ok:
                   true,
@@ -348,8 +424,9 @@ test(
 
                 async arrayBuffer() {
                   return new ArrayBuffer(
-                    mediaPlayback
-                      .PLAYBACK_WARM_BYTES,
+                    byteEnd -
+                    byteStart +
+                    1,
                   );
                 },
               };
