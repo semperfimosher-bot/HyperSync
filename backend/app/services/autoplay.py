@@ -32,6 +32,10 @@ NEW_POOL_LIMIT = 120
 
 RECENT_GENRE_WINDOW = 40
 
+CONTEXT_TRACK_LIMIT = 8
+
+CONTEXT_DECAY = 0.78
+
 
 def _text_key(
     value: str | None,
@@ -43,12 +47,108 @@ def _text_key(
     )
 
 
+def _build_context_affinity(
+    tracks: list[Track],
+) -> tuple[
+    dict[str, float],
+    dict[str, float],
+    dict[str, float],
+]:
+    artist_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    genre_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    album_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+
+    for (
+        distance,
+        track,
+    ) in enumerate(
+        reversed(
+            tracks[
+                -CONTEXT_TRACK_LIMIT:
+            ],
+        ),
+    ):
+        weight = (
+            CONTEXT_DECAY
+            ** distance
+        )
+
+
+        artist_key = (
+            _text_key(
+                track.artist,
+            )
+        )
+
+        genre_key = (
+            _text_key(
+                track.genre,
+            )
+        )
+
+        album_key = (
+            _text_key(
+                track.album,
+            )
+        )
+
+
+        if artist_key:
+            artist_context[
+                artist_key
+            ] += weight
+
+
+        if genre_key:
+            genre_context[
+                genre_key
+            ] += weight
+
+
+        if album_key:
+            album_context[
+                album_key
+            ] += weight
+
+
+    return (
+        dict(
+            artist_context,
+        ),
+        dict(
+            genre_context,
+        ),
+        dict(
+            album_context,
+        ),
+    )
+
+
 async def recommend_autoplay_tracks(
     session: AsyncSession,
     *,
     user_id: UUID | None,
     current_track_id: UUID | None,
     exclude_track_ids: set[UUID],
+    context_track_ids: list[UUID] | None = None,
     limit: int,
 ) -> list[Track]:
     excluded = {
@@ -73,6 +173,91 @@ async def recommend_autoplay_tracks(
                 current_track_id,
             )
         )
+
+
+    ordered_context_ids = []
+
+    for track_id in (
+        context_track_ids
+        or []
+    )[
+        -CONTEXT_TRACK_LIMIT:
+    ]:
+        if (
+            track_id is None
+            or track_id
+            in ordered_context_ids
+        ):
+            continue
+
+        ordered_context_ids.append(
+            track_id,
+        )
+
+
+    context_tracks: list[
+        Track,
+    ] = []
+
+    if ordered_context_ids:
+        context_result = (
+            await session.execute(
+                select(
+                    Track,
+                )
+                .where(
+                    Track.id.in_(
+                        ordered_context_ids,
+                    ),
+
+                    Track.is_published.is_(
+                        True,
+                    ),
+                )
+            )
+        )
+
+        context_by_id = {
+            track.id:
+                track
+            for track in (
+                context_result
+                .scalars()
+                .all()
+            )
+        }
+
+        context_tracks = [
+            context_by_id[
+                track_id
+            ]
+            for track_id
+            in ordered_context_ids
+            if track_id
+            in context_by_id
+        ]
+
+
+    if (
+        current_track
+        and (
+            not context_tracks
+            or context_tracks[-1].id
+            != current_track.id
+        )
+    ):
+        context_tracks.append(
+            current_track,
+        )
+
+
+    (
+        context_artist_affinity,
+        context_genre_affinity,
+        context_album_affinity,
+    ) = _build_context_affinity(
+        context_tracks,
+    )
 
 
     current_artist = (
@@ -527,6 +712,73 @@ async def recommend_autoplay_tracks(
     )
 
 
+    context_artist_names = {
+        _text_key(
+            track.artist,
+        ):
+            track.artist
+        for track in context_tracks
+        if track.artist
+    }
+
+    context_genre_names = {
+        _text_key(
+            track.genre,
+        ):
+            track.genre
+        for track in context_tracks
+        if track.genre
+    }
+
+
+    for artist_key in sorted(
+        context_artist_affinity,
+        key=lambda key:
+            context_artist_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        artist_name = (
+            context_artist_names.get(
+                artist_key,
+            )
+        )
+
+        if (
+            artist_name
+            and artist_name
+            not in artist_candidates
+        ):
+            artist_candidates.append(
+                artist_name,
+            )
+
+
+    for genre_key in sorted(
+        context_genre_affinity,
+        key=lambda key:
+            context_genre_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        genre_name = (
+            context_genre_names.get(
+                genre_key,
+            )
+        )
+
+        if (
+            genre_name
+            and genre_name
+            not in genre_candidates
+        ):
+            genre_candidates.append(
+                genre_name,
+            )
+
+
     if (
         current_track
         and current_track.artist
@@ -815,6 +1067,75 @@ async def recommend_autoplay_tracks(
             *
             1.5
         )
+
+
+        # ==================================================
+        # RECENT QUEUE / PLAYLIST CONTEXT
+        # ==================================================
+
+        # The final stretch of the queue
+        # should dominate autoplay. Genre
+        # is the strongest continuity
+        # signal, followed by artist.
+        score += (
+            context_genre_affinity.get(
+                genre_key,
+                0.0,
+            )
+            *
+            18.0
+        )
+
+
+        score += (
+            context_artist_affinity.get(
+                artist_key,
+                0.0,
+            )
+            *
+            8.0
+        )
+
+
+        score += (
+            context_album_affinity.get(
+                album_key,
+                0.0,
+            )
+            *
+            2.0
+        )
+
+
+        if context_genre_affinity:
+            dominant_genre = max(
+                context_genre_affinity,
+                key=context_genre_affinity.get,
+            )
+
+            dominant_weight = (
+                context_genre_affinity[
+                    dominant_genre
+                ]
+            )
+
+            if (
+                dominant_weight >= 1.35
+            ):
+                if (
+                    genre_key
+                    == dominant_genre
+                ):
+                    score += 8.0
+
+                elif genre_key:
+                    score -= 7.0
+
+                else:
+                    # Missing genre metadata
+                    # should be less preferred,
+                    # but not impossible.
+                    score -= 3.0
 
 
         # ==================================================
