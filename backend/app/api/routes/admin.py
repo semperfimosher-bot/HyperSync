@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hmac
 from io import BytesIO
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -18,7 +19,9 @@ from ...models import (
 )
 from ...models.media import Track
 from ...services.audio_compression import (
+    AudioProbe,
     compress_audio_for_storage,
+    should_attempt_audio_compression,
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -26,9 +29,11 @@ from ...services.audio_metadata import (
     resolve_track_metadata,
 )
 from ...services.b2 import (
+    create_presigned_upload_url,
     delete_all_bucket_versions,
     delete_all_object_versions,
     get_b2_bucket,
+    head_b2_object,
 )
 from ...services.generated_playlists import (
     ensure_artist_playlist,
@@ -130,6 +135,147 @@ async def _find_duplicate_track(
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
     "DELETE ALL DATA"
 )
+
+
+class PrepareDirectTrackUploadRequest(
+    BaseModel,
+):
+    filename: str
+    mime_type: str
+    file_size: int
+    duration_seconds: int
+    title: str
+    artist: str
+    album: str | None = None
+    genre: str | None = None
+    estimated_bitrate_kbps: float | None = None
+
+
+class CancelDirectTrackUploadRequest(
+    BaseModel,
+):
+    object_key: str
+
+
+def _direct_upload_extension(
+    filename: str,
+) -> str:
+    suffix = (
+        Path(
+            filename,
+        )
+        .suffix
+        .lower()
+        .removeprefix(
+            ".",
+        )
+    )
+
+    return (
+        suffix
+        if suffix
+        in {
+            "aac",
+            "flac",
+            "m4a",
+            "mp3",
+            "ogg",
+            "wav",
+        }
+        else "audio"
+    )
+
+
+def _direct_upload_is_safe(
+    payload: PrepareDirectTrackUploadRequest,
+) -> bool:
+    settings = get_settings()
+
+    if (
+        not settings
+        .b2_direct_upload_enabled
+    ):
+        return False
+
+    if (
+        payload.file_size <= 0
+        or payload.duration_seconds
+        <= 0
+        or not payload.mime_type
+        .lower()
+        .startswith(
+            "audio/",
+        )
+    ):
+        return False
+
+    if (
+        not settings
+        .audio_compression_enabled
+    ):
+        return True
+
+    bitrate = (
+        payload
+        .estimated_bitrate_kbps
+    )
+
+    if (
+        bitrate is None
+        or bitrate <= 0
+    ):
+        return False
+
+    return not (
+        should_attempt_audio_compression(
+            filename=payload.filename,
+            probe=AudioProbe(
+                codec=None,
+                bitrate_kbps=(
+                    bitrate
+                ),
+                duration_seconds=float(
+                    payload
+                    .duration_seconds,
+                ),
+                channels=None,
+            ),
+            original_size=(
+                payload.file_size
+            ),
+            min_source_kbps=(
+                settings
+                .audio_compression_min_source_kbps
+            ),
+        )
+    )
+
+
+def _validate_prepared_audio_key(
+    object_key: str,
+) -> None:
+    settings = get_settings()
+
+    expected_prefix = (
+        settings.b2_audio_prefix
+        .strip("/")
+        + "/"
+    )
+
+    if (
+        not object_key
+        .startswith(
+            expected_prefix,
+        )
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Invalid prepared audio object key."
+            ),
+        )
 
 
 class DeleteAllDatabaseDataRequest(
