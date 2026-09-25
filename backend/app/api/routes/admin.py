@@ -33,8 +33,6 @@ router = APIRouter(
 )
 
 
-ADMIN_DATABASE_DELETE_PASSWORD = "2009"
-
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
     "DELETE ALL DATA"
 )
@@ -124,10 +122,29 @@ async def delete_all_database_data(
     preserved.
     """
 
+    settings = get_settings()
+
+    configured_password = (
+        settings
+        .admin_database_delete_password
+        .strip()
+    )
+
+    if not configured_password:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Admin database deletion password "
+                "is not configured."
+            ),
+        )
+
     password_ok = (
         hmac.compare_digest(
             payload.password,
-            ADMIN_DATABASE_DELETE_PASSWORD,
+            configured_password,
         )
     )
 
