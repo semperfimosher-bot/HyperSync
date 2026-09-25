@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
+from sqlalchemy import select, text
 
 from ...config import get_settings
 from ...models import (
@@ -18,6 +19,7 @@ from ...models import (
 from ...models.media import Track
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
+    normalize_track_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -34,6 +36,92 @@ router = APIRouter(
     prefix="/admin",
     tags=["administration"],
 )
+
+
+async def _lock_track_upload_identity(
+    session: DatabaseSession,
+    *,
+    title: str,
+    artist: str,
+) -> None:
+    bind = session.get_bind()
+
+    if (
+        bind is None
+        or bind.dialect.name
+        != "postgresql"
+    ):
+        return
+
+    identity = (
+        normalize_track_identity(
+            artist,
+        )
+        + "\x1f"
+        + normalize_track_identity(
+            title,
+        )
+    )
+
+    await session.execute(
+        text(
+            "SELECT "
+            "pg_advisory_xact_lock("
+            "hashtext(:identity)"
+            ")"
+        ),
+        {
+            "identity":
+                identity,
+        },
+    )
+
+
+async def _find_duplicate_track(
+    session: DatabaseSession,
+    *,
+    title: str,
+    artist: str,
+) -> Track | None:
+    title_key = (
+        normalize_track_identity(
+            title,
+        )
+    )
+
+    artist_key = (
+        normalize_track_identity(
+            artist,
+        )
+    )
+
+    result = (
+        await session.execute(
+            select(
+                Track,
+            )
+        )
+    )
+
+    for track in (
+        result
+        .scalars()
+        .all()
+    ):
+        if (
+            normalize_track_identity(
+                track.title,
+            )
+            == title_key
+            and
+            normalize_track_identity(
+                track.artist,
+            )
+            == artist_key
+        ):
+            return track
+
+    return None
 
 
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
@@ -339,6 +427,49 @@ async def upload_track(
             embedded=embedded_metadata,
         )
 
+        await _lock_track_upload_identity(
+            session,
+            title=(
+                resolved_metadata[
+                    "title"
+                ]
+            ),
+            artist=(
+                resolved_metadata[
+                    "artist"
+                ]
+            ),
+        )
+
+        duplicate = (
+            await _find_duplicate_track(
+                session,
+                title=(
+                    resolved_metadata[
+                        "title"
+                    ]
+                ),
+                artist=(
+                    resolved_metadata[
+                        "artist"
+                    ]
+                ),
+            )
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "Duplicate track prevented: "
+                    f'\"{duplicate.title}\" by '
+                    f"{duplicate.artist} already "
+                    "exists in the catalog."
+                ),
+            )
+
         file_ext = (
             file.filename.split(".")[-1] if (file.filename and "." in file.filename) else "wav"
         )
@@ -466,6 +597,11 @@ async def upload_track(
             await session.rollback()
 
         return response_payload
+
+    except HTTPException:
+        await session.rollback()
+
+        raise
 
     except Exception as exc:
         await session.rollback()
