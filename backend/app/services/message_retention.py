@@ -43,8 +43,7 @@ async def delete_expired_messages(
 
 
 async def cleanup_expired_messages() -> None:
-    session_factory =
-        get_session_factory()
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         await delete_expired_messages(
