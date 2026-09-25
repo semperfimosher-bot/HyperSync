@@ -118,6 +118,15 @@ import {
   enablePushNotifications,
   syncExistingPushSubscription,
 } from "./pushNotifications.js";
+
+import {
+  getPwaInstallState,
+  requestPwaInstall,
+  subscribePwaInstall,
+} from "./pwaInstall.js";
+
+import AppInstallModal from
+  "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
   3000;
 
@@ -2611,6 +2620,8 @@ function MainPage({
   libraryResetToken,
   messagesResetToken,
   activePlaylistDownloads,
+  installState,
+  onInstallApp,
 }) {
   const adminPage =
     ADMIN_NAV_ITEMS.some(
@@ -2857,6 +2868,12 @@ if (
         onProfileUpdated={
           onProfileUpdated
         }
+        installState={
+          installState
+        }
+        onInstallApp={
+          onInstallApp
+        }
       />
     );
   }
@@ -2970,6 +2987,8 @@ function PlayerBar({
   onEnablePush,
   pushBusy,
   pushEnabled,
+  installState,
+  onInstallApp,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -3393,6 +3412,23 @@ function PlayerBar({
             </div>
           ) : null}
         </div>
+
+        {!installState?.installed ? (
+          <button
+            type="button"
+            className="icon-button desktop-player-install-button"
+            onClick={
+              onInstallApp
+            }
+            aria-label="Install HyperSynced app"
+            title="Install HyperSynced app"
+          >
+            <Icon
+              name="download"
+              size={18}
+            />
+          </button>
+        ) : null}
       </div>
 
 
@@ -3979,6 +4015,18 @@ export default function App() {
     setPushEnabled,
   ] = useState(false);
 
+  const [
+    installState,
+    setInstallState,
+  ] = useState(
+    () => getPwaInstallState(),
+  );
+
+  const [
+    installHelpMode,
+    setInstallHelpMode,
+  ] = useState("");
+
   const [authOpen, setAuthOpen] =
     useState(
       () => (
@@ -4057,6 +4105,17 @@ export default function App() {
 
   const playbackPendingWriteRef =
     useRef(null);
+
+
+  useEffect(() => {
+    return subscribePwaInstall(
+      (nextState) => {
+        setInstallState(
+          nextState,
+        );
+      },
+    );
+  }, []);
 
 
   useEffect(() => {
@@ -5960,6 +6019,67 @@ const clearPlaylistToOpen =
   );
 
 
+  const handleInstallApp =
+  useCallback(
+    async () => {
+      const result =
+        await requestPwaInstall();
+
+      setInstallState(
+        result?.state ??
+        getPwaInstallState(),
+      );
+
+      if (
+        result?.status ===
+          "accepted" ||
+        result?.status ===
+          "installed"
+      ) {
+        setStatusMessage(
+          "HyperSynced app installed.",
+        );
+
+        setInstallHelpMode(
+          "",
+        );
+
+        return;
+      }
+
+      if (
+        result?.status ===
+          "dismissed"
+      ) {
+        setStatusMessage(
+          "App installation was canceled.",
+        );
+
+        return;
+      }
+
+      if (
+        result?.status ===
+          "insecure"
+      ) {
+        setStatusMessage(
+          "App installation requires HTTPS or localhost.",
+        );
+
+        return;
+      }
+
+      setInstallHelpMode(
+        result?.status ===
+          "manual-ios"
+          ? "manual-ios"
+          : "manual",
+      );
+    },
+    [],
+  );
+
+
   const handleEnablePush =
   useCallback(
     async () => {
@@ -6350,6 +6470,12 @@ const clearPlaylistToOpen =
             activePlaylistDownloads={
               activePlaylistDownloads
             }
+            installState={
+              installState
+            }
+            onInstallApp={
+              handleInstallApp
+            }
           />
         </main>
       </section>
@@ -6394,6 +6520,12 @@ const clearPlaylistToOpen =
         pushEnabled={
           pushEnabled
         }
+        installState={
+          installState
+        }
+        onInstallApp={
+          handleInstallApp
+        }
       />
 
       <MobileBottomNav
@@ -6423,6 +6555,22 @@ const clearPlaylistToOpen =
           </span>
         </div>
       ) : null}
+
+<AppInstallModal
+  open={
+    Boolean(
+      installHelpMode,
+    )
+  }
+  mode={
+    installHelpMode
+  }
+  onClose={() => {
+    setInstallHelpMode(
+      "",
+    );
+  }}
+/>
 
 <AuthOverlay
   open={authOpen}
