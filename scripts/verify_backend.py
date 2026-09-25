@@ -149,6 +149,7 @@ REQUIRED_ENVIRONMENT_KEYS = {
     "ACCESS_TOKEN_TTL_MINUTES",
     "REFRESH_TOKEN_TTL_DAYS",
     "ADMIN_DATABASE_DELETE_PASSWORD",
+    "ADMIN_ACCOUNT_CREATION_PASSWORD",
 }
 
 REQUIRED_BACKEND_REQUIREMENTS = {
@@ -601,6 +602,22 @@ def verify_environment_example() -> None:
             )
         ),
         ".env.example must contain only a placeholder admin reset password.",
+    )
+    _require(
+        any(
+            marker
+            in values[
+                "ADMIN_ACCOUNT_CREATION_PASSWORD"
+            ].lower()
+            for marker
+            in (
+                "replace",
+                "example",
+                "placeholder",
+                "change",
+            )
+        ),
+        ".env.example must contain only a placeholder admin account creation password.",
     )
 
 
