@@ -24,8 +24,12 @@ async def lyrics_database_schema() -> None:
         await connection.run_sync(
             Base.metadata.create_all,
             tables=[
-                Track.__table__,
-                TrackLyrics.__table__,
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackLyrics.__tablename__
+                ],
             ],
         )
 
