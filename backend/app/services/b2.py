@@ -144,6 +144,93 @@ def create_presigned_download_url(
     )
 
 
+async def delete_all_bucket_versions(
+    bucket: Any,
+) -> int:
+    """
+    Permanently remove every file version
+    in the bucket, including hidden/older
+    versions that are not referenced by
+    the database.
+    """
+
+    def list_versions():
+        return list(
+            bucket.ls(
+                "",
+                show_versions=True,
+                recursive=True,
+            )
+        )
+
+    listed = await asyncio.to_thread(
+        list_versions,
+    )
+
+    deleted = 0
+
+    for item in listed:
+        version = (
+            item[0]
+            if isinstance(
+                item,
+                tuple,
+            )
+            else item
+        )
+
+        if version is None:
+            continue
+
+        file_id = getattr(
+            version,
+            "file_id",
+            None,
+        )
+
+        if file_id is None:
+            file_id = getattr(
+                version,
+                "id_",
+                None,
+            )
+
+        file_name = getattr(
+            version,
+            "file_name",
+            None,
+        )
+
+        if (
+            file_id is None
+            or not file_name
+        ):
+            raise RuntimeError(
+                "B2 bucket version is missing "
+                "a file ID or file name."
+            )
+
+        print(
+            "[B2 DELETE ALL] "
+            f"{file_name} id={file_id}"
+        )
+
+        await asyncio.to_thread(
+            bucket.delete_file_version,
+            file_id,
+            file_name,
+        )
+
+        deleted += 1
+
+    print(
+        "[B2 DELETE ALL] Deleted "
+        f"{deleted} version(s) from bucket"
+    )
+
+    return deleted
+
+
 async def delete_all_object_versions(
     bucket: Any,
     object_key: str,
