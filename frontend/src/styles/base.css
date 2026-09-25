@@ -1756,6 +1756,52 @@ span svg {
   font-size: 10px;
 }
 
+.auth-admin-create {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(137, 198, 235, 0.18);
+  border-radius: 14px;
+  background: rgba(5, 13, 19, 0.48);
+  color: #a7b3bc;
+  font-size: 10px;
+}
+
+.auth-admin-create > small {
+  color: #70818d;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.auth-admin-password {
+  display: grid;
+  min-height: 50px;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  border: 1px solid rgba(137, 198, 235, 0.32);
+  border-radius: 13px;
+  color: #81919d;
+  background: rgba(4, 12, 18, 0.78);
+}
+
+.auth-admin-password:focus-within {
+  border-color: rgba(27, 217, 255, 0.72);
+  box-shadow:
+    0 0 0 3px
+    rgba(0, 174, 255, 0.07);
+}
+
+.auth-admin-password > button {
+  padding: 4px;
+  color: #8394a0;
+  background: transparent;
+}
+
 .auth-submit,
 .auth-secondary {
   min-height: 52px;
