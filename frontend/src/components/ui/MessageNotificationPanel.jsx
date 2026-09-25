@@ -136,7 +136,11 @@ export default function MessageNotificationPanel({
       {onEnablePush ? (
         <button
           type="button"
-          className="message-push-enable"
+          className={
+            pushEnabled
+              ? "message-push-enable is-enabled"
+              : "message-push-enable"
+          }
           disabled={
             pushBusy ||
             pushEnabled
