@@ -121,6 +121,49 @@ function formatDuration(
 }
 
 
+function playlistPresentation(
+  playlist,
+) {
+  const title =
+    String(
+      playlist?.title ??
+      "",
+    ).trim();
+
+  const liked =
+    title.toLocaleLowerCase()
+    === "liked songs";
+
+  const generated =
+    playlist?.visibility ===
+    "generated";
+
+  return {
+    kind:
+      liked
+        ? "liked"
+        : generated
+          ? "generated"
+          : "custom",
+
+    label:
+      liked
+        ? "LIKED SONGS"
+        : generated
+          ? "GENERATED PLAYLIST"
+          : "CUSTOM PLAYLIST",
+
+    owner:
+      generated
+        ? "HyperSynced"
+        : (
+            playlist?.owner_username ||
+            "HyperSynced"
+          ),
+  };
+}
+
+
 function formatTrackDuration(
   seconds,
 ) {
@@ -2662,13 +2705,24 @@ if (offline) {
       selectedPlaylist.artwork_url,
     );
 
+  const presentation =
+    playlistPresentation(
+      selectedPlaylist,
+    );
+
   return (
     <div
       className="page-stack hs-search-page hs-library-page"
       {...resultsSortMenu.getTriggerProps()}
     >
 
-      <section className="hs-search-playlist-view">
+      <section
+        className={
+          "hs-search-playlist-view " +
+          "hs-library-playlist-view " +
+          `hs-library-playlist-view--${presentation.kind}`
+        }
+      >
 
         <div className="hs-search-playlist-view__nav">
 
@@ -2718,11 +2772,7 @@ if (offline) {
           <div className="hs-search-playlist-view__copy">
 
             <span>
-              {String(
-                selectedPlaylist.visibility ||
-                  "playlist",
-              ).toUpperCase()}
-              {" PLAYLIST"}
+              {presentation.label}
             </span>
 
 
@@ -2739,8 +2789,7 @@ if (offline) {
 
 
             <small>
-              {selectedPlaylist.owner_username ||
-                "HyperSync"}
+              {presentation.owner}
 
               {" • "}
 
@@ -3091,7 +3140,7 @@ if (offline) {
                       <span className="hs-search-track__signals">
 
                         <em>
-                          PLAYLIST TRACK
+                          {presentation.label}
                         </em>
 
                         <small>
@@ -4205,6 +4254,11 @@ if (offline) {
                     playlist.artwork_url,
                   );
 
+                const presentation =
+                  playlistPresentation(
+                    playlist,
+                  );
+
                 const opening =
                   openingPlaylistId ===
                   playlist.id;
@@ -4276,6 +4330,8 @@ if (offline) {
                     className={[
                       "hs-search-track",
                       "hs-library-playlist-row",
+                      "hs-library-playlist-row--generated-look",
+                      `hs-library-playlist-row--${presentation.kind}`,
 
                       opening
                         ? "is-opening"
@@ -4356,9 +4412,7 @@ if (offline) {
                       </strong>
 
                       <small>
-                        {playlist.owner_username ||
-                          currentUser?.username ||
-                          "HyperSync"}
+                        {presentation.owner}
                       </small>
 
                     </span>
@@ -4369,10 +4423,7 @@ if (offline) {
                       <em>
                         {playlist.is_offline_download
                           ? "DOWNLOADED"
-                          : String(
-                              playlist.visibility ||
-                                "playlist",
-                            ).toUpperCase()}
+                          : presentation.label}
                       </em>
 
                       <small>
@@ -4388,9 +4439,7 @@ if (offline) {
 
 
                     <span className="hs-search-track__duration">
-                      {formatDuration(
-                        playlist.total_duration_seconds,
-                      )}
+                      {playlist.track_count}
                     </span>
 
 
