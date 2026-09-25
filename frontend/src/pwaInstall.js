@@ -559,11 +559,19 @@ export function subscribePwaInstall(
 export async function requestPwaInstall() {
   initializePwaInstall();
 
-  const systemPreparation =
-    prepareOfflineAppSystem();
-
   const state =
     getPwaInstallState();
+
+  if (!state.secure) {
+    return {
+      status:
+        "insecure",
+      state,
+    };
+  }
+
+  const systemPreparation =
+    prepareOfflineAppSystem();
 
   if (state.installed) {
     const system =
@@ -580,14 +588,6 @@ export async function requestPwaInstall() {
 
       state:
         getPwaInstallState(),
-    };
-  }
-
-  if (!state.secure) {
-    return {
-      status:
-        "insecure",
-      state,
     };
   }
 
