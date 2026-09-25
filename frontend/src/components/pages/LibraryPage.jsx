@@ -45,11 +45,21 @@ import TrackActionMenu from
 import CollectionActionMenu from
   "../music/CollectionActionMenu.jsx";
 
+import ResultsSortMenu from
+  "../music/ResultsSortMenu.jsx";
+
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
+
+import useResultsSortMenu from
+  "../../hooks/useResultsSortMenu.js";
+
+import {
+  sortResultItems,
+} from "../../sortResults.js";
 
 import {
   getDownloadedPlaylists,
@@ -160,6 +170,16 @@ function LibraryPage({
 
   const collectionActionMenu =
     useCollectionActionMenu();
+
+  const resultsSortMenu =
+    useResultsSortMenu();
+
+  const [
+    sortMode,
+    setSortMode,
+  ] = useState(
+    "smart",
+  );
 
   const [
   currentTrackId,
@@ -1997,10 +2017,17 @@ if (offline) {
 
   function playPlaylist(
     startIndex = 0,
+    tracksOverride = null,
   ) {
     const tracks =
-      selectedPlaylist?.tracks ??
-      [];
+      Array.isArray(
+        tracksOverride,
+      )
+        ? tracksOverride
+        : (
+            selectedPlaylist?.tracks ??
+            []
+          );
 
     if (
       tracks.length === 0
@@ -2220,11 +2247,14 @@ if (offline) {
     entity,
   ) {
     const tracks =
-      Array.isArray(
-        entity?.tracks,
-      )
-        ? entity.tracks
-        : [];
+      sortResultItems(
+        Array.isArray(
+          entity?.tracks,
+        )
+          ? entity.tracks
+          : [],
+        sortMode,
+      );
 
     return (
       <div className="hs-search-track-list">
@@ -2442,6 +2472,59 @@ if (offline) {
     ),
   ];
 
+  const sortedDownloadedTracks =
+    useMemo(
+      () =>
+        sortResultItems(
+          downloadedTracks,
+          sortMode,
+        ),
+      [
+        downloadedTracks,
+        sortMode,
+      ],
+    );
+
+  const sortedVisiblePlaylists =
+    useMemo(
+      () =>
+        sortResultItems(
+          visiblePlaylists,
+          sortMode,
+        ),
+      [
+        visiblePlaylists,
+        sortMode,
+      ],
+    );
+
+  const sortedActiveLibraryCollection =
+    useMemo(
+      () =>
+        sortResultItems(
+          activeLibraryCollection,
+          sortMode,
+        ),
+      [
+        activeLibraryCollection,
+        sortMode,
+      ],
+    );
+
+  const sortedSelectedPlaylistTracks =
+    useMemo(
+      () =>
+        sortResultItems(
+          selectedPlaylist?.tracks ??
+            [],
+          sortMode,
+        ),
+      [
+        selectedPlaylist?.tracks,
+        sortMode,
+      ],
+    );
+
   if (
     !isRegistered &&
     downloadedPlaylists.length ===
@@ -2580,7 +2663,10 @@ if (offline) {
     );
 
   return (
-    <div className="page-stack hs-search-page hs-library-page">
+    <div
+      className="page-stack hs-search-page hs-library-page"
+      {...resultsSortMenu.getTriggerProps()}
+    >
 
       <section className="hs-search-playlist-view">
 
@@ -2687,6 +2773,7 @@ if (offline) {
                 onClick={() => {
                   playPlaylist(
                     0,
+                    sortedSelectedPlaylistTracks,
                   );
                 }}
               >
@@ -2867,7 +2954,7 @@ if (offline) {
 
             <div className="hs-search-track-list">
 
-              {selectedPlaylist.tracks.map(
+              {sortedSelectedPlaylistTracks.map(
                 (
                   track,
                   trackIndex,
@@ -2926,6 +3013,7 @@ if (offline) {
                       onClick={() => {
                         playPlaylist(
                           trackIndex,
+                          sortedSelectedPlaylistTracks,
                         );
                       }}
                       onKeyDown={(
@@ -2941,6 +3029,7 @@ if (offline) {
 
                           playPlaylist(
                             trackIndex,
+                            sortedSelectedPlaylistTracks,
                           );
                         }
                       }}
@@ -3124,6 +3213,8 @@ if (offline) {
                             title="Move up"
                             disabled={
                               actionBusy ||
+                              sortMode !==
+                                "smart" ||
                               trackIndex ===
                                 0
                             }
@@ -3147,6 +3238,8 @@ if (offline) {
                             title="Move down"
                             disabled={
                               actionBusy ||
+                              sortMode !==
+                                "smart" ||
                               trackIndex ===
                                 selectedPlaylist.tracks.length -
                                   1
@@ -3240,6 +3333,21 @@ if (offline) {
       />
 
 
+      <ResultsSortMenu
+        menu={
+          resultsSortMenu.menu
+        }
+        mode={
+          sortMode
+        }
+        onClose={
+          resultsSortMenu.closeMenu
+        }
+        onSelect={
+          setSortMode
+        }
+      />
+
       <TrackActionMenu
         menu={
           trackActionMenu.menu
@@ -3269,7 +3377,10 @@ if (offline) {
 }
 
   return (
-  <div className="page-stack hs-search-page hs-library-page">
+  <div
+    className="page-stack hs-search-page hs-library-page"
+    {...resultsSortMenu.getTriggerProps()}
+  >
 
     <section className="hs-search-console hs-library-console">
 
@@ -3511,7 +3622,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {downloadedTracks.map(
+            {sortedDownloadedTracks.map(
               (
                 track,
                 index,
@@ -3854,7 +3965,7 @@ if (offline) {
 
           <div className="hs-search-entity-grid hs-library-entity-grid">
 
-            {activeLibraryCollection.map(
+            {sortedActiveLibraryCollection.map(
               (entity) => {
                 const artwork =
                   resolveArtworkUrl(
@@ -4084,7 +4195,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {visiblePlaylists.map(
+            {sortedVisiblePlaylists.map(
               (
                 playlist,
                 index,
@@ -4410,6 +4521,21 @@ if (offline) {
         }}
       />
 
+
+      <ResultsSortMenu
+        menu={
+          resultsSortMenu.menu
+        }
+        mode={
+          sortMode
+        }
+        onClose={
+          resultsSortMenu.closeMenu
+        }
+        onSelect={
+          setSortMode
+        }
+      />
 
       <TrackActionMenu
         menu={
