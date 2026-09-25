@@ -318,6 +318,9 @@ export default function TrackActionMenu({
 
     setNotice("");
 
+    let addedToLikedSongs =
+      false;
+
     try {
       const result =
         await getMyPlaylists();
@@ -537,11 +540,8 @@ export default function TrackActionMenu({
           true,
         );
 
-        window.dispatchEvent(
-          new CustomEvent(
-            "hypersync:library-changed",
-          ),
-        );
+        addedToLikedSongs =
+          true;
       }
 
       const canonicalTrack =
@@ -592,6 +592,16 @@ export default function TrackActionMenu({
           : "Unable to download song.",
       );
     } finally {
+      if (
+        addedToLikedSongs
+      ) {
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+      }
+
       setBusy("");
     }
   }
