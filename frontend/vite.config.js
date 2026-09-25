@@ -48,6 +48,9 @@ export default defineConfig({
     },
   },
   server: {
+    headers: {
+      'Service-Worker-Allowed': '/',
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
