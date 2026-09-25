@@ -73,7 +73,17 @@ function DesktopTopbar({
             onPointerDown={() => {
               onSearchFocus?.();
             }}
-            onKeyDown={() => {
+            onKeyDown={(event) => {
+              if (
+                event.key === "Tab" ||
+                event.key === "Shift" ||
+                event.key === "Control" ||
+                event.key === "Alt" ||
+                event.key === "Meta"
+              ) {
+                return;
+              }
+
               onSearchFocus?.();
             }}
             onChange={(event) => {
