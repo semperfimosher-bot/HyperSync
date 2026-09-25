@@ -10,10 +10,15 @@ export async function registerHyperSyncServiceWorker(
     return null;
   }
 
+  const scriptUrl =
+    import.meta.env?.DEV
+      ? "/src/serviceWorker.js"
+      : "/sw.js";
+
   return navigatorLike
     .serviceWorker
     .register(
-      "/sw.js",
+      scriptUrl,
       {
         scope:
           "/",
