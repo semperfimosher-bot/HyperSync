@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes import (
     admin as admin_routes,
 )
+from backend.app.models.account import User
 
 
 class FakeSession:
@@ -81,8 +84,14 @@ async def test_admin_user_delete_removes_avatar_then_database_account(
     deleted_versions = (
         await admin_routes
         ._delete_admin_selected_user(
-            session,
-            target,
+            cast(
+                AsyncSession,
+                session,
+            ),
+            cast(
+                User,
+                target,
+            ),
         )
     )
 
@@ -140,10 +149,16 @@ async def test_admin_user_delete_stops_if_avatar_cleanup_fails(
     with pytest.raises(
         HTTPException,
     ) as exc_info:
-        await admin_routes             ._delete_admin_selected_user(
+        await admin_routes._delete_admin_selected_user(
+            cast(
+                AsyncSession,
                 session,
+            ),
+            cast(
+                User,
                 target,
-            )
+            ),
+        )
 
     assert (
         exc_info.value.status_code
