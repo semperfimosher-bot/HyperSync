@@ -180,6 +180,10 @@ class PlaylistSummaryResponse(
 
     artwork_url: str | None = None
 
+    artwork_urls: list[str | None] = Field(
+        default_factory=list,
+    )
+
     is_owner: bool = False
 
     is_saved: bool = False
@@ -347,6 +351,41 @@ async def playlist_statistics(
     )
 
 
+async def playlist_artwork_urls(
+    session: DatabaseSession,
+    playlist_id: UUID,
+) -> list[str | None]:
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .join(
+            PlaylistTrack,
+            PlaylistTrack.track_id == Track.id,
+        )
+        .where(
+            PlaylistTrack.playlist_id == playlist_id,
+            Track.is_published.is_(
+                True,
+            ),
+        )
+        .order_by(
+            PlaylistTrack.position.asc(),
+            PlaylistTrack.created_at.asc(),
+        )
+        .limit(
+            4,
+        )
+    )
+
+    return [
+        _track_artwork_url(
+            track,
+        )
+        for track in result.scalars().all()
+    ]
+
+
 async def playlist_artwork_url(
     session: DatabaseSession,
     playlist_id: UUID,
@@ -405,9 +444,18 @@ async def serialize_playlist_summary(
         playlist,
     )
 
-    artwork_url = await playlist_artwork_url(
+    artwork_urls = await playlist_artwork_urls(
         session,
         playlist.id,
+    )
+
+    artwork_url = next(
+        (
+            artwork
+            for artwork in artwork_urls
+            if artwork
+        ),
+        None,
     )
 
     is_owner = bool(viewer is not None and viewer.id == playlist.owner_id)
@@ -428,6 +476,7 @@ async def serialize_playlist_summary(
         track_count=(track_count),
         total_duration_seconds=(total_duration),
         artwork_url=(artwork_url),
+        artwork_urls=(artwork_urls),
         is_owner=is_owner,
         is_saved=is_saved,
         created_at=(playlist.created_at),
