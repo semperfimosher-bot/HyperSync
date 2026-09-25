@@ -1,10 +1,17 @@
 import {
-  API_BASE,
-} from "./api/client.js";
-
-import {
   clearAllHyperSyncClientData,
 } from "./clientDataReset.js";
+
+
+const RESET_API_BASE =
+  import.meta.env
+    ?.VITE_API_BASE_URL ??
+  (
+    import.meta.env
+      ?.DEV
+      ? "/api"
+      : "https://api.hypersynced.app/api"
+  );
 
 
 export const GLOBAL_RESET_GENERATION_KEY =
@@ -92,7 +99,7 @@ export async function fetchGlobalResetGeneration({
 
   const response =
     await fetchLike(
-      `${API_BASE}/system/reset-state`,
+      `${RESET_API_BASE}/system/reset-state`,
       {
         method:
           "GET",
