@@ -526,6 +526,484 @@ async def delete_all_database_data(
     }
 
 
+@router.post(
+    "/tracks/upload/prepare",
+)
+async def prepare_direct_track_upload(
+    payload: PrepareDirectTrackUploadRequest,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    title = payload.title.strip()
+    artist = payload.artist.strip()
+
+    if (
+        not title
+        or not artist
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Title and artist are required."
+            ),
+        )
+
+    duplicate = (
+        await _find_duplicate_track(
+            session,
+            title=title,
+            artist=artist,
+        )
+    )
+
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "Duplicate track prevented: "
+                f'\"{duplicate.title}\" by '
+                f"{duplicate.artist} already "
+                "exists in the catalog."
+            ),
+        )
+
+    if not _direct_upload_is_safe(
+        payload,
+    ):
+        return {
+            "direct_upload":
+                False,
+            "reason":
+                "backend-processing-required",
+        }
+
+    settings = get_settings()
+
+    object_key = (
+        f"{settings.b2_audio_prefix}/"
+        f"{uuid4()}."
+        f"{_direct_upload_extension(payload.filename)}"
+    )
+
+    try:
+        upload_url = (
+            create_presigned_upload_url(
+                object_key,
+                content_type=(
+                    payload.mime_type
+                ),
+            )
+        )
+
+    except Exception:
+        return {
+            "direct_upload":
+                False,
+            "reason":
+                "direct-upload-unavailable",
+        }
+
+    return {
+        "direct_upload":
+            True,
+        "object_key":
+            object_key,
+        "upload_url":
+            upload_url,
+        "content_type":
+            payload.mime_type,
+        "expires_in_seconds":
+            max(
+                60,
+                min(
+                    int(
+                        settings
+                        .b2_direct_upload_ttl_seconds
+                    ),
+                    60 * 60,
+                ),
+            ),
+    }
+
+
+@router.post(
+    "/tracks/upload/cancel",
+)
+async def cancel_direct_track_upload(
+    payload: CancelDirectTrackUploadRequest,
+    user: AdminUser,
+):
+    _validate_prepared_audio_key(
+        payload.object_key,
+    )
+
+    bucket = get_b2_bucket()
+
+    try:
+        deleted_versions = (
+            await delete_all_object_versions(
+                bucket,
+                payload.object_key,
+            )
+        )
+
+    except Exception:
+        deleted_versions = 0
+
+    return {
+        "success": True,
+        "deleted_versions":
+            deleted_versions,
+    }
+
+
+@router.post(
+    "/tracks/upload/finalize",
+)
+async def finalize_direct_track_upload(
+    object_key: Annotated[
+        str,
+        Form(...),
+    ],
+    title: Annotated[
+        str,
+        Form(...),
+    ],
+    artist: Annotated[
+        str,
+        Form(...),
+    ],
+    album: Annotated[
+        str,
+        Form(...),
+    ],
+    genre: Annotated[
+        str,
+        Form(...),
+    ],
+    duration_seconds: Annotated[
+        int,
+        Form(...),
+    ],
+    mime_type: Annotated[
+        str,
+        Form(...),
+    ],
+    original_file_size: Annotated[
+        int,
+        Form(...),
+    ],
+    user: AdminUser,
+    session: DatabaseSession,
+    artwork: Annotated[
+        UploadFile | None,
+        File(),
+    ] = None,
+):
+    _validate_prepared_audio_key(
+        object_key,
+    )
+
+    clean_title = title.strip()
+    clean_artist = artist.strip()
+
+    if (
+        not clean_title
+        or not clean_artist
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Title and artist are required."
+            ),
+        )
+
+    bucket = get_b2_bucket()
+
+    cleanup_audio = True
+    artwork_object_key = None
+
+    try:
+        try:
+            object_info = (
+                await asyncio.to_thread(
+                    head_b2_object,
+                    object_key,
+                )
+            )
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Direct B2 upload could not "
+                    "be verified."
+                ),
+            ) from exc
+
+        stored_size = int(
+            object_info.get(
+                "ContentLength",
+                0,
+            )
+            or 0
+        )
+
+        if (
+            stored_size <= 0
+            or stored_size
+            != int(
+                original_file_size,
+            )
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Direct B2 upload size "
+                    "verification failed."
+                ),
+            )
+
+        stored_mime_type = (
+            str(
+                object_info.get(
+                    "ContentType",
+                    "",
+                )
+                or mime_type
+            )
+            .strip()
+        )
+
+        if (
+            not stored_mime_type
+            .lower()
+            .startswith(
+                "audio/",
+            )
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Prepared B2 object is not audio."
+                ),
+            )
+
+        await _lock_track_upload_identity(
+            session,
+            title=clean_title,
+            artist=clean_artist,
+        )
+
+        duplicate = (
+            await _find_duplicate_track(
+                session,
+                title=clean_title,
+                artist=clean_artist,
+            )
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "Duplicate track prevented: "
+                    f'\"{duplicate.title}\" by '
+                    f"{duplicate.artist} already "
+                    "exists in the catalog."
+                ),
+            )
+
+        if artwork is not None:
+            artwork_data = (
+                await artwork.read()
+            )
+
+            artwork_mime_type = (
+                artwork.content_type
+                or ""
+            )
+
+            if (
+                artwork_data
+                and artwork_mime_type
+                .lower()
+                .startswith(
+                    "image/",
+                )
+            ):
+                artwork_ext = (
+                    artwork_mime_type
+                    .split(
+                        "/",
+                        1,
+                    )[-1]
+                    .split(
+                        ";",
+                        1,
+                    )[0]
+                    .strip()
+                    or "jpg"
+                )
+
+                artwork_object_key = (
+                    f"{get_settings().b2_artwork_prefix}/"
+                    f"{uuid4()}."
+                    f"{artwork_ext}"
+                )
+
+                await asyncio.to_thread(
+                    bucket.upload_bytes,
+                    artwork_data,
+                    artwork_object_key,
+                    content_type=(
+                        artwork_mime_type
+                    ),
+                )
+
+        track = Track(
+            id=uuid4(),
+            title=clean_title,
+            artist=clean_artist,
+            album=(
+                album.strip()
+                or None
+            ),
+            genre=(
+                genre.strip()
+                or None
+            ),
+            b2_object_key=(
+                object_key
+            ),
+            artwork_object_key=(
+                artwork_object_key
+            ),
+            mime_type=(
+                stored_mime_type
+            ),
+            file_size=(
+                stored_size
+            ),
+            duration_seconds=max(
+                int(
+                    duration_seconds
+                    or 0
+                ),
+                0,
+            ),
+            is_published=True,
+        )
+
+        session.add(
+            track,
+        )
+
+        await session.commit()
+
+        cleanup_audio = False
+
+        response_payload = {
+            "success": True,
+            "track_id":
+                str(
+                    track.id,
+                ),
+            "title":
+                track.title,
+            "artist":
+                track.artist,
+            "album":
+                track.album,
+            "b2_object_key":
+                object_key,
+            "artwork_object_key":
+                artwork_object_key,
+            "file_size":
+                stored_size,
+            "original_file_size":
+                original_file_size,
+            "direct_upload":
+                True,
+            "compression": {
+                "applied":
+                    False,
+                "saved_bytes":
+                    0,
+                "saved_percent":
+                    0.0,
+                "source_codec":
+                    None,
+                "source_bitrate_kbps":
+                    None,
+                "stored_mime_type":
+                    stored_mime_type,
+            },
+            "duration_seconds":
+                track.duration_seconds,
+        }
+
+        try:
+            await ensure_artist_playlist(
+                session,
+                track.artist,
+            )
+        except Exception:
+            await session.rollback()
+
+        return response_payload
+
+    except HTTPException:
+        await session.rollback()
+        raise
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Unable to finalize direct "
+                f"upload: {exc}"
+            ),
+        ) from exc
+
+    finally:
+        if cleanup_audio:
+            try:
+                await delete_all_object_versions(
+                    bucket,
+                    object_key,
+                )
+            except Exception:
+                pass
+
+            if artwork_object_key:
+                try:
+                    await delete_all_object_versions(
+                        bucket,
+                        artwork_object_key,
+                    )
+                except Exception:
+                    pass
+
+
 @router.post("/tracks/upload")
 async def upload_track(
     file: Annotated[UploadFile, File(...)],
