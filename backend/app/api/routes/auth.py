@@ -16,6 +16,9 @@ from ...models.account import (
     UserSession,
 )
 from ...security.passwords import hash_password, verify_password
+from ...security.rate_limit import (
+    enforce_rate_limit,
+)
 from ...security.tokens import (
     create_access_token,
     create_refresh_token,
@@ -204,6 +207,35 @@ async def register(
     request: Request,
     response: Response,
 ):
+    settings = get_settings()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-register",
+        limit=(
+            settings
+            .auth_register_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_register_rate_window_seconds
+        ),
+    )
+
+    if payload.create_admin:
+        enforce_rate_limit(
+            request,
+            scope="auth-admin-register",
+            limit=(
+                settings
+                .auth_admin_register_rate_limit
+            ),
+            window_seconds=(
+                settings
+                .auth_admin_register_rate_window_seconds
+            ),
+        )
+
     session_factory = get_session_factory()
 
     username = normalize_username(
@@ -230,8 +262,6 @@ async def register(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=("That email or username is already registered."),
             )
-
-        settings = get_settings()
 
         role = resolve_registration_role(
             create_admin=(
@@ -311,9 +341,38 @@ async def login(
     request: Request,
     response: Response,
 ):
-    session_factory = get_session_factory()
+    settings = get_settings()
 
     identifier = payload.username.strip()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-login-ip",
+        limit=(
+            settings
+            .auth_login_ip_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_login_rate_window_seconds
+        ),
+    )
+
+    enforce_rate_limit(
+        request,
+        scope="auth-login-identity",
+        identity=identifier,
+        limit=(
+            settings
+            .auth_login_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_login_rate_window_seconds
+        ),
+    )
+
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         result = await session.execute(
@@ -422,6 +481,21 @@ async def refresh(
     request: Request,
     response: Response,
 ):
+    settings = get_settings()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-refresh",
+        limit=(
+            settings
+            .auth_refresh_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_refresh_rate_window_seconds
+        ),
+    )
+
     refresh_token = request.cookies.get(
         "hypersync_refresh",
     )
