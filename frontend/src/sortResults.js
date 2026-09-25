@@ -1,7 +1,7 @@
 export const RESULTS_SORT_OPTIONS = [
   {
     value: "smart",
-    label: "Smart Sort",
+    label: "My Smart Sort",
   },
   {
     value: "recent",
