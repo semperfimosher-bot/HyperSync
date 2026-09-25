@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import hmac
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
@@ -38,6 +39,13 @@ class RegisterRequest(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=128,
+    )
+
+    create_admin: bool = False
+
+    admin_verification_password: str | None = Field(
+        default=None,
+        max_length=256,
     )
 
 
@@ -176,17 +184,48 @@ async def register(
                 detail=("That email or username is already registered."),
             )
 
-        # The first registered account becomes
-        # the initial HyperSync administrator.
-        count_result = await session.execute(
-            select(func.count(User.id)).where(
-                User.account_type == AccountType.REGISTERED,
+        role = UserRole.USER
+
+        if payload.create_admin:
+            settings = get_settings()
+
+            configured_admin_password = (
+                settings
+                .admin_account_creation_password
+                .strip()
             )
-        )
 
-        registered_count = count_result.scalar_one()
+            if not configured_admin_password:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_503_SERVICE_UNAVAILABLE
+                    ),
+                    detail=(
+                        "Administrator account creation "
+                        "is not configured."
+                    ),
+                )
 
-        role = UserRole.ADMIN if registered_count == 0 else UserRole.USER
+            provided_admin_password = (
+                payload.admin_verification_password
+                or ""
+            )
+
+            if not hmac.compare_digest(
+                provided_admin_password,
+                configured_admin_password,
+            ):
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_403_FORBIDDEN
+                    ),
+                    detail=(
+                        "Invalid administrator "
+                        "verification password."
+                    ),
+                )
+
+            role = UserRole.ADMIN
 
         user = User(
             account_type=AccountType.REGISTERED,
