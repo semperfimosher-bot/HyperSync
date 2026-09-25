@@ -504,6 +504,98 @@ function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
+  const [
+    wipePassword,
+    setWipePassword,
+  ] = useState("");
+
+  const [
+    wipeConfirmation,
+    setWipeConfirmation,
+  ] = useState("");
+
+  const [
+    wipeBusy,
+    setWipeBusy,
+  ] = useState(false);
+
+  const [
+    wipeResult,
+    setWipeResult,
+  ] = useState("");
+
+
+  const deleteAllData = useCallback(
+    async () => {
+      setMessage("");
+      setWipeResult("");
+
+      if (
+        wipePassword !==
+          "2009" ||
+        wipeConfirmation !==
+          "DELETE ALL DATA"
+      ) {
+        setMessage(
+          "Enter password 2009 and type DELETE ALL DATA exactly.",
+        );
+
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "This permanently deletes ALL HyperSync database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setWipeBusy(true);
+
+      try {
+        const result =
+          await apiRequest(
+            "/admin/database/delete-all",
+            {
+              method:
+                "POST",
+              body:
+                JSON.stringify({
+                  password:
+                    wipePassword,
+                  confirmation:
+                    wipeConfirmation,
+                }),
+            },
+          );
+
+        setTracks([]);
+
+        setWipeResult(
+          `Deleted ${result?.deleted_row_count ?? 0} database rows and ${result?.deleted_b2_versions ?? 0} B2 file versions. The admin account used for this reset was deleted too.`,
+        );
+
+        setWipePassword("");
+        setWipeConfirmation("");
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to delete all data.",
+        );
+      } finally {
+        setWipeBusy(false);
+      }
+    },
+    [
+      wipePassword,
+      wipeConfirmation,
+    ],
+  );
+
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
 
@@ -767,6 +859,91 @@ function AdminDashboardPage() {
 </button>
         </article>
       </section>
+
+      <section className="admin-panel admin-danger-zone">
+        <div className="admin-panel__heading">
+          <div>
+            <span>DANGER ZONE</span>
+            <h3>Delete All System Data</h3>
+          </div>
+
+          <span className="admin-status admin-status--danger">
+            IRREVERSIBLE
+          </span>
+        </div>
+
+        <p className="admin-danger-zone__copy">
+          Permanently delete every application row from the database and every
+          version of every object in the configured B2 bucket. This includes
+          users, admin accounts, sessions, profiles, follows, playlists,
+          listening history, tracks, lyrics, audio, artwork, avatars, hidden
+          B2 versions, and orphaned bucket files. Database schema and Alembic
+          migrations remain intact.
+        </p>
+
+        <div className="admin-danger-zone__form">
+          <label>
+            <span>Verification password</span>
+
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              value={wipePassword}
+              onChange={(event) => {
+                setWipePassword(
+                  event.target.value,
+                );
+              }}
+              placeholder="Enter password"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <label>
+            <span>Type DELETE ALL DATA</span>
+
+            <input
+              type="text"
+              autoComplete="off"
+              value={wipeConfirmation}
+              onChange={(event) => {
+                setWipeConfirmation(
+                  event.target.value,
+                );
+              }}
+              placeholder="DELETE ALL DATA"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="danger-button admin-danger-zone__button"
+            disabled={
+              wipeBusy ||
+              wipePassword !==
+                "2009" ||
+              wipeConfirmation !==
+                "DELETE ALL DATA"
+            }
+            onClick={() => {
+              void deleteAllData();
+            }}
+          >
+            {wipeBusy
+              ? "Deleting everything..."
+              : "Delete DB + B2 Data"}
+          </button>
+        </div>
+
+        {wipeResult ? (
+          <p className="admin-danger-zone__result">
+            {wipeResult}
+          </p>
+        ) : null}
+      </section>
+
 
       <section className="admin-panel">
         <div className="admin-panel__heading">
