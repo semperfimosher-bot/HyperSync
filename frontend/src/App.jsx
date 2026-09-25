@@ -2465,6 +2465,7 @@ function MainPage({
   onStatusMessage,
   searchResetToken,
   libraryResetToken,
+  messagesResetToken,
   activePlaylistDownloads,
 }) {
   const adminPage =
@@ -2638,6 +2639,9 @@ if (
       onOpenProfile={
         onOpenProfile
       }
+      resetToken={
+        messagesResetToken
+      }
     />
   );
 }
@@ -2764,9 +2768,12 @@ function MobileBottomNav({
       {NAV_ITEMS
         .filter(
           (item) =>
-            !item.requiresAuth ||
-            currentUser?.account_type ===
-              "registered",
+            item.id !== "messages" &&
+            (
+              !item.requiresAuth ||
+              currentUser?.account_type ===
+                "registered"
+            ),
         )
         .map((item) => (
         <button
@@ -3780,6 +3787,11 @@ export default function App() {
 ] = useState(0);
 
   const [
+  messagesResetToken,
+  setMessagesResetToken,
+] = useState(0);
+
+  const [
   playlistToOpen,
   setPlaylistToOpen,
   ] = useState(null);
@@ -4766,6 +4778,25 @@ if (
   );
 }
 
+/*
+ * Clicking Messages while already
+ * on Messages returns to the main
+ * conversation list, matching Search.
+ */
+if (
+  page === "messages" &&
+  activePage === "messages"
+) {
+  setMessagesResetToken(
+    (current) =>
+      current + 1,
+  );
+
+  setMessageToOpen(
+    "",
+  );
+}
+
 
       if (
         page !==
@@ -5313,6 +5344,7 @@ const clearPlaylistToOpen =
             currentUser={currentUser}
             searchResetToken={searchResetToken}
             libraryResetToken={libraryResetToken}
+            messagesResetToken={messagesResetToken}
             playlistToOpen={
             playlistToOpen
             }
