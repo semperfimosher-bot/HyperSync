@@ -19,6 +19,7 @@ function MobileHeader({
   onOpenMessage,
   onEnablePush,
   pushBusy,
+  pushEnabled,
 }) {
   const [
     notificationsOpen,
@@ -132,6 +133,9 @@ function MobileHeader({
                 }
                 pushBusy={
                   pushBusy
+                }
+                pushEnabled={
+                  pushEnabled
                 }
               />
             </div>
