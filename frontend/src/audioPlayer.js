@@ -1842,6 +1842,170 @@ beginListeningEvent(
 return getState();
 }
 
+export async function restoreAccountPlayback(
+  track,
+  positionSeconds = 0,
+) {
+  const trackId =
+    String(
+      track?.id ??
+      "",
+    ).trim();
+
+  if (!trackId) {
+    stopTrack();
+
+    return getState();
+  }
+
+  const meta =
+    normalizeTrackMeta(
+      track,
+    );
+
+  const requestedTime =
+    Number.isFinite(
+      Number(
+        positionSeconds,
+      ),
+    )
+      ? Math.max(
+          Number(
+            positionSeconds,
+          ),
+          0,
+        )
+      : 0;
+
+  /*
+   * Account sync never auto-starts audio.
+   * A user gesture on this device is still
+   * required before it takes playback over.
+   */
+  audio.pause();
+
+  if (
+    currentTrackId ===
+      trackId &&
+    currentTrackMeta
+  ) {
+    currentTrackMeta =
+      meta;
+
+    currentArtworkUrl =
+      meta.artworkUrl;
+
+    currentTrackTitle =
+      meta.title;
+
+    currentTrackArtist =
+      meta.artist;
+
+    restoredTimeSeconds =
+      requestedTime;
+
+    if (
+      hasAudioSource()
+    ) {
+      const duration =
+        Number.isFinite(
+          audio.duration,
+        ) &&
+        audio.duration > 0
+          ? audio.duration
+          : requestedTime;
+
+      try {
+        audio.currentTime =
+          Math.max(
+            0,
+            Math.min(
+              requestedTime,
+              duration,
+            ),
+          );
+      } catch {
+        // The source may still be loading.
+      }
+    }
+
+    setPlaybackPhase(
+      "paused",
+    );
+
+    persistPlayerState({
+      force:
+        true,
+      currentTime:
+        requestedTime,
+    });
+
+    notify();
+
+    return getState();
+  }
+
+  cancelActivePlaybackSession();
+
+  clearQueue();
+
+  audio.removeAttribute(
+    "src",
+  );
+
+  audio.load();
+
+  currentTrackId =
+    trackId;
+
+  currentTrackMeta =
+    meta;
+
+  currentArtworkUrl =
+    meta.artworkUrl;
+
+  currentTrackTitle =
+    meta.title;
+
+  currentTrackArtist =
+    meta.artist;
+
+  restoredTimeSeconds =
+    requestedTime;
+
+  setPlaybackPhase(
+    "paused",
+  );
+
+  persistPlayerState({
+    force:
+      true,
+    currentTime:
+      requestedTime,
+  });
+
+  notify();
+
+  void ensureCurrentTrackSource()
+    .catch(
+      () => {
+        if (
+          currentTrackId ===
+            trackId
+        ) {
+          setPlaybackPhase(
+            "paused",
+          );
+
+          notify();
+        }
+      },
+    );
+
+  return getState();
+}
+
+
 export async function playTrack(
   trackId,
   meta = {},
@@ -2357,6 +2521,7 @@ if (
 ) {
   window.__HYPERSYNC_PLAYER = {
     playTrack,
+    restoreAccountPlayback,
     playTrackQueue,
     playTrackNext,
     addTrackToQueue,
