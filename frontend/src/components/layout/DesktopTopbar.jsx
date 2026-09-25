@@ -1,9 +1,5 @@
-import { useState } from "react";
-
 import Icon from "../ui/Icon.jsx";
 import Avatar from "../profile/Avatar.jsx";
-import MessageNotificationPanel from "../ui/MessageNotificationPanel.jsx";
-
 import { PAGE_TITLES } from "../../constants.js";
 
 import {
@@ -19,16 +15,7 @@ function DesktopTopbar({
   currentUser,
   onNavigate,
   onOpenAuth,
-  messageNotifications,
-  onOpenMessage,
-  onEnablePush,
-  pushBusy,
 }) {
-  const [
-    notificationsOpen,
-    setNotificationsOpen,
-  ] = useState(false);
-
   const greetingName =
     getGreetingName(currentUser);
 
@@ -108,105 +95,38 @@ function DesktopTopbar({
       )}
 
 
-      <div className="desktop-topbar__actions">
-        <div className="desktop-notification-center">
-          <button
-            type="button"
-            className="icon-button desktop-notification-button"
-            aria-label="Open notifications"
-            aria-expanded={
-              notificationsOpen
+      <button
+        className="desktop-profile-button"
+        type="button"
+        onClick={handleProfileClick}
+      >
+        {currentUser ? (
+          <Avatar
+            src={currentUser.avatar_url}
+            name={
+              currentUser.display_name ||
+              currentUser.username
             }
-            onClick={() => {
-              if (!currentUser) {
-                onOpenAuth();
-                return;
-              }
-
-              setNotificationsOpen(
-                (open) => !open,
-              );
-            }}
-          >
-            <Icon
-              name="bell"
-              size={18}
-            />
-
-            {messageNotifications?.unread_count ? (
-              <span
-                className="icon-button__dot"
-                aria-hidden="true"
-              />
-            ) : null}
-          </button>
-
-          {notificationsOpen ? (
-            <div
-              className="desktop-notification-panel"
-              role="region"
-              aria-label="Notifications"
-            >
-              <MessageNotificationPanel
-                data={
-                  messageNotifications
-                }
-                onOpenMessage={(
-                  username,
-                ) => {
-                  setNotificationsOpen(
-                    false,
-                  );
-
-                  onOpenMessage?.(
-                    username,
-                  );
-                }}
-                onEnablePush={
-                  onEnablePush
-                }
-                pushBusy={
-                  pushBusy
-                }
-              />
-            </div>
-          ) : null}
-        </div>
-
-
-        <button
-          className="desktop-profile-button"
-          type="button"
-          onClick={handleProfileClick}
-        >
-          {currentUser ? (
-            <Avatar
-              src={currentUser.avatar_url}
-              name={
-                currentUser.display_name ||
-                currentUser.username
-              }
-              size="header"
-              className="hs-header-avatar"
-            />
-          ) : (
-            <span className="avatar avatar--tiny">
-              G
-            </span>
-          )}
-
-          <span>
-            {currentUser
-              ? greetingName
-              : "Guest"}
-          </span>
-
-          <Icon
-            name="chevron"
-            size={15}
+            size="header"
+            className="hs-header-avatar"
           />
-        </button>
-      </div>
+        ) : (
+          <span className="avatar avatar--tiny">
+            G
+          </span>
+        )}
+
+        <span>
+          {currentUser
+            ? greetingName
+            : "Guest"}
+        </span>
+
+        <Icon
+          name="chevron"
+          size={15}
+        />
+      </button>
     </header>
   );
 }
