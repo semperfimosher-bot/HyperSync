@@ -154,15 +154,40 @@ def make_user_response(
 def set_refresh_cookie(
     response: Response,
     refresh_token: str,
+    request: Request,
 ) -> None:
     settings = get_settings()
+
+    forwarded_proto = (
+        request.headers.get(
+            "x-forwarded-proto",
+        )
+        or ""
+    )
+
+    request_is_https = (
+        request.url.scheme
+        == "https"
+        or forwarded_proto
+        .split(
+            ",",
+            1,
+        )[0]
+        .strip()
+        .lower()
+        == "https"
+    )
 
     response.set_cookie(
         key="hypersync_refresh",
         value=refresh_token,
         max_age=(settings.refresh_token_ttl_days * 24 * 60 * 60),
         httponly=True,
-        secure=settings.environment == "production",
+        secure=(
+            settings.environment
+            == "production"
+            or request_is_https
+        ),
         samesite="lax",
         path="/api/auth",
     )
@@ -322,6 +347,7 @@ async def register(
         set_refresh_cookie(
             response,
             refresh_token,
+            request,
         )
 
         return AuthResponse(
@@ -423,6 +449,7 @@ async def login(
         set_refresh_cookie(
             response,
             refresh_token,
+            request,
         )
 
         return AuthResponse(
@@ -639,6 +666,7 @@ async def refresh(
         set_refresh_cookie(
             response,
             new_refresh_token,
+            request,
         )
 
         return AuthResponse(
