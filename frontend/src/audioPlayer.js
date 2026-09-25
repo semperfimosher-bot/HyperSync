@@ -20,6 +20,7 @@ import {
 import {
   prepareTrackAudioSource,
   recordTrackPlayback,
+  warmTrackPlayback,
 } from "./mediaPlayback.js";
 
 import {
@@ -70,6 +71,12 @@ let lastMediaSessionSignature =
   null;
 
 let activeObjectUrl =
+  null;
+
+let warmPlaybackTask =
+  null;
+
+let warmPlaybackTaskKey =
   null;
 
 
@@ -1209,6 +1216,107 @@ function attachEvents() {
 
 attachEvents();
 restorePersistedPlayerState();
+
+
+function warmCurrentTrackForResume() {
+  if (
+    !currentTrackId ||
+    !currentTrackMeta
+  ) {
+    return null;
+  }
+
+  const mediaVersion =
+    currentTrackMeta
+      .mediaVersion ??
+    currentTrackMeta
+      .media_version ??
+    null;
+
+  if (!mediaVersion) {
+    return null;
+  }
+
+  const position =
+    getSafeCurrentTime();
+
+  const duration =
+    Number.isFinite(
+      audio.duration,
+    ) &&
+    audio.duration > 0
+      ? audio.duration
+      : Number(
+          currentTrackMeta
+            .durationSeconds ??
+          currentTrackMeta
+            .duration_seconds ??
+          0,
+        );
+
+  const taskKey = [
+    currentTrackId,
+    mediaVersion,
+    Math.floor(
+      position /
+      20,
+    ),
+  ].join(
+    ":",
+  );
+
+  if (
+    warmPlaybackTask &&
+    warmPlaybackTaskKey ===
+      taskKey
+  ) {
+    return warmPlaybackTask;
+  }
+
+  const useStableMediaRoute =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
+  warmPlaybackTaskKey =
+    taskKey;
+
+  warmPlaybackTask =
+    warmTrackPlayback(
+      currentTrackId,
+      currentTrackMeta,
+      {
+        positionSeconds:
+          position,
+
+        durationSeconds:
+          duration,
+
+        useStableMediaRoute,
+      },
+    )
+      .catch(
+        () => null,
+      )
+      .finally(
+        () => {
+          if (
+            warmPlaybackTaskKey ===
+              taskKey
+          ) {
+            warmPlaybackTask =
+              null;
+
+            warmPlaybackTaskKey =
+              null;
+          }
+        },
+      );
+
+  return warmPlaybackTask;
+}
 
 
 function loadAudioSource(
@@ -2357,6 +2465,13 @@ export async function togglePlay() {
 
   } else {
     audio.pause();
+
+    /*
+     * Do not make pause wait on network.
+     * Warm the resume window in the
+     * background for the next Play tap.
+     */
+    void warmCurrentTrackForResume();
   }
 
 
@@ -2370,6 +2485,15 @@ export function pausePlayback() {
   ) {
     audio.pause();
   }
+
+  /*
+   * Keep this exact pause point hot for
+   * two hours. The Audio element remains
+   * attached, and the nearby media bytes
+   * are also persisted through the
+   * service worker cache.
+   */
+  void warmCurrentTrackForResume();
 
 
   if (
@@ -2407,6 +2531,12 @@ export function stopTrack(
 
 
   cancelActivePlaybackSession();
+
+  warmPlaybackTask =
+    null;
+
+  warmPlaybackTaskKey =
+    null;
 
 
   audio.pause();
