@@ -142,9 +142,19 @@ export async function apiRequest(
       .catch(() => null);
 
   if (!response.ok) {
-    throw new Error(
-      formatApiError(data?.detail),
+    const error = new Error(
+      formatApiError(
+        data?.detail,
+      ),
     );
+
+    error.status =
+      response.status;
+
+    error.detail =
+      data?.detail;
+
+    throw error;
   }
 
   return data;
