@@ -37,7 +37,10 @@ export default function AdminUploadsPage() {
     retryItem,
     clearFinished,
     startUploads,
-  } = useUploadQueue();
+  } = useUploadQueue({
+    existingTracks:
+      uploadedTracks,
+  });
 
   const deleteTrack = async (trackId) => {
   setCatalogMessage("");
