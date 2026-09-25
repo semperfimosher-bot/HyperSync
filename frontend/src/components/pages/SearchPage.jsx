@@ -31,7 +31,6 @@ import {
   getSearchPreferences,
   saveSearchPreferences,
   searchHypersync,
-  SEARCH_SORT_OPTIONS,
 } from "../../searchApi.js";
 
 import {
@@ -61,11 +60,17 @@ import TrackActionMenu from
 import CollectionActionMenu from
   "../music/CollectionActionMenu.jsx";
 
+import ResultsSortMenu from
+  "../music/ResultsSortMenu.jsx";
+
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
 
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
+
+import useResultsSortMenu from
+  "../../hooks/useResultsSortMenu.js";
 
 import {
   getPlaylist,
@@ -276,6 +281,9 @@ function SearchPage({
 
   const collectionActionMenu =
     useCollectionActionMenu();
+
+  const resultsSortMenu =
+    useResultsSortMenu();
 
   const normalizedQuery =
     query.trim();
@@ -1109,11 +1117,8 @@ useEffect(() => {
 
 
   function changeSortMode(
-    event,
+    nextMode,
   ) {
-    const nextMode =
-      event.target.value;
-
     setSortMode(
       nextMode,
     );
@@ -2077,7 +2082,10 @@ async function downloadOpenedPlaylist() {
 
 
   return (
-    <div className="page-stack hs-search-page">
+    <div
+      className="page-stack hs-search-page"
+      {...resultsSortMenu.getTriggerProps()}
+    >
 
       <section className="hs-search-console">
 
@@ -2128,34 +2136,6 @@ async function downloadOpenedPlaylist() {
     </div>
 
 
-    <div className="hs-search-sort">
-
-      <label
-        htmlFor="hs-search-sort-mode"
-      >
-      </label>
-
-      <select
-        id="hs-search-sort-mode"
-        value={sortMode}
-        disabled={!preferenceReady}
-        onChange={changeSortMode}
-      >
-        {SEARCH_SORT_OPTIONS.map(
-          (option) => (
-            <option
-              key={option.value}
-              value={option.value}
-            >
-              {option.label}
-            </option>
-          ),
-        )}
-      </select>
-
-      
-
-    </div>
 
   </div>
 
@@ -3461,6 +3441,21 @@ displayResults.tracks.length > 0 ? (
         }
         onClose={
           collectionActionMenu.closeMenu
+        }
+      />
+
+      <ResultsSortMenu
+        menu={
+          resultsSortMenu.menu
+        }
+        mode={
+          sortMode
+        }
+        onClose={
+          resultsSortMenu.closeMenu
+        }
+        onSelect={
+          changeSortMode
         }
       />
 
