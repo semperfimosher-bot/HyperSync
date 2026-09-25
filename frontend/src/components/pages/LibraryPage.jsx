@@ -35,6 +35,9 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
+import PlaylistArtwork from
+  "../ui/PlaylistArtwork.jsx";
+
 import DownloadRemovalConfirm from
   "../ui/DownloadRemovalConfirm.jsx";
 
@@ -2607,11 +2610,6 @@ if (offline) {
   );
 
   if (selectedPlaylist) {
-  const artwork =
-    resolveArtworkUrl(
-      selectedPlaylist.artwork_url,
-    );
-
   const presentation =
     playlistPresentation(
       selectedPlaylist,
@@ -2657,21 +2655,18 @@ if (offline) {
 
           <div className="hs-search-playlist-view__art">
 
-            {artwork ? (
-              <img
-                src={
-                  artwork
-                }
-                alt=""
-              />
-            ) : (
-              <div className="hs-search-playlist-view__fallback">
-                <Icon
-                  name="playlist"
-                  size={32}
-                />
-              </div>
-            )}
+            <PlaylistArtwork
+              tracks={
+                selectedPlaylist.tracks
+              }
+              artworkUrls={
+                selectedPlaylist.artwork_urls
+              }
+              artworkUrl={
+                selectedPlaylist.artwork_url
+              }
+              fallbackSize={32}
+            />
 
           </div>
 
@@ -4096,11 +4091,6 @@ if (offline) {
                 playlist,
                 index,
               ) => {
-                const artwork =
-                  resolveArtworkUrl(
-                    playlist.artwork_url,
-                  );
-
                 const presentation =
                   playlistPresentation(
                     playlist,
@@ -4228,19 +4218,18 @@ if (offline) {
 
                     <span className="hs-search-track__art">
 
-                      {artwork ? (
-                        <img
-                          src={
-                            artwork
-                          }
-                          alt=""
-                        />
-                      ) : (
-                        <Icon
-                          name="playlist"
-                          size={20}
-                        />
-                      )}
+                      <PlaylistArtwork
+                        tracks={
+                          playlist.tracks
+                        }
+                        artworkUrls={
+                          playlist.artwork_urls
+                        }
+                        artworkUrl={
+                          playlist.artwork_url
+                        }
+                        fallbackSize={20}
+                      />
 
                       <i aria-hidden="true">
                         <Icon
