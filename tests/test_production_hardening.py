@@ -77,6 +77,11 @@ def test_auth_rate_limit_blocks_after_budget() -> None:
         == 429
     )
 
+    assert (
+        exc_info.value.headers
+        is not None
+    )
+
     assert int(
         exc_info.value.headers[
             "Retry-After"
