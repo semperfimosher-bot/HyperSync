@@ -1841,6 +1841,21 @@ function AuthOverlay({
   const [message, setMessage] =
     useState("");
 
+
+  useEffect(() => {
+    if (
+      !open ||
+      mode !== "create"
+    ) {
+      setCreateAdmin(false);
+      setShowAdminPassword(false);
+    }
+  }, [
+    open,
+    mode,
+  ]);
+
+
   if (!open) {
     return null;
   }
