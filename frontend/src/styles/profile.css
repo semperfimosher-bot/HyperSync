@@ -3020,3 +3020,35 @@ button.hs-profile-stat:hover,
     0 0 14px
     rgba(19, 158, 255, 0.24);
 }
+
+
+.hs-account-actions
+> .hs-install-app-control {
+  border-color:
+    rgba(59, 211, 255, 0.2);
+
+  color:
+    #55dfff;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(0, 115, 174, 0.12),
+      rgba(5, 27, 38, 0.62)
+    );
+}
+
+.hs-account-actions
+> .hs-install-app-control:disabled {
+  cursor: default;
+
+  opacity: 0.8;
+
+  transform: none;
+}
+
+@media (min-width: 980px) {
+  .hs-install-app-control {
+    display: none !important;
+  }
+}
