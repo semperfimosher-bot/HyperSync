@@ -1,6 +1,7 @@
 import {
   ensureMediaRecord,
   getCachedMediaRange,
+  getMediaChunk,
   getMediaRecord,
   markMediaPlayed,
   markMediaWarm,
@@ -114,6 +115,63 @@ export async function prepareTrackAudioSource(
     options,
   );
 }
+
+async function isMediaRangeCached(
+  trackId,
+  mediaVersion,
+  byteStart,
+  byteEnd,
+) {
+  const firstChunk =
+    Math.floor(
+      byteStart /
+      MEDIA_CHUNK_SIZE,
+    );
+
+  const lastChunk =
+    Math.floor(
+      byteEnd /
+      MEDIA_CHUNK_SIZE,
+    );
+
+  for (
+    let index =
+      firstChunk;
+    index <=
+    lastChunk;
+    index += 1
+  ) {
+    const chunk =
+      await getMediaChunk(
+        trackId,
+        mediaVersion,
+        index,
+      ).catch(
+        () => null,
+      );
+
+    if (!chunk) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+function wait(
+  milliseconds,
+) {
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds,
+      );
+    },
+  );
+}
+
 
 export const PLAYBACK_WARM_MS =
   2 *
@@ -279,14 +337,12 @@ export async function warmTrackPlayback(
     };
   }
 
-  const cached =
-    await getCachedMediaRange(
+  let cached =
+    await isMediaRangeCached(
       trackId,
       mediaVersion,
       byteStart,
       byteEnd,
-    ).catch(
-      () => null,
     );
 
   if (
@@ -345,6 +401,37 @@ export async function warmTrackPlayback(
          */
         await response
           .arrayBuffer();
+
+        /*
+         * The worker persists its cloned
+         * response in event.waitUntil().
+         * Give that short background write
+         * time to finish, then verify the
+         * exact chunk window really exists.
+         */
+        for (
+          let attempt =
+            0;
+          attempt <
+            20 &&
+          !cached;
+          attempt +=
+            1
+        ) {
+          cached =
+            await isMediaRangeCached(
+              trackId,
+              mediaVersion,
+              byteStart,
+              byteEnd,
+            );
+
+          if (!cached) {
+            await wait(
+              100,
+            );
+          }
+        }
       }
     } catch {
       /*
@@ -354,6 +441,26 @@ export async function warmTrackPlayback(
        * cannot complete.
        */
     }
+  }
+
+  if (!cached) {
+    return {
+      warmed:
+        false,
+
+      cached:
+        false,
+
+      reason:
+        useStableMediaRoute
+          ? "cache"
+          : "service-worker",
+
+      byteStart,
+      byteEnd,
+      warmUntil:
+        null,
+    };
   }
 
   await markMediaWarm(
@@ -373,9 +480,7 @@ export async function warmTrackPlayback(
       true,
 
     cached:
-      Boolean(
-        cached,
-      ),
+      true,
 
     byteStart,
     byteEnd,
