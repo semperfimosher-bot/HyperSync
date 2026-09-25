@@ -531,13 +531,12 @@ function AdminDashboardPage() {
       setWipeResult("");
 
       if (
-        wipePassword !==
-          "2009" ||
+        !wipePassword ||
         wipeConfirmation !==
           "DELETE ALL DATA"
       ) {
         setMessage(
-          "Enter password 2009 and type DELETE ALL DATA exactly.",
+          "Enter the admin reset password and type DELETE ALL DATA exactly.",
         );
 
         return;
@@ -922,8 +921,7 @@ function AdminDashboardPage() {
             className="danger-button admin-danger-zone__button"
             disabled={
               wipeBusy ||
-              wipePassword !==
-                "2009" ||
+              !wipePassword ||
               wipeConfirmation !==
                 "DELETE ALL DATA"
             }
