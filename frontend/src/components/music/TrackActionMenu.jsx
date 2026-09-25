@@ -733,6 +733,60 @@ export default function TrackActionMenu({
             </button>
 
 
+            {menu.contextActions?.length > 0 ? (
+              <>
+                <div className="track-action-menu__divider" />
+
+                {menu.contextActions.map(
+                  (action) => (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      key={action.id}
+                      disabled={
+                        Boolean(
+                          action.disabled,
+                        )
+                      }
+                      className={
+                        action.danger
+                          ? "track-action-menu__danger"
+                          : ""
+                      }
+                      onClick={() => {
+                        onClose();
+
+                        void Promise
+                          .resolve(
+                            action.onSelect?.(
+                              track,
+                            ),
+                          )
+                          .catch(
+                            () => {},
+                          );
+                      }}
+                    >
+                      <span className="track-action-icon">
+                        <Icon
+                          name={
+                            action.icon ||
+                            "close"
+                          }
+                          size={15}
+                        />
+                      </span>
+
+                      <span>
+                        {action.label}
+                      </span>
+                    </button>
+                  ),
+                )}
+              </>
+            ) : null}
+
+
             <div className="track-action-menu__divider" />
 
 
