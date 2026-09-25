@@ -342,6 +342,9 @@ export function createMediaRecord({
     cachedBytes: 0,
     lastPlayedAt: null,
     expiresAt: null,
+    warmUntil: null,
+    warmByteStart: null,
+    warmByteEnd: null,
   };
 }
 
@@ -828,6 +831,134 @@ export async function markMediaPlayed(
     },
   );
 }
+
+export async function markMediaWarm(
+  trackId,
+  mediaVersion,
+  {
+    warmUntil,
+    byteStart = null,
+    byteEnd = null,
+  } = {},
+) {
+  if (
+    !Number.isSafeInteger(
+      warmUntil,
+    ) ||
+    warmUntil < 0
+  ) {
+    throw new RangeError(
+      "Media warm-until time must be a non-negative safe integer.",
+    );
+  }
+
+  const mediaKey =
+    buildMediaCacheKey(
+      trackId,
+      mediaVersion,
+    );
+
+  if (!mediaKey) {
+    return null;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          MEDIA_RECORD_STORE,
+          "readwrite",
+        );
+
+      const mediaStore =
+        transaction.objectStore(
+          MEDIA_RECORD_STORE,
+        );
+
+      let updatedRecord =
+        null;
+
+      const request =
+        mediaStore.get(
+          mediaKey,
+        );
+
+      request.onsuccess =
+        () => {
+          const existing =
+            request.result ??
+            null;
+
+          if (!existing) {
+            return;
+          }
+
+          updatedRecord = {
+            ...existing,
+
+            warmUntil,
+
+            warmByteStart:
+              Number.isSafeInteger(
+                byteStart,
+              )
+                ? byteStart
+                : null,
+
+            warmByteEnd:
+              Number.isSafeInteger(
+                byteEnd,
+              )
+                ? byteEnd
+                : null,
+          };
+
+          mediaStore.put(
+            updatedRecord,
+          );
+        };
+
+      request.onerror =
+        () => {
+          transaction.abort();
+        };
+
+      transaction.oncomplete =
+        () => {
+          resolve(
+            updatedRecord,
+          );
+        };
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to update media warm state.",
+              ),
+          );
+        };
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Media warm-state update was aborted.",
+              ),
+          );
+        };
+    },
+  );
+}
+
 
 export async function saveMediaChunk({
   trackId,
@@ -1358,9 +1489,17 @@ export async function cleanupExpiredMedia(
               record.state ===
               "PINNED";
 
+            const isWarm =
+              Number.isSafeInteger(
+                record.warmUntil,
+              ) &&
+              record.warmUntil >
+                now;
+
             if (
               !isExpired ||
-              isPinned
+              isPinned ||
+              isWarm
             ) {
               continue;
             }
