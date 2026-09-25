@@ -53,9 +53,14 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    api_docs_enabled: bool = False
 
     database_url: str = ""
     migration_database_url: str = ""
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout_seconds: int = 10
+    db_command_timeout_seconds: int = 30
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -63,6 +68,16 @@ class Settings(BaseSettings):
     jwt_audience: str = "hypersync-web"
     access_token_ttl_minutes: int = 60
     refresh_token_ttl_days: int = 30
+
+    auth_login_rate_limit: int = 10
+    auth_login_rate_window_seconds: int = 300
+    auth_login_ip_rate_limit: int = 60
+    auth_register_rate_limit: int = 20
+    auth_register_rate_window_seconds: int = 3600
+    auth_admin_register_rate_limit: int = 5
+    auth_admin_register_rate_window_seconds: int = 900
+    auth_refresh_rate_limit: int = 120
+    auth_refresh_rate_window_seconds: int = 300
 
     admin_database_delete_password: str = ""
 
