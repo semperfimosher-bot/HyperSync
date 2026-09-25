@@ -148,15 +148,31 @@ function AdminBotPage() {
     setMessage("");
 
     try {
-      await apiRequest("/admin/bot/control", {
-        method: "POST",
-        body: JSON.stringify({
-          action,
-        }),
-      });
+      if (action === "restart") {
+        await apiRequest(
+          "/admin/bot/stop",
+          {
+            method: "POST",
+          },
+        );
+
+        await apiRequest(
+          "/admin/bot/start",
+          {
+            method: "POST",
+          },
+        );
+      } else {
+        await apiRequest(
+          `/admin/bot/${action}`,
+          {
+            method: "POST",
+          },
+        );
+      }
 
       setMessage(
-        `Bot ${action} command sent successfully.`,
+        `Bot ${action} command completed.`,
       );
 
       await refreshStatus();
@@ -311,6 +327,52 @@ function AdminBotPage() {
               <strong>Restart Bot</strong>
               <small>
                 Restart the automation service.
+              </small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("scan")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="search"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Scan Catalog</strong>
+              <small>
+                Queue the real catalog scan job.
+              </small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("process")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="music"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Process Queue</strong>
+              <small>
+                Queue the real processing job.
               </small>
             </span>
           </button>
@@ -507,10 +569,45 @@ function AdminBotPage() {
 }
 
 function AdminDashboardPage() {
-  const [tracks, setTracks] = useState([]);
-  const [health, setHealth] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
+  const [
+    tracks,
+    setTracks,
+  ] = useState([]);
+
+  const [
+    diagnostics,
+    setDiagnostics,
+  ] = useState(null);
+
+  const [
+    botStatus,
+    setBotStatus,
+  ] = useState(null);
+
+  const [
+    duplicates,
+    setDuplicates,
+  ] = useState(null);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    duplicateBusy,
+    setDuplicateBusy,
+  ] = useState(false);
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+  const [
+    lastChecked,
+    setLastChecked,
+  ] = useState(null);
 
   const [
     wipePassword,
@@ -590,7 +687,7 @@ function AdminDashboardPage() {
         setTracks([]);
 
         setWipeResult(
-          `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches. Local/session storage, downloads, service-worker data, and stored browser state were cleared too.`,
+          `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches.`,
         );
 
         setWipePassword("");
@@ -621,131 +718,344 @@ function AdminDashboardPage() {
   );
 
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
+  const loadDashboard =
+    useCallback(
+      async () => {
+        setLoading(true);
 
-    try {
-      const [catalogResult, healthResult] =
-        await Promise.all([
-          apiRequest("/catalog/tracks"),
-          fetch("/health").then(async (response) => {
-            if (!response.ok) {
-              throw new Error("Health check failed.");
-            }
+        const results =
+          await Promise.allSettled([
+            apiRequest(
+              "/catalog/tracks",
+            ),
+            apiRequest(
+              "/admin/diagnostics",
+            ),
+            apiRequest(
+              "/admin/bot/status",
+            ),
+          ]);
 
-            return response.json();
-          }),
-        ]);
+        const errors = [];
 
-      setTracks(catalogResult || []);
-      setHealth(healthResult);
-      setMessage("");
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to load admin dashboard.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        if (
+          results[0].status ===
+          "fulfilled"
+        ) {
+          setTracks(
+            results[0].value ||
+              [],
+          );
+        } else {
+          errors.push(
+            "catalog",
+          );
+        }
 
-  useEffect(() => {
-    loadDashboard();
+        if (
+          results[1].status ===
+          "fulfilled"
+        ) {
+          setDiagnostics(
+            results[1].value,
+          );
+        } else {
+          setDiagnostics(null);
+          errors.push(
+            "diagnostics",
+          );
+        }
 
-    const interval = window.setInterval(
-      loadDashboard,
-      30000,
+        if (
+          results[2].status ===
+          "fulfilled"
+        ) {
+          setBotStatus(
+            results[2].value,
+          );
+        } else {
+          setBotStatus(null);
+          errors.push(
+            "bot",
+          );
+        }
+
+        setLastChecked(
+          new Date(),
+        );
+
+        setMessage(
+          errors.length > 0
+            ? `Could not refresh: ${errors.join(", ")}.`
+            : "",
+        );
+
+        setLoading(false);
+      },
+      [],
     );
 
+
+  const runDuplicateCheck =
+    useCallback(
+      async () => {
+        setDuplicateBusy(true);
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              "/admin/duplicates",
+            );
+
+          setDuplicates(
+            result,
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Duplicate scan failed.",
+          );
+        } finally {
+          setDuplicateBusy(false);
+        }
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    void loadDashboard();
+
+    const interval =
+      window.setInterval(
+        () => {
+          void loadDashboard();
+        },
+        30000,
+      );
+
     return () => {
-      window.clearInterval(interval);
+      window.clearInterval(
+        interval,
+      );
     };
-  }, [loadDashboard]);
+  }, [
+    loadDashboard,
+  ]);
 
-  const artistCount = useMemo(() => {
-    return new Set(
-      tracks
-        .map((track) => track.artist)
-        .filter(Boolean),
-    ).size;
-  }, [tracks]);
 
-  const albumCount = useMemo(() => {
-    return new Set(
-      tracks
-        .map((track) => track.album)
-        .filter(Boolean),
-    ).size;
-  }, [tracks]);
+  const artistCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.artist,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
 
-  const artworkCount = useMemo(() => {
-    return tracks.filter(
-      (track) => Boolean(track.artwork_url),
-    ).length;
-  }, [tracks]);
+  const albumCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.album,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
 
-  const recentTracks = tracks.slice(0, 6);
+  const artworkCount =
+    useMemo(
+      () =>
+        tracks.filter(
+          (track) =>
+            Boolean(
+              track.artwork_url,
+            ),
+        ).length,
+      [
+        tracks,
+      ],
+    );
+
+  const recentTracks =
+    tracks.slice(
+      0,
+      6,
+    );
+
+  const apiHealthy =
+    diagnostics?.api
+      ?.healthy === true;
+
+  const databaseHealthy =
+    diagnostics?.database
+      ?.healthy === true;
+
+  const storageHealthy =
+    diagnostics?.storage
+      ?.healthy === true;
+
+  const catalogHealthy =
+    diagnostics?.catalog
+      ?.healthy === true;
+
+  const botReachable =
+    diagnostics?.bot
+      ?.healthy === true;
+
+  const botRunning =
+    Boolean(
+      botStatus?.running ??
+      diagnostics?.bot
+        ?.running,
+    );
+
+  const duplicateCount =
+    duplicates
+      ?.duplicate_group_count ??
+    diagnostics?.catalog
+      ?.duplicate_groups ??
+    0;
+
+  const coreHealthy =
+    apiHealthy &&
+    databaseHealthy &&
+    storageHealthy;
+
 
   return (
-    <div className="page-stack admin-dashboard-page">
-      <section className="admin-hero-panel">
-        <div>
-          <span className="admin-eyebrow">
-            HYPERSYNC CONTROL CENTER
-          </span>
+    <div className="page-stack hs-search-page admin-dashboard-page admin-dashboard-page--revamped">
 
-          <h2>Admin Dashboard</h2>
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-          <p>
-            Monitor your catalog, playback services,
-            storage pipeline, and automation from one
-            place.
-          </p>
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--two"
+          aria-hidden="true"
+        />
+
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                HYPERSYNCED ADMIN
+              </span>
+            </div>
+
+            <h2>
+              Control Center
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Live system checks, catalog tools,
+              automation controls, upload access,
+              and maintenance in one console.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            onClick={() => {
+              void loadDashboard();
+            }}
+            disabled={loading}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Checking..."
+              : "Refresh Systems"}
+          </button>
         </div>
 
-        <button
-          type="button"
-          className="admin-refresh-button"
-          onClick={loadDashboard}
-          disabled={loading}
-        >
-          <Icon
-            name="chart"
-            size={16}
-          />
+        <div className="hs-search-console__status admin-command-status">
+          <span className="hs-search-status-chip hs-search-status-chip--primary">
+            <i
+              className={
+                coreHealthy
+                  ? "admin-blue-light is-on"
+                  : "admin-blue-light"
+              }
+            />
 
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+            {coreHealthy
+              ? "CORE SYSTEMS ONLINE"
+              : "SYSTEM CHECK NEEDED"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {storageHealthy
+              ? "B2 CONNECTED"
+              : "B2 CHECK"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {lastChecked
+              ? `CHECKED ${lastChecked.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : "CHECKING"}
+          </span>
+        </div>
       </section>
 
+
       {message ? (
-  <div className="admin-alert">
-    <Icon
-      name="shield"
-      size={18}
-    />
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
 
-    <span>
-      {message}
-    </span>
-  </div>
-) : null}
+          <span>
+            {message}
+          </span>
+        </div>
+      ) : null}
 
-      <section className="admin-stat-grid">
+
+      <section className="admin-stat-grid admin-stat-grid--revamped">
         <AdminStatCard
           icon="music"
           label="Published Tracks"
           value={tracks.length}
-          detail="Catalog items available"
+          detail="Live catalog count"
         />
 
         <AdminStatCard
           icon="people"
           label="Artists"
           value={artistCount}
-          detail="Unique catalog artists"
+          detail="Unique artists"
         />
 
         <AdminStatCard
@@ -757,91 +1067,140 @@ function AdminDashboardPage() {
 
         <AdminStatCard
           icon="mountains"
-          label="Artwork Coverage"
+          label="Artwork"
           value={
             tracks.length
               ? `${Math.round(
-                  (artworkCount / tracks.length) *
+                  (
+                    artworkCount /
+                    tracks.length
+                  ) *
                     100,
                 )}%`
-              : "0"
+              : "0%"
           }
-          detail={`${artworkCount} tracks with artwork`}
+          detail={
+            `${artworkCount} covered`
+          }
+        />
+
+        <AdminStatCard
+          icon="shield"
+          label="Duplicate Groups"
+          value={duplicateCount}
+          detail={
+            duplicates
+              ? `${duplicates.scanned_tracks ?? tracks.length} scanned`
+              : "Run duplicate check"
+          }
         />
       </section>
 
-      <section className="admin-dashboard-grid">
-        <article className="admin-panel admin-health-panel">
+
+      <section className="admin-dashboard-grid admin-dashboard-grid--revamped">
+        <article className="admin-panel admin-health-panel admin-panel--interactive">
           <div className="admin-panel__heading">
             <div>
-              <span>PLATFORM</span>
-              <h3>System Health</h3>
+              <span>LIVE DIAGNOSTICS</span>
+              <h3>Service Matrix</h3>
             </div>
 
             <span
               className={
-                health?.database === "healthy"
+                coreHealthy
                   ? "admin-status admin-status--online"
                   : "admin-status admin-status--offline"
               }
             >
-              {health?.database === "healthy"
-                ? "ONLINE"
+              {coreHealthy
+                ? "HEALTHY"
                 : "CHECK"}
             </span>
           </div>
 
           <div className="admin-health-list">
             <AdminHealthRow
-              label="API"
+              label="Admin API"
               value={
-                health?.api === "healthy"
-                  ? "Healthy"
+                apiHealthy
+                  ? "Responding"
                   : "Unavailable"
               }
-              healthy={
-                health?.api === "healthy"
-              }
+              healthy={apiHealthy}
             />
 
             <AdminHealthRow
               label="Database"
               value={
-                health?.database === "healthy"
-                  ? "Healthy"
+                databaseHealthy
+                  ? "Connected"
                   : "Unavailable"
               }
               healthy={
-                health?.database === "healthy"
+                databaseHealthy
               }
             />
 
             <AdminHealthRow
-              label="Application"
+              label="B2 Storage"
               value={
-                health?.application ||
-                "Hypersync"
+                storageHealthy
+                  ? "Connected"
+                  : "Unavailable"
               }
-              healthy
+              healthy={
+                storageHealthy
+              }
             />
 
             <AdminHealthRow
-              label="Version"
-              value={health?.version || "—"}
-              healthy
+              label="Catalog"
+              value={
+                catalogHealthy
+                  ? `${diagnostics?.catalog?.track_count ?? tracks.length} tracks`
+                  : "Unavailable"
+              }
+              healthy={
+                catalogHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="Bot Service"
+              value={
+                botRunning
+                  ? "Running"
+                  : (
+                      botReachable
+                        ? "Ready / stopped"
+                        : "Unavailable"
+                    )
+              }
+              healthy={
+                botReachable
+              }
             />
           </div>
         </article>
 
-        <article className="admin-panel">
+
+        <article className="admin-panel admin-panel--interactive">
           <div className="admin-panel__heading">
             <div>
               <span>AUTOMATION</span>
-              <h3>Bot Status</h3>
+              <h3>Bot Telemetry</h3>
             </div>
 
-            <span className="admin-status admin-status--offline">
-              NOT CONNECTED
+            <span
+              className={
+                botRunning
+                  ? "admin-status admin-status--online"
+                  : "admin-status admin-status--offline"
+              }
+            >
+              {botRunning
+                ? "RUNNING"
+                : "STOPPED"}
             </span>
           </div>
 
@@ -854,38 +1213,318 @@ function AdminDashboardPage() {
             </div>
 
             <div>
-              <strong>HyperSync Bot</strong>
+              <strong>
+                HyperSynced Bot
+              </strong>
+
               <p>
-                Bot backend is not connected yet.
-                The control surface is ready for
-                the automation service.
+                {botStatus?.current_job
+                  ? `Working: ${botStatus.current_job}`
+                  : `${botStatus?.queued_jobs ?? 0} queued • ${botStatus?.completed_jobs ?? 0} completed • ${botStatus?.failed_jobs ?? 0} failed`}
               </p>
             </div>
           </div>
 
           <button
-  type="button"
-  className="secondary-admin-button"
-  onClick={() =>
-    refreshCatalog({
-      force: true,
-    })
-  }
-  disabled={loading}
->
-  {loading
-    ? "Refreshing..."
-    : "Refresh Catalog"}
+            type="button"
+            className="secondary-admin-button"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(
+                  "hypersync:navigate-admin-bot",
+                ),
+              );
+            }}
+          >
+            Open Bot Controls
 
-  <Icon
-    name="chevron"
-    size={14}
-  />
-</button>
+            <Icon
+              name="chevron"
+              size={14}
+            />
+          </button>
         </article>
       </section>
 
-      <section className="admin-panel admin-danger-zone">
+
+      <section className="admin-tool-deck">
+        <div className="admin-tool-deck__heading">
+          <div>
+            <span>ADMIN TOOLS</span>
+            <h3>Operations Deck</h3>
+          </div>
+
+          <small>
+            Blue lights mean the supporting
+            service responded successfully.
+          </small>
+        </div>
+
+        <div className="admin-quick-actions admin-quick-actions--four">
+          <AdminQuickAction
+            icon="plus"
+            title="Upload Studio"
+            description="Upload and process music."
+            active={
+              apiHealthy &&
+              storageHealthy
+            }
+            status={
+              storageHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(
+                  "hypersync:navigate-admin-uploads",
+                ),
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="music"
+            title="Media Catalog"
+            description="Review and remove tracks."
+            active={
+              catalogHealthy
+            }
+            status={
+              catalogHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(
+                  "hypersync:navigate-admin-catalog",
+                ),
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="chart"
+            title="Bot Control"
+            description="Run automation and processing."
+            active={
+              botReachable
+            }
+            status={
+              botReachable
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent(
+                  "hypersync:navigate-admin-bot",
+                ),
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="shield"
+            title="Duplicate Check"
+            description="Scan normalized title + artist identities."
+            active={
+              duplicates !== null &&
+              duplicateCount === 0
+            }
+            status={
+              duplicateBusy
+                ? "SCANNING"
+                : duplicates
+                  ? (
+                      duplicateCount === 0
+                        ? "CLEAN"
+                        : `${duplicateCount} FOUND`
+                    )
+                  : "RUN"
+            }
+            onClick={() => {
+              void runDuplicateCheck();
+            }}
+          />
+        </div>
+      </section>
+
+
+      <section className="admin-panel admin-duplicate-panel admin-panel--interactive">
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG INTEGRITY</span>
+            <h3>Duplicate Check</h3>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button admin-inline-button"
+            disabled={
+              duplicateBusy
+            }
+            onClick={() => {
+              void runDuplicateCheck();
+            }}
+          >
+            {duplicateBusy
+              ? "Scanning..."
+              : "Scan Catalog"}
+          </button>
+        </div>
+
+        {duplicates === null ? (
+          <div className="admin-duplicate-idle">
+            <span className="admin-tool-light" />
+            <div>
+              <strong>
+                Ready to scan
+              </strong>
+              <p>
+                Uses the same normalized title and
+                artist identity check used by the
+                upload duplicate guard.
+              </p>
+            </div>
+          </div>
+        ) : duplicates.groups?.length ? (
+          <div className="admin-duplicate-list">
+            {duplicates.groups.map(
+              (group) => (
+                <div
+                  className="admin-duplicate-group"
+                  key={
+                    `${group.artist_key}:${group.title_key}`
+                  }
+                >
+                  <span className="admin-tool-light is-warning" />
+
+                  <div>
+                    <strong>
+                      {group.title}
+                    </strong>
+
+                    <small>
+                      {group.artist}
+                      {" • "}
+                      {group.count}
+                      {" matching tracks"}
+                    </small>
+                  </div>
+
+                  <span>
+                    {group.tracks
+                      ?.map(
+                        (track) =>
+                          track.album ||
+                          "No album",
+                      )
+                      .join(" • ")}
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+        ) : (
+          <div className="admin-duplicate-idle is-clean">
+            <span className="admin-tool-light is-on" />
+
+            <div>
+              <strong>
+                Catalog is clean
+              </strong>
+
+              <p>
+                {duplicates.scanned_tracks ?? 0}
+                {" tracks scanned with no normalized duplicates found."}
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG</span>
+            <h3>Recent Tracks</h3>
+          </div>
+
+          <strong className="admin-panel-count">
+            {tracks.length} total
+          </strong>
+        </div>
+
+        {recentTracks.length > 0 ? (
+          <div className="admin-recent-list">
+            {recentTracks.map(
+              (track) => (
+                <div
+                  className="admin-recent-item"
+                  key={track.id}
+                >
+                  <TrackArtwork
+                    src={track.artwork_url}
+                    alt={track.title}
+                    variant={1}
+                  />
+
+                  <div className="admin-recent-copy">
+                    <strong>
+                      {track.title}
+                    </strong>
+
+                    <span>
+                      {track.artist}
+
+                      {track.album
+                        ? ` • ${track.album}`
+                        : ""}
+                    </span>
+                  </div>
+
+                  <span className="admin-track-duration">
+                    {track.duration_seconds
+                      ? `${Math.floor(
+                          track.duration_seconds /
+                            60,
+                        )}:${String(
+                          track.duration_seconds %
+                            60,
+                        ).padStart(
+                          2,
+                          "0",
+                        )}`
+                      : "—"}
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+        ) : (
+          <div className="admin-empty-state">
+            <Icon
+              name="music"
+              size={28}
+            />
+
+            <strong>
+              No published tracks
+            </strong>
+
+            <p>
+              Upload your first track to populate
+              the catalog.
+            </p>
+          </div>
+        )}
+      </section>
+
+
+      <section className="admin-panel admin-danger-zone admin-danger-zone--bottom">
         <div className="admin-panel__heading">
           <div>
             <span>DANGER ZONE</span>
@@ -898,26 +1537,24 @@ function AdminDashboardPage() {
         </div>
 
         <p className="admin-danger-zone__copy">
-          Permanently delete every application row from the database and every
-          version of every object in the configured B2 bucket. This includes
-          users, admin accounts, sessions, profiles, follows, playlists,
-          listening history, tracks, lyrics, audio, artwork, avatars, hidden
-          B2 versions, and orphaned bucket files. Database schema and Alembic
+          Permanently delete every application row
+          and every version of every object in the
+          configured B2 bucket. Database schema and
           migrations remain intact.
         </p>
 
         <div className="admin-danger-zone__form">
           <label>
-            <span>Verification password</span>
+            <span>
+              Verification password
+            </span>
 
             <input
               type="password"
               name="hypersync_admin_reset_code"
-              inputMode="numeric"
               autoComplete="one-time-code"
               data-1p-ignore="true"
               data-lpignore="true"
-              aria-label="Admin reset verification code"
               value={wipePassword}
               onChange={(event) => {
                 setWipePassword(
@@ -930,7 +1567,9 @@ function AdminDashboardPage() {
           </label>
 
           <label>
-            <span>Type DELETE ALL DATA</span>
+            <span>
+              Type DELETE ALL DATA
+            </span>
 
             <input
               type="text"
@@ -972,112 +1611,6 @@ function AdminDashboardPage() {
         ) : null}
       </section>
 
-
-      <section className="admin-panel">
-        <div className="admin-panel__heading">
-          <div>
-            <span>CATALOG</span>
-            <h3>Recent Tracks</h3>
-          </div>
-
-          <strong className="admin-panel-count">
-            {tracks.length} total
-          </strong>
-        </div>
-
-        {recentTracks.length > 0 ? (
-          <div className="admin-recent-list">
-            {recentTracks.map((track) => (
-              <div
-                className="admin-recent-item"
-                key={track.id}
-              >
-                <TrackArtwork
-                  src={track.artwork_url}
-                  alt={track.title}
-                  variant={1}
-                />
-
-                <div className="admin-recent-copy">
-                  <strong>{track.title}</strong>
-
-                  <span>
-                    {track.artist}
-                    {track.album
-                      ? ` • ${track.album}`
-                      : ""}
-                  </span>
-                </div>
-
-                <span className="admin-track-duration">
-                  {track.duration_seconds
-                    ? `${Math.floor(
-                        track.duration_seconds / 60,
-                      )}:${String(
-                        track.duration_seconds % 60,
-                      ).padStart(2, "0")}`
-                    : "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="admin-empty-state">
-            <Icon
-              name="music"
-              size={28}
-            />
-
-            <strong>No published tracks</strong>
-
-            <p>
-              Upload your first track to populate
-              the catalog.
-            </p>
-          </div>
-        )}
-      </section>
-
-      <section className="admin-quick-actions">
-        <AdminQuickAction
-          icon="plus"
-          title="Upload Track"
-          description="Add audio and embedded artwork."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-uploads",
-              ),
-            );
-          }}
-        />
-
-        <AdminQuickAction
-          icon="music"
-          title="Manage Catalog"
-          description="Review and remove catalog items."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-catalog",
-              ),
-            );
-          }}
-        />
-
-        <AdminQuickAction
-          icon="chart"
-          title="Bot Control"
-          description="Monitor automation and processing."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-bot",
-              ),
-            );
-          }}
-        />
-      </section>
     </div>
   );
 }
@@ -1133,11 +1666,13 @@ function AdminQuickAction({
   title,
   description,
   onClick,
+  active = false,
+  status = "",
 }) {
   return (
     <button
       type="button"
-      className="admin-quick-action"
+      className="admin-quick-action admin-quick-action--status"
       onClick={onClick}
     >
       <span className="admin-quick-action__icon">
@@ -1152,10 +1687,19 @@ function AdminQuickAction({
         <small>{description}</small>
       </span>
 
-      <Icon
-        name="chevron"
-        size={15}
-      />
+      <span className="admin-quick-action__state">
+        <i
+          className={
+            active
+              ? "admin-tool-light is-on"
+              : "admin-tool-light"
+          }
+        />
+
+        <small>
+          {status}
+        </small>
+      </span>
     </button>
   );
 }
