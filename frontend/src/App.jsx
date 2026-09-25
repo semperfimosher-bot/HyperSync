@@ -4853,6 +4853,11 @@ export default function App() {
       handleFocus,
     );
 
+    window.addEventListener(
+      "hypersync:library-changed",
+      handleFocus,
+    );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibility,
@@ -4880,6 +4885,11 @@ export default function App() {
 
       window.removeEventListener(
         "online",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "hypersync:library-changed",
         handleFocus,
       );
 
@@ -5109,6 +5119,74 @@ const checkDownloadedGeneratedPlaylistUpdates =
                       await getPlaylist(
                         downloadedPlaylist.id,
                       );
+
+                    if (
+                      livePlaylist.is_liked_songs
+                    ) {
+                      await reconcileDownloadedPlaylistMembership(
+                        livePlaylist,
+                        offlineOwnerKey,
+                      );
+
+                      const missingLikedTracks =
+                        findMissingPlaylistTracks(
+                          livePlaylist,
+                          downloadedPlaylist,
+                        );
+
+                      if (
+                        missingLikedTracks.length >
+                        0
+                      ) {
+                        await startPlaylistDownloadForOffline(
+                          livePlaylist.tracks,
+                          {
+                            jobId:
+                              getPlaylistDownloadJobId(
+                                offlineOwnerKey,
+                                livePlaylist.id,
+                              ),
+                            ownerKey:
+                              offlineOwnerKey,
+
+                            jobMetadata: {
+                              kind:
+                                "playlist",
+                              playlistId:
+                                livePlaylist.id,
+                              playlistTitle:
+                                livePlaylist.title,
+                              playlistDescription:
+                                livePlaylist.description ??
+                                null,
+                              playlistArtworkUrl:
+                                livePlaylist.artwork_url ??
+                                null,
+                              playlistOwnerUsername:
+                                livePlaylist.owner_username ??
+                                null,
+                              playlistVisibility:
+                                livePlaylist.visibility ??
+                                null,
+                            },
+                          },
+                        );
+
+                        window.dispatchEvent(
+                          new CustomEvent(
+                            "hypersync:offline-playlist-updated",
+                            {
+                              detail: {
+                                playlistId:
+                                  livePlaylist.id,
+                              },
+                            },
+                          ),
+                        );
+                      }
+
+                      return null;
+                    }
 
                     if (
                       livePlaylist.visibility !==
