@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     auth_refresh_rate_limit: int = 120
     auth_refresh_rate_window_seconds: int = 300
 
+    message_send_rate_limit: int = 60
+    message_send_rate_window_seconds: int = 60
+
+    web_push_vapid_public_key: str = ""
+    web_push_vapid_private_key: str = ""
+    web_push_vapid_subject: str = ""
+
     admin_database_delete_password: str = ""
 
     admin_account_creation_password: str = ""
