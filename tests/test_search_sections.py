@@ -565,3 +565,147 @@ async def test_find_people_directory_returns_all_users_alphabetically(
         usernames,
         key=str.casefold,
     )
+
+
+@pytest.mark.asyncio
+async def test_recent_history_query_has_no_command_limit():
+    track_ids = [
+        uuid4()
+        for _ in range(
+            search_route.HISTORY_COMMAND_LIMIT + 5,
+        )
+    ]
+
+    class FakeScalars:
+        def all(self):
+            return track_ids
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    execute_mock = AsyncMock(
+        return_value=FakeResult(),
+    )
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            execute=execute_mock,
+        ),
+    )
+
+    user = SimpleNamespace(
+        id=uuid4(),
+    )
+
+    result = await search_route._load_history_track_ids(
+        session,
+        user,
+        "recent",
+    )
+
+    statement = execute_mock.await_args.args[0]
+
+    assert getattr(
+        statement,
+        "_limit_clause",
+        None,
+    ) is None
+
+    assert result == track_ids
+
+
+@pytest.mark.asyncio
+async def test_recent_track_rows_return_full_history_newest_first(
+    monkeypatch,
+):
+    base_time = datetime(
+        2026,
+        1,
+        1,
+        tzinfo=UTC,
+    )
+
+    tracks = [
+        SimpleNamespace(
+            id=uuid4(),
+            title=f"Track {index:02d}",
+            artist="Artist",
+            album="Album",
+            created_at=base_time,
+        )
+        for index in range(45)
+    ]
+
+    user_history = {
+        track.id: (
+            1,
+            base_time
+            + timedelta(
+                minutes=index,
+            ),
+        )
+        for index, track in enumerate(
+            tracks,
+        )
+    }
+
+    monkeypatch.setattr(
+        search_route,
+        "_load_track_candidates",
+        AsyncMock(
+            return_value=tracks,
+        ),
+    )
+
+    monkeypatch.setattr(
+        search_route,
+        "_global_play_counts",
+        AsyncMock(
+            return_value={
+                track.id: 1
+                for track in tracks
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        search_route,
+        "_user_history",
+        AsyncMock(
+            return_value=user_history,
+        ),
+    )
+
+    parsed = ParsedSearch(
+        raw="recent songs",
+        term="",
+        intent="recent",
+        field_hint="any",
+    )
+
+    rows = await search_route._build_track_rows(
+        cast(
+            AsyncSession,
+            SimpleNamespace(),
+        ),
+        parsed,
+        SimpleNamespace(
+            id=uuid4(),
+        ),
+        "smart",
+    )
+
+    assert len(rows) == 45
+
+    assert [
+        row["track"].id
+        for row in rows
+    ] == [
+        track.id
+        for track in reversed(
+            tracks,
+        )
+    ]
+
