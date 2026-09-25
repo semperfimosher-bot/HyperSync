@@ -103,6 +103,11 @@ export default function useTrackActionMenu() {
                   ? options.actions
                   : [],
 
+              hideLikeAction:
+                Boolean(
+                  options.hideLikeAction,
+                ),
+
               mode:
                 "desktop",
 
@@ -156,6 +161,11 @@ export default function useTrackActionMenu() {
                       )
                         ? options.actions
                         : [],
+
+                    hideLikeAction:
+                      Boolean(
+                        options.hideLikeAction,
+                      ),
 
                     mode:
                       "mobile",
