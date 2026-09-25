@@ -1,7 +1,5 @@
 export function getHyperSyncServiceWorkerScope() {
-  return import.meta.env?.DEV
-    ? "/src/"
-    : "/";
+  return "/";
 }
 
 export async function registerHyperSyncServiceWorker(
@@ -18,7 +16,7 @@ export async function registerHyperSyncServiceWorker(
 
   const scriptUrl =
     import.meta.env?.DEV
-      ? "/src/serviceWorker.js"
+      ? "/sw-dev.js"
       : "/sw.js";
 
   return navigatorLike
