@@ -1,4 +1,8 @@
 import {
+  registerHyperSyncServiceWorker,
+} from "./serviceWorkerRegistration.js";
+
+import {
   getPushConfig,
   savePushSubscription,
 } from "./messageApi.js";
@@ -77,6 +81,102 @@ export function pushNotificationsSupported() {
 }
 
 
+async function getPushRegistration() {
+  const serviceWorker =
+    globalThis.navigator
+      ?.serviceWorker;
+
+  if (!serviceWorker) {
+    return null;
+  }
+
+  let registration = null;
+
+  if (
+    typeof serviceWorker
+      .getRegistration ===
+      "function"
+  ) {
+    registration =
+      await serviceWorker
+        .getRegistration(
+          "/",
+        );
+  }
+
+  if (
+    !registration &&
+    typeof serviceWorker
+      .register ===
+      "function"
+  ) {
+    registration =
+      await registerHyperSyncServiceWorker();
+  }
+
+  if (!registration) {
+    return null;
+  }
+
+  if (registration.active) {
+    return registration;
+  }
+
+  const worker =
+    registration.installing ||
+    registration.waiting;
+
+  if (!worker) {
+    return registration;
+  }
+
+  if (
+    worker.state ===
+      "activated"
+  ) {
+    return registration;
+  }
+
+  await Promise.race([
+    new Promise(
+      (resolve) => {
+        const handleStateChange =
+          () => {
+            if (
+              worker.state ===
+                "activated" ||
+              worker.state ===
+                "redundant"
+            ) {
+              worker.removeEventListener?.(
+                "statechange",
+                handleStateChange,
+              );
+
+              resolve();
+            }
+          };
+
+        worker.addEventListener?.(
+          "statechange",
+          handleStateChange,
+        );
+      },
+    ),
+    new Promise(
+      (resolve) => {
+        globalThis.setTimeout(
+          resolve,
+          4000,
+        );
+      },
+    ),
+  ]);
+
+  return registration;
+}
+
+
 export async function syncExistingPushSubscription() {
   if (
     !pushNotificationsSupported()
@@ -105,9 +205,18 @@ export async function syncExistingPushSubscription() {
   }
 
   const registration =
-    await navigator
-      .serviceWorker
-      .ready;
+    await getPushRegistration();
+
+  if (!registration) {
+    return {
+      supported:
+        true,
+      enabled:
+        false,
+      permission:
+        Notification.permission,
+    };
+  }
 
   const subscription =
     await registration
@@ -191,9 +300,20 @@ export async function enablePushNotifications() {
   }
 
   const registration =
-    await navigator
-      .serviceWorker
-      .ready;
+    await getPushRegistration();
+
+  if (!registration) {
+    return {
+      supported:
+        true,
+      configured:
+        true,
+      enabled:
+        false,
+      permission,
+    };
+  }
+
 
   let subscription =
     await registration
