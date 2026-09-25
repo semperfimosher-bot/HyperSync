@@ -2,7 +2,10 @@ from types import SimpleNamespace
 
 from backend.app.services.autoplay import (
     CONTEXT_DECAY,
+    CONTEXT_TRACK_LIMIT,
+    RECENT_SESSION_LIMIT,
     _build_context_affinity,
+    _recent_session_weight,
 )
 
 
@@ -138,3 +141,36 @@ def test_context_ignores_missing_metadata_without_losing_other_signals() -> None
 
     assert genre_context == {}
     assert album_context == {}
+
+
+def test_context_window_uses_exactly_twelve_recent_tracks() -> None:
+    tracks = [
+        _track(
+            artist=f"Artist {index}",
+            genre=f"Genre {index}",
+        )
+        for index in range(
+            CONTEXT_TRACK_LIMIT + 1
+        )
+    ]
+
+    (
+        artist_context,
+        genre_context,
+        _album_context,
+    ) = _build_context_affinity(
+        tracks,
+    )
+
+    assert CONTEXT_TRACK_LIMIT == 12
+    assert "artist 0" not in artist_context
+    assert "genre 0" not in genre_context
+    assert "artist 1" in artist_context
+    assert "artist 12" in artist_context
+
+
+def test_recent_session_signal_stops_after_twelve_songs() -> None:
+    assert RECENT_SESSION_LIMIT == 12
+    assert _recent_session_weight(0) == 1.0
+    assert _recent_session_weight(11) > 0
+    assert _recent_session_weight(12) == 0.0

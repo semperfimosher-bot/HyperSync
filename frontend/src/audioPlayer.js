@@ -112,11 +112,17 @@ let currentQueue =
 let currentQueueIndex =
   -1;
 
+let recentTrackIds =
+  [];
+
 const AUTOPLAY_REFILL_THRESHOLD =
   2;
 
 const AUTOPLAY_BATCH_SIZE =
   8;
+
+const AUTOPLAY_CONTEXT_SIZE =
+  12;
 
 let queueRevision =
   0;
@@ -366,6 +372,10 @@ function persistPlayerState({
 
     muted:
       audio.muted,
+
+    recentTrackIds: [
+      ...recentTrackIds,
+    ],
   });
 }
 
@@ -406,55 +416,109 @@ function upcomingQueueCount() {
 }
 
 
-function getAutoplayContextTrackIds() {
-  if (
-    currentQueue.length ===
-      0 ||
-    currentQueueIndex < 0
-  ) {
-    return currentTrackId
-      ? [
-          String(
-            currentTrackId,
-          ),
-        ]
-      : [];
+function appendRecentContextId(
+  ids,
+  value,
+) {
+  const id =
+    String(
+      value ?? "",
+    ).trim();
+
+  if (!id) {
+    return;
   }
 
-  const startIndex =
-    Math.max(
-      0,
-      currentQueueIndex - 7,
+  const existingIndex =
+    ids.indexOf(
+      id,
     );
 
+  if (
+    existingIndex >= 0
+  ) {
+    ids.splice(
+      existingIndex,
+      1,
+    );
+  }
+
+  ids.push(
+    id,
+  );
+}
+
+
+function rememberAutoplayTrack(
+  trackId,
+) {
+  const next = [
+    ...recentTrackIds,
+  ];
+
+  appendRecentContextId(
+    next,
+    trackId,
+  );
+
+  recentTrackIds =
+    next.slice(
+      -AUTOPLAY_CONTEXT_SIZE,
+    );
+}
+
+
+function getAutoplayContextTrackIds() {
   const ids = [];
 
   for (
-    const entry
-    of currentQueue.slice(
-      startIndex,
-      currentQueueIndex + 1,
-    )
+    const id
+    of recentTrackIds
   ) {
-    const id =
-      String(
-        entry?.id ?? "",
-      ).trim();
+    appendRecentContextId(
+      ids,
+      id,
+    );
+  }
 
-    if (
-      id &&
-      !ids.includes(
-        id,
+  if (
+    currentQueue.length >
+      0 &&
+    currentQueueIndex >= 0
+  ) {
+    const startIndex =
+      Math.max(
+        0,
+        currentQueueIndex -
+          (
+            AUTOPLAY_CONTEXT_SIZE -
+            1
+          ),
+      );
+
+    for (
+      const entry
+      of currentQueue.slice(
+        startIndex,
+        currentQueueIndex + 1,
       )
     ) {
-      ids.push(
-        id,
+      appendRecentContextId(
+        ids,
+        entry?.id,
       );
     }
   }
 
+  if (currentTrackId) {
+    appendRecentContextId(
+      ids,
+      currentTrackId,
+    );
+  }
+
   return ids.slice(
-    -8,
+    -AUTOPLAY_CONTEXT_SIZE,
   );
 }
 
@@ -600,19 +664,38 @@ async function ensureAutoplayQueue({
 
 
   const excludeTrackIds =
-    currentQueue
-      .slice(
-        exclusionStart,
-      )
-      .map(
-        (entry) =>
-          String(
-            entry.id,
-          ),
-      )
-      .slice(
-        -100,
-      );
+    [];
+
+  for (
+    const id
+    of recentTrackIds
+  ) {
+    appendRecentContextId(
+      excludeTrackIds,
+      id,
+    );
+  }
+
+  for (
+    const entry
+    of currentQueue.slice(
+      exclusionStart,
+    )
+  ) {
+    appendRecentContextId(
+      excludeTrackIds,
+      entry?.id,
+    );
+  }
+
+  excludeTrackIds.splice(
+    0,
+    Math.max(
+      excludeTrackIds.length -
+        100,
+      0,
+    ),
+  );
 
 
   let requestPromise;
@@ -1604,6 +1687,25 @@ function restorePersistedPlayerState() {
     );
 
 
+  recentTrackIds =
+    [];
+
+  for (
+    const trackId
+    of (
+      Array.isArray(
+        saved.recentTrackIds,
+      )
+        ? saved.recentTrackIds
+        : []
+    )
+  ) {
+    rememberAutoplayTrack(
+      trackId,
+    );
+  }
+
+
   currentTrackId =
     String(
       saved.trackId,
@@ -1620,6 +1722,10 @@ function restorePersistedPlayerState() {
 
   currentTrackArtist =
     meta.artist;
+
+  rememberAutoplayTrack(
+    currentTrackId,
+  );
 
 
   const savedTime =
@@ -1678,6 +1784,14 @@ function restorePersistedPlayerState() {
   );
 
   notify();
+
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
 
 
   /*
@@ -1924,6 +2038,16 @@ async function playTrackInternal(
     return null;
   }
 
+rememberAutoplayTrack(
+  trackId,
+);
+
+persistPlayerState({
+  force:
+    true,
+});
+
+
 /*
  * Cache-retention bookkeeping must not
  * block or break successful playback.
@@ -2041,6 +2165,10 @@ export async function restoreAccountPlayback(
       "paused",
     );
 
+    rememberAutoplayTrack(
+      trackId,
+    );
+
     persistPlayerState({
       force:
         true,
@@ -2048,7 +2176,18 @@ export async function restoreAccountPlayback(
         requestedTime,
     });
 
+    clearQueue();
+
+    ensureCurrentTrackInQueue();
+
     notify();
+
+    void ensureAutoplayQueue({
+      force:
+        true,
+    }).catch(
+      () => {},
+    );
 
     return getState();
   }
@@ -2078,6 +2217,10 @@ export async function restoreAccountPlayback(
   currentTrackArtist =
     meta.artist;
 
+  rememberAutoplayTrack(
+    trackId,
+  );
+
   restoredTimeSeconds =
     requestedTime;
 
@@ -2093,6 +2236,13 @@ export async function restoreAccountPlayback(
   });
 
   notify();
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
 
   void ensureCurrentTrackSource()
     .catch(

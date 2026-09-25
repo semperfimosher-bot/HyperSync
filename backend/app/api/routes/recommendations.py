@@ -50,7 +50,7 @@ class AutoplayRequest(
         UUID
     ] = Field(
         default_factory=list,
-        max_length=8,
+        max_length=12,
     )
 
     limit: int = Field(
