@@ -104,6 +104,63 @@ def get_b2_s3_client():
     )
 
 
+def create_presigned_upload_url(
+    object_key: str,
+    *,
+    content_type: str,
+    ttl_seconds: int | None = None,
+) -> str:
+    settings = get_settings()
+
+    if not settings.b2_bucket_name:
+        raise RuntimeError(
+            "B2_BUCKET_NAME is not configured.",
+        )
+
+    configured_ttl = (
+        settings.b2_direct_upload_ttl_seconds
+        if ttl_seconds is None
+        else ttl_seconds
+    )
+
+    ttl = min(
+        max(
+            int(configured_ttl),
+            60,
+        ),
+        60 * 60,
+    )
+
+    return get_b2_s3_client().generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket":
+                settings.b2_bucket_name,
+            "Key":
+                object_key,
+            "ContentType":
+                content_type,
+        },
+        ExpiresIn=ttl,
+    )
+
+
+def head_b2_object(
+    object_key: str,
+) -> dict[str, Any]:
+    settings = get_settings()
+
+    if not settings.b2_bucket_name:
+        raise RuntimeError(
+            "B2_BUCKET_NAME is not configured.",
+        )
+
+    return get_b2_s3_client().head_object(
+        Bucket=settings.b2_bucket_name,
+        Key=object_key,
+    )
+
+
 def create_presigned_download_url(
     object_key: str,
     *,
