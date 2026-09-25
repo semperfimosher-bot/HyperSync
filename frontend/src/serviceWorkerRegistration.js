@@ -1,3 +1,9 @@
+export function getHyperSyncServiceWorkerScope() {
+  return import.meta.env?.DEV
+    ? "/src/"
+    : "/";
+}
+
 export async function registerHyperSyncServiceWorker(
   navigatorLike =
     globalThis.navigator,
@@ -21,7 +27,7 @@ export async function registerHyperSyncServiceWorker(
       scriptUrl,
       {
         scope:
-          "/",
+          getHyperSyncServiceWorkerScope(),
         type:
           "module",
         updateViaCache:
