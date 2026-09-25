@@ -1019,3 +1019,241 @@ test(
     );
   },
 );
+
+
+test(
+  "Liked Songs pins are account scoped and count as individual downloads",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerA =
+      "liked-owner-a-" +
+      suffix;
+
+    const ownerB =
+      "liked-owner-b-" +
+      suffix;
+
+    const trackId =
+      "liked-track-" +
+      suffix;
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion:
+          "v1",
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    record.title =
+      "Liked offline song";
+
+    record.artworkValidatedAt =
+      Date.now();
+
+    record.pinRefs = [
+      offline.getLikedSongsDownloadPinRef(
+        ownerA,
+      ),
+    ];
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    assert.notEqual(
+      offline.getLikedSongsDownloadPinRef(
+        ownerA,
+      ),
+      offline.getLikedSongsDownloadPinRef(
+        ownerB,
+      ),
+    );
+
+    const ownerATracks =
+      await offline.getDownloadedTracks(
+        ownerA,
+        {
+          manualOnly:
+            true,
+        },
+      );
+
+    const ownerBTracks =
+      await offline.getDownloadedTracks(
+        ownerB,
+        {
+          manualOnly:
+            true,
+        },
+      );
+
+    assert.equal(
+      ownerATracks.some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      true,
+    );
+
+    assert.equal(
+      ownerBTracks.some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      false,
+    );
+  },
+);
+
+
+test(
+  "removing a Liked Songs pin preserves an explicit manual download",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerKey =
+      "liked-preserve-owner-" +
+      suffix;
+
+    const trackId =
+      "liked-preserve-track-" +
+      suffix;
+
+    const mediaVersion =
+      "v1";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    record.title =
+      "Shared offline song";
+
+    record.artworkValidatedAt =
+      Date.now();
+
+    record.pinRefs = [
+      offline.getManualDownloadPinRef(
+        ownerKey,
+      ),
+    ];
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    assert.equal(
+      await offline.addLikedTrackOfflinePin(
+        {
+          id:
+            trackId,
+          media_version:
+            mediaVersion,
+        },
+        ownerKey,
+      ),
+      true,
+    );
+
+    let updated =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.deepEqual(
+      new Set(
+        mediaStore.getMediaPinReferences(
+          updated,
+        ),
+      ),
+      new Set([
+        offline.getManualDownloadPinRef(
+          ownerKey,
+        ),
+        offline.getLikedSongsDownloadPinRef(
+          ownerKey,
+        ),
+      ]),
+    );
+
+    assert.equal(
+      await offline.removeLikedTrackFromOffline(
+        {
+          id:
+            trackId,
+          media_version:
+            mediaVersion,
+        },
+        ownerKey,
+      ),
+      true,
+    );
+
+    updated =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(
+      updated,
+    );
+
+    assert.deepEqual(
+      mediaStore.getMediaPinReferences(
+        updated,
+      ),
+      [
+        offline.getManualDownloadPinRef(
+          ownerKey,
+        ),
+      ],
+    );
+  },
+);
