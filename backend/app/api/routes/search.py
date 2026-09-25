@@ -777,6 +777,7 @@ async def _build_track_rows(
                 "track": track,
                 "title": (track.title),
                 "artist": (track.artist),
+                "album": (track.album),
                 "created_at": (track.created_at),
                 "match_score": (match.score),
                 "match_tier": (match.tier),
