@@ -2966,7 +2966,7 @@ if (offline) {
                                     label:
                                       "Remove from playlist",
                                     icon:
-                                      "close",
+                                      "playlist",
                                     danger:
                                       true,
                                     disabled:
