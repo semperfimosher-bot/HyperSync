@@ -2018,8 +2018,7 @@ span svg {
     linear-gradient(
       180deg,
       #000000a8 10%
-    ),
-    url("/hypersync-home-texture.png");
+    );
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
