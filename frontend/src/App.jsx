@@ -29,6 +29,10 @@ import {
   clearAllHyperSyncClientData,
 } from "./clientDataReset.js";
 
+import {
+  rememberResetGeneration,
+} from "./globalResetSync.js";
+
 import { normalizeAppViewState } from "./appViewState.js";
 
 import HexBackdrop from "./components/HexBackdrop.jsx";
@@ -578,6 +582,10 @@ function AdminDashboardPage() {
 
         const clientReset =
           await clearAllHyperSyncClientData();
+
+        rememberResetGeneration(
+          result?.reset_generation,
+        );
 
         setTracks([]);
 
