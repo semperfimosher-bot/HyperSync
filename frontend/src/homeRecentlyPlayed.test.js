@@ -26,11 +26,11 @@ test(
 
 
 test(
-  "limits home recently played to six tracks",
+  "limits home recently played to twelve tracks",
   () => {
     const profile = {
       recently_played: Array.from(
-        { length: 8 },
+        { length: 14 },
         (_, index) => ({
           id: String(index + 1),
         }),
@@ -41,7 +41,7 @@ test(
       getHomeRecentlyPlayed(
         profile,
       ).length,
-      6,
+      12,
     );
   },
 );
