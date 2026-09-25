@@ -399,3 +399,37 @@ class UserAppState(
         String(32),
         nullable=True,
     )
+
+    playback_track_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "tracks.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+
+    playback_position_seconds: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+
+    playback_paused: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=true(),
+    )
+
+    playback_device_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    playback_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=True,
+    )
