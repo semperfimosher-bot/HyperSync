@@ -777,6 +777,10 @@ def verify_dockerfiles() -> None:
         "${PORT:-8000}" in backend_text,
         "Backend Docker CMD must support Northflank's PORT variable.",
     )
+    _require(
+        "ffmpeg" in backend_text.lower(),
+        "Backend Dockerfile must install FFmpeg for upload compression.",
+    )
 
     frontend_text = _read_utf8(frontend_path)
     _require("npm ci" in frontend_text, "Frontend Dockerfile must use npm ci.")
