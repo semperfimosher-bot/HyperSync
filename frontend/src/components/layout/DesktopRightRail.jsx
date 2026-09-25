@@ -11,6 +11,11 @@ import {
 } from "../../playerQueue.js";
 
 import {
+  isSameRightRailPlayerState,
+  selectRightRailPlayerState,
+} from "../../rightRailPlayerState.js";
+
+import {
   normalizeRightRailTab,
 } from "../../rightRailTabs.js";
 
@@ -40,18 +45,12 @@ function DesktopRightRail({
   const [
     state,
     setState,
-  ] = useState(() => ({
-  src: null,
-  artworkUrl: null,
-  title: "",
-  artist: "",
-  paused: true,
-  currentTime: 0,
-  duration: 0,
-
-  queue: [],
-  queueIndex: -1,
-}));
+  ] = useState(
+    () =>
+      selectRightRailPlayerState(
+        player.getState(),
+      ),
+  );
 
   const [
     activeTab,
@@ -63,8 +62,19 @@ function DesktopRightRail({
     const unsubscribe =
       player.subscribe(
         (nextState) => {
+          const nextRailState =
+            selectRightRailPlayerState(
+              nextState,
+            );
+
           setState(
-            nextState,
+            (currentState) =>
+              isSameRightRailPlayerState(
+                currentState,
+                nextRailState,
+              )
+                ? currentState
+                : nextRailState,
           );
         },
       );
