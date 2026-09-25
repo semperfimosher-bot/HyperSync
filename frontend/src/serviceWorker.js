@@ -31,7 +31,7 @@ const DEFAULT_API_BASE_URL =
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v2";
+  "hypersync-app-shell-v3";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -252,6 +252,18 @@ globalThis.self?.addEventListener?.(
             .catch(
               () => 0,
             );
+
+          if (
+            self.registration
+              .navigationPreload
+          ) {
+            await self.registration
+              .navigationPreload
+              .enable()
+              .catch(
+                () => {},
+              );
+          }
 
           await self.clients.claim();
         }
@@ -995,7 +1007,12 @@ globalThis.self?.addEventListener?.(
               );
 
             try {
+              const preloaded =
+                await event
+                  .preloadResponse;
+
               const response =
+                preloaded ??
                 await fetch(
                   new Request(
                     request,
