@@ -7509,6 +7509,22 @@ button > span:nth-child(2) {
   font-size: 6.5px;
 }
 
+.message-push-enable:disabled {
+  cursor: default;
+}
+
+.message-push-enable.is-enabled {
+  border-color:
+    rgba(75, 224, 165, 0.22);
+
+  color: #83e7bc;
+
+  background:
+    rgba(32, 177, 115, 0.07);
+
+  opacity: 1;
+}
+
 
 /* =========================================================
    DESKTOP NOTIFICATION CENTER
