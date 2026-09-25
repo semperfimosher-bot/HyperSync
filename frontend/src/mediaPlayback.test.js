@@ -269,3 +269,247 @@ test(
     }
   },
 );
+
+
+test(
+  "warming playback prefetches an aligned resume window for two hours",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const mediaPlayback =
+      await loadMediaPlaybackModule();
+
+    const trackId =
+      "warm-playback-track-" +
+      Date.now();
+
+    const mediaVersion =
+      "warm-playback-version";
+
+    const fileSize =
+      mediaStore.MEDIA_CHUNK_SIZE *
+      40;
+
+    const now =
+      1_900_000_000_000;
+
+    let requestedUrl =
+      null;
+
+    let requestedOptions =
+      null;
+
+    const result =
+      await mediaPlayback.warmTrackPlayback(
+        trackId,
+        {
+          mediaVersion,
+
+          mimeType:
+            "audio/mpeg",
+
+          fileSize,
+
+          durationSeconds:
+            200,
+        },
+        {
+          positionSeconds:
+            100,
+
+          durationSeconds:
+            200,
+
+          useStableMediaRoute:
+            true,
+
+          now,
+
+          fetchImpl:
+            async (
+              url,
+              options,
+            ) => {
+              requestedUrl =
+                url;
+
+              requestedOptions =
+                options;
+
+              const match =
+                /^bytes=(\d+)-(\d+)$/.exec(
+                  options
+                    ?.headers
+                    ?.Range ??
+                  "",
+                );
+
+              assert.ok(
+                match,
+              );
+
+              const byteStart =
+                Number(
+                  match[1],
+                );
+
+              const byteEnd =
+                Number(
+                  match[2],
+                );
+
+              const firstChunk =
+                Math.floor(
+                  byteStart /
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE,
+                );
+
+              const lastChunk =
+                Math.floor(
+                  byteEnd /
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE,
+                );
+
+              for (
+                let chunkIndex =
+                  firstChunk;
+                chunkIndex <=
+                lastChunk;
+                chunkIndex += 1
+              ) {
+                const chunkByteStart =
+                  chunkIndex *
+                  mediaStore
+                    .MEDIA_CHUNK_SIZE;
+
+                const chunkByteEnd =
+                  Math.min(
+                    fileSize - 1,
+                    chunkByteStart +
+                      mediaStore
+                        .MEDIA_CHUNK_SIZE -
+                      1,
+                  );
+
+                const byteLength =
+                  chunkByteEnd -
+                  chunkByteStart +
+                  1;
+
+                await mediaStore
+                  .saveMediaChunk({
+                    trackId,
+                    mediaVersion,
+                    chunkIndex,
+                    byteStart:
+                      chunkByteStart,
+                    data:
+                      new ArrayBuffer(
+                        byteLength,
+                      ),
+                  });
+              }
+
+              return {
+                ok:
+                  true,
+
+                status:
+                  206,
+
+                async arrayBuffer() {
+                  return new ArrayBuffer(
+                    byteEnd -
+                    byteStart +
+                    1,
+                  );
+                },
+              };
+            },
+        },
+      );
+
+    assert.equal(
+      result.warmed,
+      true,
+    );
+
+    assert.equal(
+      requestedUrl,
+      "/__hypersync/media/" +
+        encodeURIComponent(
+          trackId,
+        ) +
+        "/" +
+        encodeURIComponent(
+          mediaVersion,
+        ),
+    );
+
+    const expectedCenterChunk =
+      Math.floor(
+        (
+          fileSize *
+          0.5
+        ) /
+        mediaStore.MEDIA_CHUNK_SIZE,
+      );
+
+    const expectedStart =
+      Math.max(
+        0,
+        (
+          expectedCenterChunk -
+          1
+        ) *
+        mediaStore.MEDIA_CHUNK_SIZE,
+      );
+
+    const expectedEnd =
+      Math.min(
+        fileSize - 1,
+        expectedStart +
+          mediaPlayback
+            .PLAYBACK_WARM_BYTES -
+          1,
+      );
+
+    assert.equal(
+      requestedOptions
+        .headers
+        .Range,
+      "bytes=" +
+        expectedStart +
+        "-" +
+        expectedEnd,
+    );
+
+    const record =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.equal(
+      record.warmUntil,
+      now +
+        mediaPlayback
+          .PLAYBACK_WARM_MS,
+    );
+
+    assert.equal(
+      record.warmByteStart,
+      expectedStart,
+    );
+
+    assert.equal(
+      record.warmByteEnd,
+      expectedEnd,
+    );
+  },
+);

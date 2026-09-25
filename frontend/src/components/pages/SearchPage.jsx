@@ -17,17 +17,20 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
-  downloadTracksForOffline,
   getDownloadedPlaylists,
+  getOfflineOwnerKey,
+  getPlaylistDownloadJob,
+  getPlaylistDownloadJobId,
+  reconcileDownloadedPlaylistMembership,
   removePlaylistFromOffline,
   searchDownloadedTracks,
+  startPlaylistDownloadForOffline,
 } from "../../offlineDownloads.js";
 
 import {
   getSearchPreferences,
   saveSearchPreferences,
   searchHypersync,
-  SEARCH_SORT_OPTIONS,
 } from "../../searchApi.js";
 
 import {
@@ -35,7 +38,7 @@ import {
 } from "../../constants.js";
 
 import {
-  alphabetizeSearchResults,
+  orderSearchResultsForDisplay,
 } from "../../searchAlphabetical.js";
 
 import {
@@ -48,14 +51,29 @@ import Avatar from
 import Icon from
   "../ui/Icon.jsx";
 
+import PlaylistArtwork from
+  "../ui/PlaylistArtwork.jsx";
+
 import DownloadRemovalConfirm from
   "../ui/DownloadRemovalConfirm.jsx";
 
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
+import CollectionActionMenu from
+  "../music/CollectionActionMenu.jsx";
+
+import ResultsSortMenu from
+  "../music/ResultsSortMenu.jsx";
+
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
+
+import useCollectionActionMenu from
+  "../../hooks/useCollectionActionMenu.js";
+
+import useResultsSortMenu from
+  "../../hooks/useResultsSortMenu.js";
 
 import {
   getPlaylist,
@@ -255,13 +273,21 @@ function SearchPage({
   query,
   onQueryChange,
   onOpenProfile,
+  onMessageUser,
   onOpenPlaylist,
   onOpenAuth,
   currentUser,
   resetToken = 0,
+  activePlaylistDownloads = [],
 }) {
   const trackActionMenu =
   useTrackActionMenu();
+
+  const collectionActionMenu =
+    useCollectionActionMenu();
+
+  const resultsSortMenu =
+    useResultsSortMenu();
 
   const normalizedQuery =
     query.trim();
@@ -269,6 +295,11 @@ function SearchPage({
   const isRegistered =
     currentUser?.account_type ===
     "registered";
+
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
 
   const [
   openedPlaylist,
@@ -299,10 +330,66 @@ const [
   trackProgress: {},
 });
 
+const playlistRowDownloads =
+  useMemo(
+    () =>
+      Object.fromEntries(
+        activePlaylistDownloads.map(
+          (download) => [
+            String(
+              download.playlistId,
+            ),
+            {
+              status:
+                download.state,
+              progress:
+                download.progress,
+            },
+          ],
+        ),
+      ),
+    [
+      activePlaylistDownloads,
+    ],
+  );
+
 const [
   removeDownloadOpen,
   setRemoveDownloadOpen,
 ] = useState(false);
+
+
+useEffect(() => {
+  const activeOpenedDownload =
+    activePlaylistDownloads.find(
+      (download) =>
+        String(
+          download.playlistId,
+        ) ===
+        String(
+          openedPlaylist?.id ??
+          "",
+        ),
+    ) ??
+    null;
+
+  if (activeOpenedDownload) {
+    setPlaylistDownload({
+      status:
+        "downloading",
+      progress:
+        activeOpenedDownload
+          .progress,
+      trackProgress:
+        activeOpenedDownload
+          .trackProgress ??
+        {},
+    });
+  }
+}, [
+  activePlaylistDownloads,
+  openedPlaylist?.id,
+]);
 
 const [
   removingDownload,
@@ -338,7 +425,9 @@ useEffect(() => {
             getPlaylist(
               playlistId,
             ),
-            getDownloadedPlaylists(),
+            getDownloadedPlaylists(
+              offlineOwnerKey,
+            ),
           ]);
 
         setOpenedPlaylist(
@@ -398,6 +487,7 @@ useEffect(() => {
     );
   };
 }, [
+  offlineOwnerKey,
   openedPlaylist?.id,
 ]);
 
@@ -520,8 +610,13 @@ useEffect(() => {
         }
 
         setSortMode(
-          data?.sort_mode ||
-            "smart",
+          data?.sort_mode ===
+            "artist"
+            ? "albums"
+            : (
+                data?.sort_mode ||
+                "smart"
+              ),
         );
 
         setPreferenceStatus(
@@ -642,6 +737,7 @@ useEffect(() => {
               const localTracks =
                 await searchDownloadedTracks(
                   normalizedQuery,
+                  offlineOwnerKey,
                 );
 
               if (
@@ -753,6 +849,7 @@ useEffect(() => {
               localTracks =
                 await searchDownloadedTracks(
                   normalizedQuery,
+                  offlineOwnerKey,
                 );
             } catch {
               localTracks =
@@ -805,14 +902,15 @@ useEffect(() => {
 
   }, [
     normalizedQuery,
+    offlineOwnerKey,
     preferenceReady,
     sortMode,
   ]);
 
-  const alphabeticalResults =
+  const displayResults =
   useMemo(
     () =>
-      alphabetizeSearchResults(
+      orderSearchResultsForDisplay(
         results,
       ),
     [results],
@@ -868,7 +966,7 @@ useEffect(() => {
     trackIndex,
   ) {
     const queue =
-  alphabeticalResults.tracks.map(
+  displayResults.tracks.map(
     (track) => ({
       id:
         track.id,
@@ -965,7 +1063,7 @@ useEffect(() => {
     event,
   ) {
     const trackCount =
-  alphabeticalResults.tracks.length;
+  displayResults.tracks.length;
 
     if (
       event.key ===
@@ -1028,11 +1126,8 @@ useEffect(() => {
 
 
   function changeSortMode(
-    event,
+    nextMode,
   ) {
-    const nextMode =
-      event.target.value;
-
     setSortMode(
       nextMode,
     );
@@ -1084,16 +1179,30 @@ useEffect(() => {
     const [
       playlist,
       downloadedPlaylists,
+      downloadJob,
     ] =
       await Promise.all([
         getPlaylist(
           playlistId,
         ),
-        getDownloadedPlaylists()
+        getDownloadedPlaylists(
+              offlineOwnerKey,
+            )
           .catch(
             () => [],
           ),
+        getPlaylistDownloadJob(
+          offlineOwnerKey,
+          playlistId,
+        ).catch(
+          () => null,
+        ),
       ]);
+
+    await reconcileDownloadedPlaylistMembership(
+      playlist,
+      offlineOwnerKey,
+    );
 
     setOpenedPlaylist(
       playlist,
@@ -1111,7 +1220,29 @@ useEffect(() => {
       ) ??
       null;
 
-    if (downloaded) {
+    const activeDownload =
+      activePlaylistDownloads.find(
+        (item) =>
+          String(
+            item.playlistId,
+          ) ===
+          String(
+            playlistId,
+          ),
+      ) ??
+      null;
+
+    if (activeDownload) {
+      setPlaylistDownload({
+        status:
+          "downloading",
+        progress:
+          activeDownload.progress,
+        trackProgress:
+          activeDownload.trackProgress ??
+          {},
+      });
+    } else if (downloaded) {
       const downloadedIds =
         new Set(
           downloaded.tracks.map(
@@ -1164,6 +1295,39 @@ useEffect(() => {
               )
             : 0,
         trackProgress,
+      });
+    } else if (
+      downloadJob?.state ===
+        "paused" ||
+      downloadJob?.state ===
+        "downloading"
+    ) {
+      const totalBytes =
+        Number(
+          downloadJob.totalBytes ??
+          0,
+        );
+
+      const downloadedBytes =
+        Number(
+          downloadJob.downloadedBytes ??
+          0,
+        );
+
+      setPlaylistDownload({
+        status: "paused",
+        progress:
+          totalBytes > 0
+            ? Math.max(
+                0,
+                Math.min(
+                  1,
+                  downloadedBytes /
+                    totalBytes,
+                ),
+              )
+            : 0,
+        trackProgress: {},
       });
     } else {
       setPlaylistDownload({
@@ -1344,6 +1508,7 @@ async function confirmRemoveOpenedPlaylistDownload() {
   try {
     await removePlaylistFromOffline(
       openedPlaylist.id,
+      offlineOwnerKey,
     );
 
     setPlaylistDownload({
@@ -1440,6 +1605,11 @@ async function downloadOpenedPlaylist() {
       );
     }
 
+    const playlistId =
+      String(
+        playlistForDownload.id,
+      );
+
     setPlaylistDownload({
       status:
         "downloading",
@@ -1449,14 +1619,16 @@ async function downloadOpenedPlaylist() {
         {},
     });
 
-    await downloadTracksForOffline(
+    await startPlaylistDownloadForOffline(
       tracks,
       {
         jobId:
-          "playlist:" +
-          String(
+          getPlaylistDownloadJobId(
+            offlineOwnerKey,
             playlistForDownload.id,
           ),
+        ownerKey:
+          offlineOwnerKey,
         jobMetadata: {
           kind:
             "playlist",
@@ -1481,19 +1653,23 @@ async function downloadOpenedPlaylist() {
           progress,
           trackProgress,
         }) => {
+          const safeProgress =
+            Number.isFinite(
+              progress,
+            )
+              ? progress
+              : 0;
+
           setPlaylistDownload({
             status:
               "downloading",
             progress:
-              Number.isFinite(
-                progress,
-              )
-                ? progress
-                : 0,
+              safeProgress,
             trackProgress:
               trackProgress ??
               {},
           });
+
         },
       },
     );
@@ -1518,6 +1694,7 @@ async function downloadOpenedPlaylist() {
           ),
         ),
     });
+
   } catch (error) {
     setPlaylistDownload({
       status:
@@ -1527,6 +1704,17 @@ async function downloadOpenedPlaylist() {
       trackProgress:
         {},
     });
+
+    if (
+      typeof playlistForDownload?.id !==
+        "undefined"
+    ) {
+      const failedPlaylistId =
+        String(
+          playlistForDownload.id,
+        );
+
+    }
 
     setPlaylistError(
       error instanceof Error
@@ -1544,9 +1732,9 @@ async function downloadOpenedPlaylist() {
   useMemo(
     () =>
       pickTopSignal(
-        alphabeticalResults,
+        displayResults,
       ),
-    [alphabeticalResults],
+    [displayResults],
   );
 
   const playlistDownloadPercent =
@@ -1571,7 +1759,7 @@ async function downloadOpenedPlaylist() {
     activeFilter === "playlists";
 
   const artistPanel =
-    alphabeticalResults.artists.length > 0 ? (
+    displayResults.artists.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="ENTITY INDEX"
@@ -1584,13 +1772,39 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.artists.map(
+        {displayResults.artists.map(
           (artist) => (
 
             <button
               type="button"
               key={artist.name}
               className="hs-search-entity-card"
+              {...collectionActionMenu.getTriggerProps({
+                key:
+                  `artist:${artist.name}`,
+                kind:
+                  "artist",
+                title:
+                  artist.name,
+                subtitle:
+                  "Artist",
+                actions: [
+                  {
+                    id:
+                      "open",
+                    label:
+                      "Open artist",
+                    icon:
+                      "music",
+                    onSelect:
+                      () => {
+                        onQueryChange(
+                          `songs by ${artist.name}`,
+                        );
+                      },
+                  },
+                ],
+              })}
               onClick={() => {
                 onQueryChange(
                   `songs by ${artist.name}`,
@@ -1653,7 +1867,7 @@ async function downloadOpenedPlaylist() {
 
 
   const collaborationPanel =
-    alphabeticalResults.collaborations.length >
+    displayResults.collaborations.length >
     0 ? (
 
       <SearchEntityPanel
@@ -1668,7 +1882,7 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.collaborations.map(
+        {displayResults.collaborations.map(
           (collaboration) => (
 
             <button
@@ -1677,6 +1891,32 @@ async function downloadOpenedPlaylist() {
                 collaboration.name
               }
               className="hs-search-entity-card"
+              {...collectionActionMenu.getTriggerProps({
+                key:
+                  `artist:${collaboration.name}`,
+                kind:
+                  "artist",
+                title:
+                  collaboration.name,
+                subtitle:
+                  "Collaboration",
+                actions: [
+                  {
+                    id:
+                      "open",
+                    label:
+                      "Open artist",
+                    icon:
+                      "music",
+                    onSelect:
+                      () => {
+                        onQueryChange(
+                          `songs by ${collaboration.name}`,
+                        );
+                      },
+                  },
+                ],
+              })}
               onClick={() => {
                 onQueryChange(
                   `songs by ${collaboration.name}`,
@@ -1742,7 +1982,7 @@ async function downloadOpenedPlaylist() {
 
 
   const albumPanel =
-    alphabeticalResults.albums.length > 0 ? (
+    displayResults.albums.length > 0 ? (
 
       <SearchEntityPanel
         eyebrow="RELEASE INDEX"
@@ -1755,7 +1995,7 @@ async function downloadOpenedPlaylist() {
         }
       >
 
-        {alphabeticalResults.albums.map(
+        {displayResults.albums.map(
           (album) => (
 
             <button
@@ -1764,6 +2004,33 @@ async function downloadOpenedPlaylist() {
                 `${album.artist}:${album.title}`
               }
               className="hs-search-entity-card"
+              {...collectionActionMenu.getTriggerProps({
+                key:
+                  `album:${album.artist}:${album.title}`,
+                kind:
+                  "album",
+                title:
+                  album.title,
+                subtitle:
+                  album.artist ||
+                  "Album",
+                actions: [
+                  {
+                    id:
+                      "open",
+                    label:
+                      "Open album",
+                    icon:
+                      "disc",
+                    onSelect:
+                      () => {
+                        onQueryChange(
+                          album.title,
+                        );
+                      },
+                  },
+                ],
+              })}
               onClick={() => {
                 onQueryChange(
                   album.title,
@@ -1824,7 +2091,10 @@ async function downloadOpenedPlaylist() {
 
 
   return (
-    <div className="page-stack hs-search-page">
+    <div
+      className="page-stack hs-search-page"
+      {...resultsSortMenu.getTriggerProps()}
+    >
 
       <section className="hs-search-console">
 
@@ -1875,34 +2145,6 @@ async function downloadOpenedPlaylist() {
     </div>
 
 
-    <div className="hs-search-sort">
-
-      <label
-        htmlFor="hs-search-sort-mode"
-      >
-      </label>
-
-      <select
-        id="hs-search-sort-mode"
-        value={sortMode}
-        disabled={!preferenceReady}
-        onChange={changeSortMode}
-      >
-        {SEARCH_SORT_OPTIONS.map(
-          (option) => (
-            <option
-              key={option.value}
-              value={option.value}
-            >
-              {option.label}
-            </option>
-          ),
-        )}
-      </select>
-
-      
-
-    </div>
 
   </div>
 
@@ -2017,25 +2259,18 @@ async function downloadOpenedPlaylist() {
 
       <div className="hs-search-playlist-view__art">
 
-        {resolveArtworkUrl(
-          openedPlaylist.artwork_url,
-        ) ? (
-          <img
-            src={
-              resolveArtworkUrl(
-                openedPlaylist.artwork_url,
-              )
-            }
-            alt=""
-          />
-        ) : (
-          <div className="hs-search-playlist-view__fallback">
-            <Icon
-              name="playlist"
-              size={32}
-            />
-          </div>
-        )}
+        <PlaylistArtwork
+          tracks={
+            openedPlaylist.tracks
+          }
+          artworkUrls={
+            openedPlaylist.artwork_urls
+          }
+          artworkUrl={
+            openedPlaylist.artwork_url
+          }
+          fallbackSize={32}
+        />
 
       </div>
 
@@ -2136,7 +2371,10 @@ async function downloadOpenedPlaylist() {
               : playlistDownload.status ===
                   "downloaded"
                 ? "Downloaded"
-                : "Download"}
+                : playlistDownload.status ===
+                    "paused"
+                  ? "Resume"
+                  : "Download"}
           </button>
 
 
@@ -2594,9 +2832,28 @@ async function downloadOpenedPlaylist() {
                     playlistIndex,
                   ) => {
 
-                    const artworkUrl =
-                      resolveArtworkUrl(
-                        playlist.artwork_url,
+                    const rowDownload =
+                      playlistRowDownloads[
+                        String(
+                          playlist.id,
+                        )
+                      ] ??
+                      null;
+
+                    const rowDownloadPercent =
+                      Math.round(
+                        Math.max(
+                          0,
+                          Math.min(
+                            1,
+                            Number(
+                              rowDownload
+                                ?.progress ??
+                              0,
+                            ) || 0,
+                          ),
+                        ) *
+                          100,
                       );
 
                     return (
@@ -2607,6 +2864,33 @@ async function downloadOpenedPlaylist() {
                         role="button"
                         tabIndex={0}
                         className="hs-search-track"
+                        {...collectionActionMenu.getTriggerProps({
+                          key:
+                            `playlist:${playlist.id}`,
+                          kind:
+                            "playlist",
+                          title:
+                            playlist.title,
+                          subtitle:
+                            playlist.owner_username ||
+                            "Playlist",
+                          actions: [
+                            {
+                              id:
+                                "open",
+                              label:
+                                "Open playlist",
+                              icon:
+                                "playlist",
+                              onSelect:
+                                () => {
+                                  void openSearchPlaylist(
+                                    playlist.id,
+                                  );
+                                },
+                            },
+                          ],
+                        })}
                         onClick={() => {
                         void openSearchPlaylist(
                         playlist.id,
@@ -2643,19 +2927,15 @@ async function downloadOpenedPlaylist() {
 
                         <span className="hs-search-track__art">
 
-                          {artworkUrl ? (
-                            <img
-                              src={
-                                artworkUrl
-                              }
-                              alt=""
-                            />
-                          ) : (
-                            <Icon
-                              name="playlist"
-                              size={20}
-                            />
-                          )}
+                          <PlaylistArtwork
+                            artworkUrls={
+                              playlist.artwork_urls
+                            }
+                            artworkUrl={
+                              playlist.artwork_url
+                            }
+                            fallbackSize={20}
+                          />
 
                           <i aria-hidden="true">
                             <Icon
@@ -2709,17 +2989,28 @@ async function downloadOpenedPlaylist() {
                         </span>
 
 
-                        <span
-                          className="hs-search-track__download hs-search-playlist-spacer"
-                          aria-hidden="true"
-                        />
-
-
                         <span className="hs-search-track__play">
-                          <Icon
-                            name="chevron"
-                            size={16}
-                          />
+                          {rowDownload?.status ===
+                          "downloading" ? (
+                            <span
+                              className="hs-search-track__download is-downloading hs-playlist-row-download-progress"
+                              style={{
+                                "--download-progress":
+                                  `${rowDownloadPercent}%`,
+                              }}
+                              title={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                              aria-label={`Downloading ${playlist.title}: ${rowDownloadPercent}%`}
+                            >
+                              <span className="hs-search-track__download-progress">
+                                {rowDownloadPercent}
+                              </span>
+                            </span>
+                          ) : (
+                            <Icon
+                              name="chevron"
+                              size={16}
+                            />
+                          )}
                         </span>
 
                       </div>
@@ -2735,7 +3026,7 @@ async function downloadOpenedPlaylist() {
 
 
           {showTracks &&
-alphabeticalResults.tracks.length > 0 ? (
+displayResults.tracks.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -2760,7 +3051,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
               <div className="hs-search-track-list">
 
-                {alphabeticalResults.tracks.map(
+                {displayResults.tracks.map(
                   (
                     track,
                     trackIndex,
@@ -2990,7 +3281,7 @@ alphabeticalResults.tracks.length > 0 ? (
 
 
           {showPeople &&
-          alphabeticalResults.people.length > 0 ? (
+          displayResults.people.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -3015,61 +3306,96 @@ alphabeticalResults.tracks.length > 0 ? (
 
               <div className="hs-search-people-list">
 
-                {alphabeticalResults.people.map(
-                  (person) => (
+                {displayResults.people.map(
+                  (person) => {
+                    const canMessage =
+                      isRegistered &&
+                      String(
+                        person.username,
+                      ).toLocaleLowerCase()
+                      !==
+                      String(
+                        currentUser?.username ??
+                        "",
+                      ).toLocaleLowerCase();
 
-                    <button
-                      type="button"
-                      className="hs-search-person"
-                      key={
-                        person.username
-                      }
-                      onClick={() => {
-                        onOpenProfile?.(
-                          person.username,
-                        );
-                      }}
-                    >
-
-                      <Avatar
-                        src={
-                          person.avatar_url
+                    return (
+                      <div
+                        className="hs-search-person hs-search-person--messageable"
+                        key={
+                          person.username
                         }
-                        name={
-                          person.display_name
-                        }
-                        size="small"
-                      />
+                      >
+                        <button
+                          type="button"
+                          className="hs-search-person__profile"
+                          onClick={() => {
+                            onOpenProfile?.(
+                              person.username,
+                            );
+                          }}
+                        >
+                          <Avatar
+                            src={
+                              person.avatar_url
+                            }
+                            name={
+                              person.display_name
+                            }
+                            size="small"
+                          />
 
-                      <span>
+                          <span>
+                            <small>
+                              {person.match_label}
+                            </small>
 
-                        <small>
-                          {person.match_label}
-                        </small>
+                            <strong>
+                              {person.display_name}
+                            </strong>
 
-                        <strong>
-                          {person.display_name}
-                        </strong>
+                            <em>
+                              @{person.username}
+                              {" • "}
+                              {person.followers_count}
+                              {" followers • "}
+                              {memberFor(
+                                person.member_since,
+                              )}
+                            </em>
+                          </span>
+                        </button>
 
-                        <em>
-                          @{person.username}
-                          {" • "}
-                          {person.followers_count}
-                          {" followers • "}
-                          {memberFor(
-                            person.member_since,
-                          )}
-                        </em>
-
-                      </span>
-
-                      <Icon
-                        name="chevron"
-                        size={16}
-                      />
-
-                    </button>
-                  ),
+                        {canMessage ? (
+                          <button
+                            type="button"
+                            className="hs-search-person__message"
+                            title={
+                              `Message @${person.username}`
+                            }
+                            aria-label={
+                              `Message @${person.username}`
+                            }
+                            onClick={() => {
+                              onMessageUser?.(
+                                person.username,
+                              );
+                            }}
+                          >
+                            <Icon
+                              name="mail"
+                              size={17}
+                            />
+                          </button>
+                        ) : (
+                          <Icon
+                            name="chevron"
+                            size={16}
+                          />
+                        )}
+                      </div>
+                    );
+                  },
                 )}
 
               </div>
@@ -3134,6 +3460,30 @@ alphabeticalResults.tracks.length > 0 ? (
         }
         onRequireAuth={
           onOpenAuth
+        }
+      />
+
+      <CollectionActionMenu
+        menu={
+          collectionActionMenu.menu
+        }
+        onClose={
+          collectionActionMenu.closeMenu
+        }
+      />
+
+      <ResultsSortMenu
+        menu={
+          resultsSortMenu.menu
+        }
+        mode={
+          sortMode
+        }
+        onClose={
+          resultsSortMenu.closeMenu
+        }
+        onSelect={
+          changeSortMode
         }
       />
 

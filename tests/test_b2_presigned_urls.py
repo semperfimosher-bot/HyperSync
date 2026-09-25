@@ -97,3 +97,80 @@ def test_create_presigned_download_url(
         "get_b2_s3_client",
     ):
         (b2_service.get_b2_s3_client.cache_clear())
+
+def test_create_presigned_upload_url(
+    monkeypatch,
+) -> None:
+    calls = {}
+
+    class FakeS3Client:
+        def generate_presigned_url(
+            self,
+            client_method,
+            Params=None,
+            ExpiresIn=None,
+        ):
+            calls["sign"] = {
+                "client_method":
+                    client_method,
+                "params":
+                    Params,
+                "expires_in":
+                    ExpiresIn,
+            }
+
+            return (
+                "https://s3.example.test/"
+                "hypersync/audio/direct.mp3"
+                "?X-Amz-Signature=upload"
+            )
+
+    monkeypatch.setattr(
+        b2_service,
+        "get_b2_s3_client",
+        lambda: FakeS3Client(),
+    )
+
+    monkeypatch.setattr(
+        b2_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            b2_bucket_name=
+                "hypersync",
+            b2_direct_upload_ttl_seconds=
+                300,
+        ),
+    )
+
+    result = (
+        b2_service
+        .create_presigned_upload_url(
+            "audio/direct.mp3",
+            content_type=
+                "audio/mpeg",
+        )
+    )
+
+    assert (
+        result
+        ==
+        "https://s3.example.test/"
+        "hypersync/audio/direct.mp3"
+        "?X-Amz-Signature=upload"
+    )
+
+    assert calls["sign"] == {
+        "client_method":
+            "put_object",
+        "params": {
+            "Bucket":
+                "hypersync",
+            "Key":
+                "audio/direct.mp3",
+            "ContentType":
+                "audio/mpeg",
+        },
+        "expires_in":
+            300,
+    }
+

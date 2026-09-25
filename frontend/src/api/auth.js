@@ -270,12 +270,19 @@ if (
     return user;
 
   } catch {
-    if (
-      hasStoredSession() ||
-      token ||
-      readCachedUserProfile()
-    ) {
-      clearAuthSession();
+    /*
+     * A temporary refresh, network,
+     * deployment, or server error must not
+     * turn into an automatic browser logout.
+     * Explicit logout remains responsible
+     * for clearing the remembered session.
+     */
+    if (cachedProfile) {
+      return buildRestoredUser(
+        cachedProfile,
+        getAccessToken() ??
+          token,
+      );
     }
 
     return null;

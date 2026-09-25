@@ -7,13 +7,31 @@ from httpx import (
 )
 
 from backend.app.database import (
+    get_engine,
     get_session_factory,
 )
 from backend.app.main import app
+from backend.app.models.base import Base
 from backend.app.models.media import (
     Track,
     TrackLyrics,
 )
+
+
+@pytest.fixture(autouse=True)
+async def lyrics_database_schema() -> None:
+    async with get_engine().begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackLyrics.__tablename__
+                ],
+            ],
+        )
 
 
 async def create_track(

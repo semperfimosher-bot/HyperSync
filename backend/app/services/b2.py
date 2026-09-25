@@ -104,6 +104,63 @@ def get_b2_s3_client():
     )
 
 
+def create_presigned_upload_url(
+    object_key: str,
+    *,
+    content_type: str,
+    ttl_seconds: int | None = None,
+) -> str:
+    settings = get_settings()
+
+    if not settings.b2_bucket_name:
+        raise RuntimeError(
+            "B2_BUCKET_NAME is not configured.",
+        )
+
+    configured_ttl = (
+        settings.b2_direct_upload_ttl_seconds
+        if ttl_seconds is None
+        else ttl_seconds
+    )
+
+    ttl = min(
+        max(
+            int(configured_ttl),
+            60,
+        ),
+        60 * 60,
+    )
+
+    return get_b2_s3_client().generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket":
+                settings.b2_bucket_name,
+            "Key":
+                object_key,
+            "ContentType":
+                content_type,
+        },
+        ExpiresIn=ttl,
+    )
+
+
+def head_b2_object(
+    object_key: str,
+) -> dict[str, Any]:
+    settings = get_settings()
+
+    if not settings.b2_bucket_name:
+        raise RuntimeError(
+            "B2_BUCKET_NAME is not configured.",
+        )
+
+    return get_b2_s3_client().head_object(
+        Bucket=settings.b2_bucket_name,
+        Key=object_key,
+    )
+
+
 def create_presigned_download_url(
     object_key: str,
     *,
@@ -142,6 +199,93 @@ def create_presigned_download_url(
         },
         ExpiresIn=ttl,
     )
+
+
+async def delete_all_bucket_versions(
+    bucket: Any,
+) -> int:
+    """
+    Permanently remove every file version
+    in the bucket, including hidden/older
+    versions that are not referenced by
+    the database.
+    """
+
+    def list_versions():
+        return list(
+            bucket.ls(
+                "",
+                latest_only=False,
+                recursive=True,
+            )
+        )
+
+    listed = await asyncio.to_thread(
+        list_versions,
+    )
+
+    deleted = 0
+
+    for item in listed:
+        version = (
+            item[0]
+            if isinstance(
+                item,
+                tuple,
+            )
+            else item
+        )
+
+        if version is None:
+            continue
+
+        file_id = getattr(
+            version,
+            "file_id",
+            None,
+        )
+
+        if file_id is None:
+            file_id = getattr(
+                version,
+                "id_",
+                None,
+            )
+
+        file_name = getattr(
+            version,
+            "file_name",
+            None,
+        )
+
+        if (
+            file_id is None
+            or not file_name
+        ):
+            raise RuntimeError(
+                "B2 bucket version is missing "
+                "a file ID or file name."
+            )
+
+        print(
+            "[B2 DELETE ALL] "
+            f"{file_name} id={file_id}"
+        )
+
+        await asyncio.to_thread(
+            bucket.delete_file_version,
+            file_id,
+            file_name,
+        )
+
+        deleted += 1
+
+    print(
+        "[B2 DELETE ALL] Deleted "
+        f"{deleted} version(s) from bucket"
+    )
+
+    return deleted
 
 
 async def delete_all_object_versions(

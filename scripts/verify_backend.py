@@ -148,6 +148,8 @@ REQUIRED_ENVIRONMENT_KEYS = {
     "JWT_AUDIENCE",
     "ACCESS_TOKEN_TTL_MINUTES",
     "REFRESH_TOKEN_TTL_DAYS",
+    "ADMIN_DATABASE_DELETE_PASSWORD",
+    "ADMIN_ACCOUNT_CREATION_PASSWORD",
 }
 
 REQUIRED_BACKEND_REQUIREMENTS = {
@@ -585,6 +587,38 @@ def verify_environment_example() -> None:
         ),
         ".env.example must contain a placeholder JWT secret, never a real secret.",
     )
+    _require(
+        any(
+            marker
+            in values[
+                "ADMIN_DATABASE_DELETE_PASSWORD"
+            ].lower()
+            for marker
+            in (
+                "replace",
+                "example",
+                "placeholder",
+                "change",
+            )
+        ),
+        ".env.example must contain only a placeholder admin reset password.",
+    )
+    _require(
+        any(
+            marker
+            in values[
+                "ADMIN_ACCOUNT_CREATION_PASSWORD"
+            ].lower()
+            for marker
+            in (
+                "replace",
+                "example",
+                "placeholder",
+                "change",
+            )
+        ),
+        ".env.example must contain only a placeholder admin account creation password.",
+    )
 
 
 def verify_configuration_files() -> None:
@@ -742,6 +776,10 @@ def verify_dockerfiles() -> None:
     _require(
         "${PORT:-8000}" in backend_text,
         "Backend Docker CMD must support Northflank's PORT variable.",
+    )
+    _require(
+        "ffmpeg" in backend_text.lower(),
+        "Backend Dockerfile must install FFmpeg for upload compression.",
     )
 
     frontend_text = _read_utf8(frontend_path)

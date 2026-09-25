@@ -17,6 +17,46 @@ export function getSavedPlaylists() {
 }
 
 
+export function getLibraryTracks() {
+  return apiRequest(
+    "/playlists/library/tracks",
+  );
+}
+
+
+export async function getLibraryTrack(
+  trackId,
+) {
+  const normalizedTrackId =
+    String(
+      trackId ?? "",
+    ).trim();
+
+  if (!normalizedTrackId) {
+    return null;
+  }
+
+  const tracks =
+    await getLibraryTracks();
+
+  return (
+    (
+      Array.isArray(tracks)
+        ? tracks
+        : []
+    ).find(
+      (track) =>
+        String(
+          track?.id ??
+          "",
+        ) ===
+          normalizedTrackId,
+    ) ??
+    null
+  );
+}
+
+
 export function getPlaylist(
   playlistId,
 ) {

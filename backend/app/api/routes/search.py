@@ -12,7 +12,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     func,
     literal,
@@ -64,6 +64,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -100,6 +101,10 @@ class SearchPlaylistResult(
 
     artwork_url: str | None = None
 
+    artwork_urls: list[str | None] = Field(
+        default_factory=list,
+    )
+
     owner_username: str
 
     visibility: str
@@ -134,6 +139,7 @@ class SearchTrackResult(
     mime_type: str | None = None
     file_size: int | None = None
     media_version: str | None = None
+    artwork_version: str | None = None
 
     match_label: str
     matched_field: str
@@ -261,17 +267,24 @@ async def _serialize_search_playlist(
             )
             .order_by(
                 PlaylistTrack.position.asc(),
+                PlaylistTrack.created_at.asc(),
             )
             .limit(
-                1,
+                4,
             )
         )
     )
 
-    artwork_track = (
-        artwork_result.scalars()
-        .first()
+    artwork_tracks = list(
+        artwork_result.scalars().all()
     )
+
+    artwork_urls = [
+        _track_artwork_url(
+            track,
+        )
+        for track in artwork_tracks
+    ]
 
     return SearchPlaylistResult(
         id=playlist.id,
@@ -286,13 +299,17 @@ async def _serialize_search_playlist(
             track_count
         ),
 
-        artwork_url=(
-            _track_artwork_url(
-                artwork_track,
-            )
-            if artwork_track
-            is not None
-            else None
+        artwork_url=next(
+            (
+                artwork
+                for artwork in artwork_urls
+                if artwork
+            ),
+            None,
+        ),
+
+        artwork_urls=(
+            artwork_urls
         ),
 
         owner_username=(
@@ -343,7 +360,7 @@ async def _load_history_track_ids(
             ListeningEvent.listened_at,
         ).desc()
 
-    result = await session.execute(
+    statement = (
         select(
             ListeningEvent.track_id,
         )
@@ -356,9 +373,15 @@ async def _load_history_track_ids(
         .order_by(
             ordering,
         )
-        .limit(
+    )
+
+    if intent != "recent":
+        statement = statement.limit(
             HISTORY_COMMAND_LIMIT,
         )
+
+    result = await session.execute(
+        statement,
     )
 
     return list(result.scalars().all())
@@ -769,6 +792,7 @@ async def _build_track_rows(
                 "track": track,
                 "title": (track.title),
                 "artist": (track.artist),
+                "album": (track.album),
                 "created_at": (track.created_at),
                 "match_score": (match.score),
                 "match_tier": (match.tier),
@@ -790,6 +814,12 @@ async def _build_track_rows(
         sort_mode,
         parsed.intent,
     )
+
+    if (
+        parsed.intent == "recent"
+        and not parsed.term
+    ):
+        return sorted_rows
 
     return sorted_rows[:TRACK_RESULT_LIMIT]
 
@@ -1097,6 +1127,11 @@ def _serialize_tracks(
             file_size=(row["track"].file_size),
             media_version=(
                 _track_media_version(
+                    row["track"],
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
                     row["track"],
                 )
             ),

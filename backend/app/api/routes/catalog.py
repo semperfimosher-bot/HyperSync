@@ -56,12 +56,14 @@ class TrackResponse(BaseModel):
     title: str
     artist: str
     album: str | None
+    genre: str | None = None
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
     mime_type: str | None = None
     file_size: int | None = None
     media_version: str | None = None
+    artwork_version: str | None = None
 
 
 def _presigned_or_fallback(
@@ -145,6 +147,19 @@ def _track_media_version(
     ).hexdigest()
 
 
+def _track_artwork_version(
+    track: Track,
+) -> str | None:
+    if not track.artwork_object_key:
+        return None
+
+    return hashlib.sha256(
+        track.artwork_object_key.encode(
+            "utf-8",
+        ),
+    ).hexdigest()
+
+
 @router.get(
     "/tracks",
     response_model=list[TrackResponse],
@@ -153,7 +168,7 @@ async def list_tracks(
     response: Response,
     q: str | None = Query(
         default=None,
-        description="Search by title, artist, or album",
+        description="Search by title, artist, album, or genre",
     ),
 ) -> list[TrackResponse]:
 
@@ -175,6 +190,7 @@ async def list_tracks(
                     Track.title.ilike(term),
                     Track.artist.ilike(term),
                     Track.album.ilike(term),
+                    Track.genre.ilike(term),
                 )
             )
 
@@ -189,11 +205,17 @@ async def list_tracks(
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
+                genre=track.genre,
                 duration_seconds=(track.duration_seconds),
                 mime_type=(track.mime_type),
                 file_size=(track.file_size),
                 media_version=(
                     _track_media_version(
+                        track,
+                    )
+                ),
+                artwork_version=(
+                    _track_artwork_version(
                         track,
                     )
                 ),
@@ -244,11 +266,17 @@ async def get_track(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=track.genre,
         duration_seconds=(track.duration_seconds),
         mime_type=(track.mime_type),
         file_size=(track.file_size),
         media_version=(
             _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
                 track,
             )
         ),
@@ -302,6 +330,19 @@ def _lyrics_status(
         return "plain"
 
     return "not_found"
+
+
+def _utc_datetime(
+    value: datetime,
+) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
+    )
 
 
 def _lyrics_response(
@@ -361,7 +402,11 @@ async def get_track_lyrics(
             )
 
         if cached is not None:
-            retry_at = cached.checked_at + timedelta(
+            checked_at = _utc_datetime(
+                cached.checked_at,
+            )
+
+            retry_at = checked_at + timedelta(
                 hours=(settings.lrclib_not_found_retry_hours),
             )
 
@@ -369,7 +414,10 @@ async def get_track_lyrics(
                 UTC,
             )
 
-            cache_is_from_this_run = cached.checked_at >= LYRICS_NEGATIVE_CACHE_EPOCH
+            cache_is_from_this_run = (
+                checked_at
+                >= LYRICS_NEGATIVE_CACHE_EPOCH
+            )
 
             if cache_is_from_this_run and retry_at > now:
                 return _lyrics_response(
@@ -441,12 +489,6 @@ async def get_track_lyrics(
                 lyrics_row.plain_lyrics = fetched["plain_lyrics"]
 
                 lyrics_row.synced_lyrics = None
-
-        await session.commit()
-
-        return _lyrics_response(
-            lyrics_row,
-        )
 
         await session.commit()
 

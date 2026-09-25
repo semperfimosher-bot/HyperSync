@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
+import hmac
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -15,6 +16,9 @@ from ...models.account import (
     UserSession,
 )
 from ...security.passwords import hash_password, verify_password
+from ...security.rate_limit import (
+    enforce_rate_limit,
+)
 from ...security.tokens import (
     create_access_token,
     create_refresh_token,
@@ -25,6 +29,9 @@ router = APIRouter(
     prefix="/auth",
     tags=["authentication"],
 )
+
+
+REFRESH_ROTATION_GRACE_SECONDS = 120
 
 
 class RegisterRequest(BaseModel):
@@ -38,6 +45,13 @@ class RegisterRequest(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=128,
+    )
+
+    create_admin: bool = False
+
+    admin_verification_password: str | None = Field(
+        default=None,
+        max_length=256,
     )
 
 
@@ -74,6 +88,53 @@ def normalize_username(username: str) -> str:
     return username.strip().lower()
 
 
+def resolve_registration_role(
+    *,
+    create_admin: bool,
+    provided_admin_password: str | None,
+    configured_admin_password: str,
+) -> UserRole:
+    if not create_admin:
+        return UserRole.USER
+
+    configured_password = (
+        configured_admin_password
+        .strip()
+    )
+
+    if not configured_password:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Administrator account creation "
+                "is not configured."
+            ),
+        )
+
+    provided_password = (
+        provided_admin_password
+        or ""
+    )
+
+    if not hmac.compare_digest(
+        provided_password,
+        configured_password,
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Invalid administrator "
+                "verification password."
+            ),
+        )
+
+    return UserRole.ADMIN
+
+
 def make_user_response(
     user: User,
 ) -> UserResponse:
@@ -96,47 +157,283 @@ def make_user_response(
 def set_refresh_cookie(
     response: Response,
     refresh_token: str,
+    request: Request,
 ) -> None:
     settings = get_settings()
+
+    forwarded_proto = (
+        request.headers.get(
+            "x-forwarded-proto",
+        )
+        or ""
+    )
+
+    request_is_https = (
+        request.url.scheme
+        == "https"
+        or forwarded_proto
+        .split(
+            ",",
+            1,
+        )[0]
+        .strip()
+        .lower()
+        == "https"
+    )
 
     response.set_cookie(
         key="hypersync_refresh",
         value=refresh_token,
         max_age=(settings.refresh_token_ttl_days * 24 * 60 * 60),
         httponly=True,
-        secure=settings.environment == "production",
+        secure=(
+            settings.environment
+            == "production"
+            or request_is_https
+        ),
         samesite="lax",
         path="/api/auth",
     )
 
 
+def _as_utc_aware(
+    value: datetime | None,
+) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
+    )
+
+
+async def purge_dead_user_sessions(
+    database_session,
+    *,
+    user_id,
+    now: datetime,
+    keep_session_id=None,
+) -> None:
+    conditions = [
+        UserSession.user_id == user_id,
+        or_(
+            UserSession.revoked_at.is_not(
+                None,
+            ),
+            UserSession.expires_at <= now,
+        ),
+    ]
+
+    if keep_session_id is not None:
+        conditions.append(
+            UserSession.id
+            != keep_session_id
+        )
+
+    await database_session.execute(
+        delete(
+            UserSession,
+        ).where(
+            *conditions,
+        )
+    )
+
+
 async def create_session(
     *,
+    database_session,
     user: User,
     request: Request,
 ):
     settings = get_settings()
+    now = datetime.now(
+        UTC,
+    )
 
-    refresh_token = create_refresh_token()
+    existing_refresh_token = (
+        request.cookies.get(
+            "hypersync_refresh",
+        )
+    )
 
-    session = UserSession(
+    if existing_refresh_token:
+        existing_token_hash = (
+            hash_refresh_token(
+                existing_refresh_token,
+            )
+        )
+
+        existing_result = (
+            await database_session.execute(
+                select(
+                    UserSession,
+                )
+                .where(
+                    or_(
+                        UserSession.refresh_token_hash
+                        == existing_token_hash,
+                        and_(
+                            UserSession.previous_refresh_token_hash
+                            == existing_token_hash,
+                            UserSession.previous_refresh_valid_until
+                            > now,
+                        ),
+                    )
+                )
+                .with_for_update()
+            )
+        )
+
+        existing_session = (
+            existing_result
+            .scalar_one_or_none()
+        )
+
+        if existing_session is not None:
+            existing_expires_at = (
+                _as_utc_aware(
+                    existing_session.expires_at,
+                )
+            )
+
+            same_user = (
+                existing_session.user_id
+                == user.id
+            )
+
+            still_live = (
+                existing_session.revoked_at
+                is None
+                and existing_expires_at
+                is not None
+                and existing_expires_at
+                > now
+            )
+
+            if (
+                same_user
+                and still_live
+            ):
+                replacement_refresh_token = (
+                    create_refresh_token()
+                )
+
+                existing_session.previous_refresh_token_hash = (
+                    existing_session.refresh_token_hash
+                )
+
+                existing_session.previous_refresh_valid_until = (
+                    now
+                    + timedelta(
+                        seconds=(
+                            REFRESH_ROTATION_GRACE_SECONDS
+                        ),
+                    )
+                )
+
+                existing_session.refresh_token_hash = (
+                    hash_refresh_token(
+                        replacement_refresh_token,
+                    )
+                )
+
+                existing_session.last_used_at = (
+                    now
+                )
+
+                existing_session.expires_at = (
+                    now
+                    + timedelta(
+                        days=(
+                            settings
+                            .refresh_token_ttl_days
+                        ),
+                    )
+                )
+
+                existing_session.user_agent = (
+                    request.headers.get(
+                        "user-agent",
+                    )
+                )
+
+                existing_session.ip_address = (
+                    request.client.host
+                    if request.client
+                    else None
+                )
+
+                await purge_dead_user_sessions(
+                    database_session,
+                    user_id=user.id,
+                    now=now,
+                    keep_session_id=(
+                        existing_session.id
+                    ),
+                )
+
+                return (
+                    existing_session,
+                    replacement_refresh_token,
+                )
+
+            # The cookie points at a dead
+            # legacy session or this browser
+            # is switching accounts. Delete
+            # only the row represented by
+            # this browser cookie.
+            await database_session.delete(
+                existing_session,
+            )
+
+            await database_session.flush()
+
+    refresh_token = (
+        create_refresh_token()
+    )
+
+    user_session = UserSession(
         user_id=user.id,
-        refresh_token_hash=hash_refresh_token(
-            refresh_token,
-        ),
-        expires_at=(
-            datetime.now(UTC)
-            + timedelta(
-                days=settings.refresh_token_ttl_days,
+        refresh_token_hash=(
+            hash_refresh_token(
+                refresh_token,
             )
         ),
+        expires_at=(
+            now
+            + timedelta(
+                days=(
+                    settings
+                    .refresh_token_ttl_days
+                ),
+            )
+        ),
+        last_used_at=now,
         user_agent=request.headers.get(
             "user-agent",
         ),
-        ip_address=(request.client.host if request.client else None),
+        ip_address=(
+            request.client.host
+            if request.client
+            else None
+        ),
     )
 
-    return session, refresh_token
+    await purge_dead_user_sessions(
+        database_session,
+        user_id=user.id,
+        now=now,
+    )
+
+    return (
+        user_session,
+        refresh_token,
+    )
 
 
 @router.post(
@@ -149,6 +446,35 @@ async def register(
     request: Request,
     response: Response,
 ):
+    settings = get_settings()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-register",
+        limit=(
+            settings
+            .auth_register_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_register_rate_window_seconds
+        ),
+    )
+
+    if payload.create_admin:
+        enforce_rate_limit(
+            request,
+            scope="auth-admin-register",
+            limit=(
+                settings
+                .auth_admin_register_rate_limit
+            ),
+            window_seconds=(
+                settings
+                .auth_admin_register_rate_window_seconds
+            ),
+        )
+
     session_factory = get_session_factory()
 
     username = normalize_username(
@@ -176,17 +502,19 @@ async def register(
                 detail=("That email or username is already registered."),
             )
 
-        # The first registered account becomes
-        # the initial HyperSync administrator.
-        count_result = await session.execute(
-            select(func.count(User.id)).where(
-                User.account_type == AccountType.REGISTERED,
-            )
+        role = resolve_registration_role(
+            create_admin=(
+                payload.create_admin
+            ),
+            provided_admin_password=(
+                payload
+                .admin_verification_password
+            ),
+            configured_admin_password=(
+                settings
+                .admin_account_creation_password
+            ),
         )
-
-        registered_count = count_result.scalar_one()
-
-        role = UserRole.ADMIN if registered_count == 0 else UserRole.USER
 
         user = User(
             account_type=AccountType.REGISTERED,
@@ -214,6 +542,7 @@ async def register(
         user.profile = profile
 
         user_session, refresh_token = await create_session(
+            database_session=session,
             user=user,
             request=request,
         )
@@ -233,6 +562,7 @@ async def register(
         set_refresh_cookie(
             response,
             refresh_token,
+            request,
         )
 
         return AuthResponse(
@@ -252,9 +582,38 @@ async def login(
     request: Request,
     response: Response,
 ):
-    session_factory = get_session_factory()
+    settings = get_settings()
 
     identifier = payload.username.strip()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-login-ip",
+        limit=(
+            settings
+            .auth_login_ip_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_login_rate_window_seconds
+        ),
+    )
+
+    enforce_rate_limit(
+        request,
+        scope="auth-login-identity",
+        identity=identifier,
+        limit=(
+            settings
+            .auth_login_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_login_rate_window_seconds
+        ),
+    )
+
+    session_factory = get_session_factory()
 
     async with session_factory() as session:
         result = await session.execute(
@@ -286,6 +645,7 @@ async def login(
             )
 
         user_session, refresh_token = await create_session(
+            database_session=session,
             user=user,
             request=request,
         )
@@ -305,6 +665,7 @@ async def login(
         set_refresh_cookie(
             response,
             refresh_token,
+            request,
         )
 
         return AuthResponse(
@@ -325,11 +686,15 @@ async def logout(
     )
 
     if refresh_token:
-        session_factory = get_session_factory()
+        session_factory = (
+            get_session_factory()
+        )
 
         async with session_factory() as session:
             result = await session.execute(
-                select(UserSession).where(
+                select(
+                    UserSession,
+                ).where(
                     UserSession.refresh_token_hash
                     == hash_refresh_token(
                         refresh_token,
@@ -337,11 +702,14 @@ async def logout(
                 )
             )
 
-            user_session = result.scalar_one_or_none()
+            user_session = (
+                result.scalar_one_or_none()
+            )
 
-            if user_session:
-                user_session.revoked_at = datetime.now(UTC)
-                user_session.revoke_reason = "logout"
+            if user_session is not None:
+                await session.delete(
+                    user_session,
+                )
 
                 await session.commit()
 
@@ -363,156 +731,264 @@ async def refresh(
     request: Request,
     response: Response,
 ):
+    settings = get_settings()
+
+    enforce_rate_limit(
+        request,
+        scope="auth-refresh",
+        limit=(
+            settings
+            .auth_refresh_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .auth_refresh_rate_window_seconds
+        ),
+    )
+
     refresh_token = request.cookies.get(
         "hypersync_refresh",
     )
 
     if not refresh_token:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is missing.",
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Refresh token is missing."
+            ),
         )
 
-    session_factory = get_session_factory()
+    session_factory = (
+        get_session_factory()
+    )
+
+    now = datetime.now(
+        UTC,
+    )
+
+    presented_token_hash = (
+        hash_refresh_token(
+            refresh_token,
+        )
+    )
 
     async with session_factory() as session:
         result = await session.execute(
-            select(UserSession)
+            select(
+                UserSession,
+            )
             .where(
-                UserSession.refresh_token_hash == hash_refresh_token(refresh_token),
+                or_(
+                    UserSession.refresh_token_hash
+                    == presented_token_hash,
+                    and_(
+                        UserSession.previous_refresh_token_hash
+                        == presented_token_hash,
+                        UserSession.previous_refresh_valid_until
+                        > now,
+                    ),
+                )
             )
             .with_for_update()
         )
 
-        current_session = result.scalar_one_or_none()
+        current_session = (
+            result.scalar_one_or_none()
+        )
 
         if current_session is None:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token is invalid.",
+                status_code=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
+                detail=(
+                    "Refresh token is invalid."
+                ),
             )
 
-        now = datetime.now(UTC)
-
-        # A previously rotated/revoked refresh token
-        # being presented again is treated as token reuse.
-        if current_session.revoked_at is not None:
-            family_result = await session.execute(
-                select(UserSession).where(
-                    UserSession.family_id == current_session.family_id,
-                    UserSession.revoked_at.is_(None),
-                )
+        # Old builds left rotated/revoked
+        # rows behind. A request carrying
+        # one of those dead tokens deletes
+        # only that dead row. It must never
+        # revoke or delete the live replacement.
+        if (
+            current_session.revoked_at
+            is not None
+        ):
+            await session.delete(
+                current_session,
             )
-
-            family_sessions = family_result.scalars().all()
-
-            for family_session in family_sessions:
-                family_session.revoked_at = now
-                family_session.revoke_reason = "refresh_reuse_detected"
 
             await session.commit()
 
-            response.delete_cookie(
-                key="hypersync_refresh",
-                path="/api/auth",
-            )
-
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token reuse detected.",
+                status_code=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
+                detail=(
+                    "Refresh session is no longer active."
+                ),
             )
 
-        if current_session.expires_at <= now:
-            current_session.revoked_at = now
-            current_session.revoke_reason = "expired"
+        current_expires_at = (
+            _as_utc_aware(
+                current_session.expires_at,
+            )
+        )
+
+        if (
+            current_expires_at
+            is None
+            or current_expires_at
+            <= now
+        ):
+            await session.delete(
+                current_session,
+            )
 
             await session.commit()
 
-            response.delete_cookie(
-                key="hypersync_refresh",
-                path="/api/auth",
-            )
-
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token has expired.",
+                status_code=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
+                detail=(
+                    "Refresh token has expired."
+                ),
             )
 
         user_result = await session.execute(
-            select(User)
+            select(
+                User,
+            )
             .options(
-                selectinload(User.profile),
+                selectinload(
+                    User.profile,
+                ),
             )
             .where(
-                User.id == current_session.user_id,
-                User.is_active.is_(True),
+                User.id
+                == current_session.user_id,
+                User.is_active.is_(
+                    True,
+                ),
             )
         )
 
-        user = user_result.scalar_one_or_none()
+        user = (
+            user_result.scalar_one_or_none()
+        )
 
         if user is None:
-            current_session.revoked_at = now
-            current_session.revoke_reason = "account_unavailable"
+            await session.delete(
+                current_session,
+            )
 
             await session.commit()
 
-            response.delete_cookie(
-                key="hypersync_refresh",
-                path="/api/auth",
-            )
-
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account is unavailable.",
+                status_code=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
+                detail=(
+                    "User account is unavailable."
+                ),
             )
 
-        # Retire the old refresh-token session.
-        current_session.revoked_at = now
-        current_session.revoke_reason = "rotated"
-        current_session.last_used_at = now
-
-        # Create a new session in the same token family.
-        new_refresh_token = create_refresh_token()
-
-        new_session = UserSession(
-            user_id=user.id,
-            family_id=current_session.family_id,
-            refresh_token_hash=hash_refresh_token(
-                new_refresh_token,
-            ),
-            expires_at=(
-                now
-                + timedelta(
-                    days=get_settings().refresh_token_ttl_days,
-                )
-            ),
-            user_agent=request.headers.get(
-                "user-agent",
-            ),
-            ip_address=(request.client.host if request.client else None),
+        # Keep one stable database session
+        # for this browser while still
+        # rotating the secret itself. The
+        # immediately previous secret stays
+        # valid briefly so overlapping tabs
+        # cannot kill the legitimate session.
+        replacement_refresh_token = (
+            create_refresh_token()
         )
 
-        session.add(new_session)
+        current_session.previous_refresh_token_hash = (
+            current_session.refresh_token_hash
+        )
+
+        current_session.previous_refresh_valid_until = (
+            now
+            + timedelta(
+                seconds=(
+                    REFRESH_ROTATION_GRACE_SECONDS
+                ),
+            )
+        )
+
+        current_session.refresh_token_hash = (
+            hash_refresh_token(
+                replacement_refresh_token,
+            )
+        )
+
+        current_session.last_used_at = (
+            now
+        )
+
+        current_session.expires_at = (
+            now
+            + timedelta(
+                days=(
+                    settings
+                    .refresh_token_ttl_days
+                ),
+            )
+        )
+
+        current_session.user_agent = (
+            request.headers.get(
+                "user-agent",
+            )
+        )
+
+        current_session.ip_address = (
+            request.client.host
+            if request.client
+            else None
+        )
+
+        await purge_dead_user_sessions(
+            session,
+            user_id=user.id,
+            now=now,
+            keep_session_id=(
+                current_session.id
+            ),
+        )
 
         await session.commit()
 
-        access_token, expires_in = create_access_token(
-            user_id=user.id,
-            session_id=new_session.id,
-            role=user.role.value,
+        access_token, expires_in = (
+            create_access_token(
+                user_id=user.id,
+                session_id=(
+                    current_session.id
+                ),
+                role=user.role.value,
+            )
         )
 
+        # Roll the HttpOnly browser secret
+        # forward without changing the
+        # database session identity.
         set_refresh_cookie(
             response,
-            new_refresh_token,
+            replacement_refresh_token,
+            request,
         )
 
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
             expires_in=expires_in,
-            user=make_user_response(user),
+            user=make_user_response(
+                user,
+            ),
         )
 
 
@@ -541,20 +1017,14 @@ async def logout_all(
             current_session = result.scalar_one_or_none()
 
             if current_session:
-                sessions_result = await session.execute(
-                    select(UserSession).where(
-                        UserSession.user_id == current_session.user_id,
-                        UserSession.revoked_at.is_(None),
+                await session.execute(
+                    delete(
+                        UserSession,
+                    ).where(
+                        UserSession.user_id
+                        == current_session.user_id,
                     )
                 )
-
-                sessions = sessions_result.scalars().all()
-
-                now = datetime.now(UTC)
-
-                for user_session in sessions:
-                    user_session.revoked_at = now
-                    user_session.revoke_reason = "logout_all"
 
                 await session.commit()
 

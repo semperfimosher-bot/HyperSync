@@ -52,6 +52,7 @@ def test_extracts_embedded_audio_metadata(
         "artist": ("FKi 1st & Post Malone"),
         "album": ("First Time for Everything, Pt. 1 - EP"),
         "duration_seconds": 207,
+        "genre": None,
     }
 
 
@@ -82,6 +83,7 @@ def test_embedded_metadata_wins_when_field_was_not_edited() -> None:
         "artist": "Real Artist",
         "album": "Real Album",
         "duration_seconds": 208,
+        "genre": None,
     }
 
 
@@ -112,4 +114,32 @@ def test_manual_metadata_wins_over_embedded_metadata() -> None:
         "artist": "Corrected Artist",
         "album": "Corrected Album",
         "duration_seconds": 210,
+        "genre": None,
     }
+
+
+def test_embedded_genre_is_preserved() -> None:
+    audio_metadata = load_audio_metadata_module()
+
+    assert audio_metadata is not None
+
+    result = audio_metadata.resolve_track_metadata(
+        submitted_title="Title",
+        submitted_artist="Artist",
+        submitted_album="Album",
+        submitted_duration_seconds=120,
+        title_edited=False,
+        artist_edited=False,
+        album_edited=False,
+        duration_edited=False,
+        embedded={
+            "title": "Title",
+            "artist": "Artist",
+            "album": "Album",
+            "duration_seconds": 120,
+            "genre": "Alternative",
+        },
+    )
+
+    assert result["genre"] == "Alternative"
+

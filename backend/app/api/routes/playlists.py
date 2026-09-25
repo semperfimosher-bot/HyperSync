@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, overload
 from uuid import UUID
 
 from fastapi import (
@@ -34,6 +34,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -126,6 +127,44 @@ class PlaylistTrackResponse(
     file_size: int | None = None
 
     media_version: str | None = None
+    artwork_version: str | None = None
+
+    added_at: datetime | None = None
+
+
+class LibraryTrackResponse(
+    BaseModel,
+):
+    id: UUID
+
+    title: str
+
+    artist: str
+
+    album: str | None
+
+    duration_seconds: int | None
+
+    audio_url: str | None = None
+
+    artwork_url: str | None = None
+
+    mime_type: str | None = None
+
+    file_size: int | None = None
+
+    media_version: str | None = None
+    artwork_version: str | None = None
+
+    created_at: datetime | None = None
+
+
+class LikedTrackStateResponse(
+    BaseModel,
+):
+    liked: bool
+
+    playlist_id: UUID | None = None
 
 
 class PlaylistSummaryResponse(
@@ -149,9 +188,15 @@ class PlaylistSummaryResponse(
 
     artwork_url: str | None = None
 
+    artwork_urls: list[str | None] = Field(
+        default_factory=list,
+    )
+
     is_owner: bool = False
 
     is_saved: bool = False
+
+    is_liked_songs: bool = False
 
     created_at: datetime
 
@@ -316,6 +361,41 @@ async def playlist_statistics(
     )
 
 
+async def playlist_artwork_urls(
+    session: DatabaseSession,
+    playlist_id: UUID,
+) -> list[str | None]:
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .join(
+            PlaylistTrack,
+            PlaylistTrack.track_id == Track.id,
+        )
+        .where(
+            PlaylistTrack.playlist_id == playlist_id,
+            Track.is_published.is_(
+                True,
+            ),
+        )
+        .order_by(
+            PlaylistTrack.position.asc(),
+            PlaylistTrack.created_at.asc(),
+        )
+        .limit(
+            4,
+        )
+    )
+
+    return [
+        _track_artwork_url(
+            track,
+        )
+        for track in result.scalars().all()
+    ]
+
+
 async def playlist_artwork_url(
     session: DatabaseSession,
     playlist_id: UUID,
@@ -374,9 +454,18 @@ async def serialize_playlist_summary(
         playlist,
     )
 
-    artwork_url = await playlist_artwork_url(
+    artwork_urls = await playlist_artwork_urls(
         session,
         playlist.id,
+    )
+
+    artwork_url = next(
+        (
+            artwork
+            for artwork in artwork_urls
+            if artwork
+        ),
+        None,
     )
 
     is_owner = bool(viewer is not None and viewer.id == playlist.owner_id)
@@ -385,6 +474,12 @@ async def serialize_playlist_summary(
         session,
         viewer,
         playlist.id,
+    )
+
+    is_liked_songs = bool(
+        playlist.owner_id is not None
+        and playlist.generated_key
+        == f"liked:{playlist.owner_id}"
     )
 
     return PlaylistSummaryResponse(
@@ -397,8 +492,10 @@ async def serialize_playlist_summary(
         track_count=(track_count),
         total_duration_seconds=(total_duration),
         artwork_url=(artwork_url),
+        artwork_urls=(artwork_urls),
         is_owner=is_owner,
         is_saved=is_saved,
+        is_liked_songs=is_liked_songs,
         created_at=(playlist.created_at),
         updated_at=(playlist.updated_at),
     )
@@ -432,6 +529,14 @@ def serialize_playlist_track(
             _track_media_version(
                 track,
             )
+        ),
+        artwork_version=(
+            _track_artwork_version(
+                track,
+            )
+        ),
+        added_at=(
+            playlist_track.created_at
         ),
     )
 
@@ -621,6 +726,129 @@ async def get_saved_playlists(
 
 
 @router.get(
+    "/library/tracks",
+    response_model=list[LibraryTrackResponse],
+)
+async def get_library_tracks(
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> list[LibraryTrackResponse]:
+    require_registered_user(
+        user,
+    )
+
+    owned_track_ids = (
+        select(
+            PlaylistTrack.track_id,
+        )
+        .join(
+            Playlist,
+            Playlist.id
+            == PlaylistTrack.playlist_id,
+        )
+        .where(
+            Playlist.owner_id
+            == user.id,
+        )
+    )
+
+    saved_track_ids = (
+        select(
+            PlaylistTrack.track_id,
+        )
+        .join(
+            SavedPlaylist,
+            SavedPlaylist.playlist_id
+            == PlaylistTrack.playlist_id,
+        )
+        .where(
+            SavedPlaylist.user_id
+            == user.id,
+        )
+    )
+
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            or_(
+                Track.id.in_(
+                    owned_track_ids,
+                ),
+                Track.id.in_(
+                    saved_track_ids,
+                ),
+            ),
+        )
+        .order_by(
+            func.lower(
+                Track.artist,
+            ).asc(),
+            func.lower(
+                func.coalesce(
+                    Track.album,
+                    "",
+                )
+            ).asc(),
+            func.lower(
+                Track.title,
+            ).asc(),
+            Track.id.asc(),
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    return [
+        LibraryTrackResponse(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            duration_seconds=(
+                track.duration_seconds
+            ),
+            audio_url=(
+                _track_audio_url(
+                    track,
+                )
+            ),
+            artwork_url=(
+                _track_artwork_url(
+                    track,
+                )
+            ),
+            mime_type=(
+                track.mime_type
+            ),
+            file_size=(
+                track.file_size
+            ),
+            media_version=(
+                _track_media_version(
+                    track,
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
+                    track,
+                )
+            ),
+            created_at=(
+                track.created_at
+            ),
+        )
+        for track in tracks
+    ]
+
+
+@router.get(
     "/search",
     response_model=list[PlaylistSummaryResponse],
 )
@@ -679,6 +907,274 @@ async def search_public_playlists(
         )
         for playlist in playlists
     ]
+
+
+@overload
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: Literal[True],
+) -> Playlist:
+    ...
+
+
+@overload
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: Literal[False] = False,
+) -> Playlist | None:
+    ...
+
+
+async def get_liked_playlist(
+    session: DatabaseSession,
+    user: User,
+    *,
+    create: bool = False,
+) -> Playlist | None:
+    liked_key = (
+        f"liked:{user.id}"
+    )
+
+    result = await session.execute(
+        select(
+            Playlist,
+        ).where(
+            Playlist.generated_key
+            == liked_key,
+            Playlist.owner_id
+            == user.id,
+        )
+    )
+
+    playlist = (
+        result.scalars()
+        .first()
+    )
+
+    if (
+        playlist is None
+        and create
+    ):
+        playlist = Playlist(
+            owner_id=user.id,
+            title="Liked Songs",
+            description=(
+                "Songs you like on HyperSync."
+            ),
+            visibility="private",
+            generated_key=liked_key,
+        )
+
+        session.add(
+            playlist,
+        )
+
+        await session.flush()
+
+    return playlist
+
+
+@router.get(
+    "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
+)
+async def get_liked_track_state(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> LikedTrackStateResponse:
+    require_registered_user(
+        user,
+    )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+        )
+    )
+
+    if playlist is None:
+        return LikedTrackStateResponse(
+            liked=False,
+            playlist_id=None,
+        )
+
+    result = await session.execute(
+        select(
+            PlaylistTrack.id,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    return LikedTrackStateResponse(
+        liked=(
+            result.scalar_one_or_none()
+            is not None
+        ),
+        playlist_id=playlist.id,
+    )
+
+
+@router.post(
+    "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
+)
+async def like_track(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> LikedTrackStateResponse:
+    require_registered_user(
+        user,
+    )
+
+    track = await session.get(
+        Track,
+        track_id,
+    )
+
+    if (
+        track is None
+        or not track.is_published
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail="Track not found.",
+        )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+            create=True,
+        )
+    )
+
+    existing = await session.execute(
+        select(
+            PlaylistTrack.id,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    if (
+        existing.scalar_one_or_none()
+        is None
+    ):
+        position_result = (
+            await session.execute(
+                select(
+                    func.coalesce(
+                        func.max(
+                            PlaylistTrack.position,
+                        ),
+                        -1,
+                    )
+                ).where(
+                    PlaylistTrack.playlist_id
+                    == playlist.id,
+                )
+            )
+        )
+
+        next_position = (
+            int(
+                position_result.scalar_one(),
+            )
+            + 1
+        )
+
+        session.add(
+            PlaylistTrack(
+                playlist_id=playlist.id,
+                track_id=track_id,
+                position=next_position,
+            )
+        )
+
+        await session.commit()
+
+    return LikedTrackStateResponse(
+        liked=True,
+        playlist_id=playlist.id,
+    )
+
+
+@router.delete(
+    "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
+)
+async def unlike_track(
+    track_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> LikedTrackStateResponse:
+    require_registered_user(
+        user,
+    )
+
+    playlist = (
+        await get_liked_playlist(
+            session,
+            user,
+        )
+    )
+
+    if playlist is None:
+        return LikedTrackStateResponse(
+            liked=False,
+            playlist_id=None,
+        )
+
+    result = await session.execute(
+        select(
+            PlaylistTrack,
+        ).where(
+            PlaylistTrack.playlist_id
+            == playlist.id,
+            PlaylistTrack.track_id
+            == track_id,
+        )
+    )
+
+    playlist_track = (
+        result.scalars()
+        .first()
+    )
+
+    if playlist_track is not None:
+        await session.delete(
+            playlist_track,
+        )
+
+        await session.flush()
+
+        await renumber_playlist_tracks(
+            session,
+            playlist.id,
+        )
+
+        await session.commit()
+
+    return LikedTrackStateResponse(
+        liked=False,
+        playlist_id=playlist.id,
+    )
 
 
 @router.post(

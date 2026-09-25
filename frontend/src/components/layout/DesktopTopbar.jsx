@@ -1,6 +1,5 @@
 import Icon from "../ui/Icon.jsx";
 import Avatar from "../profile/Avatar.jsx";
-
 import { PAGE_TITLES } from "../../constants.js";
 
 import {
@@ -12,12 +11,20 @@ function DesktopTopbar({
   activePage,
   searchQuery,
   onSearchChange,
+  onSearchFocus,
   currentUser,
   onNavigate,
   onOpenAuth,
 }) {
   const greetingName =
     getGreetingName(currentUser);
+
+  const isAdminPage =
+    String(
+      activePage ?? "",
+    ).startsWith(
+      "admin",
+    );
 
 
   function handleProfileClick() {
@@ -41,23 +48,51 @@ function DesktopTopbar({
       </div>
 
 
-      <label className="desktop-search">
-        <Icon
-          name="search"
-          size={18}
+      {isAdminPage ? (
+        <div
+          className="desktop-search-spacer"
+          aria-hidden="true"
         />
+      ) : (
+        <label className="desktop-search">
+          <Icon
+            name="search"
+            size={18}
+          />
 
-        <input
-          type="search"
-          value={searchQuery}
-          placeholder="Search songs, artists, albums or people..."
-          onChange={(event) => {
-            onSearchChange(
-              event.target.value,
-            );
-          }}
-        />
-      </label>
+          <input
+            type="search"
+            name="hypersync_global_search"
+            autoComplete="off"
+            enterKeyHint="search"
+            value={searchQuery}
+            placeholder="Search songs, artists, albums or people..."
+            data-1p-ignore="true"
+            data-lpignore="true"
+            onPointerDown={() => {
+              onSearchFocus?.();
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Tab" ||
+                event.key === "Shift" ||
+                event.key === "Control" ||
+                event.key === "Alt" ||
+                event.key === "Meta"
+              ) {
+                return;
+              }
+
+              onSearchFocus?.();
+            }}
+            onChange={(event) => {
+              onSearchChange(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+      )}
 
 
       <button

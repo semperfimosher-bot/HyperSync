@@ -53,9 +53,14 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    api_docs_enabled: bool = False
 
     database_url: str = ""
     migration_database_url: str = ""
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout_seconds: int = 10
+    db_command_timeout_seconds: int = 30
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -63,6 +68,27 @@ class Settings(BaseSettings):
     jwt_audience: str = "hypersync-web"
     access_token_ttl_minutes: int = 60
     refresh_token_ttl_days: int = 30
+
+    auth_login_rate_limit: int = 10
+    auth_login_rate_window_seconds: int = 300
+    auth_login_ip_rate_limit: int = 60
+    auth_register_rate_limit: int = 20
+    auth_register_rate_window_seconds: int = 3600
+    auth_admin_register_rate_limit: int = 5
+    auth_admin_register_rate_window_seconds: int = 900
+    auth_refresh_rate_limit: int = 120
+    auth_refresh_rate_window_seconds: int = 300
+
+    message_send_rate_limit: int = 60
+    message_send_rate_window_seconds: int = 60
+
+    web_push_vapid_public_key: str = ""
+    web_push_vapid_private_key: str = ""
+    web_push_vapid_subject: str = ""
+
+    admin_database_delete_password: str = ""
+
+    admin_account_creation_password: str = ""
 
     bot_jwt_secret: str = ""
     bot_jwt_audience: str = "hypersync-bot"
@@ -80,6 +106,14 @@ class Settings(BaseSettings):
     b2_profile_prefix: str = "profiles"
     b2_presigned_url_ttl_seconds: int = 86400
     b2_media_source_ttl_seconds: int = 300
+    b2_direct_upload_enabled: bool = True
+    b2_direct_upload_ttl_seconds: int = 300
+
+    audio_compression_enabled: bool = True
+    audio_compression_mp3_vbr_quality: int = 2
+    audio_compression_min_source_kbps: int = 224
+    audio_compression_min_savings_percent: int = 10
+    audio_compression_timeout_seconds: int = 180
 
     local_temp_root: str = "storage/temporary"
     local_upload_root: str = "storage/uploads"

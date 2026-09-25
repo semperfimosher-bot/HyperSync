@@ -11,6 +11,11 @@ import {
 } from "../../playerQueue.js";
 
 import {
+  isSameRightRailPlayerState,
+  selectRightRailPlayerState,
+} from "../../rightRailPlayerState.js";
+
+import {
   normalizeRightRailTab,
 } from "../../rightRailTabs.js";
 
@@ -24,23 +29,28 @@ import {
   TrackArtwork,
 } from "../ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
 
-function DesktopRightRail() {
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
+
+function DesktopRightRail({
+  currentUser,
+  onOpenAuth,
+}) {
+  const trackActionMenu =
+    useTrackActionMenu();
   const [
     state,
     setState,
-  ] = useState(() => ({
-  src: null,
-  artworkUrl: null,
-  title: "",
-  artist: "",
-  paused: true,
-  currentTime: 0,
-  duration: 0,
-
-  queue: [],
-  queueIndex: -1,
-}));
+  ] = useState(
+    () =>
+      selectRightRailPlayerState(
+        player.getState(),
+      ),
+  );
 
   const [
     activeTab,
@@ -52,8 +62,19 @@ function DesktopRightRail() {
     const unsubscribe =
       player.subscribe(
         (nextState) => {
+          const nextRailState =
+            selectRightRailPlayerState(
+              nextState,
+            );
+
           setState(
-            nextState,
+            (currentState) =>
+              isSameRightRailPlayerState(
+                currentState,
+                nextRailState,
+              )
+                ? currentState
+                : nextRailState,
           );
         },
       );
@@ -285,6 +306,40 @@ function DesktopRightRail() {
               key={
                 `${track.id}-${queueIndex}`
               }
+              {...trackActionMenu.getTriggerProps({
+                id:
+                  track.id,
+                title:
+                  track.meta?.title ??
+                  "",
+                artist:
+                  track.meta?.artist ??
+                  "",
+                album:
+                  track.meta?.album ??
+                  "",
+                audio_url:
+                  track.meta?.audioUrl ??
+                  null,
+                artwork_url:
+                  track.meta?.artworkUrl ??
+                  null,
+                mime_type:
+                  track.meta?.mimeType ??
+                  null,
+                file_size:
+                  track.meta?.fileSize ??
+                  null,
+                media_version:
+                  track.meta?.mediaVersion ??
+                  null,
+                artwork_version:
+                  track.meta?.artworkVersion ??
+                  null,
+                duration_seconds:
+                  track.meta?.durationSeconds ??
+                  null,
+              })}
               onClick={() => {
                 void player
                   .playQueueIndex(
@@ -333,9 +388,14 @@ function DesktopRightRail() {
                 </strong>
 
                 <small>
-                  {track.meta
-                    ?.artist ||
-                    "Unknown artist"}
+                  {[
+                    track.meta?.artist ||
+                      "Unknown artist",
+                    track.meta?.album ||
+                      "",
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
                 </small>
               </span>
 
@@ -370,6 +430,21 @@ function DesktopRightRail() {
         )}
 
       </div>
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
 
     </aside>
   );

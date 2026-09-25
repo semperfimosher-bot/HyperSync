@@ -16,7 +16,7 @@ const searchApiSource =
 
 
 test(
-  "search sort modes are displayed alphabetically",
+  "search exposes the configured sort modes in UI order",
   () => {
     const start =
       searchApiSource.indexOf(
@@ -56,10 +56,10 @@ test(
     assert.deepEqual(
       labels,
       [
-        "Alphabetical",
-        "Artist",
-        "Recently listened",
-        "Smart Search",
+        "Smart Sort",
+        "Recents",
+        "Albums",
+        "Alphabetical Order",
       ],
     );
   },

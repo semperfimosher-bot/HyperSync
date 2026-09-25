@@ -1015,6 +1015,41 @@
     pointer-events: auto;
   }
 
+  .player-bar__right {
+    display: flex;
+    min-width: 0;
+    justify-self: end;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  .desktop-player-notification-center {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .desktop-player-notification-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .desktop-player-notification-panel {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 12px);
+    z-index: 160;
+    width: min(330px, 80vw);
+    padding: 7px;
+    border: 1px solid rgba(61, 198, 238, 0.2);
+    border-radius: 11px;
+    background: rgba(3, 12, 18, 0.99);
+    box-shadow:
+      0 20px 50px
+      rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(20px);
+  }
+
   /* Buttons ABOVE progress bar */
 
   .desktop-player-controls {

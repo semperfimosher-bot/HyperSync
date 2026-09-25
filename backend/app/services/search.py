@@ -10,6 +10,7 @@ SearchSortMode = Literal[
     "smart",
     "recent",
     "alphabetical",
+    "albums",
     "artist",
 ]
 
@@ -33,6 +34,7 @@ SEARCH_SORT_MODES: tuple[
     "smart",
     "recent",
     "alphabetical",
+    "albums",
     "artist",
 )
 
@@ -700,6 +702,32 @@ def sort_track_rows(
                 str(
                     row.get(
                         "artist",
+                        "",
+                    )
+                ).casefold(),
+            ),
+        )
+
+    if mode == "albums":
+        return sorted(
+            rows,
+            key=lambda row: (
+                str(
+                    row.get(
+                        "album",
+                        "",
+                    )
+                    or ""
+                ).casefold(),
+                str(
+                    row.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold(),
+                str(
+                    row.get(
+                        "title",
                         "",
                     )
                 ).casefold(),

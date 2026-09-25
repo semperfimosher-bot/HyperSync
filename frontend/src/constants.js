@@ -2,6 +2,12 @@ export const NAV_ITEMS = [
   { id: "home", label: "Home", icon: "home" },
   { id: "search", label: "Search", icon: "search" },
   { id: "library", label: "Library", icon: "library" },
+  {
+    id: "messages",
+    label: "Messages",
+    icon: "mail",
+    requiresAuth: true,
+  },
   { id: "profile", label: "Profile", icon: "profile" },
 ];
 
@@ -71,6 +77,7 @@ export const PAGE_TITLES = {
   home: "Home",
   search: "Search",
   library: "My Library",
+  messages: "Messages",
   profile: "Profile",
 
   admin: "Admin Dashboard",
@@ -83,9 +90,9 @@ export const SEARCH_QUICK_COMMANDS = [
   {
     id: "find-people",
     label: "Find People",
-    query: "",
+    query: "find people",
     filter: "people",
-    focus: true,
+    focus: false,
   },
   {
     id: "most-played",

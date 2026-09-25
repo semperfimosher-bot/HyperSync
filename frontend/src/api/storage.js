@@ -15,6 +15,22 @@ const STORAGES = [
   sessionStorage,
 ];
 
+let memoryAccessToken =
+  null;
+
+/*
+ * Access tokens intentionally live only in
+ * JavaScript memory. The HttpOnly refresh
+ * cookie restores them after an online reload.
+ *
+ * Remove tokens written by older builds.
+ */
+for (const storage of STORAGES) {
+  storage.removeItem(
+    ACCESS_TOKEN_KEY,
+  );
+}
+
 export function getActiveStorage() {
   for (const storage of STORAGES) {
     if (
@@ -29,10 +45,7 @@ export function getActiveStorage() {
 }
 
 export function getAccessToken() {
-  return (
-    localStorage.getItem(ACCESS_TOKEN_KEY) ||
-    sessionStorage.getItem(ACCESS_TOKEN_KEY)
-  );
+  return memoryAccessToken;
 }
 
 export function hasStoredSession() {
@@ -112,10 +125,9 @@ export function saveAuthSession(
     ? sessionStorage
     : localStorage;
 
-  primary.setItem(
-    ACCESS_TOKEN_KEY,
-    accessToken,
-  );
+  memoryAccessToken =
+    accessToken ||
+    null;
 
   primary.setItem(
     SESSION_ACTIVE_KEY,
@@ -127,11 +139,21 @@ export function saveAuthSession(
     remember ? "true" : "false",
   );
 
-  secondary.removeItem(ACCESS_TOKEN_KEY);
-  secondary.removeItem(SESSION_ACTIVE_KEY);
+  for (const storage of STORAGES) {
+    storage.removeItem(
+      ACCESS_TOKEN_KEY,
+    );
+  }
+
+  secondary.removeItem(
+    SESSION_ACTIVE_KEY,
+  );
 }
 
 export function clearAuthSession() {
+  memoryAccessToken =
+    null;
+
   for (const storage of STORAGES) {
     storage.removeItem(ACCESS_TOKEN_KEY);
     storage.removeItem(SESSION_ACTIVE_KEY);

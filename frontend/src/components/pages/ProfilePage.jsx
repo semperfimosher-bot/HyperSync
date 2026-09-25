@@ -16,6 +16,18 @@ import SocialModal from "../profile/SocialModal.jsx";
 import Icon from "../ui/Icon.jsx";
 import TrackArtwork from "../ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
+
+import CollectionActionMenu from
+  "../music/CollectionActionMenu.jsx";
+
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
+import useCollectionActionMenu from
+  "../../hooks/useCollectionActionMenu.js";
+
 
 function memberFor(value) {
   if (!value) {
@@ -109,7 +121,15 @@ export default function ProfilePage({
   onSearchArtist,
   onOpenProfile,
   onProfileUpdated,
+  installState,
+  onInstallApp,
 }) {
+  const trackActionMenu =
+    useTrackActionMenu();
+
+  const collectionActionMenu =
+    useCollectionActionMenu();
+
   const [profile, setProfile] =
     useState(null);
 
@@ -404,6 +424,9 @@ export default function ProfilePage({
                   className="hs-recent-card"
                   type="button"
                   key={track.id}
+                  {...trackActionMenu.getTriggerProps(
+                    track,
+                  )}
                   onClick={() => {
                     player.playTrack(
           track.id,
@@ -518,6 +541,32 @@ export default function ProfilePage({
                   type="button"
                   className="hs-artist-row"
                   key={artist.artist}
+                  {...collectionActionMenu.getTriggerProps({
+                    key:
+                      `artist:${artist.artist}`,
+                    kind:
+                      "artist",
+                    title:
+                      artist.artist,
+                    subtitle:
+                      "Artist",
+                    actions: [
+                      {
+                        id:
+                          "open",
+                        label:
+                          "Open artist",
+                        icon:
+                          "music",
+                        onSelect:
+                          () => {
+                            onSearchArtist?.(
+                              artist.artist,
+                            );
+                          },
+                      },
+                    ],
+                  })}
                   onClick={() => {
                     onSearchArtist?.(
                       artist.artist,
@@ -582,6 +631,56 @@ export default function ProfilePage({
         </header>
 
         <div className="hs-account-actions">
+          <button
+            type="button"
+            className="hs-install-app-control"
+            onClick={
+              onInstallApp
+            }
+            disabled={
+              installState?.installed ||
+              installState?.preparing
+            }
+          >
+            <Icon
+              name={
+                installState?.installed
+                  ? "downloaded"
+                  : "download"
+              }
+              size={18}
+            />
+
+            <span>
+              <strong>
+                {installState?.installed
+                  ? "HyperSynced Installed"
+                  : installState?.preparing
+                    ? "Preparing Offline App..."
+                    : "Install HyperSynced"}
+              </strong>
+
+              <small>
+                {installState?.installed
+                  ? "Offline app is ready"
+                  : installState?.preparing
+                    ? "Downloading the app system and offline shell"
+                    : installState?.systemReady
+                      ? "Offline system ready — install the app"
+                      : "Download the system and install the app"}
+              </small>
+            </span>
+
+            <Icon
+              name={
+                installState?.installed
+                  ? "check"
+                  : "chevron"
+              }
+              size={15}
+            />
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -670,6 +769,31 @@ export default function ProfilePage({
 }}
         />
       ) : null}
+
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
+
+      <CollectionActionMenu
+        menu={
+          collectionActionMenu.menu
+        }
+        onClose={
+          collectionActionMenu.closeMenu
+        }
+      />
 
 
       {socialMode ? (

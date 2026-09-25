@@ -7,9 +7,11 @@ asyncpg==0.31.0
 alembic==1.18.5
 httpx==0.28.1
 pwdlib[argon2]==0.3.0
-PyJWT==2.13.0
+PyJWT==2.15.0
 email-validator==2.3.0
 boto3==1.43.71
 b2sdk==2.12.0
 mutagen==1.46.0
 aiosqlite==0.22.1
+
+pywebpush==2.5.0

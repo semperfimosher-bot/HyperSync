@@ -44,6 +44,229 @@ let offlineDatabasePromise =
   null;
 
 
+async function closeOpenMediaDatabases() {
+  const pending = [
+    databasePromise,
+    offlineDatabasePromise,
+  ].filter(Boolean);
+
+  for (const promise of pending) {
+    try {
+      const database =
+        await promise;
+
+      database?.close?.();
+    } catch {
+      // A failed/opening database has
+      // nothing useful to close.
+    }
+  }
+
+  databasePromise =
+    null;
+
+  offlineDatabasePromise =
+    null;
+}
+
+
+function deleteIndexedDatabase(
+  name,
+) {
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      if (
+        typeof indexedDB ===
+        "undefined"
+      ) {
+        resolve(false);
+
+        return;
+      }
+
+      const request =
+        indexedDB.deleteDatabase(
+          name,
+        );
+
+      request.onsuccess =
+        () => {
+          resolve(true);
+        };
+
+      request.onerror =
+        () => {
+          reject(
+            request.error ??
+              new Error(
+                `Unable to delete IndexedDB database: ${name}`,
+              ),
+          );
+        };
+
+      request.onblocked =
+        () => {
+          reject(
+            new Error(
+              `IndexedDB deletion was blocked: ${name}`,
+            ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function clearAllMediaDatabases() {
+  if (
+    typeof indexedDB ===
+    "undefined"
+  ) {
+    return [];
+  }
+
+  await closeOpenMediaDatabases();
+
+  const knownNames = new Set([
+    MEDIA_DATABASE_NAME,
+    OFFLINE_DATABASE_NAME,
+  ]);
+
+  if (
+    typeof indexedDB.databases ===
+    "function"
+  ) {
+    try {
+      const databases =
+        await indexedDB.databases();
+
+      for (const database of databases) {
+        if (
+          database?.name &&
+          String(
+            database.name,
+          ).startsWith(
+            "hypersync",
+          )
+        ) {
+          knownNames.add(
+            database.name,
+          );
+        }
+      }
+    } catch {
+      // Fall back to known HyperSync DBs.
+    }
+  }
+
+  const deleted = [];
+
+  for (const name of knownNames) {
+    try {
+      await deleteIndexedDatabase(
+        name,
+      );
+
+      deleted.push(
+        name,
+      );
+    } catch {
+      /*
+       * Another context (typically the
+       * service worker) may still hold a
+       * handle. The caller can ask that
+       * context to close and retry.
+       */
+    }
+  }
+
+  return deleted;
+}
+
+
+function openCompatibleDatabase({
+  name,
+  preferredVersion,
+  onUpgrade,
+  errorMessage,
+}) {
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const startOpen =
+        (
+          usePreferredVersion,
+        ) => {
+          const request =
+            usePreferredVersion
+              ? indexedDB.open(
+                  name,
+                  preferredVersion,
+                )
+              : indexedDB.open(
+                  name,
+                );
+
+          request.onupgradeneeded =
+            () => {
+              onUpgrade?.(
+                request.result,
+                request.transaction,
+              );
+            };
+
+          request.onsuccess =
+            () => {
+              resolve(
+                request.result,
+              );
+            };
+
+          request.onerror =
+            (event) => {
+              if (
+                usePreferredVersion &&
+                request.error?.name ===
+                  "VersionError"
+              ) {
+                /*
+                 * A user may already have a newer
+                 * database from an earlier feature
+                 * build. IndexedDB never permits a
+                 * downgrade, so preserve that data
+                 * and open the existing schema as-is.
+                 */
+                event.preventDefault?.();
+
+                startOpen(
+                  false,
+                );
+
+                return;
+              }
+
+              reject(
+                request.error ??
+                  new Error(
+                    errorMessage,
+                  ),
+              );
+            };
+        };
+
+      startOpen(
+        true,
+      );
+    },
+  );
+}
+
+
 export function buildMediaCacheKey(
   trackId,
   mediaVersion,
@@ -119,6 +342,9 @@ export function createMediaRecord({
     cachedBytes: 0,
     lastPlayedAt: null,
     expiresAt: null,
+    warmUntil: null,
+    warmByteStart: null,
+    warmByteEnd: null,
   };
 }
 
@@ -139,92 +365,75 @@ function openMediaDatabase() {
   }
 
   databasePromise =
-    new Promise(
-      (
-        resolve,
-        reject,
+    openCompatibleDatabase({
+      name:
+        MEDIA_DATABASE_NAME,
+      preferredVersion:
+        MEDIA_DATABASE_VERSION,
+      errorMessage:
+        "Unable to open media database.",
+      onUpgrade: (
+        database,
       ) => {
-        const request =
-          indexedDB.open(
-            MEDIA_DATABASE_NAME,
-            MEDIA_DATABASE_VERSION,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_RECORD_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_RECORD_STORE,
+            {
+              keyPath: "key",
+            },
           );
+        }
 
-        request.onupgradeneeded =
-          () => {
-            const database =
-              request.result;
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_RECORD_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_RECORD_STORE,
-                {
-                  keyPath: "key",
-                },
-              );
-            }
-                if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_CHUNK_STORE,
-                )
-            ) {
-              const chunkStore =
-                database.createObjectStore(
-                  MEDIA_CHUNK_STORE,
-                  {
-                    keyPath: "key",
-                  },
-                );
-
-              chunkStore.createIndex(
-                "mediaKey",
-                "mediaKey",
-                {
-                  unique: false,
-                },
-              );
-            }
-
-          };
-
-        request.onsuccess =
-          () => {
-            const database =
-              request.result;
-
-            database.onversionchange =
-              () => {
-                database.close();
-
-                databasePromise =
-                  null;
-              };
-
-            resolve(
-              database,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_CHUNK_STORE,
+            )
+        ) {
+          const chunkStore =
+            database.createObjectStore(
+              MEDIA_CHUNK_STORE,
+              {
+                keyPath: "key",
+              },
             );
-          };
 
-        request.onerror =
-          () => {
-            databasePromise =
-              null;
-
-            reject(
-              request.error ??
-                new Error(
-                  "Unable to open media database.",
-                ),
-            );
-          };
+          chunkStore.createIndex(
+            "mediaKey",
+            "mediaKey",
+            {
+              unique: false,
+            },
+          );
+        }
       },
-    );
+    })
+      .then(
+        (database) => {
+          database.onversionchange =
+            () => {
+              database.close();
+
+              databasePromise =
+                null;
+            };
+
+          return database;
+        },
+      )
+      .catch(
+        (error) => {
+          databasePromise =
+            null;
+
+          throw error;
+        },
+      );
 
   return databasePromise;
 }
@@ -247,97 +456,80 @@ function openOfflineDatabase() {
   }
 
   offlineDatabasePromise =
-    new Promise(
-      (
-        resolve,
-        reject,
+    openCompatibleDatabase({
+      name:
+        OFFLINE_DATABASE_NAME,
+      preferredVersion:
+        OFFLINE_DATABASE_VERSION,
+      errorMessage:
+        "Unable to open offline metadata database.",
+      onUpgrade: (
+        database,
       ) => {
-        const request =
-          indexedDB.open(
-            OFFLINE_DATABASE_NAME,
-            OFFLINE_DATABASE_VERSION,
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_ARTWORK_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_ARTWORK_STORE,
+            {
+              keyPath: "trackId",
+            },
           );
+        }
 
-        request.onupgradeneeded =
-          () => {
-            const database =
-              request.result;
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_DOWNLOAD_JOB_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_DOWNLOAD_JOB_STORE,
+            {
+              keyPath: "id",
+            },
+          );
+        }
 
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_ARTWORK_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_ARTWORK_STORE,
-                {
-                  keyPath: "trackId",
-                },
-              );
-            }
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_DOWNLOAD_JOB_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_DOWNLOAD_JOB_STORE,
-                {
-                  keyPath: "id",
-                },
-              );
-            }
-
-            if (
-              !database.objectStoreNames
-                .contains(
-                  MEDIA_LYRICS_STORE,
-                )
-            ) {
-              database.createObjectStore(
-                MEDIA_LYRICS_STORE,
-                {
-                  keyPath: "trackId",
-                },
-              );
-            }
-          };
-
-        request.onsuccess =
-          () => {
-            const database =
-              request.result;
-
-            database.onversionchange =
-              () => {
-                database.close();
-
-                offlineDatabasePromise =
-                  null;
-              };
-
-            resolve(
-              database,
-            );
-          };
-
-        request.onerror =
-          () => {
-            offlineDatabasePromise =
-              null;
-
-            reject(
-              request.error ??
-                new Error(
-                  "Unable to open offline metadata database.",
-                ),
-            );
-          };
+        if (
+          !database.objectStoreNames
+            .contains(
+              MEDIA_LYRICS_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            MEDIA_LYRICS_STORE,
+            {
+              keyPath: "trackId",
+            },
+          );
+        }
       },
-    );
+    })
+      .then(
+        (database) => {
+          database.onversionchange =
+            () => {
+              database.close();
+
+              offlineDatabasePromise =
+                null;
+            };
+
+          return database;
+        },
+      )
+      .catch(
+        (error) => {
+          offlineDatabasePromise =
+            null;
+
+          throw error;
+        },
+      );
 
   return offlineDatabasePromise;
 }
@@ -639,6 +831,134 @@ export async function markMediaPlayed(
     },
   );
 }
+
+export async function markMediaWarm(
+  trackId,
+  mediaVersion,
+  {
+    warmUntil,
+    byteStart = null,
+    byteEnd = null,
+  } = {},
+) {
+  if (
+    !Number.isSafeInteger(
+      warmUntil,
+    ) ||
+    warmUntil < 0
+  ) {
+    throw new RangeError(
+      "Media warm-until time must be a non-negative safe integer.",
+    );
+  }
+
+  const mediaKey =
+    buildMediaCacheKey(
+      trackId,
+      mediaVersion,
+    );
+
+  if (!mediaKey) {
+    return null;
+  }
+
+  const database =
+    await openMediaDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          MEDIA_RECORD_STORE,
+          "readwrite",
+        );
+
+      const mediaStore =
+        transaction.objectStore(
+          MEDIA_RECORD_STORE,
+        );
+
+      let updatedRecord =
+        null;
+
+      const request =
+        mediaStore.get(
+          mediaKey,
+        );
+
+      request.onsuccess =
+        () => {
+          const existing =
+            request.result ??
+            null;
+
+          if (!existing) {
+            return;
+          }
+
+          updatedRecord = {
+            ...existing,
+
+            warmUntil,
+
+            warmByteStart:
+              Number.isSafeInteger(
+                byteStart,
+              )
+                ? byteStart
+                : null,
+
+            warmByteEnd:
+              Number.isSafeInteger(
+                byteEnd,
+              )
+                ? byteEnd
+                : null,
+          };
+
+          mediaStore.put(
+            updatedRecord,
+          );
+        };
+
+      request.onerror =
+        () => {
+          transaction.abort();
+        };
+
+      transaction.oncomplete =
+        () => {
+          resolve(
+            updatedRecord,
+          );
+        };
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to update media warm state.",
+              ),
+          );
+        };
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Media warm-state update was aborted.",
+              ),
+          );
+        };
+    },
+  );
+}
+
 
 export async function saveMediaChunk({
   trackId,
@@ -1169,9 +1489,17 @@ export async function cleanupExpiredMedia(
               record.state ===
               "PINNED";
 
+            const isWarm =
+              Number.isSafeInteger(
+                record.warmUntil,
+              ) &&
+              record.warmUntil >
+                now;
+
             if (
               !isExpired ||
-              isPinned
+              isPinned ||
+              isWarm
             ) {
               continue;
             }
@@ -1300,6 +1628,104 @@ export async function getPinnedMediaRecords() {
         };
     },
   );
+}
+
+
+export function getMediaPinReferences(
+  record,
+) {
+  if (
+    !Array.isArray(
+      record?.pinRefs,
+    )
+  ) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      record.pinRefs
+        .map(
+          (value) =>
+            String(
+              value ?? "",
+            ).trim(),
+        )
+        .filter(Boolean),
+    ),
+  ];
+}
+
+
+export async function addMediaPinReference(
+  trackId,
+  mediaVersion,
+  pinRef,
+) {
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (!normalizedPinRef) {
+    return getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+  }
+
+  const existing =
+    await getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+
+  if (!existing) {
+    return null;
+  }
+
+  const pinRefs =
+    getMediaPinReferences(
+      existing,
+    );
+
+  if (
+    pinRefs.includes(
+      normalizedPinRef,
+    ) &&
+    existing.state ===
+      "PINNED" &&
+    existing.expiresAt ===
+      null
+  ) {
+    return existing;
+  }
+
+  const updated = {
+    ...existing,
+    state:
+      "PINNED",
+    expiresAt:
+      null,
+    pinRefs: [
+      ...pinRefs,
+      ...(
+        pinRefs.includes(
+          normalizedPinRef,
+        )
+          ? []
+          : [
+              normalizedPinRef,
+            ]
+      ),
+    ],
+  };
+
+  await saveMediaRecord(
+    updated,
+  );
+
+  return updated;
 }
 
 
@@ -1768,6 +2194,7 @@ export async function deleteDownloadJob(
 export async function removeDownloadedMedia(
   trackId,
   mediaVersion,
+  pinRef = null,
 ) {
   const mediaKey =
     buildMediaCacheKey(
@@ -1778,6 +2205,61 @@ export async function removeDownloadedMedia(
 
   if (!mediaKey) {
     return false;
+  }
+
+
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (normalizedPinRef) {
+    const existing =
+      await getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    if (!existing) {
+      return false;
+    }
+
+    const pinRefs =
+      getMediaPinReferences(
+        existing,
+      );
+
+    if (
+      !pinRefs.includes(
+        normalizedPinRef,
+      )
+    ) {
+      return false;
+    }
+
+    const remainingPinRefs =
+      pinRefs.filter(
+        (value) =>
+          value !==
+          normalizedPinRef,
+      );
+
+    if (
+      remainingPinRefs.length >
+      0
+    ) {
+      await saveMediaRecord({
+        ...existing,
+        state:
+          "PINNED",
+        expiresAt:
+          null,
+        pinRefs:
+          remainingPinRefs,
+      });
+
+      return true;
+    }
   }
 
 

@@ -5,7 +5,7 @@ from contextlib import (
     suppress,
 )
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.router import api_router
@@ -15,8 +15,12 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
+from .services.message_retention import (
+    cleanup_expired_messages,
+)
 
 DATABASE_KEEPALIVE_SECONDS = 240.0
+MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
 
 
 async def keep_database_warm() -> None:
@@ -33,6 +37,19 @@ async def keep_database_warm() -> None:
             continue
 
 
+async def run_message_retention_cleanup() -> None:
+    while True:
+        try:
+            await cleanup_expired_messages()
+        except Exception:
+            # Retention cleanup must never take down the API.
+            pass
+
+        await asyncio.sleep(
+            MESSAGE_RETENTION_CLEANUP_SECONDS,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await ensure_demo_data()
@@ -45,15 +62,25 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         keep_database_warm(),
     )
 
+    retention_task = asyncio.create_task(
+        run_message_retention_cleanup(),
+    )
+
     try:
         yield
     finally:
         keepalive_task.cancel()
+        retention_task.cancel()
 
         with suppress(
             asyncio.CancelledError,
         ):
             await keepalive_task
+
+        with suppress(
+            asyncio.CancelledError,
+        ):
+            await retention_task
 
         await close_database()
 
@@ -64,6 +91,17 @@ app = FastAPI(
     title=f"{settings.app_name} API",
     version=settings.app_version,
     lifespan=lifespan,
+    docs_url=(
+        "/docs"
+        if settings.api_docs_enabled
+        else None
+    ),
+    redoc_url=None,
+    openapi_url=(
+        "/openapi.json"
+        if settings.api_docs_enabled
+        else None
+    ),
 )
 
 app.add_middleware(
@@ -77,10 +115,60 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.middleware("http")
+async def security_headers(
+    request: Request,
+    call_next,
+):
+    response = await call_next(
+        request,
+    )
+
+    response.headers[
+        "X-Content-Type-Options"
+    ] = "nosniff"
+
+    response.headers[
+        "X-Frame-Options"
+    ] = "DENY"
+
+    response.headers[
+        "Referrer-Policy"
+    ] = "strict-origin-when-cross-origin"
+
+    response.headers[
+        "Permissions-Policy"
+    ] = (
+        "camera=(), microphone=(), "
+        "geolocation=(), payment=()"
+    )
+
+    response.headers[
+        "Content-Security-Policy"
+    ] = (
+        "frame-ancestors 'none'; "
+        "base-uri 'none'"
+    )
+
+    if settings.environment == "production":
+        response.headers[
+            "Strict-Transport-Security"
+        ] = (
+            "max-age=31536000; "
+            "includeSubDomains"
+        )
+
+    return response
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     return {
         "application": settings.app_name,
         "status": "online",
-        "documentation": "/docs",
+        "documentation": (
+            "/docs"
+            if settings.api_docs_enabled
+            else "disabled"
+        ),
     }

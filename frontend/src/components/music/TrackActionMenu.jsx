@@ -7,11 +7,18 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
+  addLikedTrackOfflinePin,
   downloadTrackForOffline,
+  getLikedSongsDownloadPinRef,
+  getManualDownloadPinRef,
+  getOfflineOwnerKey,
+  isTrackDownloaded,
+  removeLikedTrackFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
   addTrackToPlaylist,
+  getLibraryTrack,
   getLikedTrackState,
   getMyPlaylists,
   likeTrack,
@@ -54,11 +61,24 @@ function playerTrack(
       track.mediaVersion ??
       null,
 
+    artworkVersion:
+      track.artwork_version ??
+      track.artworkVersion ??
+      null,
+
+    durationSeconds:
+      track.duration_seconds ??
+      track.durationSeconds ??
+      null,
+
     title:
       track.title ?? "",
 
     artist:
       track.artist ?? "",
+
+    album:
+      track.album ?? "",
   };
 }
 
@@ -109,6 +129,13 @@ export default function TrackActionMenu({
     false,
   );
 
+  const [
+    downloaded,
+    setDownloaded,
+  ] = useState(
+    false,
+  );
+
   const track =
     menu?.track ??
     null;
@@ -116,6 +143,21 @@ export default function TrackActionMenu({
   const isRegistered =
     currentUser?.account_type ===
     "registered";
+
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
+
+  const manualDownloadPinRef =
+    getManualDownloadPinRef(
+      offlineOwnerKey,
+    );
+
+  const likedSongsDownloadPinRef =
+    getLikedSongsDownloadPinRef(
+      offlineOwnerKey,
+    );
 
 
   useEffect(() => {
@@ -128,6 +170,12 @@ export default function TrackActionMenu({
     setBusy("");
 
     setLiked(false);
+
+    setDownloaded(
+      Boolean(
+        track?.downloaded,
+      ),
+    );
   }, [
     track?.id,
   ]);
@@ -163,6 +211,30 @@ export default function TrackActionMenu({
         () => {},
       );
 
+    if (offlineOwnerKey) {
+      void isTrackDownloaded(
+        track,
+        {
+          ownerKey:
+            offlineOwnerKey,
+        },
+      )
+        .then(
+          (value) => {
+            if (!cancelled) {
+              setDownloaded(
+                Boolean(
+                  value,
+                ),
+              );
+            }
+          },
+        )
+        .catch(
+          () => {},
+        );
+    }
+
     return () => {
       cancelled =
         true;
@@ -171,6 +243,9 @@ export default function TrackActionMenu({
     menu,
     track?.id,
     isRegistered,
+    likedSongsDownloadPinRef,
+    manualDownloadPinRef,
+    offlineOwnerKey,
   ]);
 
 
@@ -290,6 +365,12 @@ export default function TrackActionMenu({
       setNotice(
         `Added to ${playlist.title}`,
       );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "hypersync:library-changed",
+        ),
+      );
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -323,6 +404,44 @@ export default function TrackActionMenu({
 
         setLiked(false);
 
+        if (offlineOwnerKey) {
+          await removeLikedTrackFromOffline(
+            track,
+            offlineOwnerKey,
+          ).catch(
+            () => false,
+          );
+
+          const stillDownloaded =
+            await isTrackDownloaded(
+              track,
+              {
+                ownerKey:
+                  offlineOwnerKey,
+              },
+            ).catch(
+              () => downloaded,
+            );
+
+          setDownloaded(
+            Boolean(
+              stillDownloaded,
+            ),
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "hypersync:offline-downloads-changed",
+            ),
+          );
+        }
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+
         setNotice(
           "Removed from Liked Songs",
         );
@@ -333,8 +452,49 @@ export default function TrackActionMenu({
 
         setLiked(true);
 
-        setNotice(
-          "Added to Liked Songs",
+        try {
+          const canonicalTrack =
+            await getLibraryTrack(
+              track.id,
+            );
+
+          await downloadTrackForOffline(
+            canonicalTrack ??
+              track,
+            {
+              pinRef:
+                likedSongsDownloadPinRef,
+            },
+          );
+
+          setDownloaded(
+            true,
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "hypersync:offline-downloads-changed",
+            ),
+          );
+
+          setNotice(
+            "Added to Liked Songs • available offline",
+          );
+        } catch (downloadError) {
+          setNotice(
+            downloadError instanceof Error
+              ? (
+                  "Added to Liked Songs, but offline download failed: " +
+                  downloadError.message
+                )
+              : "Added to Liked Songs, but offline download failed.",
+          );
+        }
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
         );
       }
     } catch (error) {
@@ -350,19 +510,80 @@ export default function TrackActionMenu({
 
 
   async function downloadTrack() {
+    if (downloaded) {
+      return;
+    }
+
     setBusy(
       "download",
     );
 
     setNotice("");
 
+    let addedToLikedSongs =
+      false;
+
     try {
+      /*
+       * Individual downloads are Library music.
+       * Add the track to Liked Songs first so
+       * Artists/Albums update immediately and
+       * the download never becomes orphaned
+       * from the user's Library index.
+       */
+      if (!liked) {
+        await likeTrack(
+          track.id,
+        );
+
+        setLiked(
+          true,
+        );
+
+        addedToLikedSongs =
+          true;
+      }
+
+      const canonicalTrack =
+        await getLibraryTrack(
+          track.id,
+        );
+
+      const offlineTrack =
+        canonicalTrack ??
+        track;
+
       await downloadTrackForOffline(
-        track,
+        offlineTrack,
+        {
+          pinRef:
+            manualDownloadPinRef,
+        },
+      );
+
+      /*
+       * A manual download also lives in
+       * Liked Songs, so give the same cached
+       * media an independent Liked Songs pin.
+       * This adds no second network download.
+       */
+      await addLikedTrackOfflinePin(
+        offlineTrack,
+        offlineOwnerKey,
+      );
+
+      setDownloaded(
+        true,
       );
 
       setNotice(
         "Available offline",
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "hypersync:offline-downloads-changed",
+        ),
       );
     } catch (error) {
       setNotice(
@@ -371,6 +592,16 @@ export default function TrackActionMenu({
           : "Unable to download song.",
       );
     } finally {
+      if (
+        addedToLikedSongs
+      ) {
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+      }
+
       setBusy("");
     }
   }
@@ -566,14 +797,14 @@ export default function TrackActionMenu({
               type="button"
               role="menuitem"
               onClick={() => {
-                player.addTrackToQueue(
+                player.playTrackNext(
                   playerTrack(
                     track,
                   ),
                 );
 
                 setNotice(
-                  "Added to queue",
+                  "Will play next",
                 );
               }}
             >
@@ -585,7 +816,7 @@ export default function TrackActionMenu({
               </span>
 
               <span>
-                Add to queue
+                Play next
               </span>
             </button>
 
@@ -615,44 +846,101 @@ export default function TrackActionMenu({
             </button>
 
 
+            {menu.contextActions?.length > 0 ? (
+              <>
+                <div className="track-action-menu__divider" />
+
+                {menu.contextActions.map(
+                  (action) => (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      key={action.id}
+                      disabled={
+                        Boolean(
+                          action.disabled,
+                        )
+                      }
+                      className={
+                        action.danger
+                          ? "track-action-menu__danger"
+                          : ""
+                      }
+                      onClick={() => {
+                        onClose();
+
+                        void Promise
+                          .resolve(
+                            action.onSelect?.(
+                              track,
+                            ),
+                          )
+                          .catch(
+                            () => {},
+                          );
+                      }}
+                    >
+                      <span className="track-action-icon">
+                        <Icon
+                          name={
+                            action.icon ||
+                            "close"
+                          }
+                          size={15}
+                        />
+                      </span>
+
+                      <span>
+                        {action.label}
+                      </span>
+                    </button>
+                  ),
+                )}
+              </>
+            ) : null}
+
+
             <div className="track-action-menu__divider" />
 
 
+            {!menu.hideLikeAction ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={
+                  busy === "like"
+                }
+                onClick={() => {
+                  void toggleLike();
+                }}
+              >
+                <span className="track-action-icon">
+                  <Icon
+                    name={
+                      liked
+                        ? "check"
+                        : "heart"
+                    }
+                    size={15}
+                  />
+                </span>
+
+                <span>
+                  {liked
+                    ? "Remove from Liked Songs"
+                    : "Add to Liked Songs"}
+                </span>
+              </button>
+            ) : null}
+
+
             <button
               type="button"
               role="menuitem"
               disabled={
-                busy === "like"
-              }
-              onClick={() => {
-                void toggleLike();
-              }}
-            >
-              <span className="track-action-icon">
-                <Icon
-                  name={
-                    liked
-                      ? "check"
-                      : "heart"
-                  }
-                  size={15}
-                />
-              </span>
-
-              <span>
-                {liked
-                  ? "Remove from Liked Songs"
-                  : "Add to Liked Songs"}
-              </span>
-            </button>
-
-
-            <button
-              type="button"
-              role="menuitem"
-              disabled={
+                downloaded ||
                 busy ===
-                "download"
+                  "download"
               }
               onClick={() => {
                 void downloadTrack();
@@ -660,13 +948,19 @@ export default function TrackActionMenu({
             >
               <span className="track-action-icon">
                 <Icon
-                  name="download"
+                  name={
+                    downloaded
+                      ? "check"
+                      : "download"
+                  }
                   size={15}
                 />
               </span>
 
               <span>
-                Download for offline
+                {downloaded
+                  ? "Downloaded for offline"
+                  : "Download for offline"}
               </span>
             </button>
 

@@ -147,6 +147,28 @@ export function mergeEmbeddedMetadata(
       embeddedAlbum
         ? embeddedAlbum
         : initialMetadata.album,
+
+    genre:
+      cleanEmbeddedValue(
+        embedded.genre,
+      ),
+
+    bitrateKbps:
+      Number.isFinite(
+        embedded.bitrateKbps,
+      )
+        ? embedded.bitrateKbps
+        : null,
+
+    artworkBlob:
+      embedded.artworkBlob ??
+      null,
+
+    artworkMimeType:
+      cleanEmbeddedValue(
+        embedded
+          .artworkMimeType,
+      ),
   };
 }
 
@@ -158,6 +180,10 @@ export async function readEmbeddedAudioMetadata(
     title: "",
     artist: "",
     album: "",
+    genre: "",
+    bitrateKbps: null,
+    artworkBlob: null,
+    artworkMimeType: "",
   };
 
   if (!file) {
@@ -181,16 +207,62 @@ export async function readEmbeddedAudioMetadata(
         file,
         {
           /*
-           * The upload preview only needs
-           * textual metadata. Artwork is
-           * still handled by the backend.
+           * One metadata pass feeds both the
+           * preview and the optional direct-B2
+           * fast path. Keeping the embedded
+           * cover here avoids sending the whole
+           * audio file through the API just to
+           * extract artwork.
            */
-          skipCovers: true,
+          skipCovers: false,
         },
       );
 
     const common =
       metadata?.common ?? {};
+
+    const picture =
+      Array.isArray(
+        common.picture,
+      )
+        ? common.picture[0]
+        : null;
+
+    const artworkMimeType =
+      cleanEmbeddedValue(
+        picture?.format,
+      );
+
+    const artworkBlob =
+      picture?.data &&
+      artworkMimeType
+        ? new Blob(
+            [
+              picture.data,
+            ],
+            {
+              type:
+                artworkMimeType,
+            },
+          )
+        : null;
+
+    const genre =
+      Array.isArray(
+        common.genre,
+      )
+        ? cleanEmbeddedValue(
+            common.genre[0],
+          )
+        : cleanEmbeddedValue(
+            common.genre,
+          );
+
+    const bitrate =
+      Number(
+        metadata?.format
+          ?.bitrate,
+      );
 
     return {
       title:
@@ -207,6 +279,19 @@ export async function readEmbeddedAudioMetadata(
         cleanEmbeddedValue(
           common.album,
         ),
+
+      genre,
+
+      bitrateKbps:
+        Number.isFinite(
+          bitrate,
+        ) &&
+        bitrate > 0
+          ? bitrate / 1000
+          : null,
+
+      artworkBlob,
+      artworkMimeType,
     };
   } catch {
     /*
@@ -346,6 +431,24 @@ const metadata =
     embeddedMetadata,
   );
 
+  const estimatedBitrateKbps =
+    Number.isFinite(
+      metadata.bitrateKbps,
+    ) &&
+    metadata.bitrateKbps > 0
+      ? metadata.bitrateKbps
+      : (
+          duration > 0 &&
+          file.size > 0
+            ? (
+                file.size *
+                8 /
+                duration /
+                1000
+              )
+            : null
+        );
+
   return {
     id:
       crypto.randomUUID(),
@@ -353,6 +456,9 @@ const metadata =
     file,
 
     ...metadata,
+
+    bitrateKbps:
+      estimatedBitrateKbps,
 
     duration,
 

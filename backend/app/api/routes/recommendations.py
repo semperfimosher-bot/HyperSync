@@ -19,6 +19,7 @@ from ..dependencies import (
 )
 from .catalog import (
     _track_artwork_url,
+    _track_artwork_version,
     _track_audio_url,
     _track_media_version,
 )
@@ -43,6 +44,13 @@ class AutoplayRequest(
     ] = Field(
         default_factory=list,
         max_length=100,
+    )
+
+    context_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=12,
     )
 
     limit: int = Field(
@@ -72,6 +80,7 @@ class AutoplayTrackResponse(
     file_size: int | None
 
     media_version: str | None
+    artwork_version: str | None
 
 
 @router.post(
@@ -100,6 +109,9 @@ async def autoplay(
             ),
             exclude_track_ids=set(
                 payload.exclude_track_ids
+            ),
+            context_track_ids=(
+                payload.context_track_ids
             ),
             limit=(
                 payload.limit
@@ -139,6 +151,11 @@ async def autoplay(
 
             media_version=(
                 _track_media_version(
+                    track,
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
                     track,
                 )
             ),

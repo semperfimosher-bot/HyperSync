@@ -86,6 +86,12 @@ async def get_current_user(
     user_session_expires_at = _as_utc_aware(user_session.expires_at)
 
     if user_session_revoked_at is not None:
+        await session.delete(
+            user_session,
+        )
+
+        await session.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication session has been revoked.",
@@ -94,7 +100,18 @@ async def get_current_user(
             },
         )
 
-    if user_session_expires_at is not None and user_session_expires_at <= now:
+    if (
+        user_session_expires_at
+        is not None
+        and user_session_expires_at
+        <= now
+    ):
+        await session.delete(
+            user_session,
+        )
+
+        await session.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication session has expired.",
@@ -117,6 +134,12 @@ async def get_current_user(
     user = result.scalar_one_or_none()
 
     if user is None:
+        await session.delete(
+            user_session,
+        )
+
+        await session.commit()
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is unavailable.",

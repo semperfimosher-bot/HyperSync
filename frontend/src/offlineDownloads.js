@@ -3,14 +3,17 @@ import {
 } from "./api/client.js";
 
 import {
+  addMediaPinReference,
   deleteDownloadJob,
   ensureMediaRecord,
   getArtwork,
   getDownloadJobs,
   getMediaChunk,
   getMediaRecord,
+  getMediaPinReferences,
   getPinnedMediaRecords,
   MEDIA_CHUNK_SIZE,
+  removeArtwork,
   removeDownloadedMedia,
   saveArtwork,
   saveDownloadJob,
@@ -38,6 +41,192 @@ export const DEFAULT_DOWNLOAD_CONCURRENCY =
 
 const MAX_OFFLINE_ARTWORK_BYTES =
   12 * 1024 * 1024;
+
+const OFFLINE_ARTWORK_RETRY_MS =
+  5 * 60 * 1000;
+
+const OFFLINE_METADATA_REVALIDATE_MS =
+  15 * 60 * 1000;
+
+const OFFLINE_METADATA_REPAIR_CONCURRENCY =
+  6;
+
+const offlineArtworkObjectUrls =
+  new Map();
+
+const activeTrackMetadataRefreshes =
+  new Map();
+
+
+const activePlaylistDownloadJobs =
+  new Map();
+
+const activePlaylistDownloadPromises =
+  new Map();
+
+
+function activePlaylistDownloadKey(
+  ownerKey,
+  playlistId,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !normalizedPlaylistId
+  ) {
+    return null;
+  }
+
+  return (
+    normalizedOwnerKey +
+    "::" +
+    normalizedPlaylistId
+  );
+}
+
+
+function emitPlaylistDownloadProgress(
+  snapshot,
+) {
+  const key =
+    activePlaylistDownloadKey(
+      snapshot?.ownerKey,
+      snapshot?.playlistId,
+    );
+
+  if (!key) {
+    return;
+  }
+
+  const normalizedSnapshot = {
+    ownerKey:
+      normalizeOwnerKey(
+        snapshot.ownerKey,
+      ),
+    playlistId:
+      String(
+        snapshot.playlistId,
+      ),
+    jobId:
+      snapshot.jobId
+        ? String(
+            snapshot.jobId,
+          )
+        : null,
+    state:
+      snapshot.state ??
+      "downloading",
+    downloadedBytes:
+      Number(
+        snapshot.downloadedBytes ??
+        0,
+      ) || 0,
+    totalBytes:
+      Number(
+        snapshot.totalBytes ??
+        0,
+      ) || 0,
+    progress:
+      Math.max(
+        0,
+        Math.min(
+          1,
+          Number(
+            snapshot.progress ??
+            0,
+          ) || 0,
+        ),
+      ),
+    trackProgress:
+      snapshot.trackProgress &&
+      typeof snapshot.trackProgress ===
+        "object"
+        ? snapshot.trackProgress
+        : {},
+    updatedAt:
+      Date.now(),
+  };
+
+  if (
+    normalizedSnapshot.state ===
+      "downloading"
+  ) {
+    activePlaylistDownloadJobs.set(
+      key,
+      normalizedSnapshot,
+    );
+  } else {
+    activePlaylistDownloadJobs.delete(
+      key,
+    );
+  }
+
+  if (
+    typeof globalThis.window
+      ?.dispatchEvent ===
+      "function" &&
+    typeof globalThis.CustomEvent ===
+      "function"
+  ) {
+    globalThis.window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:offline-download-progress",
+        {
+          detail:
+            normalizedSnapshot,
+        },
+      ),
+    );
+  }
+}
+
+
+function emitOfflineDownloadsChanged() {
+  if (
+    typeof globalThis.window
+      ?.dispatchEvent ===
+      "function" &&
+    typeof globalThis.CustomEvent ===
+      "function"
+  ) {
+    globalThis.window.dispatchEvent(
+      new CustomEvent(
+        "hypersync:offline-downloads-changed",
+      ),
+    );
+  }
+}
+
+
+export function getActivePlaylistDownloads(
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalizedOwnerKey) {
+    return [];
+  }
+
+  return Array.from(
+    activePlaylistDownloadJobs.values(),
+  ).filter(
+    (snapshot) =>
+      snapshot.ownerKey ===
+      normalizedOwnerKey,
+  );
+}
 
 
 function normalizeApiBase() {
@@ -101,6 +290,328 @@ function artworkVersionFromSource(
   } catch {
     return null;
   }
+}
+
+
+function artworkVersionFromTrack(
+  track,
+) {
+  const explicit =
+    track?.artwork_version ??
+    track?.artworkVersion ??
+    null;
+
+  if (
+    explicit !== null &&
+    explicit !== undefined &&
+    String(explicit).trim()
+  ) {
+    return String(
+      explicit,
+    ).trim();
+  }
+
+  return artworkVersionFromSource(
+    track?.artwork_url ??
+    track?.artworkUrl ??
+    null,
+  );
+}
+
+
+function normalizeOwnerKey(
+  ownerKey,
+) {
+  const normalized =
+    String(
+      ownerKey ?? "",
+    ).trim();
+
+  return normalized || null;
+}
+
+
+export function getOfflineOwnerKey(
+  user,
+) {
+  return normalizeOwnerKey(
+    user?.id ??
+    user?.username ??
+    null,
+  );
+}
+
+
+function getOfflineOwnerPinPrefix(
+  ownerKey,
+) {
+  const normalized =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    "owner:" +
+    encodeURIComponent(
+      normalized,
+    ) +
+    "|"
+  );
+}
+
+
+export function getManualDownloadPinRef(
+  ownerKey,
+) {
+  const prefix =
+    getOfflineOwnerPinPrefix(
+      ownerKey,
+    );
+
+  return prefix
+    ? prefix + "manual"
+    : null;
+}
+
+
+export function getLikedSongsDownloadPinRef(
+  ownerKey,
+) {
+  const prefix =
+    getOfflineOwnerPinPrefix(
+      ownerKey,
+    );
+
+  return prefix
+    ? prefix + "liked"
+    : null;
+}
+
+
+export function getPlaylistDownloadPinRef(
+  ownerKey,
+  playlistId,
+) {
+  const prefix =
+    getOfflineOwnerPinPrefix(
+      ownerKey,
+    );
+
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (
+    !prefix ||
+    !normalizedPlaylistId
+  ) {
+    return null;
+  }
+
+  return (
+    prefix +
+    "playlist:" +
+    encodeURIComponent(
+      normalizedPlaylistId,
+    )
+  );
+}
+
+
+export function getPlaylistDownloadJobId(
+  ownerKey,
+  playlistId,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !normalizedPlaylistId
+  ) {
+    return null;
+  }
+
+  return (
+    "playlist:" +
+    encodeURIComponent(
+      normalizedOwnerKey,
+    ) +
+    ":" +
+    encodeURIComponent(
+      normalizedPlaylistId,
+    )
+  );
+}
+
+
+function recordBelongsToOwner(
+  record,
+  ownerKey,
+) {
+  const prefix =
+    getOfflineOwnerPinPrefix(
+      ownerKey,
+    );
+
+  return Boolean(
+    prefix &&
+    getMediaPinReferences(
+      record,
+    ).some(
+      (pinRef) =>
+        pinRef.startsWith(
+          prefix,
+        ),
+    ),
+  );
+}
+
+
+function mediaKeyParts(
+  mediaKey,
+) {
+  const normalized =
+    String(
+      mediaKey ?? "",
+    );
+
+  const separator =
+    normalized.lastIndexOf(
+      ":",
+    );
+
+  if (
+    separator <= 0 ||
+    separator >=
+      normalized.length - 1
+  ) {
+    return null;
+  }
+
+  return {
+    trackId:
+      normalized.slice(
+        0,
+        separator,
+      ),
+    mediaVersion:
+      normalized.slice(
+        separator + 1,
+      ),
+  };
+}
+
+
+async function replaceDownloadJobMediaKey(
+  oldKey,
+  newKey,
+) {
+  if (
+    !oldKey ||
+    !newKey ||
+    oldKey === newKey
+  ) {
+    return;
+  }
+
+  const jobs =
+    await getDownloadJobs();
+
+  await Promise.all(
+    jobs
+      .filter(
+        (job) =>
+          Array.isArray(
+            job?.trackKeys,
+          ) &&
+          job.trackKeys.includes(
+            oldKey,
+          ),
+      )
+      .map(
+        (job) =>
+          saveDownloadJob({
+            ...job,
+            trackKeys:
+              job.trackKeys.map(
+                (key) =>
+                  key === oldKey
+                    ? newKey
+                    : key,
+              ),
+          }),
+      ),
+  );
+}
+
+
+async function resolvePinnedRecordForKey(
+  mediaKey,
+  pinRef = null,
+) {
+  const parts =
+    mediaKeyParts(
+      mediaKey,
+    );
+
+  if (!parts) {
+    return null;
+  }
+
+  const exact =
+    await getMediaRecord(
+      parts.trackId,
+      parts.mediaVersion,
+    );
+
+  if (
+    exact?.state ===
+      "PINNED" &&
+    (
+      !pinRef ||
+      getMediaPinReferences(
+        exact,
+      ).includes(
+        pinRef,
+      )
+    )
+  ) {
+    return exact;
+  }
+
+  if (!pinRef) {
+    return null;
+  }
+
+  const records =
+    await getPinnedMediaRecords();
+
+  return (
+    records.find(
+      (record) =>
+        record.trackId ===
+          parts.trackId &&
+        getMediaPinReferences(
+          record,
+        ).includes(
+          pinRef,
+        ),
+    ) ??
+    null
+  );
 }
 
 
@@ -414,8 +925,8 @@ async function cacheTrackArtwork(
   }
 
   const artworkVersion =
-    artworkVersionFromSource(
-      artworkSource,
+    artworkVersionFromTrack(
+      track,
     );
 
   const existing =
@@ -464,6 +975,36 @@ async function cacheTrackArtwork(
   if (!response.ok) {
     throw new Error(
       `Unable to download artwork (${response.status}).`,
+    );
+  }
+
+  const contentLength =
+    Number(
+      response.headers.get(
+        "Content-Length",
+      ),
+    );
+
+  if (
+    Number.isFinite(
+      contentLength,
+    ) &&
+    contentLength >
+      MAX_OFFLINE_ARTWORK_BYTES
+  ) {
+    throw new Error(
+      "Downloaded artwork has an invalid size.",
+    );
+  }
+
+  if (
+    Number.isSafeInteger(
+      contentLength,
+    ) &&
+    contentLength > 0
+  ) {
+    await ensureStorageCapacity(
+      contentLength,
     );
   }
 
@@ -550,65 +1091,526 @@ async function cacheTrackLyrics(
 }
 
 
-function downloadedTrackFromRecord(
+async function fetchCurrentTrackMetadata(
+  trackId,
+  {
+    signal = null,
+  } = {},
+) {
+  const normalizedTrackId =
+    String(
+      trackId ?? "",
+    ).trim();
+
+  if (!normalizedTrackId) {
+    throw new Error(
+      "Track id is required to refresh metadata.",
+    );
+  }
+
+  const existingRequest =
+    activeTrackMetadataRefreshes.get(
+      normalizedTrackId,
+    );
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request =
+    (async () => {
+      const response =
+        await fetch(
+          buildApiUrl(
+            "/api/catalog/tracks/" +
+              encodeURIComponent(
+                normalizedTrackId,
+              ),
+          ),
+          {
+            method:
+              "GET",
+            credentials:
+              "include",
+            cache:
+              "no-cache",
+            signal,
+          },
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          `Unable to refresh downloaded track metadata (${response.status}).`,
+        );
+      }
+
+      return response.json();
+    })();
+
+  activeTrackMetadataRefreshes.set(
+    normalizedTrackId,
+    request,
+  );
+
+  try {
+    return await request;
+  } finally {
+    if (
+      activeTrackMetadataRefreshes.get(
+        normalizedTrackId,
+      ) === request
+    ) {
+      activeTrackMetadataRefreshes.delete(
+        normalizedTrackId,
+      );
+    }
+  }
+}
+
+
+async function repairDownloadedArtworkRecord(
+  record,
+) {
+  if (
+    globalThis.navigator
+      ?.onLine === false
+  ) {
+    return record;
+  }
+
+  const now =
+    Date.now();
+
+  const retryAfter =
+    Number(
+      record.artworkRetryAfter ??
+      0,
+    );
+
+  if (
+    Number.isFinite(
+      retryAfter,
+    ) &&
+    retryAfter > now
+  ) {
+    return record;
+  }
+
+  const validatedAt =
+    Number(
+      record.artworkValidatedAt ??
+      0,
+    );
+
+  if (
+    Number.isFinite(
+      validatedAt,
+    ) &&
+    validatedAt > 0 &&
+    now - validatedAt <
+      OFFLINE_METADATA_REVALIDATE_MS
+  ) {
+    return record;
+  }
+
+  try {
+    const currentTrack =
+      await fetchCurrentTrackMetadata(
+        record.trackId,
+      );
+
+    const artworkSourceUrl =
+      currentTrack?.artwork_url ??
+      currentTrack?.artworkUrl ??
+      null;
+
+    const artworkVersion =
+      artworkVersionFromTrack(
+        currentTrack,
+      );
+
+    if (!artworkSourceUrl) {
+      await removeArtwork(
+        record.trackId,
+      ).catch(
+        () => null,
+      );
+
+      const updated = {
+        ...record,
+        title:
+          currentTrack?.title ??
+          record.title,
+        artist:
+          currentTrack?.artist ??
+          record.artist,
+        album:
+          currentTrack?.album ??
+          record.album,
+        durationSeconds:
+          currentTrack?.duration_seconds ??
+          currentTrack?.durationSeconds ??
+          record.durationSeconds,
+        artworkSourceUrl:
+          null,
+        artworkVersion:
+          null,
+        artworkUrl:
+          null,
+        artworkCached:
+          false,
+        artworkRetryAfter:
+          null,
+        artworkValidatedAt:
+          now,
+      };
+
+      await saveMediaRecord(
+        updated,
+      );
+
+      return updated;
+    }
+
+    const artwork =
+      await cacheTrackArtwork(
+        currentTrack,
+      );
+
+    const updated = {
+      ...record,
+      title:
+        currentTrack?.title ??
+        record.title,
+      artist:
+        currentTrack?.artist ??
+        record.artist,
+      album:
+        currentTrack?.album ??
+        record.album,
+      durationSeconds:
+        currentTrack?.duration_seconds ??
+        currentTrack?.durationSeconds ??
+        record.durationSeconds,
+      artworkSourceUrl,
+      artworkVersion:
+        artwork?.artworkVersion ??
+        artworkVersion ??
+        null,
+      artworkUrl:
+        artwork
+          ? getOfflineArtworkUrl(
+              record.trackId,
+              artwork.artworkVersion ??
+                artworkVersion,
+            )
+          : null,
+      artworkCached:
+        Boolean(
+          artwork,
+        ),
+      artworkRetryAfter:
+        artwork
+          ? null
+          : now +
+            OFFLINE_ARTWORK_RETRY_MS,
+      artworkValidatedAt:
+        now,
+    };
+
+    await saveMediaRecord(
+      updated,
+    );
+
+    return updated;
+  } catch {
+    const updated = {
+      ...record,
+      artworkRetryAfter:
+        now +
+        OFFLINE_ARTWORK_RETRY_MS,
+    };
+
+    await saveMediaRecord(
+      updated,
+    ).catch(
+      () => null,
+    );
+
+    return updated;
+  }
+}
+
+async function repairDownloadedArtworkRecords(
+  records,
+) {
+  if (
+    !Array.isArray(
+      records,
+    ) ||
+    records.length === 0
+  ) {
+    return [];
+  }
+
+  const repaired =
+    new Array(
+      records.length,
+    );
+
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index =
+        nextIndex;
+
+      nextIndex += 1;
+
+      if (
+        index >=
+        records.length
+      ) {
+        return;
+      }
+
+      repaired[index] =
+        await repairDownloadedArtworkRecord(
+          records[index],
+        );
+    }
+  }
+
+  const workerCount =
+    Math.min(
+      OFFLINE_METADATA_REPAIR_CONCURRENCY,
+      records.length,
+    );
+
+  await Promise.all(
+    Array.from(
+      {
+        length:
+          workerCount,
+      },
+      () => worker(),
+    ),
+  );
+
+  return repaired;
+}
+
+
+async function resolveDownloadedArtworkUrl(
   record,
   serviceWorkerControlled,
+  online,
 ) {
+  const artwork =
+    await getArtwork(
+      record.trackId,
+    ).catch(
+      () => null,
+    );
+
+  const versionMatches =
+    !record.artworkVersion ||
+    artwork?.artworkVersion ===
+      record.artworkVersion;
+
+  const hasCachedArtwork =
+    versionMatches &&
+    artwork?.data instanceof
+      ArrayBuffer &&
+    artwork.data.byteLength > 0;
+
+  if (
+    hasCachedArtwork &&
+    serviceWorkerControlled
+  ) {
+    return getOfflineArtworkUrl(
+      record.trackId,
+      artwork.artworkVersion ??
+        record.artworkVersion,
+    );
+  }
+
+  if (
+    hasCachedArtwork &&
+    typeof Blob !==
+      "undefined" &&
+    typeof globalThis.URL
+      ?.createObjectURL ===
+      "function"
+  ) {
+    const objectKey =
+      String(
+        artwork.artworkVersion ??
+        artwork.updatedAt ??
+        artwork.byteLength,
+      );
+
+    const existing =
+      offlineArtworkObjectUrls.get(
+        record.trackId,
+      );
+
+    if (
+      existing?.key ===
+      objectKey
+    ) {
+      return existing.url;
+    }
+
+    if (
+      existing?.url &&
+      typeof globalThis.URL
+        ?.revokeObjectURL ===
+        "function"
+    ) {
+      globalThis.URL.revokeObjectURL(
+        existing.url,
+      );
+    }
+
+    const url =
+      globalThis.URL.createObjectURL(
+        new Blob(
+          [
+            artwork.data,
+          ],
+          {
+            type:
+              artwork.mimeType ??
+              "image/jpeg",
+          },
+        ),
+      );
+
+    offlineArtworkObjectUrls.set(
+      record.trackId,
+      {
+        key:
+          objectKey,
+        url,
+      },
+    );
+
+    return url;
+  }
+
+  return online
+    ? record.artworkSourceUrl ??
+        null
+    : null;
+}
+
+
+async function downloadedTrackFromRecord(
+  record,
+  serviceWorkerControlled,
+  online,
+) {
+  const artworkUrl =
+    await resolveDownloadedArtworkUrl(
+      record,
+      serviceWorkerControlled,
+      online,
+    );
+
   return {
     id:
       record.trackId,
-
     title:
       record.title ||
       "Unknown Track",
-
     artist:
       record.artist ||
       "Unknown Artist",
-
     album:
       record.album ||
       "",
-
     duration_seconds:
       record.durationSeconds ??
       null,
-
     artwork_url:
-      (
-        serviceWorkerControlled
-          ? record.artworkUrl
-          : (
-              record.artworkSourceUrl ??
-              record.artworkUrl
-            )
-      ) ??
-      null,
-
+      artworkUrl,
     offline_artwork_url:
-      record.artworkUrl ??
+      record.artworkCached
+        ? record.artworkUrl ??
+          null
+        : null,
+    artwork_version:
+      record.artworkVersion ??
       null,
-
     mime_type:
       record.mimeType ??
       null,
-
     file_size:
       record.fileSize ??
       null,
-
     media_version:
       record.mediaVersion,
-
+    updated_at:
+      record.updatedAt ??
+      null,
     downloaded:
       true,
   };
 }
 
 
-export async function getDownloadedTracks() {
+export async function getDownloadedTracks(
+  ownerKey,
+  {
+    manualOnly = false,
+  } = {},
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalizedOwnerKey) {
+    return [];
+  }
+
+  const manualPinRef =
+    manualOnly
+      ? getManualDownloadPinRef(
+          normalizedOwnerKey,
+        )
+      : null;
+
   const records =
-    await getPinnedMediaRecords();
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        recordBelongsToOwner(
+          record,
+          normalizedOwnerKey,
+        ) &&
+        (
+          !manualOnly ||
+          getMediaPinReferences(
+            record,
+          ).includes(
+            manualPinRef,
+          )
+        ),
+    );
+
+  const online =
+    globalThis.navigator
+      ?.onLine !== false;
+
+  const repairedRecords =
+    online
+      ? await repairDownloadedArtworkRecords(
+          records,
+        )
+      : records;
 
   const serviceWorkerControlled =
     Boolean(
@@ -617,29 +1619,63 @@ export async function getDownloadedTracks() {
         ?.controller,
     );
 
-  return records.map(
-    (record) =>
-      downloadedTrackFromRecord(
-        record,
-        serviceWorkerControlled,
-      ),
+  return Promise.all(
+    repairedRecords.map(
+      (record) =>
+        downloadedTrackFromRecord(
+          record,
+          serviceWorkerControlled,
+          online,
+        ),
+    ),
   );
 }
 
 
-export async function getDownloadedPlaylists() {
+export async function getDownloadedPlaylists(
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalizedOwnerKey) {
+    return [];
+  }
+
   const [
     jobs,
-    records,
+    allRecords,
   ] =
     await Promise.all([
       getDownloadJobs(),
       getPinnedMediaRecords(),
     ]);
 
+  const records =
+    allRecords.filter(
+      (record) =>
+        recordBelongsToOwner(
+          record,
+          normalizedOwnerKey,
+        ),
+    );
+
+  const online =
+    globalThis.navigator
+      ?.onLine !== false;
+
+  const repairedRecords =
+    online
+      ? await repairDownloadedArtworkRecords(
+          records,
+        )
+      : records;
+
   const recordByKey =
     new Map(
-      records.map(
+      repairedRecords.map(
         (record) => [
           record.key,
           record,
@@ -647,6 +1683,28 @@ export async function getDownloadedPlaylists() {
       ),
     );
 
+  const recordsByTrackId =
+    new Map();
+
+  for (
+    const record
+    of repairedRecords
+  ) {
+    const current =
+      recordsByTrackId.get(
+        record.trackId,
+      ) ?? [];
+
+    current.push(
+      record,
+    );
+
+    recordsByTrackId.set(
+      record.trackId,
+      current,
+    );
+  }
+
   const serviceWorkerControlled =
     Boolean(
       globalThis.navigator
@@ -654,263 +1712,263 @@ export async function getDownloadedPlaylists() {
         ?.controller,
     );
 
-  return jobs
-    .filter(
-      (job) =>
-        String(
-          job?.id ??
-          "",
-        ).startsWith(
-          "playlist:",
-        ) &&
-        job?.state ===
-          "complete",
-    )
-    .map(
-      (job) => {
-        const tracks =
-          (
-            Array.isArray(
-              job.trackKeys,
-            )
-              ? job.trackKeys
-              : []
-          )
-            .map(
-              (key) =>
-                recordByKey.get(
-                  key,
-                ) ??
-                null,
-            )
-            .filter(Boolean)
-            .map(
-              (record) =>
-                downloadedTrackFromRecord(
-                  record,
-                  serviceWorkerControlled,
-                ),
-            );
-
-        if (
-          tracks.length === 0
-        ) {
-          return null;
-        }
-
-        const fallbackPlaylistId =
+  const playlistJobs =
+    jobs
+      .filter(
+        (job) =>
+          job?.state ===
+            "complete" &&
           String(
-            job.id,
-          ).slice(
-            "playlist:".length,
-          );
-
-        return {
-          id:
-            job.playlistId ??
-            fallbackPlaylistId,
-
-          title:
-            job.playlistTitle ??
-            "Downloaded playlist",
-
-          description:
-            job.playlistDescription ??
-            null,
-
-          artwork_url:
-            job.playlistArtworkUrl ??
-            tracks[0]
-              ?.artwork_url ??
-            null,
-
-          owner_username:
-            job.playlistOwnerUsername ??
-            null,
-
-          visibility:
-            job.playlistVisibility ??
-            "downloaded",
-
-          track_count:
-            tracks.length,
-
-          total_duration_seconds:
-            tracks.reduce(
-              (
-                total,
-                track,
-              ) =>
-                total +
-                (
-                  Number(
-                    track.duration_seconds,
-                  ) || 0
-                ),
-              0,
-            ),
-
-          tracks,
-
-          downloaded:
-            true,
-
-          is_offline_download:
-            true,
-        };
-      },
-    )
-    .filter(Boolean)
-    .sort(
-      (
-        first,
-        second,
-      ) => {
-        const firstJob =
-          jobs.find(
-            (job) =>
-              String(
-                job.playlistId ??
-                String(
-                  job.id,
-                ).slice(
-                  "playlist:".length,
-                ),
-              ) ===
-              String(
-                first.id,
-              ),
-          );
-
-        const secondJob =
-          jobs.find(
-            (job) =>
-              String(
-                job.playlistId ??
-                String(
-                  job.id,
-                ).slice(
-                  "playlist:".length,
-                ),
-              ) ===
-              String(
-                second.id,
-              ),
-          );
-
-        return (
+            job?.ownerKey ??
+            "",
+          ) ===
+            normalizedOwnerKey &&
+          (
+            job?.kind ===
+              "playlist" ||
+            String(
+              job?.id ??
+              "",
+            ).startsWith(
+              "playlist:",
+            )
+          ),
+      )
+      .sort(
+        (first, second) =>
           Number(
-            secondJob?.updatedAt ??
-              0,
+            second?.updatedAt ??
+            0,
           ) -
           Number(
-            firstJob?.updatedAt ??
-              0,
-          )
-        );
-      },
+            first?.updatedAt ??
+            0,
+          ),
+      );
+
+  const playlists =
+    await Promise.all(
+      playlistJobs.map(
+        async (job) => {
+          const playlistId =
+            String(
+              job.playlistId ??
+              "",
+            ).trim();
+
+          if (!playlistId) {
+            return null;
+          }
+
+          const pinRef =
+            getPlaylistDownloadPinRef(
+              normalizedOwnerKey,
+              playlistId,
+            );
+
+          const matchingRecords =
+            (
+              Array.isArray(
+                job.trackKeys,
+              )
+                ? job.trackKeys
+                : []
+            )
+              .map(
+                (key) => {
+                  const exact =
+                    recordByKey.get(
+                      key,
+                    );
+
+                  if (
+                    exact &&
+                    getMediaPinReferences(
+                      exact,
+                    ).includes(
+                      pinRef,
+                    )
+                  ) {
+                    return exact;
+                  }
+
+                  const parts =
+                    mediaKeyParts(
+                      key,
+                    );
+
+                  if (!parts) {
+                    return null;
+                  }
+
+                  return (
+                    recordsByTrackId
+                      .get(
+                        parts.trackId,
+                      )
+                      ?.find(
+                        (record) =>
+                          getMediaPinReferences(
+                            record,
+                          ).includes(
+                            pinRef,
+                          ),
+                      ) ??
+                    null
+                  );
+                },
+              )
+              .filter(Boolean);
+
+          const tracks =
+            await Promise.all(
+              matchingRecords.map(
+                (record) =>
+                  downloadedTrackFromRecord(
+                    record,
+                    serviceWorkerControlled,
+                    online,
+                  ),
+              ),
+            );
+
+          if (
+            tracks.length === 0
+          ) {
+            return null;
+          }
+
+          return {
+            id:
+              playlistId,
+            title:
+              job.playlistTitle ??
+              "Downloaded playlist",
+            description:
+              job.playlistDescription ??
+              null,
+            artwork_url:
+              tracks.find(
+                (track) =>
+                  track?.artwork_url,
+              )
+                ?.artwork_url ??
+              (
+                online
+                  ? job.playlistArtworkUrl ??
+                    null
+                  : null
+              ),
+            artwork_urls:
+              tracks
+                .slice(
+                  0,
+                  4,
+                )
+                .map(
+                  (track) =>
+                    track?.artwork_url ??
+                    null,
+                ),
+            owner_username:
+              job.playlistOwnerUsername ??
+              null,
+            visibility:
+              job.playlistVisibility ??
+              "downloaded",
+            track_count:
+              tracks.length,
+            total_duration_seconds:
+              tracks.reduce(
+                (total, track) =>
+                  total +
+                  (
+                    Number(
+                      track.duration_seconds,
+                    ) || 0
+                  ),
+                0,
+              ),
+            tracks,
+            updated_at:
+              job.updatedAt ??
+              null,
+            downloaded:
+              true,
+            is_offline_download:
+              true,
+          };
+        },
+      ),
     );
+
+  return playlists.filter(
+    Boolean,
+  );
 }
 
 
 export async function removePlaylistFromOffline(
   playlistId,
+  ownerKey,
 ) {
   const normalizedPlaylistId =
     String(
       playlistId ?? "",
     ).trim();
 
-  if (!normalizedPlaylistId) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (
+    !normalizedPlaylistId ||
+    !normalizedOwnerKey
+  ) {
     return false;
   }
 
-  const jobId =
-    "playlist:" +
-    normalizedPlaylistId;
-
-  const [
-    jobs,
-    records,
-  ] =
-    await Promise.all([
-      getDownloadJobs(),
-      getPinnedMediaRecords(),
-    ]);
+  const jobs =
+    await getDownloadJobs();
 
   const targetJob =
     jobs.find(
       (job) =>
         String(
-          job?.id ?? "",
-        ) === jobId,
-    ) ??
-    null;
+          job?.ownerKey ??
+          "",
+        ) ===
+          normalizedOwnerKey &&
+        String(
+          job?.playlistId ??
+          "",
+        ) ===
+          normalizedPlaylistId,
+    ) ?? null;
 
   if (!targetJob) {
     return false;
   }
 
-  const targetKeys =
-    new Set(
-      Array.isArray(
-        targetJob.trackKeys,
-      )
-        ? targetJob.trackKeys
-        : [],
-    );
-
-  const retainedKeys =
-    new Set(
-      jobs
-        .filter(
-          (job) =>
-            String(
-              job?.id ?? "",
-            ) !== jobId &&
-            String(
-              job?.id ?? "",
-            ).startsWith(
-              "playlist:",
-            ) &&
-            job?.state ===
-              "complete",
-        )
-        .flatMap(
-          (job) =>
-            Array.isArray(
-              job.trackKeys,
-            )
-              ? job.trackKeys
-              : [],
-        ),
-    );
-
-  const recordByKey =
-    new Map(
-      records.map(
-        (record) => [
-          record.key,
-          record,
-        ],
-      ),
+  const pinRef =
+    getPlaylistDownloadPinRef(
+      normalizedOwnerKey,
+      normalizedPlaylistId,
     );
 
   for (
     const key
-    of targetKeys
+    of Array.isArray(
+      targetJob.trackKeys,
+    )
+      ? targetJob.trackKeys
+      : []
   ) {
-    if (
-      retainedKeys.has(
-        key,
-      )
-    ) {
-      continue;
-    }
-
     const record =
-      recordByKey.get(
+      await resolvePinnedRecordForKey(
         key,
+        pinRef,
       );
 
     if (!record) {
@@ -920,11 +1978,12 @@ export async function removePlaylistFromOffline(
     await removeDownloadedMedia(
       record.trackId,
       record.mediaVersion,
+      pinRef,
     );
   }
 
   await deleteDownloadJob(
-    jobId,
+    targetJob.id,
   );
 
   return true;
@@ -933,6 +1992,7 @@ export async function removePlaylistFromOffline(
 
 export async function searchDownloadedTracks(
   query,
+  ownerKey,
 ) {
   const normalizedQuery =
     String(query ?? "")
@@ -944,7 +2004,9 @@ export async function searchDownloadedTracks(
   }
 
   const tracks =
-    await getDownloadedTracks();
+    await getDownloadedTracks(
+      ownerKey,
+    );
 
   return tracks.filter(
     (track) => {
@@ -972,6 +2034,7 @@ export async function downloadTrackForOffline(
     onProgress = null,
     signal = null,
     skipStorageCheck = false,
+    pinRef = null,
   } = {},
 ) {
   const {
@@ -981,6 +2044,17 @@ export async function downloadTrackForOffline(
     trackIdentity(
       track,
     );
+
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (!normalizedPinRef) {
+    throw new Error(
+      "Offline downloads require an account-scoped owner.",
+    );
+  }
 
   const mimeType =
     trackMimeType(
@@ -1144,7 +2218,23 @@ export async function downloadTrackForOffline(
     );
   }
 
-  const pinnedRecord = {
+  const existingPinRefs =
+    getMediaPinReferences(
+      record,
+    );
+
+  const artworkSourceUrl =
+    track.artwork_url ??
+    track.artworkUrl ??
+    null;
+
+  const artworkVersion =
+    artwork?.artworkVersion ??
+    artworkVersionFromTrack(
+      track,
+    );
+
+  let pinnedRecord = {
     ...record,
 
     state:
@@ -1174,24 +2264,50 @@ export async function downloadTrackForOffline(
       null,
 
     artworkUrl:
-      (
-        track.artwork_url ??
-        track.artworkUrl
-      )
+      artwork
         ? getOfflineArtworkUrl(
             trackId,
-            artwork?.artworkVersion ??
-              artworkVersionFromSource(
-                track.artwork_url ??
-                track.artworkUrl,
-              ),
+            artworkVersion,
           )
         : null,
 
-    artworkSourceUrl:
-      track.artwork_url ??
-      track.artworkUrl ??
+    artworkSourceUrl,
+
+    artworkVersion:
+      artworkVersion ??
       null,
+
+    artworkCached:
+      Boolean(
+        artwork,
+      ),
+
+    artworkRetryAfter:
+      artwork ||
+      !artworkSourceUrl
+        ? null
+        : Date.now() +
+          OFFLINE_ARTWORK_RETRY_MS,
+
+    artworkValidatedAt:
+      artwork ||
+      !artworkSourceUrl
+        ? Date.now()
+        : null,
+
+    pinRefs: [
+      ...existingPinRefs,
+      ...(
+        normalizedPinRef &&
+        !existingPinRefs.includes(
+          normalizedPinRef,
+        )
+          ? [
+              normalizedPinRef,
+            ]
+          : []
+      ),
+    ],
   };
 
   await saveMediaRecord(
@@ -1217,12 +2333,37 @@ export async function downloadTrackForOffline(
       existing.mediaVersion !==
         mediaVersion
     ) {
+      for (
+        const existingPinRef
+        of getMediaPinReferences(
+          existing,
+        )
+      ) {
+        await addMediaPinReference(
+          trackId,
+          mediaVersion,
+          existingPinRef,
+        );
+      }
+
+      await replaceDownloadJobMediaKey(
+        existing.key,
+        pinnedRecord.key,
+      );
+
       await removeDownloadedMedia(
         existing.trackId,
         existing.mediaVersion,
       );
     }
   }
+
+  pinnedRecord =
+    await getMediaRecord(
+      trackId,
+      mediaVersion,
+    ) ??
+    pinnedRecord;
 
   onProgress?.({
     trackId,
@@ -1247,8 +2388,47 @@ export async function downloadTracksForOffline(
     signal = null,
     jobId = null,
     jobMetadata = null,
+    ownerKey = null,
   } = {},
 ) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey ??
+      jobMetadata?.ownerKey ??
+      null,
+    );
+
+  if (!normalizedOwnerKey) {
+    throw new Error(
+      "Offline downloads require an account owner.",
+    );
+  }
+
+  const playlistPinRef =
+    jobMetadata?.kind ===
+      "playlist"
+      ? getPlaylistDownloadPinRef(
+          normalizedOwnerKey,
+          jobMetadata?.playlistId,
+        )
+      : null;
+
+  if (
+    jobMetadata?.kind ===
+      "playlist" &&
+    !playlistPinRef
+  ) {
+    throw new Error(
+      "Playlist downloads require a playlist id.",
+    );
+  }
+
+  const downloadPinRef =
+    playlistPinRef ??
+    getManualDownloadPinRef(
+      normalizedOwnerKey,
+    );
+
   const uniqueTracks =
     [];
 
@@ -1344,6 +2524,10 @@ export async function downloadTracksForOffline(
     if (
       await isTrackDownloaded(
         track,
+        {
+          pinRef:
+            downloadPinRef,
+        },
       )
     ) {
       progressByKey.set(
@@ -1418,8 +2602,25 @@ export async function downloadTracksForOffline(
       ? String(jobId)
       : (
           "offline:" +
+          encodeURIComponent(
+            normalizedOwnerKey ??
+            "device",
+          ) +
+          ":" +
           Date.now()
         );
+
+  const previousJob =
+    (
+      await getDownloadJobs()
+    ).find(
+      (job) =>
+        String(
+          job?.id ??
+          "",
+        ) ===
+        normalizedJobId,
+    ) ?? null;
 
   const normalizedJobMetadata =
     jobMetadata &&
@@ -1453,6 +2654,9 @@ export async function downloadTracksForOffline(
           playlistVisibility:
             jobMetadata.playlistVisibility ??
             null,
+
+          ownerKey:
+            normalizedOwnerKey,
         }
       : {};
 
@@ -1465,6 +2669,11 @@ export async function downloadTracksForOffline(
           sum + value,
         0,
       );
+
+  let runtimeJobState =
+    pendingTracks.length > 0
+      ? "downloading"
+      : "complete";
 
   const report = (
     currentTrackId =
@@ -1524,24 +2733,110 @@ export async function downloadTracksForOffline(
         ),
       );
 
-    onProgress?.({
-      downloadedBytes,
-      totalBytes,
-      progress:
-        totalBytes > 0
-          ? (
-              downloadedBytes /
-              totalBytes
-            )
-          : 1,
-      completedTracks:
-        completedKeys.size,
-      totalTracks:
-        uniqueTracks.length,
-      currentTrackId,
-      trackProgress,
-    });
+    const progress =
+      totalBytes > 0
+        ? (
+            downloadedBytes /
+            totalBytes
+          )
+        : 1;
+
+    try {
+      onProgress?.({
+        downloadedBytes,
+        totalBytes,
+        progress,
+        completedTracks:
+          completedKeys.size,
+        totalTracks:
+          uniqueTracks.length,
+        currentTrackId,
+        trackProgress,
+      });
+    } catch {
+      /*
+       * UI listeners are optional observers.
+       * Navigation/unmount failures must never
+       * cancel the underlying download.
+       */
+    }
+
+    if (
+      normalizedJobMetadata.kind ===
+        "playlist" &&
+      normalizedJobMetadata.playlistId
+    ) {
+      emitPlaylistDownloadProgress({
+        ownerKey:
+          normalizedOwnerKey,
+        playlistId:
+          normalizedJobMetadata.playlistId,
+        jobId:
+          normalizedJobId,
+        state:
+          runtimeJobState,
+        downloadedBytes,
+        totalBytes,
+        progress,
+        trackProgress,
+      });
+    }
   };
+
+  const releaseObsoletePlaylistPins =
+    async () => {
+      if (
+        !playlistPinRef ||
+        !Array.isArray(
+          previousJob?.trackKeys,
+        )
+      ) {
+        return;
+      }
+
+      const currentTrackIds =
+        new Set(
+          uniqueTracks.map(
+            (track) =>
+              trackIdentity(
+                track,
+              ).trackId,
+          ),
+        );
+
+      for (
+        const previousKey
+        of previousJob.trackKeys
+      ) {
+        const parts =
+          mediaKeyParts(
+            previousKey,
+          );
+
+        if (
+          !parts ||
+          currentTrackIds.has(
+            parts.trackId,
+          )
+        ) {
+          continue;
+        }
+
+        const obsoleteRecord =
+          await resolvePinnedRecordForKey(
+            previousKey,
+            playlistPinRef,
+          );
+
+        if (obsoleteRecord) {
+          await removeDownloadedMedia(
+            obsoleteRecord.trackId,
+            obsoleteRecord.mediaVersion,
+            playlistPinRef,
+          );
+        }
+      }
+    };
 
   await saveDownloadJob({
     id:
@@ -1569,6 +2864,10 @@ export async function downloadTracksForOffline(
     pendingTracks.length ===
     0
   ) {
+    await releaseObsoletePlaylistPins();
+
+    emitOfflineDownloadsChanged();
+
     return Promise.all(
       uniqueTracks.map(
         (track) => {
@@ -1669,6 +2968,8 @@ export async function downloadTracksForOffline(
               workerController.signal,
             skipStorageCheck:
               true,
+            pinRef:
+              downloadPinRef,
             onProgress: ({
               downloadedBytes,
             }) => {
@@ -1739,6 +3040,8 @@ export async function downloadTracksForOffline(
       ),
     );
 
+    await releaseObsoletePlaylistPins();
+
     await saveDownloadJob({
       id:
         normalizedJobId,
@@ -1756,17 +3059,25 @@ export async function downloadTracksForOffline(
         ),
     });
 
+    runtimeJobState =
+      "complete";
+
     report();
+
+    emitOfflineDownloadsChanged();
 
     return results;
   } catch (error) {
+    runtimeJobState =
+      signal?.aborted
+        ? "paused"
+        : "error";
+
     await saveDownloadJob({
       id:
         normalizedJobId,
       state:
-        signal?.aborted
-          ? "paused"
-          : "error",
+        runtimeJobState,
       totalBytes,
       downloadedBytes:
         downloadedBytesNow(),
@@ -1785,6 +3096,8 @@ export async function downloadTracksForOffline(
       () => null,
     );
 
+    report();
+
     throw error;
   } finally {
     signal?.removeEventListener?.(
@@ -1795,8 +3108,764 @@ export async function downloadTracksForOffline(
 }
 
 
+export function startPlaylistDownloadForOffline(
+  tracks,
+  options = {},
+) {
+  const ownerKey =
+    normalizeOwnerKey(
+      options?.ownerKey ??
+      options?.jobMetadata
+        ?.ownerKey ??
+      null,
+    );
+
+  const playlistId =
+    String(
+      options?.jobMetadata
+        ?.playlistId ??
+      "",
+    ).trim();
+
+  const key =
+    activePlaylistDownloadKey(
+      ownerKey,
+      playlistId,
+    );
+
+  if (!key) {
+    return downloadTracksForOffline(
+      tracks,
+      options,
+    );
+  }
+
+  const existing =
+    activePlaylistDownloadPromises.get(
+      key,
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  emitPlaylistDownloadProgress({
+    ownerKey,
+    playlistId,
+    jobId:
+      options?.jobId ??
+      null,
+    state:
+      "downloading",
+    downloadedBytes:
+      0,
+    totalBytes:
+      0,
+    progress:
+      0,
+    trackProgress:
+      {},
+  });
+
+  const operation =
+    downloadTracksForOffline(
+      tracks,
+      {
+        ...options,
+        ownerKey,
+      },
+    )
+      .catch(
+        (error) => {
+          const active =
+            activePlaylistDownloadJobs.get(
+              key,
+            );
+
+          if (active) {
+            emitPlaylistDownloadProgress({
+              ...active,
+              state:
+                "error",
+            });
+          }
+
+          throw error;
+        },
+      )
+      .finally(
+        () => {
+          activePlaylistDownloadPromises.delete(
+            key,
+          );
+        },
+      );
+
+  activePlaylistDownloadPromises.set(
+    key,
+    operation,
+  );
+
+  return operation;
+}
+
+
+export async function reconcileDownloadedPlaylistMembership(
+  playlist,
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const playlistId =
+    String(
+      playlist?.id ??
+      "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !playlistId
+  ) {
+    return false;
+  }
+
+  const job =
+    await getPlaylistDownloadJob(
+      normalizedOwnerKey,
+      playlistId,
+    );
+
+  if (
+    !job ||
+    !Array.isArray(
+      job.trackKeys,
+    )
+  ) {
+    return false;
+  }
+
+  const liveTrackIds =
+    new Set(
+      (
+        Array.isArray(
+          playlist?.tracks,
+        )
+          ? playlist.tracks
+          : []
+      ).map(
+        (track) =>
+          String(
+            track?.id ??
+            "",
+          ),
+      ).filter(Boolean),
+    );
+
+  const pinRef =
+    getPlaylistDownloadPinRef(
+      normalizedOwnerKey,
+      playlistId,
+    );
+
+  const retainedKeys =
+    [];
+
+  let changed =
+    false;
+
+  for (
+    const key
+    of job.trackKeys
+  ) {
+    const parts =
+      mediaKeyParts(
+        key,
+      );
+
+    if (
+      parts &&
+      liveTrackIds.has(
+        parts.trackId,
+      )
+    ) {
+      retainedKeys.push(
+        key,
+      );
+
+      continue;
+    }
+
+    changed =
+      true;
+
+    const record =
+      await resolvePinnedRecordForKey(
+        key,
+        pinRef,
+      );
+
+    if (record) {
+      await removeDownloadedMedia(
+        record.trackId,
+        record.mediaVersion,
+        pinRef,
+      );
+    }
+  }
+
+  if (changed) {
+    await saveDownloadJob({
+      ...job,
+      trackKeys:
+        retainedKeys,
+    });
+  }
+
+  return changed;
+}
+
+
+export async function getPlaylistDownloadJob(
+  ownerKey,
+  playlistId,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (
+    !normalizedOwnerKey ||
+    !normalizedPlaylistId
+  ) {
+    return null;
+  }
+
+  const jobs =
+    await getDownloadJobs();
+
+  return (
+    jobs.find(
+      (job) =>
+        String(
+          job?.ownerKey ??
+          "",
+        ) ===
+          normalizedOwnerKey &&
+        String(
+          job?.playlistId ??
+          "",
+        ) ===
+          normalizedPlaylistId,
+    ) ?? null
+  );
+}
+
+
+export async function cleanupLegacyUnscopedDownloads() {
+  const [
+    records,
+    jobs,
+  ] =
+    await Promise.all([
+      getPinnedMediaRecords(),
+      getDownloadJobs(),
+    ]);
+
+  let removedMedia =
+    0;
+
+  let removedJobs =
+    0;
+
+  for (
+    const record
+    of records
+  ) {
+    if (
+      getMediaPinReferences(
+        record,
+      ).length > 0
+    ) {
+      continue;
+    }
+
+    await removeDownloadedMedia(
+      record.trackId,
+      record.mediaVersion,
+    );
+
+    removedMedia +=
+      1;
+  }
+
+  for (
+    const job
+    of jobs
+  ) {
+    if (
+      normalizeOwnerKey(
+        job?.ownerKey,
+      )
+    ) {
+      continue;
+    }
+
+    await deleteDownloadJob(
+      job.id,
+    );
+
+    removedJobs +=
+      1;
+  }
+
+  return {
+    removedMedia,
+    removedJobs,
+  };
+}
+
+
+export async function recoverInterruptedDownloadJobs(
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (!normalizedOwnerKey) {
+    return 0;
+  }
+
+  const jobs =
+    await getDownloadJobs();
+
+  let recovered =
+    0;
+
+  for (
+    const job
+    of jobs
+  ) {
+    if (
+      String(
+        job?.ownerKey ??
+        "",
+      ) !==
+        normalizedOwnerKey ||
+      job?.state !==
+        "downloading"
+    ) {
+      continue;
+    }
+
+    let downloadedBytes =
+      0;
+
+    for (
+      const key
+      of Array.isArray(
+        job.trackKeys,
+      )
+        ? job.trackKeys
+        : []
+    ) {
+      const parts =
+        mediaKeyParts(
+          key,
+        );
+
+      if (!parts) {
+        continue;
+      }
+
+      const record =
+        await getMediaRecord(
+          parts.trackId,
+          parts.mediaVersion,
+        );
+
+      const cachedBytes =
+        Number(
+          record?.cachedBytes ??
+          0,
+        );
+
+      if (
+        Number.isFinite(
+          cachedBytes,
+        ) &&
+        cachedBytes > 0
+      ) {
+        downloadedBytes +=
+          cachedBytes;
+      }
+    }
+
+    const totalBytes =
+      Number(
+        job.totalBytes ??
+        0,
+      );
+
+    await saveDownloadJob({
+      ...job,
+      state:
+        "paused",
+      downloadedBytes:
+        Number.isFinite(
+          totalBytes,
+        ) &&
+        totalBytes > 0
+          ? Math.min(
+              totalBytes,
+              downloadedBytes,
+            )
+          : downloadedBytes,
+      error:
+        null,
+    });
+
+    recovered +=
+      1;
+  }
+
+  return recovered;
+}
+
+
+export async function removeDownloadedTrackForOwner(
+  track,
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const ownerPinPrefix =
+    getOfflineOwnerPinPrefix(
+      normalizedOwnerKey,
+    );
+
+  if (
+    !normalizedOwnerKey ||
+    !trackId ||
+    !mediaVersion ||
+    !ownerPinPrefix
+  ) {
+    return false;
+  }
+
+  const record =
+    await getMediaRecord(
+      trackId,
+      mediaVersion,
+    );
+
+  if (
+    record?.state !==
+      "PINNED"
+  ) {
+    return false;
+  }
+
+  const ownerPinRefs =
+    getMediaPinReferences(
+      record,
+    ).filter(
+      (pinRef) =>
+        String(
+          pinRef,
+        ).startsWith(
+          ownerPinPrefix,
+        ),
+    );
+
+  if (
+    ownerPinRefs.length ===
+      0
+  ) {
+    return false;
+  }
+
+  const jobs =
+    await getDownloadJobs();
+
+  const affectedJobs =
+    jobs.filter(
+      (job) => {
+        if (
+          String(
+            job?.ownerKey ??
+            "",
+          ) !==
+            normalizedOwnerKey
+        ) {
+          return false;
+        }
+
+        return (
+          Array.isArray(
+            job?.trackKeys,
+          ) &&
+          job.trackKeys.some(
+            (key) =>
+              mediaKeyParts(
+                key,
+              )?.trackId ===
+              trackId,
+          )
+        );
+      },
+    );
+
+  for (
+    const pinRef
+    of ownerPinRefs
+  ) {
+    await removeDownloadedMedia(
+      trackId,
+      mediaVersion,
+      pinRef,
+    );
+  }
+
+  for (
+    const job
+    of affectedJobs
+  ) {
+    const nextTrackKeys =
+      (
+        Array.isArray(
+          job.trackKeys,
+        )
+          ? job.trackKeys
+          : []
+      ).filter(
+        (key) =>
+          mediaKeyParts(
+            key,
+          )?.trackId !==
+            trackId,
+      );
+
+    let downloadedBytes =
+      0;
+
+    for (
+      const key
+      of nextTrackKeys
+    ) {
+      const parts =
+        mediaKeyParts(
+          key,
+        );
+
+      if (!parts) {
+        continue;
+      }
+
+      const remainingRecord =
+        await getMediaRecord(
+          parts.trackId,
+          parts.mediaVersion,
+        );
+
+      const cachedBytes =
+        Number(
+          remainingRecord
+            ?.cachedBytes ??
+          0,
+        );
+
+      if (
+        Number.isFinite(
+          cachedBytes,
+        ) &&
+        cachedBytes > 0
+      ) {
+        downloadedBytes +=
+          cachedBytes;
+      }
+    }
+
+    await saveDownloadJob({
+      ...job,
+      trackKeys:
+        nextTrackKeys,
+      downloadedBytes,
+      state:
+        job?.kind ===
+          "playlist" &&
+        job?.state ===
+          "complete"
+          ? "paused"
+          : job?.state,
+      error:
+        null,
+    });
+  }
+
+  return true;
+}
+
+
+export async function addLikedTrackOfflinePin(
+  track,
+  ownerKey,
+) {
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const pinRef =
+    getLikedSongsDownloadPinRef(
+      ownerKey,
+    );
+
+  if (
+    !trackId ||
+    !mediaVersion ||
+    !pinRef
+  ) {
+    return false;
+  }
+
+  const record =
+    await addMediaPinReference(
+      trackId,
+      mediaVersion,
+      pinRef,
+    );
+
+  return Boolean(
+    record,
+  );
+}
+
+
+export async function removeLikedTrackFromOffline(
+  track,
+  ownerKey,
+) {
+  const {
+    trackId,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const pinRef =
+    getLikedSongsDownloadPinRef(
+      ownerKey,
+    );
+
+  if (
+    !trackId ||
+    !pinRef
+  ) {
+    return false;
+  }
+
+  const records =
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        record.trackId ===
+          trackId &&
+        getMediaPinReferences(
+          record,
+        ).includes(
+          pinRef,
+        ),
+    );
+
+  if (
+    records.length ===
+    0
+  ) {
+    return false;
+  }
+
+  const results =
+    await Promise.all(
+      records.map(
+        (record) =>
+          removeDownloadedMedia(
+            record.trackId,
+            record.mediaVersion,
+            pinRef,
+          ),
+      ),
+    );
+
+  return results.some(
+    Boolean,
+  );
+}
+
+
+export async function removeTrackFromOffline(
+  track,
+  ownerKey,
+) {
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const pinRef =
+    getManualDownloadPinRef(
+      ownerKey,
+    );
+
+  if (
+    !trackId ||
+    !mediaVersion ||
+    !pinRef
+  ) {
+    return false;
+  }
+
+  return removeDownloadedMedia(
+    trackId,
+    mediaVersion,
+    pinRef,
+  );
+}
+
+
 export async function isTrackDownloaded(
   track,
+  {
+    pinRef = null,
+    ownerKey = null,
+  } = {},
 ) {
   const {
     trackId,
@@ -1819,8 +3888,37 @@ export async function isTrackDownloaded(
       mediaVersion,
     );
 
-  return (
-    record?.state ===
-    "PINNED"
-  );
+  if (
+    record?.state !==
+      "PINNED"
+  ) {
+    return false;
+  }
+
+  const normalizedPinRef =
+    String(
+      pinRef ?? "",
+    ).trim();
+
+  if (normalizedPinRef) {
+    return getMediaPinReferences(
+      record,
+    ).includes(
+      normalizedPinRef,
+    );
+  }
+
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  if (normalizedOwnerKey) {
+    return recordBelongsToOwner(
+      record,
+      normalizedOwnerKey,
+    );
+  }
+
+  return true;
 }

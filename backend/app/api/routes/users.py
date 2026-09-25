@@ -30,6 +30,7 @@ from sqlalchemy.orm import selectinload
 from ...config import get_settings
 from ...database import get_session_factory
 from ...models.account import (
+    AccountType,
     ListeningEvent,
     User,
     UserAppState,
@@ -49,7 +50,10 @@ from ..dependencies import (
     OptionalCurrentUser,
 )
 from .audio import stream_b2_file
-from .catalog import _track_media_version
+from .catalog import (
+    _track_artwork_version,
+    _track_media_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,7 @@ AppPage = Literal[
     "home",
     "search",
     "library",
+    "messages",
     "profile",
     "public-profile",
     "admin",
@@ -92,6 +97,7 @@ VALID_APP_PAGES: set[AppPage] = {
     "home",
     "search",
     "library",
+    "messages",
     "profile",
     "public-profile",
     "admin",
@@ -131,6 +137,65 @@ class AppStateUpdateRequest(
         max_length=32,
     )
 
+class PlaybackTrackResponse(
+    BaseModel,
+):
+    id: UUID
+
+    title: str
+
+    artist: str
+
+    album: str | None
+
+    duration_seconds: int | None
+
+    audio_url: str | None = None
+
+    artwork_url: str | None = None
+
+    mime_type: str | None = None
+
+    file_size: int | None = None
+
+    media_version: str | None = None
+
+    artwork_version: str | None = None
+
+
+class PlaybackStateResponse(
+    BaseModel,
+):
+    track: PlaybackTrackResponse | None = None
+
+    position_seconds: float = 0.0
+
+    paused: bool = True
+
+    device_id: str | None = None
+
+    updated_at: datetime | None = None
+
+
+class PlaybackStateUpdateRequest(
+    BaseModel,
+):
+    track_id: UUID | None = None
+
+    position_seconds: float = Field(
+        default=0.0,
+        ge=0,
+        le=86_400,
+    )
+
+    paused: bool = True
+
+    device_id: str = Field(
+        min_length=1,
+        max_length=64,
+    )
+
+
 class ListeningOutcomeRequest(
     BaseModel,
 ):
@@ -160,6 +225,7 @@ class TrackSummary(BaseModel):
     mime_type: str | None = None
     file_size: int | None = None
     media_version: str | None = None
+    artwork_version: str | None = None
 
     play_count: int
     last_played_at: datetime
@@ -390,6 +456,120 @@ async def build_app_state(
     )
 
 
+def require_registered_playback_user(
+    user: User,
+) -> None:
+    if user.account_type != AccountType.REGISTERED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A registered account is required for playback sync.",
+        )
+
+
+def playback_track_response(
+    track: Track,
+) -> PlaybackTrackResponse:
+    return PlaybackTrackResponse(
+        id=track.id,
+        title=track.title,
+        artist=track.artist,
+        album=track.album,
+        duration_seconds=(
+            track.duration_seconds
+        ),
+        audio_url=audio_url(
+            track,
+        ),
+        artwork_url=artwork_url(
+            track,
+        ),
+        mime_type=track.mime_type,
+        file_size=track.file_size,
+        media_version=(
+            _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
+                track,
+            )
+        ),
+    )
+
+
+async def build_playback_state(
+    session: DatabaseSession,
+    user: User,
+) -> PlaybackStateResponse:
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if (
+        state is None
+        or state.playback_track_id
+        is None
+    ):
+        return PlaybackStateResponse(
+            position_seconds=0.0,
+            paused=True,
+            device_id=(
+                state.playback_device_id
+                if state is not None
+                else None
+            ),
+            updated_at=(
+                state.playback_updated_at
+                if state is not None
+                else None
+            ),
+        )
+
+    track = await session.get(
+        Track,
+        state.playback_track_id,
+    )
+
+    if (
+        track is None
+        or not track.is_published
+    ):
+        return PlaybackStateResponse(
+            position_seconds=0.0,
+            paused=True,
+            device_id=(
+                state.playback_device_id
+            ),
+            updated_at=(
+                state.playback_updated_at
+            ),
+        )
+
+    return PlaybackStateResponse(
+        track=playback_track_response(
+            track,
+        ),
+        position_seconds=max(
+            float(
+                state.playback_position_seconds
+                or 0.0
+            ),
+            0.0,
+        ),
+        paused=bool(
+            state.playback_paused
+        ),
+        device_id=(
+            state.playback_device_id
+        ),
+        updated_at=(
+            state.playback_updated_at
+        ),
+    )
+
+
 async def accepted_followers_count(
     session: DatabaseSession,
     user_id: UUID,
@@ -592,6 +772,11 @@ async def build_dashboard(
             file_size=track.file_size,
             media_version=(
                 _track_media_version(
+                    track,
+                )
+            ),
+            artwork_version=(
+                _track_artwork_version(
                     track,
                 )
             ),
@@ -1321,6 +1506,132 @@ async def update_my_app_state(
         active_page=(payload.active_page),
         search_query=(app_state.search_query),
         profile_username=(app_state.profile_username),
+    )
+
+
+@router.get(
+    "/me/playback-state",
+    response_model=PlaybackStateResponse,
+)
+async def get_my_playback_state(
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    require_registered_playback_user(
+        user,
+    )
+
+    return await build_playback_state(
+        session,
+        user,
+    )
+
+
+@router.patch(
+    "/me/playback-state",
+    response_model=PlaybackStateResponse,
+)
+async def update_my_playback_state(
+    payload: PlaybackStateUpdateRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    require_registered_playback_user(
+        user,
+    )
+
+    track = None
+
+    if payload.track_id is not None:
+        result = await session.execute(
+            select(
+                Track,
+            ).where(
+                Track.id == payload.track_id,
+                Track.is_published.is_(
+                    True,
+                ),
+            )
+        )
+
+        track = (
+            result.scalar_one_or_none()
+        )
+
+        if track is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Track not found.",
+            )
+
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if state is None:
+        state = UserAppState(
+            user_id=user.id,
+        )
+
+        session.add(
+            state,
+        )
+
+    position = max(
+        float(
+            payload.position_seconds
+        ),
+        0.0,
+    )
+
+    if (
+        track is not None
+        and track.duration_seconds
+        is not None
+        and track.duration_seconds > 0
+    ):
+        position = min(
+            position,
+            float(
+                track.duration_seconds
+            ),
+        )
+
+    if track is None:
+        position = 0.0
+
+    state.playback_track_id = (
+        track.id
+        if track is not None
+        else None
+    )
+
+    state.playback_position_seconds = (
+        position
+    )
+
+    state.playback_paused = (
+        True
+        if track is None
+        else payload.paused
+    )
+
+    state.playback_device_id = (
+        payload.device_id
+    )
+
+    state.playback_updated_at = (
+        datetime.now(
+            UTC,
+        )
+    )
+
+    await session.commit()
+
+    return await build_playback_state(
+        session,
+        user,
     )
 
 

@@ -1,4 +1,6 @@
 import {
+  clearAllMediaDatabases,
+  cleanupExpiredMedia,
   getArtwork,
   getMediaRecord,
   MEDIA_CHUNK_SIZE,
@@ -29,10 +31,19 @@ const DEFAULT_API_BASE_URL =
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v2";
+  "hypersync-app-shell-v3";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
+
+const NAVIGATION_NETWORK_TIMEOUT_MS =
+  3500;
+
+const MEDIA_CLEANUP_INTERVAL_MS =
+  6 * 60 * 60 * 1000;
+
+let lastMediaCleanupAt =
+  0;
 
 
 async function precacheAppShell() {
@@ -90,6 +101,7 @@ async function precacheAppShell() {
           "/apple-touch-icon.png",
           "/icon-192.png",
           "/icon-512.png",
+          "/hypersync-home-hero.png",
         ]
           .filter(
             (value) =>
@@ -159,6 +171,96 @@ globalThis.self?.addEventListener?.(
 );
 
 
+async function clearAllWorkerCaches() {
+  const keys =
+    await caches.keys();
+
+  await Promise.allSettled(
+    keys.map(
+      (key) =>
+        caches.delete(
+          key,
+        ),
+    ),
+  );
+
+  return keys;
+}
+
+
+globalThis.self?.addEventListener?.(
+  "message",
+  (event) => {
+    const type =
+      event.data?.type;
+
+    if (
+      type ===
+      "HYPERSYNC_PREPARE_OFFLINE_APP"
+    ) {
+      const requestId =
+        event.data?.requestId ??
+        null;
+
+      event.waitUntil(
+        (
+          async () => {
+            let ok =
+              true;
+
+            try {
+              await precacheAppShell();
+            } catch {
+              ok =
+                false;
+            }
+
+            event.source?.postMessage?.({
+              type:
+                "HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE",
+
+              requestId,
+
+              ok,
+            });
+          }
+        )(),
+      );
+
+      return;
+    }
+
+    if (
+      type !==
+      "HYPERSYNC_CLEAR_ALL_CLIENT_DATA"
+    ) {
+      return;
+    }
+
+    event.waitUntil(
+      (
+        async () => {
+          await clearAllMediaDatabases()
+            .catch(
+              () => [],
+            );
+
+          await clearAllWorkerCaches()
+            .catch(
+              () => [],
+            );
+
+          event.source?.postMessage?.({
+            type:
+              "HYPERSYNC_CLEAR_ALL_CLIENT_DATA_COMPLETE",
+          });
+        }
+      )(),
+    );
+  },
+);
+
+
 globalThis.self?.addEventListener?.(
   "activate",
   (event) => {
@@ -185,6 +287,23 @@ globalThis.self?.addEventListener?.(
                   ),
               ),
           );
+
+          await cleanupExpiredMedia()
+            .catch(
+              () => 0,
+            );
+
+          if (
+            self.registration
+              .navigationPreload
+          ) {
+            await self.registration
+              .navigationPreload
+              .enable()
+              .catch(
+                () => {},
+              );
+          }
 
           await self.clients.claim();
         }
@@ -367,7 +486,9 @@ export async function handleArtworkRequest(
               cached.data.byteLength,
             ),
           "Cache-Control":
-            "private, max-age=31536000, immutable",
+            identity.artworkVersion
+              ? "private, max-age=31536000, immutable"
+              : "private, no-store",
         },
       },
     );
@@ -792,6 +913,25 @@ export function registerMediaFetchHandler(
       const backgroundTasks =
         [];
 
+      const now =
+        Date.now();
+
+      if (
+        now - lastMediaCleanupAt >=
+          MEDIA_CLEANUP_INTERVAL_MS
+      ) {
+        lastMediaCleanupAt =
+          now;
+
+        backgroundTasks.push(
+          cleanupExpiredMedia(
+            now,
+          ).catch(
+            () => 0,
+          ),
+        );
+      }
+
       const scheduleTask =
         (
           task,
@@ -895,10 +1035,32 @@ globalThis.self?.addEventListener?.(
                 APP_SHELL_CACHE,
               );
 
+            const controller =
+              new AbortController();
+
+            const timeoutId =
+              setTimeout(
+                () => {
+                  controller.abort();
+                },
+                NAVIGATION_NETWORK_TIMEOUT_MS,
+              );
+
             try {
+              const preloaded =
+                await event
+                  .preloadResponse;
+
               const response =
+                preloaded ??
                 await fetch(
-                  request,
+                  new Request(
+                    request,
+                    {
+                      signal:
+                        controller.signal,
+                    },
+                  ),
                 );
 
               if (
@@ -931,6 +1093,10 @@ globalThis.self?.addEventListener?.(
                       "text/plain",
                   },
                 },
+              );
+            } finally {
+              clearTimeout(
+                timeoutId,
               );
             }
           }
@@ -993,6 +1159,152 @@ globalThis.self?.addEventListener?.(
     }
   },
 );
+
+globalThis.self?.addEventListener?.(
+  "push",
+  (event) => {
+    let payload = {};
+
+    try {
+      payload =
+        event.data?.json?.() ??
+        {};
+    } catch {
+      payload = {};
+    }
+
+    const username =
+      String(
+        payload.username ??
+        "",
+      ).trim();
+
+    const title =
+      String(
+        payload.title ??
+        "HyperSync",
+      );
+
+    const body =
+      String(
+        payload.body ??
+        "You have a new notification.",
+      );
+
+    event.waitUntil(
+      self.registration
+        .showNotification(
+          title,
+          {
+            body,
+            icon:
+              "/icon-192.png",
+            badge:
+              "/icon-192.png",
+            tag:
+              username
+                ? (
+                    "hypersync-message-" +
+                    username
+                  )
+                : "hypersync-notification",
+            renotify:
+              true,
+            data: {
+              username,
+              url:
+                String(
+                  payload.url ??
+                  "/",
+                ),
+            },
+          },
+        ),
+    );
+  },
+);
+
+
+globalThis.self?.addEventListener?.(
+  "notificationclick",
+  (event) => {
+    event.notification
+      ?.close?.();
+
+    const username =
+      String(
+        event.notification
+          ?.data
+          ?.username ??
+        "",
+      ).trim();
+
+    const requestedUrl =
+      new URL(
+        String(
+          event.notification
+            ?.data
+            ?.url ??
+          "/",
+        ),
+        self.location.origin,
+      );
+
+    const targetUrl =
+      requestedUrl.origin ===
+        self.location.origin
+        ? requestedUrl
+        : new URL(
+            "/",
+            self.location.origin,
+          );
+
+    event.waitUntil(
+      (
+        async () => {
+          const windows =
+            await self.clients
+              .matchAll({
+                type:
+                  "window",
+                includeUncontrolled:
+                  true,
+              });
+
+          for (
+            const client
+            of windows
+          ) {
+            if (
+              new URL(
+                client.url,
+              ).origin !==
+              self.location.origin
+            ) {
+              continue;
+            }
+
+            await client.focus();
+
+            client.postMessage({
+              type:
+                "HYPERSYNC_OPEN_MESSAGE",
+              username,
+            });
+
+            return;
+          }
+
+          await self.clients
+            .openWindow(
+              targetUrl.href,
+            );
+        }
+      )(),
+    );
+  },
+);
+
 
 if (
   typeof globalThis.self !==

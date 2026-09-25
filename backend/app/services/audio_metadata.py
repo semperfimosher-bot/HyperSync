@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from io import BytesIO
 from typing import TypedDict
 
@@ -27,6 +28,26 @@ class ResolvedTrackMetadata(
     album: str | None
     duration_seconds: int
     genre: str | None
+
+
+def normalize_track_identity(
+    value: object,
+) -> str:
+    text = unicodedata.normalize(
+        "NFKC",
+        str(
+            value
+            if value is not None
+            else ""
+        ),
+    )
+
+    return " ".join(
+        text
+        .strip()
+        .casefold()
+        .split()
+    )
 
 
 def _clean_text(
@@ -210,5 +231,7 @@ def resolve_track_metadata(
             int(duration_seconds or 0),
             0,
         ),
-        "genre": embedded["genre"],
+        "genre": embedded.get(
+            "genre",
+        ),
     }

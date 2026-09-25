@@ -68,6 +68,14 @@ async def test_audio_streams_locally_when_b2_is_unavailable(
         raise_b2_error,
     )
 
+    monkeypatch.setattr(
+        (
+            "backend.app.api.routes.audio."
+            "resolve_local_audio_fallback"
+        ),
+        lambda _object_key: audio_file,
+    )
+
     transport = ASGITransport(
         app=app,
     )

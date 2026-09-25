@@ -32,6 +32,14 @@ NEW_POOL_LIMIT = 120
 
 RECENT_GENRE_WINDOW = 40
 
+CONTEXT_TRACK_LIMIT = 12
+
+CONTEXT_DECAY = 0.90
+
+RECENT_SESSION_LIMIT = 12
+
+RECENT_SESSION_DECAY = 0.90
+
 
 def _text_key(
     value: str | None,
@@ -43,12 +51,137 @@ def _text_key(
     )
 
 
+def _bounded(
+    value: float,
+    lower: float,
+    upper: float,
+) -> float:
+    return max(
+        lower,
+        min(
+            upper,
+            value,
+        ),
+    )
+
+
+def _recent_session_weight(
+    rank: int,
+) -> float:
+    if (
+        rank < 0
+        or rank >= RECENT_SESSION_LIMIT
+    ):
+        return 0.0
+
+    return (
+        RECENT_SESSION_DECAY
+        ** rank
+    )
+
+
+def _build_context_affinity(
+    tracks: list[Track],
+) -> tuple[
+    dict[str, float],
+    dict[str, float],
+    dict[str, float],
+]:
+    artist_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    genre_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    album_context: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+
+    for (
+        distance,
+        track,
+    ) in enumerate(
+        reversed(
+            tracks[
+                -CONTEXT_TRACK_LIMIT:
+            ],
+        ),
+    ):
+        weight = (
+            CONTEXT_DECAY
+            ** distance
+        )
+
+
+        artist_key = (
+            _text_key(
+                track.artist,
+            )
+        )
+
+        genre_key = (
+            _text_key(
+                track.genre,
+            )
+        )
+
+        album_key = (
+            _text_key(
+                track.album,
+            )
+        )
+
+
+        if artist_key:
+            artist_context[
+                artist_key
+            ] += weight
+
+
+        if genre_key:
+            genre_context[
+                genre_key
+            ] += weight
+
+
+        if album_key:
+            album_context[
+                album_key
+            ] += weight
+
+
+    return (
+        dict(
+            artist_context,
+        ),
+        dict(
+            genre_context,
+        ),
+        dict(
+            album_context,
+        ),
+    )
+
+
 async def recommend_autoplay_tracks(
     session: AsyncSession,
     *,
     user_id: UUID | None,
     current_track_id: UUID | None,
     exclude_track_ids: set[UUID],
+    context_track_ids: list[UUID] | None = None,
     limit: int,
 ) -> list[Track]:
     excluded = {
@@ -73,6 +206,92 @@ async def recommend_autoplay_tracks(
                 current_track_id,
             )
         )
+
+
+    ordered_context_ids = []
+
+    for track_id in (
+        context_track_ids
+        or []
+    )[
+        -CONTEXT_TRACK_LIMIT:
+    ]:
+        if (
+            track_id is None
+            or track_id
+            in ordered_context_ids
+        ):
+            continue
+
+        ordered_context_ids.append(
+            track_id,
+        )
+
+
+    context_tracks: list[
+        Track,
+    ] = []
+
+    if ordered_context_ids:
+        context_result = (
+            await session.execute(
+                select(
+                    Track,
+                )
+                .where(
+                    Track.id.in_(
+                        ordered_context_ids,
+                    ),
+
+                    Track.is_published.is_(
+                        True,
+                    ),
+                )
+            )
+        )
+
+        context_by_id = {
+            track.id:
+                track
+            for track in (
+                context_result
+                .scalars()
+                .all()
+            )
+        }
+
+        context_tracks = [
+            context_by_id[
+                track_id
+            ]
+            for track_id
+            in ordered_context_ids
+            if track_id
+            in context_by_id
+        ]
+
+
+    if current_track:
+        context_tracks = [
+            track
+            for track
+            in context_tracks
+            if track.id
+            != current_track.id
+        ]
+
+        context_tracks.append(
+            current_track,
+        )
+
+
+    (
+        context_artist_affinity,
+        context_genre_affinity,
+        context_album_affinity,
+    ) = _build_context_affinity(
+        context_tracks,
+    )
 
 
     current_artist = (
@@ -122,6 +341,27 @@ async def recommend_autoplay_tracks(
     )
 
     recent_genre_momentum: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    recent_session_artist_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    recent_session_genre_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    recent_session_album_affinity: dict[
         str,
         float,
     ] = defaultdict(
@@ -342,6 +582,49 @@ async def recommend_autoplay_tracks(
             )
 
 
+            session_weight = (
+                _recent_session_weight(
+                    rank,
+                )
+            )
+
+            if session_weight > 0:
+                session_quality = (
+                    _bounded(
+                        quality,
+                        -1.5,
+                        1.5,
+                    )
+                )
+
+                if artist_key:
+                    recent_session_artist_affinity[
+                        artist_key
+                    ] += (
+                        session_quality
+                        *
+                        session_weight
+                    )
+
+                if genre_key:
+                    recent_session_genre_affinity[
+                        genre_key
+                    ] += (
+                        session_quality
+                        *
+                        session_weight
+                    )
+
+                if album_key:
+                    recent_session_album_affinity[
+                        album_key
+                    ] += (
+                        session_quality
+                        *
+                        session_weight
+                    )
+
+
             if artist_key:
                 artist_affinity[
                     artist_key
@@ -525,6 +808,135 @@ async def recommend_autoplay_tracks(
     genre_candidates = list(
         preferred_genres,
     )
+
+
+    for artist_key in sorted(
+        recent_session_artist_affinity,
+        key=lambda key:
+            recent_session_artist_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        if (
+            recent_session_artist_affinity[
+                artist_key
+            ] <= 0
+        ):
+            continue
+
+        artist_name = (
+            artist_names.get(
+                artist_key,
+            )
+        )
+
+        if (
+            artist_name
+            and artist_name
+            not in artist_candidates
+        ):
+            artist_candidates.append(
+                artist_name,
+            )
+
+
+    for genre_key in sorted(
+        recent_session_genre_affinity,
+        key=lambda key:
+            recent_session_genre_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        if (
+            recent_session_genre_affinity[
+                genre_key
+            ] <= 0
+        ):
+            continue
+
+        genre_name = (
+            genre_names.get(
+                genre_key,
+            )
+        )
+
+        if (
+            genre_name
+            and genre_name
+            not in genre_candidates
+        ):
+            genre_candidates.append(
+                genre_name,
+            )
+
+
+    context_artist_names = {
+        _text_key(
+            track.artist,
+        ):
+            track.artist
+        for track in context_tracks
+        if track.artist
+    }
+
+    context_genre_names = {
+        _text_key(
+            track.genre,
+        ):
+            track.genre
+        for track in context_tracks
+        if track.genre
+    }
+
+
+    for artist_key in sorted(
+        context_artist_affinity,
+        key=lambda key:
+            context_artist_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        artist_name = (
+            context_artist_names.get(
+                artist_key,
+            )
+        )
+
+        if (
+            artist_name
+            and artist_name
+            not in artist_candidates
+        ):
+            artist_candidates.append(
+                artist_name,
+            )
+
+
+    for genre_key in sorted(
+        context_genre_affinity,
+        key=lambda key:
+            context_genre_affinity[
+                key
+            ],
+        reverse=True,
+    ):
+        genre_name = (
+            context_genre_names.get(
+                genre_key,
+            )
+        )
+
+        if (
+            genre_name
+            and genre_name
+            not in genre_candidates
+        ):
+            genre_candidates.append(
+                genre_name,
+            )
 
 
     if (
@@ -727,6 +1139,148 @@ async def recommend_autoplay_tracks(
     )
 
 
+    session_genre_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    session_artist_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+    session_album_affinity: dict[
+        str,
+        float,
+    ] = defaultdict(
+        float,
+    )
+
+
+    for (
+        key,
+        value,
+    ) in recent_session_genre_affinity.items():
+        session_genre_affinity[
+            key
+        ] += value
+
+    for (
+        key,
+        value,
+    ) in context_genre_affinity.items():
+        session_genre_affinity[
+            key
+        ] += (
+            value
+            *
+            1.5
+        )
+
+    for (
+        key,
+        value,
+    ) in recent_session_artist_affinity.items():
+        session_artist_affinity[
+            key
+        ] += value
+
+    for (
+        key,
+        value,
+    ) in context_artist_affinity.items():
+        session_artist_affinity[
+            key
+        ] += (
+            value
+            *
+            1.25
+        )
+
+    for (
+        key,
+        value,
+    ) in recent_session_album_affinity.items():
+        session_album_affinity[
+            key
+        ] += value
+
+    for (
+        key,
+        value,
+    ) in context_album_affinity.items():
+        session_album_affinity[
+            key
+        ] += value
+
+
+    if current_genre:
+        session_genre_affinity[
+            current_genre
+        ] += 2.75
+
+    if current_artist:
+        session_artist_affinity[
+            current_artist
+        ] += 1.25
+
+    if current_album:
+        session_album_affinity[
+            current_album
+        ] += 0.50
+
+
+    positive_session_genres = {
+        key:
+            value
+        for (
+            key,
+            value,
+        ) in session_genre_affinity.items()
+        if value > 0
+    }
+
+    dominant_session_genre = (
+        max(
+            positive_session_genres.items(),
+            key=lambda item: item[1],
+        )[0]
+        if positive_session_genres
+        else ""
+    )
+
+    dominant_session_genre_strength = (
+        positive_session_genres.get(
+            dominant_session_genre,
+            0.0,
+        )
+    )
+
+    max_session_artist_strength = max(
+        [
+            value
+            for value
+            in session_artist_affinity.values()
+            if value > 0
+        ],
+        default=0.0,
+    )
+
+    max_session_album_strength = max(
+        [
+            value
+            for value
+            in session_album_affinity.values()
+            if value > 0
+        ],
+        default=0.0,
+    )
+
+
     scored: list[
         tuple[
             float,
@@ -762,74 +1316,189 @@ async def recommend_autoplay_tracks(
         # PERSONAL TASTE
         # ==================================================
 
-        # Genre is deliberately the
-        # strongest long-term signal.
-        score += (
+        # Long-term taste is useful, but it
+        # must never overpower the current
+        # listening session. Bound each
+        # historical contribution so the
+        # last 12 songs and current genre
+        # remain the primary signals.
+        score += _bounded(
             genre_affinity.get(
                 genre_key,
                 0.0,
             )
             *
-            4.8
+            0.9,
+            -12.0,
+            12.0,
         )
 
 
-        # This makes autoplay react to
-        # what the user has been listening
-        # to lately.
-        score += (
+        score += _bounded(
             recent_genre_momentum.get(
                 genre_key,
                 0.0,
             )
             *
-            3.5
+            0.7,
+            -10.0,
+            10.0,
         )
 
 
-        score += (
+        score += _bounded(
             artist_affinity.get(
                 artist_key,
                 0.0,
             )
             *
-            3.0
+            0.6,
+            -6.0,
+            6.0,
         )
 
 
-        score += (
+        score += _bounded(
             album_affinity.get(
                 album_key,
                 0.0,
             )
             *
-            1.4
+            0.35,
+            -3.0,
+            3.0,
         )
 
 
-        score += (
+        score += _bounded(
             track_affinity.get(
                 track.id,
                 0.0,
             )
             *
-            1.5
+            0.45,
+            -4.0,
+            4.0,
         )
 
 
         # ==================================================
-        # CURRENT VIBE
+        # CURRENT SESSION: CURRENT GENRE + LAST 12 SONGS
         # ==================================================
 
-        # Current-track genre is an
-        # extremely strong short-term
-        # signal.
+        # Normalize the live-session genre
+        # signal so it is stable whether the
+        # catalog/history is tiny or huge.
         if (
-            current_genre
-            and genre_key
-            == current_genre
+            dominant_session_genre_strength
+            > 0
         ):
-            score += 10.0
+            genre_session_ratio = _bounded(
+                session_genre_affinity.get(
+                    genre_key,
+                    0.0,
+                )
+                /
+                dominant_session_genre_strength,
+                -1.0,
+                1.0,
+            )
+
+            score += (
+                genre_session_ratio
+                *
+                34.0
+            )
+
+
+            if (
+                genre_key
+                == dominant_session_genre
+            ):
+                score += 12.0
+
+            elif (
+                genre_key
+                and genre_session_ratio
+                >= 0.45
+            ):
+                # A genuine secondary genre
+                # from the last 12 is allowed
+                # to stay in the mix.
+                score += 3.0
+
+            elif genre_key:
+                score -= 18.0
+
+            else:
+                score -= 9.0
+
+
+        if (
+            max_session_artist_strength
+            > 0
+        ):
+            artist_session_ratio = _bounded(
+                session_artist_affinity.get(
+                    artist_key,
+                    0.0,
+                )
+                /
+                max_session_artist_strength,
+                -1.0,
+                1.0,
+            )
+
+            score += (
+                artist_session_ratio
+                *
+                10.0
+            )
+
+
+        if (
+            max_session_album_strength
+            > 0
+        ):
+            album_session_ratio = _bounded(
+                session_album_affinity.get(
+                    album_key,
+                    0.0,
+                )
+                /
+                max_session_album_strength,
+                -1.0,
+                1.0,
+            )
+
+            score += (
+                album_session_ratio
+                *
+                3.0
+            )
+
+
+        # The current song is the clearest
+        # indication of what should play
+        # next. Exact genre continuity gets
+        # a large bonus; unrelated genres
+        # need strong evidence from the
+        # recent 12-song session to enter.
+        if current_genre:
+            if (
+                genre_key
+                == current_genre
+            ):
+                score += 28.0
+
+            elif (
+                session_genre_affinity.get(
+                    genre_key,
+                    0.0,
+                )
+                <= 0
+            ):
+                score -= 12.0
 
 
         if (
@@ -837,7 +1506,7 @@ async def recommend_autoplay_tracks(
             and artist_key
             == current_artist
         ):
-            score += 3.5
+            score += 4.0
 
 
         if (

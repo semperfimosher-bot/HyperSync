@@ -36,6 +36,8 @@ export function resolveMediaUrl(url) {
   }
 
   if (
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
     url.startsWith("http://") ||
     url.startsWith("https://")
   ) {

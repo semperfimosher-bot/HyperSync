@@ -29,7 +29,14 @@ function DesktopSidebar({
           Menu
         </span>
 
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS
+          .filter(
+            (item) =>
+              !item.requiresAuth ||
+              currentUser?.account_type ===
+                "registered",
+          )
+          .map((item) => (
           <button
             className={
               activePage === item.id

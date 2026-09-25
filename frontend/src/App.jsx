@@ -25,6 +25,14 @@ import {
 
 import { apiRequest } from "./api/client.js";
 
+import {
+  clearAllHyperSyncClientData,
+} from "./clientDataReset.js";
+
+import {
+  rememberResetGeneration,
+} from "./globalResetSync.js";
+
 import { normalizeAppViewState } from "./appViewState.js";
 
 import HexBackdrop from "./components/HexBackdrop.jsx";
@@ -42,7 +50,14 @@ import {
 
 import TrackArtwork from "./components/ui/TrackArtwork.jsx";
 
+import TrackActionMenu from
+  "./components/music/TrackActionMenu.jsx";
+
+import useTrackActionMenu from
+  "./hooks/useTrackActionMenu.js";
+
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
+import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.jsx";
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
@@ -60,6 +75,8 @@ import LibraryPage from "./components/pages/LibraryPage.jsx";
 
 import SearchPage from "./components/pages/SearchPage.jsx";
 
+import MessagesPage from "./components/pages/MessagesPage.jsx";
+
 import ProfilePage from "./components/pages/ProfilePage.jsx";
 
 import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
@@ -74,8 +91,14 @@ import {
 } from "./catalogStore.js";
 
 import {
-  downloadTracksForOffline,
+  cleanupLegacyUnscopedDownloads,
+  getActivePlaylistDownloads,
   getDownloadedPlaylists,
+  getOfflineOwnerKey,
+  getPlaylistDownloadJobId,
+  reconcileDownloadedPlaylistMembership,
+  recoverInterruptedDownloadJobs,
+  startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
 
 import {
@@ -86,6 +109,168 @@ import {
   findMissingPlaylistTracks,
   playlistUpdateKey,
 } from "./playlistDownloadUpdates.js";
+
+import {
+  getMessageNotifications,
+} from "./messageApi.js";
+
+import {
+  enablePushNotifications,
+  syncExistingPushSubscription,
+} from "./pushNotifications.js";
+
+import {
+  getPwaInstallState,
+  requestPwaInstall,
+  subscribePwaInstall,
+} from "./pwaInstall.js";
+
+import AppInstallModal from
+  "./components/ui/AppInstallModal.jsx";
+const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
+  3000;
+
+const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
+  15000;
+
+const ACCOUNT_PLAYBACK_DEVICE_KEY =
+  "hypersync:playback-device-id";
+
+
+function getAccountPlaybackDeviceId() {
+  try {
+    const existing =
+      globalThis.sessionStorage
+        ?.getItem(
+          ACCOUNT_PLAYBACK_DEVICE_KEY,
+        );
+
+    if (existing) {
+      return existing;
+    }
+  } catch {
+    // Storage can be unavailable in strict
+    // privacy modes. A transient id is fine.
+  }
+
+  const id =
+    globalThis.crypto
+      ?.randomUUID?.() ??
+    (
+      "device-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random()
+        .toString(36)
+        .slice(
+          2,
+          12,
+        )
+    );
+
+  try {
+    globalThis.sessionStorage
+      ?.setItem(
+        ACCOUNT_PLAYBACK_DEVICE_KEY,
+        id,
+      );
+  } catch {
+    // Keep the in-memory id.
+  }
+
+  return id;
+}
+
+
+function playbackUpdatedAtMs(
+  value,
+) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed =
+    Date.parse(
+      value,
+    );
+
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
+    : 0;
+}
+
+
+function accountPlaybackPosition(
+  snapshot,
+) {
+  const base =
+    Math.max(
+      Number(
+        snapshot
+          ?.position_seconds ??
+        0,
+      ) || 0,
+      0,
+    );
+
+  if (
+    snapshot?.paused
+  ) {
+    return base;
+  }
+
+  const updatedAt =
+    playbackUpdatedAtMs(
+      snapshot?.updated_at,
+    );
+
+  const ageMs =
+    updatedAt > 0
+      ? Math.max(
+          Date.now() -
+            updatedAt,
+          0,
+        )
+      : 0;
+
+  /*
+   * A browser that disappears cannot keep
+   * claiming to play forever. Only advance
+   * a recent active-device heartbeat.
+   */
+  if (
+    ageMs >
+    ACCOUNT_PLAYBACK_STALE_PLAYING_MS
+  ) {
+    return base;
+  }
+
+  const duration =
+    Number(
+      snapshot?.track
+        ?.duration_seconds,
+    );
+
+  const advanced =
+    base +
+    ageMs / 1000;
+
+  return (
+    Number.isFinite(
+      duration,
+    ) &&
+    duration > 0
+      ? Math.min(
+          advanced,
+          duration,
+        )
+      : advanced
+  );
+}
+
+
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -128,15 +313,31 @@ function AdminBotPage() {
     setMessage("");
 
     try {
-      await apiRequest("/admin/bot/control", {
-        method: "POST",
-        body: JSON.stringify({
-          action,
-        }),
-      });
+      if (action === "restart") {
+        await apiRequest(
+          "/admin/bot/stop",
+          {
+            method: "POST",
+          },
+        );
+
+        await apiRequest(
+          "/admin/bot/start",
+          {
+            method: "POST",
+          },
+        );
+      } else {
+        await apiRequest(
+          `/admin/bot/${action}`,
+          {
+            method: "POST",
+          },
+        );
+      }
 
       setMessage(
-        `Bot ${action} command sent successfully.`,
+        `Bot ${action} command completed.`,
       );
 
       await refreshStatus();
@@ -294,6 +495,52 @@ function AdminBotPage() {
               </small>
             </span>
           </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("scan")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="search"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Scan Catalog</strong>
+              <small>
+                Queue the real catalog scan job.
+              </small>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="admin-quick-action"
+            disabled={loading}
+            onClick={() =>
+              sendBotAction("process")
+            }
+          >
+            <span className="admin-quick-action__icon">
+              <Icon
+                name="music"
+                size={20}
+              />
+            </span>
+
+            <span>
+              <strong>Process Queue</strong>
+              <small>
+                Queue the real processing job.
+              </small>
+            </span>
+          </button>
         </div>
 
         <button
@@ -324,38 +571,631 @@ function AdminBotPage() {
     refreshCatalog,
   } = useCatalogTracks();
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-  const deleteTrack = async (trackId) => {
-    setMessage("");
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState("");
 
-    try {
-      await deleteCatalogTrack(trackId);
+  const [
+    category,
+    setCategory,
+  ] = useState(null);
 
-      setMessage(
-        "Track permanently deleted.",
-      );
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete track.",
-      );
-    }
+  const [
+    folderValue,
+    setFolderValue,
+  ] = useState(null);
+
+
+  const normalizedSearch =
+    searchQuery
+      .trim()
+      .toLocaleLowerCase();
+
+
+  const folderConfig = {
+    artists: {
+      label: "Artists",
+      icon: "people",
+      value:
+        (track) =>
+          track.artist ||
+          "Unknown Artist",
+    },
+
+    albums: {
+      label: "Albums",
+      icon: "disc",
+      value:
+        (track) =>
+          track.album ||
+          "No Album",
+    },
+
+    genres: {
+      label: "Genres",
+      icon: "music",
+      value:
+        (track) =>
+          track.genre ||
+          "No Genre",
+    },
   };
 
+
+  const searchResults =
+    useMemo(
+      () => {
+        if (!normalizedSearch) {
+          return [];
+        }
+
+        return tracks.filter(
+          (track) =>
+            [
+              track.title,
+              track.artist,
+              track.album,
+              track.genre,
+            ]
+              .filter(Boolean)
+              .some(
+                (value) =>
+                  String(value)
+                    .toLocaleLowerCase()
+                    .includes(
+                      normalizedSearch,
+                    ),
+              ),
+        );
+      },
+      [
+        normalizedSearch,
+        tracks,
+      ],
+    );
+
+
+  const folders =
+    useMemo(
+      () => {
+        if (!category) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        if (!config) {
+          return [];
+        }
+
+        const grouped =
+          new Map();
+
+        tracks.forEach(
+          (track) => {
+            const value =
+              config.value(
+                track,
+              );
+
+            const key =
+              String(
+                value,
+              )
+                .trim()
+                .toLocaleLowerCase();
+
+            if (
+              !grouped.has(
+                key,
+              )
+            ) {
+              grouped.set(
+                key,
+                {
+                  key,
+                  value,
+                  tracks: [],
+                },
+              );
+            }
+
+            grouped
+              .get(
+                key,
+              )
+              .tracks
+              .push(
+                track,
+              );
+          },
+        );
+
+        return Array.from(
+          grouped.values(),
+        ).sort(
+          (
+            left,
+            right,
+          ) =>
+            String(
+              left.value,
+            ).localeCompare(
+              String(
+                right.value,
+              ),
+              undefined,
+              {
+                sensitivity:
+                  "base",
+              },
+            ),
+        );
+      },
+      [
+        category,
+        tracks,
+      ],
+    );
+
+
+  const folderTracks =
+    useMemo(
+      () => {
+        if (
+          !category ||
+          !folderValue
+        ) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        return tracks.filter(
+          (track) =>
+            String(
+              config.value(
+                track,
+              ),
+            )
+              .trim()
+              .toLocaleLowerCase()
+              ===
+            String(
+              folderValue,
+            )
+              .trim()
+              .toLocaleLowerCase(),
+        );
+      },
+      [
+        category,
+        folderValue,
+        tracks,
+      ],
+    );
+
+
+  const deleteTrack =
+    async (
+      track,
+    ) => {
+      const confirmed =
+        window.confirm(
+          `Permanently delete "${track.title}" by ${track.artist} from the catalog and storage?`,
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setMessage("");
+
+      try {
+        await deleteCatalogTrack(
+          track.id,
+        );
+
+        setMessage(
+          `Deleted "${track.title}".`,
+        );
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete track.",
+        );
+      }
+    };
+
+
+  const renderFile =
+    (
+      track,
+    ) => (
+      <div
+        className="admin-explorer-file"
+        key={track.id}
+      >
+        <TrackArtwork
+          src={track.artwork_url}
+          alt={track.title}
+          variant={1}
+        />
+
+        <div className="admin-explorer-file__copy">
+          <strong>
+            {track.title}
+          </strong>
+
+          <span>
+            {track.artist}
+            {" • "}
+            {track.album ||
+              "No album"}
+            {" • "}
+            {track.genre ||
+              "No genre"}
+          </span>
+        </div>
+
+        <span className="admin-explorer-file__type">
+          {String(
+            track.mime_type ||
+              "audio",
+          )
+            .replace(
+              "audio/",
+              "",
+            )
+            .toUpperCase()}
+        </span>
+
+        <button
+          type="button"
+          className="danger-button"
+          onClick={() => {
+            void deleteTrack(
+              track,
+            );
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    );
+
+
+  let explorerBody = null;
+
+  if (loading) {
+    explorerBody = (
+      <div className="admin-empty-state">
+        <Icon
+          name="chart"
+          size={28}
+        />
+
+        <strong>
+          Loading catalog...
+        </strong>
+      </div>
+    );
+
+  } else if (
+    normalizedSearch
+  ) {
+    explorerBody =
+      searchResults.length > 0
+        ? (
+          <div className="admin-explorer-files">
+            {searchResults.map(
+              renderFile,
+            )}
+          </div>
+        )
+        : (
+          <div className="admin-empty-state">
+            <Icon
+              name="search"
+              size={28}
+            />
+
+            <strong>
+              No files or folders match
+            </strong>
+
+            <p>
+              Search title, artist,
+              album, or genre.
+            </p>
+          </div>
+        );
+
+  } else if (!category) {
+    explorerBody = (
+      <div className="admin-explorer-folder-grid">
+        {Object.entries(
+          folderConfig,
+        ).map(
+          ([
+            key,
+            config,
+          ]) => {
+            const count =
+              new Set(
+                tracks.map(
+                  (track) =>
+                    String(
+                      config.value(
+                        track,
+                      ),
+                    )
+                      .trim()
+                      .toLocaleLowerCase(),
+                ),
+              ).size;
+
+            return (
+              <button
+                type="button"
+                className="admin-explorer-folder"
+                key={key}
+                onClick={() => {
+                  setCategory(
+                    key,
+                  );
+
+                  setFolderValue(
+                    null,
+                  );
+                }}
+              >
+                <span className="admin-explorer-folder__icon">
+                  <Icon
+                    name={
+                      config.icon
+                    }
+                    size={24}
+                  />
+                </span>
+
+                <span>
+                  <strong>
+                    {config.label}
+                  </strong>
+
+                  <small>
+                    {count}
+                    {" folders"}
+                  </small>
+                </span>
+
+                <Icon
+                  name="chevron"
+                  size={15}
+                />
+              </button>
+            );
+          },
+        )}
+
+      </div>
+    );
+
+  } else if (
+    category &&
+    !folderValue
+  ) {
+    explorerBody = (
+      <div className="admin-explorer-folder-list">
+        {folders.map(
+          (folder) => (
+            <button
+              type="button"
+              className="admin-explorer-folder admin-explorer-folder--row"
+              key={folder.key}
+              onClick={() => {
+                setFolderValue(
+                  folder.value,
+                );
+              }}
+            >
+              <span className="admin-explorer-folder__icon">
+                <Icon
+                  name={
+                    folderConfig[
+                      category
+                    ].icon
+                  }
+                  size={20}
+                />
+              </span>
+
+              <span>
+                <strong>
+                  {folder.value}
+                </strong>
+
+                <small>
+                  {folder.tracks.length}
+                  {" files"}
+                </small>
+              </span>
+
+              <Icon
+                name="chevron"
+                size={15}
+              />
+            </button>
+          ),
+        )}
+      </div>
+    );
+
+  } else {
+    explorerBody = (
+      <div className="admin-explorer-files">
+        {folderTracks.map(
+          renderFile,
+        )}
+      </div>
+    );
+  }
+
+
   return (
-    <div className="page-stack admin-page">
-      <section className="admin-page__header">
-        <span>ADMINISTRATION</span>
+    <div className="page-stack hs-search-page admin-page admin-catalog-explorer-page">
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-        <h2>Media Catalog</h2>
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
 
-        <p>
-          Review and manage every published
-          HyperSync track.
-        </p>
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                MEDIA STORAGE
+              </span>
+            </div>
+
+            <h2>
+              Catalog Explorer
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Browse the music catalog like a
+              file system or search across
+              artists, albums, genres, and tracks.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            disabled={loading}
+            onClick={() => {
+              refreshCatalog({
+                force: true,
+              });
+            }}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+        </div>
+
+        <label className="hs-search-input admin-explorer-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={searchQuery}
+            placeholder="Search files, artists, albums, or genres..."
+            onChange={(
+              event,
+            ) => {
+              setSearchQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        <div className="admin-explorer-breadcrumb">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory(null);
+              setFolderValue(null);
+              setSearchQuery("");
+            }}
+          >
+            Catalog
+          </button>
+
+          {category ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFolderValue(
+                    null,
+                  );
+
+                  setSearchQuery(
+                    "",
+                  );
+                }}
+              >
+                {folderConfig[
+                  category
+                ].label}
+              </button>
+            </>
+          ) : null}
+
+          {folderValue ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                {folderValue}
+              </span>
+            </>
+          ) : null}
+
+          {normalizedSearch ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                Search
+              </span>
+            </>
+          ) : null}
+        </div>
       </section>
 
       {message || error ? (
@@ -371,252 +1211,675 @@ function AdminBotPage() {
         </div>
       ) : null}
 
-      <section className="admin-panel">
+      <section className="admin-panel admin-explorer-shell">
         <div className="admin-panel__heading">
           <div>
-            <span>CATALOG</span>
+            <span>
+              FILE EXPLORER
+            </span>
 
-            <h3>Published Tracks</h3>
+            <h3>
+              {normalizedSearch
+                ? "Search Results"
+                : folderValue ||
+                  (
+                    category
+                      ? folderConfig[
+                          category
+                        ].label
+                      : "Catalog Root"
+                  )}
+            </h3>
           </div>
 
           <strong className="admin-panel-count">
-            {tracks.length} total
+            {normalizedSearch
+              ? searchResults.length
+              : folderValue
+                ? folderTracks.length
+                : category
+                  ? folders.length
+                  : tracks.length}
+            {" items"}
           </strong>
         </div>
 
-        {loading ? (
-          <div className="admin-empty-state">
-            <Icon
-              name="chart"
-              size={28}
-            />
-
-            <strong>
-              Loading catalog...
-            </strong>
-          </div>
-        ) : tracks.length === 0 ? (
-          <div className="admin-empty-state">
-            <Icon
-              name="music"
-              size={28}
-            />
-
-            <strong>
-              No published tracks
-            </strong>
-
-            <p>
-              Upload a track to populate
-              the catalog.
-            </p>
-          </div>
-        ) : (
-          <div className="admin-recent-list">
-            {tracks.map((track) => (
-              <div
-                className="admin-recent-item"
-                key={track.id}
-              >
-                <TrackArtwork
-                  src={track.artwork_url}
-                  alt={track.title}
-                  variant={1}
-                />
-
-                <div className="admin-recent-copy">
-                  <strong>
-                    {track.title}
-                  </strong>
-
-                  <span>
-                    {track.artist}
-
-                    {track.album
-                      ? ` • ${track.album}`
-                      : ""}
-                  </span>
-                </div>
-
-                <span className="admin-track-duration">
-                  {track.duration_seconds
-                    ? `${Math.floor(
-                        track.duration_seconds / 60,
-                      )}:${String(
-                        track.duration_seconds % 60,
-                      ).padStart(2, "0")}`
-                    : "—"}
-                </span>
-
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() =>
-                    deleteTrack(track.id)
-                  }
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        {explorerBody}
       </section>
-
-      <button
-        type="button"
-        className="secondary-admin-button"
-        onClick={() =>
-          refreshCatalog({
-            force: true,
-          })
-        }
-        disabled={loading}
-      >
-        {loading
-          ? "Refreshing..."
-          : "Refresh Catalog"}
-
-        <Icon
-          name="chevron"
-          size={14}
-        />
-      </button>
     </div>
   );
 }
 
-function AdminDashboardPage() {
-  const [tracks, setTracks] = useState([]);
-  const [health, setHealth] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
+function AdminDashboardPage({
+  onNavigate,
+}) {
+  const [
+    tracks,
+    setTracks,
+  ] = useState([]);
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
+  const [
+    diagnostics,
+    setDiagnostics,
+  ] = useState(null);
 
-    try {
-      const [catalogResult, healthResult] =
-        await Promise.all([
-          apiRequest("/catalog/tracks"),
-          fetch("/health").then(async (response) => {
-            if (!response.ok) {
-              throw new Error("Health check failed.");
-            }
+  const [
+    botStatus,
+    setBotStatus,
+  ] = useState(null);
 
-            return response.json();
-          }),
-        ]);
+  const [
+    duplicates,
+    setDuplicates,
+  ] = useState(null);
 
-      setTracks(catalogResult || []);
-      setHealth(healthResult);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    duplicateBusy,
+    setDuplicateBusy,
+  ] = useState(false);
+
+  const [
+    userQuery,
+    setUserQuery,
+  ] = useState("");
+
+  const [
+    userResults,
+    setUserResults,
+  ] = useState([]);
+
+  const [
+    userSearchBusy,
+    setUserSearchBusy,
+  ] = useState(false);
+
+  const [
+    userDeleteBusy,
+    setUserDeleteBusy,
+  ] = useState(null);
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+  const [
+    lastChecked,
+    setLastChecked,
+  ] = useState(null);
+
+  const [
+    wipePassword,
+    setWipePassword,
+  ] = useState("");
+
+  const [
+    wipeConfirmation,
+    setWipeConfirmation,
+  ] = useState("");
+
+  const [
+    wipeBusy,
+    setWipeBusy,
+  ] = useState(false);
+
+  const [
+    wipeResult,
+    setWipeResult,
+  ] = useState("");
+
+
+  const deleteAllData = useCallback(
+    async () => {
       setMessage("");
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to load admin dashboard.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      setWipeResult("");
 
-  useEffect(() => {
-    loadDashboard();
+      if (
+        !wipePassword ||
+        wipeConfirmation !==
+          "DELETE ALL DATA"
+      ) {
+        setMessage(
+          "Enter the admin reset password and type DELETE ALL DATA exactly.",
+        );
 
-    const interval = window.setInterval(
-      loadDashboard,
-      30000,
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "This permanently deletes ALL HyperSync database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setWipeBusy(true);
+
+      try {
+        const result =
+          await apiRequest(
+            "/admin/database/delete-all",
+            {
+              method:
+                "POST",
+              body:
+                JSON.stringify({
+                  password:
+                    wipePassword,
+                  confirmation:
+                    wipeConfirmation,
+                }),
+            },
+          );
+
+        player.stopTrack();
+
+        const clientReset =
+          await clearAllHyperSyncClientData();
+
+        rememberResetGeneration(
+          result?.reset_generation,
+        );
+
+        setTracks([]);
+
+        setWipeResult(
+          `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches.`,
+        );
+
+        setWipePassword("");
+        setWipeConfirmation("");
+
+        window.setTimeout(
+          () => {
+            window.location.replace(
+              "/",
+            );
+          },
+          250,
+        );
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to delete all data.",
+        );
+      } finally {
+        setWipeBusy(false);
+      }
+    },
+    [
+      wipePassword,
+      wipeConfirmation,
+    ],
+  );
+
+
+  const loadDashboard =
+    useCallback(
+      async () => {
+        setLoading(true);
+
+        const results =
+          await Promise.allSettled([
+            apiRequest(
+              "/catalog/tracks",
+            ),
+            apiRequest(
+              "/admin/diagnostics",
+            ),
+            apiRequest(
+              "/admin/bot/status",
+            ),
+          ]);
+
+        const errors = [];
+
+        if (
+          results[0].status ===
+          "fulfilled"
+        ) {
+          setTracks(
+            results[0].value ||
+              [],
+          );
+        } else {
+          errors.push(
+            "catalog",
+          );
+        }
+
+        if (
+          results[1].status ===
+          "fulfilled"
+        ) {
+          setDiagnostics(
+            results[1].value,
+          );
+        } else {
+          setDiagnostics(null);
+          errors.push(
+            "diagnostics",
+          );
+        }
+
+        if (
+          results[2].status ===
+          "fulfilled"
+        ) {
+          setBotStatus(
+            results[2].value,
+          );
+        } else {
+          setBotStatus(null);
+          errors.push(
+            "bot",
+          );
+        }
+
+        setLastChecked(
+          new Date(),
+        );
+
+        setMessage(
+          errors.length > 0
+            ? `Could not refresh: ${errors.join(", ")}.`
+            : "",
+        );
+
+        setLoading(false);
+      },
+      [],
     );
 
+
+  const runDuplicateCheck =
+    useCallback(
+      async () => {
+        setDuplicateBusy(true);
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              "/admin/duplicates",
+            );
+
+          setDuplicates(
+            result,
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Duplicate scan failed.",
+          );
+        } finally {
+          setDuplicateBusy(false);
+        }
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    const term =
+      userQuery.trim();
+
+    if (!term) {
+      setUserResults([]);
+      setUserSearchBusy(false);
+
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          setUserSearchBusy(
+            true,
+          );
+
+          try {
+            const result =
+              await apiRequest(
+                `/admin/users?q=${encodeURIComponent(
+                  term,
+                )}`,
+              );
+
+            if (!cancelled) {
+              setUserResults(
+                result?.users ||
+                  [],
+              );
+            }
+          } catch (searchError) {
+            if (!cancelled) {
+              setUserResults([]);
+
+              setMessage(
+                searchError instanceof Error
+                  ? searchError.message
+                  : "User search failed.",
+              );
+            }
+          } finally {
+            if (!cancelled) {
+              setUserSearchBusy(
+                false,
+              );
+            }
+          }
+        },
+        220,
+      );
+
     return () => {
-      window.clearInterval(interval);
+      cancelled = true;
+
+      window.clearTimeout(
+        timer,
+      );
     };
-  }, [loadDashboard]);
+  }, [
+    userQuery,
+  ]);
 
-  const artistCount = useMemo(() => {
-    return new Set(
-      tracks
-        .map((track) => track.artist)
-        .filter(Boolean),
-    ).size;
-  }, [tracks]);
 
-  const albumCount = useMemo(() => {
-    return new Set(
-      tracks
-        .map((track) => track.album)
-        .filter(Boolean),
-    ).size;
-  }, [tracks]);
+  const deleteUserAccount =
+    useCallback(
+      async (
+        foundUser,
+      ) => {
+        const confirmed =
+          window.confirm(
+            `Permanently delete @${foundUser.username} and all server-side account data, playlists, listening history, sessions, follows, and avatar storage?`,
+          );
 
-  const artworkCount = useMemo(() => {
-    return tracks.filter(
-      (track) => Boolean(track.artwork_url),
-    ).length;
-  }, [tracks]);
+        if (!confirmed) {
+          return;
+        }
 
-  const recentTracks = tracks.slice(0, 6);
+        setUserDeleteBusy(
+          foundUser.id,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              `/admin/users/${foundUser.id}`,
+              {
+                method:
+                  "DELETE",
+              },
+            );
+
+          setUserResults(
+            (current) =>
+              current.filter(
+                (entry) =>
+                  entry.id !==
+                  foundUser.id,
+              ),
+          );
+
+          setMessage(
+            result?.message ||
+              `Deleted @${foundUser.username}.`,
+          );
+        } catch (deleteError) {
+          setMessage(
+            deleteError instanceof Error
+              ? deleteError.message
+              : "Unable to delete user.",
+          );
+        } finally {
+          setUserDeleteBusy(
+            null,
+          );
+        }
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    void loadDashboard();
+
+    const interval =
+      window.setInterval(
+        () => {
+          void loadDashboard();
+        },
+        30000,
+      );
+
+    return () => {
+      window.clearInterval(
+        interval,
+      );
+    };
+  }, [
+    loadDashboard,
+  ]);
+
+
+  const artistCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.artist,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
+
+  const albumCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.album,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
+
+  const artworkCount =
+    useMemo(
+      () =>
+        tracks.filter(
+          (track) =>
+            Boolean(
+              track.artwork_url,
+            ),
+        ).length,
+      [
+        tracks,
+      ],
+    );
+
+  const apiHealthy =
+    diagnostics?.api
+      ?.healthy === true;
+
+  const databaseHealthy =
+    diagnostics?.database
+      ?.healthy === true;
+
+  const storageHealthy =
+    diagnostics?.storage
+      ?.healthy === true;
+
+  const catalogHealthy =
+    diagnostics?.catalog
+      ?.healthy === true;
+
+  const botReachable =
+    diagnostics?.bot
+      ?.healthy === true;
+
+  const botRunning =
+    Boolean(
+      botStatus?.running ??
+      diagnostics?.bot
+        ?.running,
+    );
+
+  const duplicateCount =
+    duplicates
+      ?.duplicate_group_count ??
+    diagnostics?.catalog
+      ?.duplicate_groups ??
+    0;
+
+  const coreHealthy =
+    apiHealthy &&
+    databaseHealthy &&
+    storageHealthy;
+
 
   return (
-    <div className="page-stack admin-dashboard-page">
-      <section className="admin-hero-panel">
-        <div>
-          <span className="admin-eyebrow">
-            HYPERSYNC CONTROL CENTER
-          </span>
+    <div className="page-stack hs-search-page admin-dashboard-page admin-dashboard-page--revamped">
 
-          <h2>Admin Dashboard</h2>
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-          <p>
-            Monitor your catalog, playback services,
-            storage pipeline, and automation from one
-            place.
-          </p>
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--two"
+          aria-hidden="true"
+        />
+
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                HYPERSYNCED ADMIN
+              </span>
+            </div>
+
+            <h2>
+              Control Center
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Live system checks, catalog tools,
+              automation controls, upload access,
+              and maintenance in one console.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            onClick={() => {
+              void loadDashboard();
+            }}
+            disabled={loading}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Checking..."
+              : "Refresh Systems"}
+          </button>
         </div>
 
-        <button
-          type="button"
-          className="admin-refresh-button"
-          onClick={loadDashboard}
-          disabled={loading}
-        >
-          <Icon
-            name="chart"
-            size={16}
-          />
+        <div className="hs-search-console__status admin-command-status">
+          <span className="hs-search-status-chip hs-search-status-chip--primary">
+            <i
+              className={
+                coreHealthy
+                  ? "admin-blue-light is-on"
+                  : "admin-blue-light"
+              }
+            />
 
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+            {coreHealthy
+              ? "CORE SYSTEMS ONLINE"
+              : "SYSTEM CHECK NEEDED"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {storageHealthy
+              ? "B2 CONNECTED"
+              : "B2 CHECK"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {lastChecked
+              ? `CHECKED ${lastChecked.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : "CHECKING"}
+          </span>
+        </div>
       </section>
 
+
       {message ? (
-  <div className="admin-alert">
-    <Icon
-      name="shield"
-      size={18}
-    />
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
 
-    <span>
-      {message}
-    </span>
-  </div>
-) : null}
+          <span>
+            {message}
+          </span>
+        </div>
+      ) : null}
 
-      <section className="admin-stat-grid">
+
+      <section className="admin-stat-grid admin-stat-grid--revamped">
         <AdminStatCard
           icon="music"
           label="Published Tracks"
           value={tracks.length}
-          detail="Catalog items available"
+          detail="Live catalog count"
         />
 
         <AdminStatCard
           icon="people"
           label="Artists"
           value={artistCount}
-          detail="Unique catalog artists"
+          detail="Unique artists"
         />
 
         <AdminStatCard
@@ -628,91 +1891,140 @@ function AdminDashboardPage() {
 
         <AdminStatCard
           icon="mountains"
-          label="Artwork Coverage"
+          label="Artwork"
           value={
             tracks.length
               ? `${Math.round(
-                  (artworkCount / tracks.length) *
+                  (
+                    artworkCount /
+                    tracks.length
+                  ) *
                     100,
                 )}%`
-              : "0"
+              : "0%"
           }
-          detail={`${artworkCount} tracks with artwork`}
+          detail={
+            `${artworkCount} covered`
+          }
+        />
+
+        <AdminStatCard
+          icon="shield"
+          label="Duplicate Groups"
+          value={duplicateCount}
+          detail={
+            duplicates
+              ? `${duplicates.scanned_tracks ?? tracks.length} scanned`
+              : "Run duplicate check"
+          }
         />
       </section>
 
-      <section className="admin-dashboard-grid">
-        <article className="admin-panel admin-health-panel">
+
+      <section className="admin-dashboard-grid admin-dashboard-grid--revamped">
+        <article className="admin-panel admin-health-panel admin-panel--interactive">
           <div className="admin-panel__heading">
             <div>
-              <span>PLATFORM</span>
-              <h3>System Health</h3>
+              <span>LIVE DIAGNOSTICS</span>
+              <h3>Service Matrix</h3>
             </div>
 
             <span
               className={
-                health?.database === "healthy"
+                coreHealthy
                   ? "admin-status admin-status--online"
                   : "admin-status admin-status--offline"
               }
             >
-              {health?.database === "healthy"
-                ? "ONLINE"
+              {coreHealthy
+                ? "HEALTHY"
                 : "CHECK"}
             </span>
           </div>
 
           <div className="admin-health-list">
             <AdminHealthRow
-              label="API"
+              label="Admin API"
               value={
-                health?.api === "healthy"
-                  ? "Healthy"
+                apiHealthy
+                  ? "Responding"
                   : "Unavailable"
               }
-              healthy={
-                health?.api === "healthy"
-              }
+              healthy={apiHealthy}
             />
 
             <AdminHealthRow
               label="Database"
               value={
-                health?.database === "healthy"
-                  ? "Healthy"
+                databaseHealthy
+                  ? "Connected"
                   : "Unavailable"
               }
               healthy={
-                health?.database === "healthy"
+                databaseHealthy
               }
             />
 
             <AdminHealthRow
-              label="Application"
+              label="B2 Storage"
               value={
-                health?.application ||
-                "Hypersync"
+                storageHealthy
+                  ? "Connected"
+                  : "Unavailable"
               }
-              healthy
+              healthy={
+                storageHealthy
+              }
             />
 
             <AdminHealthRow
-              label="Version"
-              value={health?.version || "—"}
-              healthy
+              label="Catalog"
+              value={
+                catalogHealthy
+                  ? `${diagnostics?.catalog?.track_count ?? tracks.length} tracks`
+                  : "Unavailable"
+              }
+              healthy={
+                catalogHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="Bot Service"
+              value={
+                botRunning
+                  ? "Running"
+                  : (
+                      botReachable
+                        ? "Ready / stopped"
+                        : "Unavailable"
+                    )
+              }
+              healthy={
+                botReachable
+              }
             />
           </div>
         </article>
 
-        <article className="admin-panel">
+
+        <article className="admin-panel admin-panel--interactive">
           <div className="admin-panel__heading">
             <div>
               <span>AUTOMATION</span>
-              <h3>Bot Status</h3>
+              <h3>Bot Telemetry</h3>
             </div>
 
-            <span className="admin-status admin-status--offline">
-              NOT CONNECTED
+            <span
+              className={
+                botRunning
+                  ? "admin-status admin-status--online"
+                  : "admin-status admin-status--offline"
+              }
+            >
+              {botRunning
+                ? "RUNNING"
+                : "STOPPED"}
             </span>
           </div>
 
@@ -725,142 +2037,466 @@ function AdminDashboardPage() {
             </div>
 
             <div>
-              <strong>HyperSync Bot</strong>
+              <strong>
+                HyperSynced Bot
+              </strong>
+
               <p>
-                Bot backend is not connected yet.
-                The control surface is ready for
-                the automation service.
+                {botStatus?.current_job
+                  ? `Working: ${botStatus.current_job}`
+                  : `${botStatus?.queued_jobs ?? 0} queued • ${botStatus?.completed_jobs ?? 0} completed • ${botStatus?.failed_jobs ?? 0} failed`}
               </p>
             </div>
           </div>
 
           <button
-  type="button"
-  className="secondary-admin-button"
-  onClick={() =>
-    refreshCatalog({
-      force: true,
-    })
-  }
-  disabled={loading}
->
-  {loading
-    ? "Refreshing..."
-    : "Refresh Catalog"}
+            type="button"
+            className="secondary-admin-button"
+            onClick={() => {
+              onNavigate(
+                "admin-bot",
+              );
+            }}
+          >
+            Open Bot Controls
 
-  <Icon
-    name="chevron"
-    size={14}
-  />
-</button>
+            <Icon
+              name="chevron"
+              size={14}
+            />
+          </button>
         </article>
       </section>
 
-      <section className="admin-panel">
-        <div className="admin-panel__heading">
+
+      <section className="admin-tool-deck">
+        <div className="admin-tool-deck__heading">
           <div>
-            <span>CATALOG</span>
-            <h3>Recent Tracks</h3>
+            <span>ADMIN TOOLS</span>
+            <h3>Operations Deck</h3>
           </div>
 
-          <strong className="admin-panel-count">
-            {tracks.length} total
-          </strong>
+          <small>
+            Blue lights mean the supporting
+            service responded successfully.
+          </small>
         </div>
 
-        {recentTracks.length > 0 ? (
-          <div className="admin-recent-list">
-            {recentTracks.map((track) => (
-              <div
-                className="admin-recent-item"
-                key={track.id}
-              >
-                <TrackArtwork
-                  src={track.artwork_url}
-                  alt={track.title}
-                  variant={1}
-                />
+        <div className="admin-quick-actions admin-quick-actions--four">
+          <AdminQuickAction
+            icon="plus"
+            title="Upload Studio"
+            description="Upload and process music."
+            active={
+              apiHealthy &&
+              storageHealthy
+            }
+            status={
+              storageHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-uploads",
+              );
+            }}
+          />
 
-                <div className="admin-recent-copy">
-                  <strong>{track.title}</strong>
+          <AdminQuickAction
+            icon="music"
+            title="Media Catalog"
+            description="Browse artists, albums, genres, and files."
+            active={
+              catalogHealthy
+            }
+            status={
+              catalogHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-catalog",
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="chart"
+            title="Bot Control"
+            description="Run automation and processing."
+            active={
+              botReachable
+            }
+            status={
+              botReachable
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-bot",
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="shield"
+            title="Duplicate Check"
+            description="Scan normalized title + artist identities."
+            active={
+              duplicates !== null &&
+              duplicateCount === 0
+            }
+            status={
+              duplicateBusy
+                ? "SCANNING"
+                : duplicates
+                  ? (
+                      duplicateCount === 0
+                        ? "CLEAN"
+                        : `${duplicateCount} FOUND`
+                    )
+                  : "RUN"
+            }
+            onClick={() => {
+              document
+                .getElementById(
+                  "admin-duplicate-tool",
+                )
+                ?.scrollIntoView({
+                  behavior:
+                    "smooth",
+                  block:
+                    "start",
+                });
+
+              void runDuplicateCheck();
+            }}
+          />
+        </div>
+      </section>
+
+
+      <section
+        id="admin-duplicate-tool"
+        className="admin-panel admin-duplicate-panel admin-panel--interactive"
+      >
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG INTEGRITY</span>
+            <h3>Duplicate Check</h3>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button admin-inline-button"
+            disabled={
+              duplicateBusy
+            }
+            onClick={() => {
+              void runDuplicateCheck();
+            }}
+          >
+            {duplicateBusy
+              ? "Scanning..."
+              : "Scan Catalog"}
+          </button>
+        </div>
+
+        {duplicates === null ? (
+          <div className="admin-duplicate-idle">
+            <span className="admin-tool-light" />
+            <div>
+              <strong>
+                Ready to scan
+              </strong>
+              <p>
+                Uses the same normalized title and
+                artist identity check used by the
+                upload duplicate guard.
+              </p>
+            </div>
+          </div>
+        ) : duplicates.groups?.length ? (
+          <div className="admin-duplicate-list">
+            {duplicates.groups.map(
+              (group) => (
+                <div
+                  className="admin-duplicate-group"
+                  key={
+                    `${group.artist_key}:${group.title_key}`
+                  }
+                >
+                  <span className="admin-tool-light is-warning" />
+
+                  <div>
+                    <strong>
+                      {group.title}
+                    </strong>
+
+                    <small>
+                      {group.artist}
+                      {" • "}
+                      {group.count}
+                      {" matching tracks"}
+                    </small>
+                  </div>
 
                   <span>
-                    {track.artist}
-                    {track.album
-                      ? ` • ${track.album}`
-                      : ""}
+                    {group.tracks
+                      ?.map(
+                        (track) =>
+                          track.album ||
+                          "No album",
+                      )
+                      .join(" • ")}
                   </span>
                 </div>
-
-                <span className="admin-track-duration">
-                  {track.duration_seconds
-                    ? `${Math.floor(
-                        track.duration_seconds / 60,
-                      )}:${String(
-                        track.duration_seconds % 60,
-                      ).padStart(2, "0")}`
-                    : "—"}
-                </span>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         ) : (
-          <div className="admin-empty-state">
-            <Icon
-              name="music"
-              size={28}
-            />
+          <div className="admin-duplicate-idle is-clean">
+            <span className="admin-tool-light is-on" />
 
-            <strong>No published tracks</strong>
+            <div>
+              <strong>
+                Catalog is clean
+              </strong>
 
-            <p>
-              Upload your first track to populate
-              the catalog.
-            </p>
+              <p>
+                {duplicates.scanned_tracks ?? 0}
+                {" tracks scanned with no normalized duplicates found."}
+              </p>
+            </div>
           </div>
         )}
       </section>
 
-      <section className="admin-quick-actions">
-        <AdminQuickAction
-          icon="plus"
-          title="Upload Track"
-          description="Add audio and embedded artwork."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-uploads",
-              ),
-            );
-          }}
-        />
 
-        <AdminQuickAction
-          icon="music"
-          title="Manage Catalog"
-          description="Review and remove catalog items."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-catalog",
-              ),
-            );
-          }}
-        />
+      <section className="admin-panel admin-user-manager admin-panel--interactive">
+        <div className="admin-panel__heading">
+          <div>
+            <span>USER ADMINISTRATION</span>
+            <h3>Find & Delete Account</h3>
+          </div>
 
-        <AdminQuickAction
-          icon="chart"
-          title="Bot Control"
-          description="Monitor automation and processing."
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent(
-                "hypersync:navigate-admin-bot",
+          <span className="admin-status admin-status--online">
+            ADMIN ONLY
+          </span>
+        </div>
+
+        <p className="admin-user-manager__copy">
+          Search registered accounts by username,
+          display name, or email. Deleting an
+          account removes its server-side account
+          rows and profile avatar storage.
+        </p>
+
+        <label className="hs-search-input admin-user-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={userQuery}
+            placeholder="Search username, display name, or email..."
+            onChange={(
+              event,
+            ) => {
+              setUserQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        {userSearchBusy ? (
+          <div className="admin-user-search-state">
+            <span className="library-spinner" />
+            <span>
+              Searching accounts...
+            </span>
+          </div>
+        ) : userQuery.trim() &&
+          userResults.length === 0 ? (
+          <div className="admin-user-search-state">
+            <Icon
+              name="people"
+              size={18}
+            />
+
+            <span>
+              No matching accounts.
+            </span>
+          </div>
+        ) : (
+          <div className="admin-user-results">
+            {userResults.map(
+              (foundUser) => (
+                <div
+                  className="admin-user-result"
+                  key={foundUser.id}
+                >
+                  <span className="admin-user-result__avatar">
+                    {foundUser.has_avatar ? (
+                      <img
+                        src={
+                          `/api/users/${encodeURIComponent(
+                            foundUser.username,
+                          )}/avatar`
+                        }
+                        alt=""
+                      />
+                    ) : (
+                      <Icon
+                        name="people"
+                        size={18}
+                      />
+                    )}
+                  </span>
+
+                  <div className="admin-user-result__copy">
+                    <strong>
+                      {foundUser.display_name}
+                    </strong>
+
+                    <span>
+                      {"@"}
+                      {foundUser.username}
+                      {" • "}
+                      {foundUser.email}
+                    </span>
+                  </div>
+
+                  <span className="admin-user-result__role">
+                    {String(
+                      foundUser.role,
+                    ).toUpperCase()}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={
+                      foundUser.is_current_admin ||
+                      userDeleteBusy ===
+                        foundUser.id
+                    }
+                    onClick={() => {
+                      void deleteUserAccount(
+                        foundUser,
+                      );
+                    }}
+                  >
+                    {foundUser.is_current_admin
+                      ? "Current Admin"
+                      : userDeleteBusy ===
+                          foundUser.id
+                        ? "Deleting..."
+                        : "Delete Account"}
+                  </button>
+                </div>
               ),
-            );
-          }}
-        />
+            )}
+          </div>
+        )}
       </section>
+
+
+      <section className="admin-panel admin-danger-zone admin-danger-zone--bottom">
+        <div className="admin-panel__heading">
+          <div>
+            <span>DANGER ZONE</span>
+            <h3>Delete All System Data</h3>
+          </div>
+
+          <span className="admin-status admin-status--danger">
+            IRREVERSIBLE
+          </span>
+        </div>
+
+        <p className="admin-danger-zone__copy">
+          Permanently delete every application row
+          and every version of every object in the
+          configured B2 bucket. Database schema and
+          migrations remain intact.
+        </p>
+
+        <div className="admin-danger-zone__form">
+          <label>
+            <span>
+              Verification password
+            </span>
+
+            <input
+              type="password"
+              name="hypersync_admin_reset_code"
+              autoComplete="one-time-code"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              value={wipePassword}
+              onChange={(event) => {
+                setWipePassword(
+                  event.target.value,
+                );
+              }}
+              placeholder="Enter password"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <label>
+            <span>
+              Type DELETE ALL DATA
+            </span>
+
+            <input
+              type="text"
+              autoComplete="off"
+              value={wipeConfirmation}
+              onChange={(event) => {
+                setWipeConfirmation(
+                  event.target.value,
+                );
+              }}
+              placeholder="DELETE ALL DATA"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="danger-button admin-danger-zone__button"
+            disabled={
+              wipeBusy ||
+              !wipePassword ||
+              wipeConfirmation !==
+                "DELETE ALL DATA"
+            }
+            onClick={() => {
+              void deleteAllData();
+            }}
+          >
+            {wipeBusy
+              ? "Deleting everything..."
+              : "Delete DB + B2 Data"}
+          </button>
+        </div>
+
+        {wipeResult ? (
+          <p className="admin-danger-zone__result">
+            {wipeResult}
+          </p>
+        ) : null}
+      </section>
+
     </div>
   );
 }
@@ -916,11 +2552,13 @@ function AdminQuickAction({
   title,
   description,
   onClick,
+  active = false,
+  status = "",
 }) {
   return (
     <button
       type="button"
-      className="admin-quick-action"
+      className="admin-quick-action admin-quick-action--status"
       onClick={onClick}
     >
       <span className="admin-quick-action__icon">
@@ -935,10 +2573,19 @@ function AdminQuickAction({
         <small>{description}</small>
       </span>
 
-      <Icon
-        name="chevron"
-        size={15}
-      />
+      <span className="admin-quick-action__state">
+        <i
+          className={
+            active
+              ? "admin-tool-light is-on"
+              : "admin-tool-light"
+          }
+        />
+
+        <small>
+          {status}
+        </small>
+      </span>
     </button>
   );
 }
@@ -955,6 +2602,10 @@ function MainPage({
   onOpenPlaylist,
   onPlaylistOpened,
   onOpenProfile,
+  onMessageUser,
+  messageUsername,
+  onMessageUsernameHandled,
+  onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
   onOpenAuth,
@@ -967,6 +2618,10 @@ function MainPage({
   onStatusMessage,
   searchResetToken,
   libraryResetToken,
+  messagesResetToken,
+  activePlaylistDownloads,
+  installState,
+  onInstallApp,
 }) {
   const adminPage =
     ADMIN_NAV_ITEMS.some(
@@ -1008,7 +2663,11 @@ function MainPage({
       activePage === "admin"
     ) {
       return (
-        <AdminDashboardPage />
+        <AdminDashboardPage
+          onNavigate={
+            onNavigate
+          }
+        />
       );
     }
 
@@ -1064,15 +2723,88 @@ function MainPage({
   onOpenProfile={
     onOpenProfile
   }
+  onMessageUser={
+    onMessageUser
+  }
   onOpenPlaylist={
     onOpenPlaylist
   }
   onOpenAuth={
     onOpenAuth
   }
+  activePlaylistDownloads={
+    activePlaylistDownloads
+  }
 />
     );
   }
+
+if (
+  activePage === "messages"
+) {
+  if (
+    currentUser?.account_type !==
+      "registered"
+  ) {
+    return (
+      <div className="page-stack">
+        <section className="admin-page__denied">
+          <Icon
+            name="mail"
+            size={28}
+          />
+
+          <h2>
+            Sign in to message
+          </h2>
+
+          <p>
+            Private messages are available
+            to registered HyperSync accounts.
+          </p>
+
+          <button
+            type="button"
+            className="hs-search-primary-action"
+            onClick={
+              onOpenAuth
+            }
+          >
+            Sign in
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <MessagesPage
+      currentUser={
+        currentUser
+      }
+      initialUsername={
+        messageUsername
+      }
+      onInitialUsernameHandled={
+        onMessageUsernameHandled
+      }
+      onUnreadChange={
+        onMessageNotificationsChanged
+      }
+      onOpenProfile={
+        onOpenProfile
+      }
+      onBackToSearch={() => {
+        onNavigate(
+          "search",
+        );
+      }}
+      resetToken={
+        messagesResetToken
+      }
+    />
+  );
+}
 
 if (
   activePage === "library"
@@ -1093,6 +2825,9 @@ if (
       }
       onInitialPlaylistHandled={
         onPlaylistOpened
+      }
+      activePlaylistDownloads={
+        activePlaylistDownloads
       }
     />
   );
@@ -1132,6 +2867,12 @@ if (
         }
         onProfileUpdated={
           onProfileUpdated
+        }
+        installState={
+          installState
+        }
+        onInstallApp={
+          onInstallApp
         }
       />
     );
@@ -1183,16 +2924,32 @@ if (
 function MobileBottomNav({
   activePage,
   onNavigate,
+  currentUser,
 }) {
+  const mobileActivePage =
+    activePage === "messages"
+      ? "search"
+      : activePage;
+
   return (
     <nav
       className="mobile-bottom-nav"
       aria-label="Mobile navigation"
     >
-      {NAV_ITEMS.map((item) => (
+      {NAV_ITEMS
+        .filter(
+          (item) =>
+            item.id !== "messages" &&
+            (
+              !item.requiresAuth ||
+              currentUser?.account_type ===
+                "registered"
+            ),
+        )
+        .map((item) => (
         <button
           className={
-            activePage === item.id
+            mobileActivePage === item.id
               ? "is-active"
               : ""
           }
@@ -1202,7 +2959,7 @@ function MobileBottomNav({
             onNavigate(item.id);
           }}
           aria-current={
-            activePage === item.id
+            mobileActivePage === item.id
               ? "page"
               : undefined
           }
@@ -1223,7 +2980,23 @@ function PlayerBar({
   playlistUpdate,
   onDownloadPlaylistUpdate,
   onDismissPlaylistUpdate,
+  currentUser,
+  onOpenAuth,
+  messageNotifications,
+  onOpenMessage,
+  onEnablePush,
+  pushBusy,
+  pushEnabled,
+  installState,
+  onInstallApp,
 }) {
+  const trackActionMenu =
+    useTrackActionMenu();
+
+  const [
+    notificationsOpen,
+    setNotificationsOpen,
+  ] = useState(false);
   const [
     state,
     setState,
@@ -1304,7 +3077,13 @@ function PlayerBar({
 
   const subtitleText =
     state.artist
-      ? state.artist
+      ? [
+          state.artist,
+          state.album ||
+            "",
+        ]
+          .filter(Boolean)
+          .join(" • ")
       : state.src
         ? "Now playing"
         : "Select a track to start listening";
@@ -1326,6 +3105,76 @@ function PlayerBar({
       progressMax,
     );
 
+  const currentQueueTrack =
+    Array.isArray(
+      state.queue,
+    ) &&
+    Number.isInteger(
+      state.queueIndex,
+    )
+      ? state.queue[
+          state.queueIndex
+        ] ??
+        null
+      : null;
+
+  const currentTrackAction =
+    state.trackId
+      ? {
+          id:
+            state.trackId,
+          title:
+            state.title ??
+            currentQueueTrack?.meta
+              ?.title ??
+            "",
+          artist:
+            state.artist ??
+            currentQueueTrack?.meta
+              ?.artist ??
+            "",
+          album:
+            state.album ??
+            currentQueueTrack?.meta
+              ?.album ??
+            "",
+          audio_url:
+            currentQueueTrack?.meta
+              ?.audioUrl ??
+            null,
+          artwork_url:
+            state.artworkUrl ??
+            currentQueueTrack?.meta
+              ?.artworkUrl ??
+            null,
+          mime_type:
+            state.mimeType ??
+            currentQueueTrack?.meta
+              ?.mimeType ??
+            null,
+          file_size:
+            state.fileSize ??
+            currentQueueTrack?.meta
+              ?.fileSize ??
+            null,
+          media_version:
+            state.mediaVersion ??
+            currentQueueTrack?.meta
+              ?.mediaVersion ??
+            null,
+          artwork_version:
+            state.artworkVersion ??
+            currentQueueTrack?.meta
+              ?.artworkVersion ??
+            null,
+          duration_seconds:
+            state.durationSeconds ??
+            currentQueueTrack?.meta
+              ?.durationSeconds ??
+            null,
+        }
+      : null;
+
   return (
     <section
       className="player-bar"
@@ -1336,7 +3185,16 @@ function PlayerBar({
           LEFT - CURRENT TRACK
           ================================================= */}
 
-      <div className="player-bar__track">
+      <div
+        className="player-bar__track"
+        {...(
+          currentTrackAction
+            ? trackActionMenu.getTriggerProps(
+                currentTrackAction,
+              )
+            : {}
+        )}
+      >
 
         <TrackArtwork
           src={state.artworkUrl}
@@ -1473,16 +3331,116 @@ function PlayerBar({
       </div>
 
 
-      <PlaylistUpdateNotice
-        update={playlistUpdate}
-        variant="desktop"
-        onDownload={
-          onDownloadPlaylistUpdate
-        }
-        onDismiss={
-          onDismissPlaylistUpdate
-        }
-      />
+      <div className="player-bar__right">
+        <PlaylistUpdateNotice
+          update={playlistUpdate}
+          variant="desktop"
+          onDownload={
+            onDownloadPlaylistUpdate
+          }
+          onDismiss={
+            onDismissPlaylistUpdate
+          }
+        />
+
+        <div className="desktop-player-notification-center">
+          <button
+            type="button"
+            className="icon-button desktop-player-notification-button"
+            aria-label="Open notifications"
+            aria-expanded={
+              notificationsOpen
+            }
+            onClick={() => {
+              if (
+                currentUser?.account_type !==
+                  "registered"
+              ) {
+                onOpenAuth?.();
+                return;
+              }
+
+              setNotificationsOpen(
+                (open) => !open,
+              );
+            }}
+          >
+            <Icon
+              name="bell"
+              size={18}
+            />
+
+            {messageNotifications?.unread_count ? (
+              <span
+                className="icon-button__dot"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+
+          {notificationsOpen ? (
+            <div
+              className="desktop-player-notification-panel"
+              role="region"
+              aria-label="Notifications"
+            >
+              <MessageNotificationPanel
+                data={
+                  messageNotifications
+                }
+                onOpenMessage={(
+                  username,
+                ) => {
+                  setNotificationsOpen(
+                    false,
+                  );
+
+                  onOpenMessage?.(
+                    username,
+                  );
+                }}
+                onEnablePush={
+                  onEnablePush
+                }
+                pushBusy={
+                  pushBusy
+                }
+                pushEnabled={
+                  pushEnabled
+                }
+              />
+            </div>
+          ) : null}
+        </div>
+
+        {!installState?.installed ? (
+          <button
+            type="button"
+            className="icon-button desktop-player-install-button"
+            onClick={
+              onInstallApp
+            }
+            disabled={
+              installState?.preparing
+            }
+            aria-label={
+              installState?.preparing
+                ? "Preparing HyperSynced offline app"
+                : "Download and install HyperSynced app"
+            }
+            title={
+              installState?.preparing
+                ? "Preparing offline app..."
+                : "Download and install HyperSynced"
+            }
+          >
+            <Icon
+              name="download"
+              size={18}
+            />
+          </button>
+        ) : null}
+      </div>
 
 
       {/* =================================================
@@ -1507,6 +3465,22 @@ function PlayerBar({
       </button>
 
 
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
+
+
     </section>
   );
 }
@@ -1526,11 +3500,36 @@ function AuthOverlay({
   const [showPassword, setShowPassword] =
     useState(false);
 
+  const [
+    createAdmin,
+    setCreateAdmin,
+  ] = useState(false);
+
+  const [
+    showAdminPassword,
+    setShowAdminPassword,
+  ] = useState(false);
+
   const [rememberMe, setRememberMe] =
     useState(true);
 
   const [message, setMessage] =
     useState("");
+
+
+  useEffect(() => {
+    if (
+      !open ||
+      mode !== "create"
+    ) {
+      setCreateAdmin(false);
+      setShowAdminPassword(false);
+    }
+  }, [
+    open,
+    mode,
+  ]);
+
 
   if (!open) {
     return null;
@@ -1556,6 +3555,25 @@ function AuthOverlay({
       form.get("password") ?? "",
     );
 
+  const adminVerificationPassword =
+    String(
+      form.get(
+        "admin_verification_password",
+      ) ?? "",
+    );
+
+  if (
+    isCreate &&
+    createAdmin &&
+    !adminVerificationPassword
+  ) {
+    setMessage(
+      "Enter the administrator verification password.",
+    );
+
+    return;
+  }
+
   try {
     const data = await apiRequest(
       isCreate
@@ -1571,6 +3589,12 @@ function AuthOverlay({
                   form.get("email") ?? "",
                 ).trim(),
                 password,
+                create_admin:
+                  createAdmin,
+                admin_verification_password:
+                  createAdmin
+                    ? adminVerificationPassword
+                    : null,
               }
             : {
                 username,
@@ -1594,6 +3618,8 @@ function AuthOverlay({
 
     onClose();
 
+    setCreateAdmin(false);
+    setShowAdminPassword(false);
     setMessage("");
   } catch (error) {
     setMessage(
@@ -1730,6 +3756,91 @@ function AuthOverlay({
             </button>
           </label>
 
+          {isCreate ? (
+            <div className="auth-admin-create">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={createAdmin}
+                  onChange={(event) => {
+                    const checked =
+                      event.target.checked;
+
+                    setCreateAdmin(
+                      checked,
+                    );
+
+                    if (!checked) {
+                      setShowAdminPassword(
+                        false,
+                      );
+                    }
+
+                    setMessage("");
+                  }}
+                />
+
+                <span>
+                  <Icon
+                    name="check"
+                    size={15}
+                  />
+                </span>
+
+                Create administrator account
+              </label>
+
+              {createAdmin ? (
+                <label className="auth-admin-password">
+                  <Icon
+                    name="shield"
+                    size={22}
+                  />
+
+                  <input
+                    type={
+                      showAdminPassword
+                        ? "text"
+                        : "password"
+                    }
+                    name="admin_verification_password"
+                    autoComplete="off"
+                    placeholder="Administrator verification password"
+                    required
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdminPassword(
+                        (value) =>
+                          !value,
+                      );
+                    }}
+                    aria-label={
+                      showAdminPassword
+                        ? "Hide administrator password"
+                        : "Show administrator password"
+                    }
+                  >
+                    <Icon
+                      name={
+                        showAdminPassword
+                          ? "eyeOff"
+                          : "eye"
+                      }
+                      size={22}
+                    />
+                  </button>
+                </label>
+              ) : null}
+
+              <small>
+                Administrator accounts require a server-side verification password.
+              </small>
+            </div>
+          ) : null}
+
           {!isCreate ? (
             <div className="auth-options">
               <label className="checkbox-label">
@@ -1827,6 +3938,34 @@ function AuthOverlay({
 // App shell
 // ======================================================================================
 
+function shouldIgnorePlaybackShortcut(
+  target,
+) {
+  if (
+    !(target instanceof Element)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "input",
+        "textarea",
+        "select",
+        "button",
+        "a[href]",
+        "[contenteditable='true']",
+        "[role='button']",
+        "[role='textbox']",
+        "[role='slider']",
+        "[role='menuitem']",
+      ].join(", "),
+    ),
+  );
+}
+
+
 export default function App() {
   const [currentUser, setCurrentUser] =
     useState(null);
@@ -1853,9 +3992,51 @@ export default function App() {
 ] = useState(0);
 
   const [
+  messagesResetToken,
+  setMessagesResetToken,
+] = useState(0);
+
+  const [
   playlistToOpen,
   setPlaylistToOpen,
   ] = useState(null);
+
+  const [
+    messageToOpen,
+    setMessageToOpen,
+  ] = useState("");
+
+  const [
+    messageNotifications,
+    setMessageNotifications,
+  ] = useState({
+    unread_count:
+      0,
+    notifications:
+      [],
+  });
+
+  const [
+    pushBusy,
+    setPushBusy,
+  ] = useState(false);
+
+  const [
+    pushEnabled,
+    setPushEnabled,
+  ] = useState(false);
+
+  const [
+    installState,
+    setInstallState,
+  ] = useState(
+    () => getPwaInstallState(),
+  );
+
+  const [
+    installHelpMode,
+    setInstallHelpMode,
+  ] = useState("");
 
   const [authOpen, setAuthOpen] =
     useState(
@@ -1875,9 +4056,893 @@ export default function App() {
     useState("");
 
   const [
+    mobileSeekFeedback,
+    setMobileSeekFeedback,
+  ] = useState(null);
+
+  const mobileSeekFeedbackTimerRef =
+    useRef(null);
+
+  const mobileTapRef =
+    useRef({
+      time:
+        0,
+      side:
+        "",
+      x:
+        0,
+      y:
+        0,
+    });
+
+  const mobilePointerStartRef =
+    useRef(null);
+
+  const [
     playlistUpdates,
     setPlaylistUpdates,
   ] = useState([]);
+
+  const [
+    activePlaylistDownloads,
+    setActivePlaylistDownloads,
+  ] = useState([]);
+
+  const playbackDeviceIdRef =
+    useRef(
+      getAccountPlaybackDeviceId(),
+    );
+
+  const playbackApplyingRemoteRef =
+    useRef(false);
+
+  const playbackLastServerUpdateRef =
+    useRef(0);
+
+  const playbackLastPublishedRef =
+    useRef({
+      trackId:
+        null,
+      paused:
+        true,
+      position:
+        0,
+      at:
+        0,
+    });
+
+  const playbackWriteInFlightRef =
+    useRef(false);
+
+  const playbackPendingWriteRef =
+    useRef(null);
+
+
+  useEffect(() => {
+    return subscribePwaInstall(
+      (nextState) => {
+        setInstallState(
+          nextState,
+        );
+      },
+    );
+  }, []);
+
+
+  useEffect(() => {
+    const handlePlaybackShortcut =
+      (event) => {
+        const isSpace =
+          event.code ===
+            "Space" ||
+          event.key ===
+            " ";
+
+        if (
+          !isSpace ||
+          event.repeat ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          event.defaultPrevented
+        ) {
+          return;
+        }
+
+        /*
+         * Space is a HyperSync playback
+         * shortcut only while this browser
+         * tab is actually open and focused.
+         * It must never behave like a
+         * system-wide media hotkey.
+         */
+        if (
+          document.visibilityState !==
+            "visible" ||
+          typeof document.hasFocus ===
+            "function" &&
+          !document.hasFocus()
+        ) {
+          return;
+        }
+
+        if (
+          typeof window.matchMedia ===
+            "function" &&
+          !window.matchMedia(
+            "(pointer: fine)",
+          ).matches
+        ) {
+          return;
+        }
+
+        if (
+          shouldIgnorePlaybackShortcut(
+            event.target,
+          )
+        ) {
+          return;
+        }
+
+        const playerState =
+          player.getState();
+
+        if (
+          !playerState?.trackId
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        void player
+          .togglePlay()
+          .catch(
+            () => {},
+          );
+      };
+
+    window.addEventListener(
+      "keydown",
+      handlePlaybackShortcut,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handlePlaybackShortcut,
+      );
+    };
+  }, []);
+
+
+  useEffect(() => {
+    const isMobileGesture =
+      () => (
+        typeof window.matchMedia ===
+          "function" &&
+        window.matchMedia(
+          "(max-width: 979px) and (pointer: coarse)",
+        ).matches
+      );
+
+    const handlePointerDown =
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !isMobileGesture()
+        ) {
+          return;
+        }
+
+        mobilePointerStartRef.current = {
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+      };
+
+    const handlePointerUp =
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !isMobileGesture() ||
+          shouldIgnorePlaybackShortcut(
+            event.target,
+          )
+        ) {
+          mobilePointerStartRef.current =
+            null;
+
+          return;
+        }
+
+        const start =
+          mobilePointerStartRef.current;
+
+        mobilePointerStartRef.current =
+          null;
+
+        if (
+          start &&
+          (
+            Math.abs(
+              event.clientX -
+                start.x,
+            ) >
+              24 ||
+            Math.abs(
+              event.clientY -
+                start.y,
+            ) >
+              24
+          )
+        ) {
+          return;
+        }
+
+        const playerState =
+          player.getState();
+
+        if (
+          !playerState?.trackId &&
+          !playerState?.src
+        ) {
+          return;
+        }
+
+        const side =
+          event.clientX <
+          window.innerWidth / 2
+            ? "back"
+            : "forward";
+
+        const now =
+          Date.now();
+
+        const previous =
+          mobileTapRef.current;
+
+        const isDoubleTap =
+          previous.side ===
+            side &&
+          now -
+            previous.time <=
+            325 &&
+          Math.abs(
+            event.clientX -
+              previous.x,
+          ) <=
+            90 &&
+          Math.abs(
+            event.clientY -
+              previous.y,
+          ) <=
+            90;
+
+        mobileTapRef.current = {
+          time:
+            now,
+          side,
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+
+        if (!isDoubleTap) {
+          return;
+        }
+
+        event.preventDefault();
+
+        mobileTapRef.current = {
+          time:
+            0,
+          side:
+            "",
+          x:
+            0,
+          y:
+            0,
+        };
+
+        const currentTime =
+          Number.isFinite(
+            playerState.currentTime,
+          )
+            ? playerState.currentTime
+            : 0;
+
+        const duration =
+          Number.isFinite(
+            playerState.duration,
+          ) &&
+          playerState.duration >
+            0
+            ? playerState.duration
+            : Infinity;
+
+        const delta =
+          side ===
+            "back"
+            ? -10
+            : 10;
+
+        const nextTime =
+          Math.max(
+            0,
+            Math.min(
+              currentTime +
+                delta,
+              duration,
+            ),
+          );
+
+        player.seekTo(
+          nextTime,
+        );
+
+        setMobileSeekFeedback({
+          side,
+          label:
+            side === "back"
+              ? "-10"
+              : "+10",
+        });
+
+        if (
+          mobileSeekFeedbackTimerRef
+            .current
+        ) {
+          window.clearTimeout(
+            mobileSeekFeedbackTimerRef
+              .current,
+          );
+        }
+
+        mobileSeekFeedbackTimerRef.current =
+          window.setTimeout(
+            () => {
+              setMobileSeekFeedback(
+                null,
+              );
+
+              mobileSeekFeedbackTimerRef.current =
+                null;
+            },
+            650,
+          );
+      };
+
+    window.addEventListener(
+      "pointerdown",
+      handlePointerDown,
+      {
+        passive:
+          true,
+      },
+    );
+
+    window.addEventListener(
+      "pointerup",
+      handlePointerUp,
+      {
+        passive:
+          false,
+      },
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pointerdown",
+        handlePointerDown,
+      );
+
+      window.removeEventListener(
+        "pointerup",
+        handlePointerUp,
+      );
+
+      if (
+        mobileSeekFeedbackTimerRef
+          .current
+      ) {
+        window.clearTimeout(
+          mobileSeekFeedbackTimerRef
+            .current,
+        );
+
+        mobileSeekFeedbackTimerRef.current =
+          null;
+      }
+    };
+  }, []);
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      playbackLastServerUpdateRef.current =
+        0;
+
+      playbackPendingWriteRef.current =
+        null;
+
+      return undefined;
+    }
+
+    let cancelled =
+      false;
+
+    let unsubscribe =
+      null;
+
+    let pollInterval =
+      null;
+
+    const deviceId =
+      playbackDeviceIdRef.current;
+
+    const markPublished =
+      (state) => {
+        playbackLastPublishedRef.current = {
+          trackId:
+            state?.trackId
+              ? String(
+                  state.trackId,
+                )
+              : null,
+          paused:
+            Boolean(
+              state?.paused ??
+              true,
+            ),
+          position:
+            Math.max(
+              Number(
+                state?.currentTime ??
+                0,
+              ) || 0,
+              0,
+            ),
+          at:
+            Date.now(),
+        };
+      };
+
+    const publishPlayback =
+      async (
+        state,
+      ) => {
+        if (
+          cancelled ||
+          playbackApplyingRemoteRef
+            .current ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return;
+        }
+
+        if (
+          playbackWriteInFlightRef
+            .current
+        ) {
+          playbackPendingWriteRef.current =
+            state;
+
+          return;
+        }
+
+        playbackWriteInFlightRef.current =
+          true;
+
+        try {
+          const response =
+            await apiRequest(
+              "/users/me/playback-state",
+              {
+                method:
+                  "PATCH",
+
+                body:
+                  JSON.stringify({
+                    track_id:
+                      state?.trackId ??
+                      null,
+
+                    position_seconds:
+                      Math.max(
+                        Number(
+                          state?.currentTime ??
+                          0,
+                        ) || 0,
+                        0,
+                      ),
+
+                    paused:
+                      state?.trackId
+                        ? Boolean(
+                            state.paused,
+                          )
+                        : true,
+
+                    device_id:
+                      deviceId,
+                  }),
+              },
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          playbackLastServerUpdateRef
+            .current =
+              Math.max(
+                playbackLastServerUpdateRef
+                  .current,
+                playbackUpdatedAtMs(
+                  response
+                    ?.updated_at,
+                ),
+              );
+
+          markPublished(
+            state,
+          );
+        } catch {
+          // Playback remains fully usable
+          // if account sync is temporarily
+          // unavailable.
+        } finally {
+          playbackWriteInFlightRef.current =
+            false;
+
+          const pending =
+            playbackPendingWriteRef
+              .current;
+
+          playbackPendingWriteRef.current =
+            null;
+
+          if (
+            pending &&
+            !cancelled
+          ) {
+            void publishPlayback(
+              pending,
+            );
+          }
+        }
+      };
+
+    const shouldPublish =
+      (state) => {
+        const previous =
+          playbackLastPublishedRef
+            .current;
+
+        const trackId =
+          state?.trackId
+            ? String(
+                state.trackId,
+              )
+            : null;
+
+        const position =
+          Math.max(
+            Number(
+              state?.currentTime ??
+              0,
+            ) || 0,
+            0,
+          );
+
+        const paused =
+          Boolean(
+            state?.paused ??
+            true,
+          );
+
+        const now =
+          Date.now();
+
+        return (
+          trackId !==
+            previous.trackId ||
+          paused !==
+            previous.paused ||
+          Math.abs(
+            position -
+              previous.position,
+          ) >=
+            4 ||
+          (
+            !paused &&
+            now -
+              previous.at >=
+              ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS
+          )
+        );
+      };
+
+    const applyRemotePlayback =
+      async (
+        snapshot,
+      ) => {
+        const updatedAt =
+          playbackUpdatedAtMs(
+            snapshot?.updated_at,
+          );
+
+        if (
+          updatedAt <=
+          playbackLastServerUpdateRef
+            .current
+        ) {
+          return;
+        }
+
+        playbackLastServerUpdateRef.current =
+          updatedAt;
+
+        if (
+          snapshot?.device_id ===
+            deviceId
+        ) {
+          return;
+        }
+
+        playbackApplyingRemoteRef.current =
+          true;
+
+        try {
+          if (
+            snapshot?.track?.id
+          ) {
+            await player
+              .restoreAccountPlayback(
+                snapshot.track,
+                accountPlaybackPosition(
+                  snapshot,
+                ),
+              );
+          } else {
+            player.stopTrack();
+          }
+
+          markPublished(
+            player.getState(),
+          );
+        } finally {
+          playbackApplyingRemoteRef.current =
+            false;
+        }
+      };
+
+    const fetchRemotePlayback =
+      async () => {
+        if (
+          cancelled ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return null;
+        }
+
+        try {
+          const snapshot =
+            await apiRequest(
+              "/users/me/playback-state",
+            );
+
+          if (cancelled) {
+            return null;
+          }
+
+          await applyRemotePlayback(
+            snapshot,
+          );
+
+          return snapshot;
+        } catch {
+          return null;
+        }
+      };
+
+    const bootstrap =
+      async () => {
+        const remote =
+          await fetchRemotePlayback();
+
+        if (cancelled) {
+          return;
+        }
+
+        const local =
+          player.getState();
+
+        /*
+         * If this account has never synced
+         * playback before, seed it from the
+         * local restored player state.
+         */
+        if (
+          !remote?.updated_at &&
+          local?.trackId
+        ) {
+          await publishPlayback(
+            local,
+          );
+        } else {
+          markPublished(
+            player.getState(),
+          );
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        unsubscribe =
+          player.subscribe(
+            (state) => {
+              if (
+                cancelled ||
+                playbackApplyingRemoteRef
+                  .current ||
+                globalThis.navigator
+                  ?.onLine ===
+                  false ||
+                !shouldPublish(
+                  state,
+                )
+              ) {
+                return;
+              }
+
+              void publishPlayback(
+                state,
+              );
+            },
+          );
+
+        pollInterval =
+          window.setInterval(
+            () => {
+              void fetchRemotePlayback();
+            },
+            ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS,
+          );
+      };
+
+    void bootstrap();
+
+    const handleFocus =
+      () => {
+        void fetchRemotePlayback();
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+            "visible"
+        ) {
+          void fetchRemotePlayback();
+        }
+      };
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    window.addEventListener(
+      "online",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    return () => {
+      cancelled =
+        true;
+
+      unsubscribe?.();
+
+      if (pollInterval) {
+        window.clearInterval(
+          pollInterval,
+        );
+      }
+
+      playbackPendingWriteRef.current =
+        null;
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "online",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    currentUser?.id,
+  ]);
+
+
+  useEffect(() => {
+    const syncActivePlaylistDownloads =
+      () => {
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          setActivePlaylistDownloads(
+            [],
+          );
+
+          return;
+        }
+
+        setActivePlaylistDownloads(
+          getActivePlaylistDownloads(
+            getOfflineOwnerKey(
+              currentUser,
+            ),
+          ),
+        );
+      };
+
+    syncActivePlaylistDownloads();
+
+    window.addEventListener(
+      "hypersync:offline-download-progress",
+      syncActivePlaylistDownloads,
+    );
+
+    window.addEventListener(
+      "hypersync:offline-downloads-changed",
+      syncActivePlaylistDownloads,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "hypersync:offline-download-progress",
+        syncActivePlaylistDownloads,
+      );
+
+      window.removeEventListener(
+        "hypersync:offline-downloads-changed",
+        syncActivePlaylistDownloads,
+      );
+    };
+  }, [
+    currentUser,
+  ]);
 
   const playlistUpdateCheckRef =
     useRef(false);
@@ -1908,6 +4973,60 @@ export default function App() {
 const restoreSavedAppView =
   useCallback(
     async (user) => {
+      const params =
+        new URLSearchParams(
+          window.location.search,
+        );
+
+      const linkedUsername =
+        params.get(
+          "view",
+        ) ===
+          "messages"
+          ? String(
+              params.get(
+                "user",
+              ) ??
+              "",
+            ).trim()
+          : "";
+
+      if (
+        linkedUsername &&
+        user?.account_type ===
+          "registered"
+      ) {
+        setMessageToOpen(
+          linkedUsername,
+        );
+
+        setActivePage(
+          "messages",
+        );
+
+        setSearchQuery(
+          "",
+        );
+
+        setActiveProfileUsername(
+          "",
+        );
+
+        window.history
+          .replaceState(
+            null,
+            "",
+            (
+              window.location
+                .pathname +
+              window.location
+                .hash
+            ),
+          );
+
+        return;
+      }
+
       try {
         const state =
           await apiRequest(
@@ -1968,8 +5087,15 @@ const checkDownloadedGeneratedPlaylistUpdates =
         true;
 
       try {
+        const offlineOwnerKey =
+          getOfflineOwnerKey(
+            currentUser,
+          );
+
         const downloadedPlaylists =
-          await getDownloadedPlaylists();
+          await getDownloadedPlaylists(
+            offlineOwnerKey,
+          );
 
         const detected =
           (
@@ -1985,11 +5111,84 @@ const checkDownloadedGeneratedPlaylistUpdates =
                       );
 
                     if (
+                      livePlaylist.is_liked_songs
+                    ) {
+                      await reconcileDownloadedPlaylistMembership(
+                        livePlaylist,
+                        offlineOwnerKey,
+                      );
+
+                      const missingLikedTracks =
+                        findMissingPlaylistTracks(
+                          livePlaylist,
+                          downloadedPlaylist,
+                        );
+
+                      if (
+                        missingLikedTracks.length >
+                        0
+                      ) {
+                        await startPlaylistDownloadForOffline(
+                          livePlaylist.tracks,
+                          {
+                            jobId:
+                              getPlaylistDownloadJobId(
+                                offlineOwnerKey,
+                                livePlaylist.id,
+                              ),
+                            ownerKey:
+                              offlineOwnerKey,
+
+                            jobMetadata: {
+                              kind:
+                                "playlist",
+                              playlistId:
+                                livePlaylist.id,
+                              playlistTitle:
+                                livePlaylist.title,
+                              playlistDescription:
+                                livePlaylist.description ??
+                                null,
+                              playlistArtworkUrl:
+                                livePlaylist.artwork_url ??
+                                null,
+                              playlistOwnerUsername:
+                                livePlaylist.owner_username ??
+                                null,
+                              playlistVisibility:
+                                livePlaylist.visibility ??
+                                null,
+                            },
+                          },
+                        );
+
+                        window.dispatchEvent(
+                          new CustomEvent(
+                            "hypersync:offline-playlist-updated",
+                            {
+                              detail: {
+                                playlistId:
+                                  livePlaylist.id,
+                              },
+                            },
+                          ),
+                        );
+                      }
+
+                      return null;
+                    }
+
+                    if (
                       livePlaylist.visibility !==
                       "generated"
                     ) {
                       return null;
                     }
+
+                    await reconcileDownloadedPlaylistMembership(
+                      livePlaylist,
+                      offlineOwnerKey,
+                    );
 
                     const missingTracks =
                       findMissingPlaylistTracks(
@@ -2079,7 +5278,21 @@ const checkDownloadedGeneratedPlaylistUpdates =
       return undefined;
     }
 
-    void checkDownloadedGeneratedPlaylistUpdates();
+    void (
+      async () => {
+        await cleanupLegacyUnscopedDownloads();
+
+        await recoverInterruptedDownloadJobs(
+          getOfflineOwnerKey(
+            currentUser,
+          ),
+        );
+
+        await checkDownloadedGeneratedPlaylistUpdates();
+      }
+    )().catch(
+      () => {},
+    );
 
     const intervalId =
       window.setInterval(
@@ -2114,6 +5327,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
       handleFocus,
     );
 
+    window.addEventListener(
+      "hypersync:library-changed",
+      handleFocus,
+    );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibility,
@@ -2131,6 +5349,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
 
       window.removeEventListener(
         "online",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "hypersync:library-changed",
         handleFocus,
       );
 
@@ -2210,13 +5433,19 @@ const checkDownloadedGeneratedPlaylistUpdates =
         );
 
         try {
-          await downloadTracksForOffline(
+          await startPlaylistDownloadForOffline(
             playlist.tracks,
             {
               jobId:
-                "playlist:" +
-                String(
+                getPlaylistDownloadJobId(
+                  getOfflineOwnerKey(
+                    currentUser,
+                  ),
                   playlist.id,
+                ),
+              ownerKey:
+                getOfflineOwnerKey(
+                  currentUser,
                 ),
 
               jobMetadata: {
@@ -2348,6 +5577,55 @@ const checkDownloadedGeneratedPlaylistUpdates =
     null;
 
 
+  const refreshMessageNotifications =
+  useCallback(
+    async () => {
+      if (
+        currentUser?.account_type !==
+          "registered" ||
+        globalThis.navigator
+          ?.onLine ===
+          false
+      ) {
+        setMessageNotifications({
+          unread_count:
+            0,
+          notifications:
+            [],
+        });
+
+        return;
+      }
+
+      try {
+        const result =
+          await getMessageNotifications();
+
+        setMessageNotifications({
+          unread_count:
+            Number(
+              result?.unread_count ??
+              0,
+            ) || 0,
+          notifications:
+            Array.isArray(
+              result?.notifications,
+            )
+              ? result.notifications
+              : [],
+        });
+      } catch {
+        // Keep the current notification snapshot
+        // during a temporary network failure.
+      }
+    },
+    [
+      currentUser?.account_type,
+      currentUser?.id,
+    ],
+  );
+
+
 const persistAppView =
   useCallback(
     (state) => {
@@ -2393,6 +5671,16 @@ const persistAppView =
 
   setCurrentUser(null);
   setPlaylistUpdates([]);
+  setMessageToOpen("");
+  setMessageNotifications({
+    unread_count:
+      0,
+    notifications:
+      [],
+  });
+  setPushEnabled(
+    false,
+  );
   dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
@@ -2547,6 +5835,25 @@ if (
   setLibraryResetToken(
     (current) =>
       current + 1,
+  );
+}
+
+/*
+ * Clicking Messages while already
+ * on Messages returns to the main
+ * conversation list, matching Search.
+ */
+if (
+  page === "messages" &&
+  activePage === "messages"
+) {
+  setMessagesResetToken(
+    (current) =>
+      current + 1,
+  );
+
+  setMessageToOpen(
+    "",
   );
 }
 
@@ -2706,10 +6013,407 @@ const clearPlaylistToOpen =
     ],
   );
 
+  const updateTopbarSearch =
+  useCallback(
+    (value) => {
+      if (
+        activePage !==
+        "search"
+      ) {
+        return;
+      }
+
+      updateSearch(
+        value,
+      );
+    },
+    [
+      activePage,
+      updateSearch,
+    ],
+  );
+
+
+  const openSearchFromTopbar =
+  useCallback(
+    () => {
+      if (
+        activePage ===
+        "search"
+      ) {
+        return;
+      }
+
+      navigate(
+        "search",
+      );
+    },
+    [
+      activePage,
+      navigate,
+    ],
+  );
+
+
   const openAuth = useCallback((mode = "signin") => {
     setAuthMode(mode);
     setAuthOpen(true);
   }, []);
+
+
+  const openMessageUser =
+  useCallback(
+    (username) => {
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        openAuth(
+          "signin",
+        );
+
+        return;
+      }
+
+      const normalized =
+        String(
+          username ??
+          "",
+        ).trim();
+
+      setMessageToOpen(
+        normalized,
+      );
+
+      navigate(
+        "messages",
+      );
+    },
+    [
+      currentUser?.account_type,
+      navigate,
+      openAuth,
+    ],
+  );
+
+
+  const clearMessageToOpen =
+  useCallback(
+    () => {
+      setMessageToOpen(
+        "",
+      );
+    },
+    [],
+  );
+
+
+  const handleInstallApp =
+  useCallback(
+    async () => {
+      const result =
+        await requestPwaInstall();
+
+      setInstallState(
+        result?.state ??
+        getPwaInstallState(),
+      );
+
+      if (
+        result?.status ===
+          "accepted" ||
+        result?.status ===
+          "installed"
+      ) {
+        setStatusMessage(
+          result?.systemReady
+            ? "HyperSynced installed. Offline app system is ready."
+            : "HyperSynced installed.",
+        );
+
+        setInstallHelpMode(
+          "",
+        );
+
+        return;
+      }
+
+      if (
+        result?.status ===
+          "dismissed"
+      ) {
+        setStatusMessage(
+          "App installation was canceled.",
+        );
+
+        return;
+      }
+
+      if (
+        result?.status ===
+          "insecure"
+      ) {
+        setStatusMessage(
+          "App installation requires HTTPS or localhost.",
+        );
+
+        return;
+      }
+
+      if (
+        result?.systemReady
+      ) {
+        setStatusMessage(
+          result?.status ===
+            "manual-ios"
+            ? "Offline app system downloaded. Finish Add to Home Screen."
+            : "Offline app system downloaded. Finish installing from your browser.",
+        );
+      }
+
+      setInstallHelpMode(
+        result?.status ===
+          "manual-ios"
+          ? "manual-ios"
+          : "manual",
+      );
+    },
+    [],
+  );
+
+
+  const handleEnablePush =
+  useCallback(
+    async () => {
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        openAuth(
+          "signin",
+        );
+
+        return;
+      }
+
+      setPushBusy(
+        true,
+      );
+
+      try {
+        const result =
+          await enablePushNotifications();
+
+        if (
+          !result?.supported
+        ) {
+          setPushEnabled(
+            false,
+          );
+
+          setStatusMessage(
+            "Push notifications are not supported by this browser.",
+          );
+
+          return;
+        }
+
+        if (
+          result?.configured ===
+          false
+        ) {
+          setPushEnabled(
+            false,
+          );
+
+          setStatusMessage(
+            "Push notifications need VAPID keys configured on the server.",
+          );
+
+          return;
+        }
+
+        if (
+          !result?.enabled
+        ) {
+          setPushEnabled(
+            false,
+          );
+
+          setStatusMessage(
+            result?.permission ===
+              "denied"
+              ? "Push notifications are blocked in this browser's site settings."
+              : "Push notification permission was not granted.",
+          );
+
+          return;
+        }
+
+        setPushEnabled(
+          true,
+        );
+
+        setStatusMessage(
+          "Push notifications enabled.",
+        );
+      } catch (error) {
+        setPushEnabled(
+          false,
+        );
+
+        setStatusMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to enable push notifications.",
+        );
+      } finally {
+        setPushBusy(
+          false,
+        );
+      }
+    },
+    [
+      currentUser?.account_type,
+      openAuth,
+    ],
+  );
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      setMessageNotifications({
+        unread_count:
+          0,
+        notifications:
+          [],
+      });
+
+      setPushEnabled(
+        false,
+      );
+
+      return undefined;
+    }
+
+    void refreshMessageNotifications();
+
+    void syncExistingPushSubscription()
+      .then(
+        (result) => {
+          setPushEnabled(
+            Boolean(
+              result?.enabled,
+            ),
+          );
+        },
+      )
+      .catch(
+        () => {
+          setPushEnabled(
+            false,
+          );
+        },
+      );
+
+    const interval =
+      window.setInterval(
+        () => {
+          void refreshMessageNotifications();
+        },
+        12_000,
+      );
+
+    const handleFocus =
+      () => {
+        void refreshMessageNotifications();
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+            "visible"
+        ) {
+          void refreshMessageNotifications();
+        }
+      };
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    return () => {
+      window.clearInterval(
+        interval,
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    currentUser?.id,
+    refreshMessageNotifications,
+  ]);
+
+
+  useEffect(() => {
+    const serviceWorker =
+      globalThis.navigator
+        ?.serviceWorker;
+
+    if (
+      !serviceWorker
+    ) {
+      return undefined;
+    }
+
+    const handleWorkerMessage =
+      (event) => {
+        if (
+          event.data?.type !==
+            "HYPERSYNC_OPEN_MESSAGE"
+        ) {
+          return;
+        }
+
+        openMessageUser(
+          event.data?.username,
+        );
+      };
+
+    serviceWorker.addEventListener(
+      "message",
+      handleWorkerMessage,
+    );
+
+    return () => {
+      serviceWorker.removeEventListener(
+        "message",
+        handleWorkerMessage,
+      );
+    };
+  }, [
+    openMessageUser,
+  ]);
+
 
   const openSignIn = useCallback(() => {
     openAuth("signin");
@@ -2778,12 +6482,32 @@ const clearPlaylistToOpen =
     onDismissPlaylistUpdate={
       dismissPlaylistUpdate
     }
+    messageNotifications={
+      messageNotifications
+    }
+    onOpenMessage={
+      openMessageUser
+    }
+    onEnablePush={() => {
+      void handleEnablePush();
+    }}
+    pushBusy={
+      pushBusy
+    }
+    pushEnabled={
+      pushEnabled
+    }
     />
 
         <DesktopTopbar
           activePage={activePage}
           searchQuery={searchQuery}
-          onSearchChange={updateSearch}
+          onSearchChange={
+            updateTopbarSearch
+          }
+          onSearchFocus={
+            openSearchFromTopbar
+          }
           currentUser={currentUser}
           onNavigate={navigate}
           onOpenAuth={() => {
@@ -2797,6 +6521,7 @@ const clearPlaylistToOpen =
             currentUser={currentUser}
             searchResetToken={searchResetToken}
             libraryResetToken={libraryResetToken}
+            messagesResetToken={messagesResetToken}
             playlistToOpen={
             playlistToOpen
             }
@@ -2817,6 +6542,18 @@ const clearPlaylistToOpen =
             onOpenProfile={
               openUserProfile
             }
+            onMessageUser={
+              openMessageUser
+            }
+            messageUsername={
+              messageToOpen
+            }
+            onMessageUsernameHandled={
+              clearMessageToOpen
+            }
+            onMessageNotificationsChanged={
+              refreshMessageNotifications
+            }
             onNavigate={navigate}
             onOpenAuth={() => {
               openAuth("signin");
@@ -2832,11 +6569,27 @@ const clearPlaylistToOpen =
             }}
             statusMessage={statusMessage}
             onStatusMessage={setStatusMessage}
+            activePlaylistDownloads={
+              activePlaylistDownloads
+            }
+            installState={
+              installState
+            }
+            onInstallApp={
+              handleInstallApp
+            }
           />
         </main>
       </section>
 
-      <DesktopRightRail />
+      <DesktopRightRail
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={() => {
+          openAuth("signin");
+        }}
+      />
 
       <PlayerBar
         playlistUpdate={
@@ -2848,12 +6601,78 @@ const clearPlaylistToOpen =
         onDismissPlaylistUpdate={
           dismissPlaylistUpdate
         }
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={() => {
+          openAuth("signin");
+        }}
+        messageNotifications={
+          messageNotifications
+        }
+        onOpenMessage={
+          openMessageUser
+        }
+        onEnablePush={() => {
+          void handleEnablePush();
+        }}
+        pushBusy={
+          pushBusy
+        }
+        pushEnabled={
+          pushEnabled
+        }
+        installState={
+          installState
+        }
+        onInstallApp={
+          handleInstallApp
+        }
       />
 
       <MobileBottomNav
         activePage={activePage}
         onNavigate={navigate}
+        currentUser={
+          currentUser
+        }
       />
+
+      {mobileSeekFeedback ? (
+        <div
+          className={
+            mobileSeekFeedback.side ===
+              "back"
+              ? "mobile-seek-feedback mobile-seek-feedback--back"
+              : "mobile-seek-feedback mobile-seek-feedback--forward"
+          }
+          aria-hidden="true"
+        >
+          <strong>
+            {mobileSeekFeedback.label}
+          </strong>
+
+          <span>
+            seconds
+          </span>
+        </div>
+      ) : null}
+
+<AppInstallModal
+  open={
+    Boolean(
+      installHelpMode,
+    )
+  }
+  mode={
+    installHelpMode
+  }
+  onClose={() => {
+    setInstallHelpMode(
+      "",
+    );
+  }}
+/>
 
 <AuthOverlay
   open={authOpen}

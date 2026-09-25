@@ -163,6 +163,12 @@ test(
           null,
         expiresAt:
           null,
+        warmUntil:
+          null,
+        warmByteStart:
+          null,
+        warmByteEnd:
+          null,
       },
     );
 
@@ -1760,6 +1766,353 @@ test(
         plain_lyrics:
           "still here",
       },
+    );
+  },
+);
+
+
+test(
+  "scoped pin removal preserves media until the final reference is removed",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "pin-reference-track";
+
+    const mediaVersion =
+      "pin-reference-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await mediaStore.saveMediaChunk({
+      trackId,
+      mediaVersion,
+      chunkIndex:
+        0,
+      byteStart:
+        0,
+      data:
+        new Uint8Array([
+          0x42,
+        ]).buffer,
+    });
+
+    await mediaStore.saveArtwork({
+      trackId,
+      data:
+        new Uint8Array([
+          0x89,
+        ]).buffer,
+      mimeType:
+        "image/png",
+    });
+
+    await mediaStore.saveLyrics(
+      trackId,
+      {
+        status:
+          "plain",
+        plain_lyrics:
+          "shared",
+      },
+    );
+
+    const manualPin =
+      "owner:user-a|manual";
+
+    const playlistPin =
+      "owner:user-a|playlist:list-a";
+
+    await mediaStore.addMediaPinReference(
+      trackId,
+      mediaVersion,
+      manualPin,
+    );
+
+    await mediaStore.addMediaPinReference(
+      trackId,
+      mediaVersion,
+      playlistPin,
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+        playlistPin,
+      ),
+      true,
+    );
+
+    const retained =
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(retained);
+
+    assert.deepEqual(
+      mediaStore.getMediaPinReferences(
+        retained,
+      ),
+      [manualPin],
+    );
+
+    assert.ok(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+    );
+
+    assert.ok(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+    );
+
+    assert.equal(
+      await mediaStore.removeDownloadedMedia(
+        trackId,
+        mediaVersion,
+        manualPin,
+      ),
+      true,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getArtwork(
+        trackId,
+      ),
+      null,
+    );
+
+    assert.equal(
+      await mediaStore.getLyrics(
+        trackId,
+      ),
+      null,
+    );
+  },
+);
+
+test(
+  "newer existing media database versions reopen without losing cached media",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "newer-db-version-track";
+
+    const mediaVersion =
+      "newer-db-version-media";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await new Promise(
+      (
+        resolve,
+        reject,
+      ) => {
+        const request =
+          indexedDB.open(
+            "hypersynced-media-v1",
+            5,
+          );
+
+        request.onsuccess =
+          () => {
+            request.result.close();
+            resolve();
+          };
+
+        request.onerror =
+          () => {
+            reject(
+              request.error,
+            );
+          };
+      },
+    );
+
+    const compatibleStore =
+      await import(
+        "./mediaStore.js?newer-db-version"
+      );
+
+    const restored =
+      await compatibleStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      );
+
+    assert.ok(
+      restored,
+    );
+
+    assert.equal(
+      restored.key,
+      record.key,
+    );
+
+    assert.equal(
+      restored.state,
+      "PINNED",
+    );
+
+    assert.equal(
+      restored.cachedBytes,
+      1,
+    );
+  },
+);
+
+
+test(
+  "warm playback lease protects expired media until the lease ends",
+  async () => {
+    const mediaStore =
+      await loadMediaStoreModule();
+
+    const trackId =
+      "warm-lease-track-" +
+      Date.now();
+
+    const mediaVersion =
+      "warm-lease-version";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1_000_000,
+        state:
+          "PARTIAL",
+      });
+
+    record.expiresAt =
+      100;
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    const warm =
+      await mediaStore.markMediaWarm(
+        trackId,
+        mediaVersion,
+        {
+          warmUntil:
+            1_000,
+
+          byteStart:
+            0,
+
+          byteEnd:
+            262_143,
+        },
+      );
+
+    assert.equal(
+      warm.warmUntil,
+      1_000,
+    );
+
+    assert.equal(
+      warm.warmByteStart,
+      0,
+    );
+
+    assert.equal(
+      warm.warmByteEnd,
+      262_143,
+    );
+
+    await mediaStore.cleanupExpiredMedia(
+      500,
+    );
+
+    assert.ok(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+    );
+
+    await mediaStore.cleanupExpiredMedia(
+      1_001,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaRecord(
+        trackId,
+        mediaVersion,
+      ),
+      null,
     );
   },
 );

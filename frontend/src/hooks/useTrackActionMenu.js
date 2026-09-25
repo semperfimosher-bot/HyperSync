@@ -77,6 +77,7 @@ export default function useTrackActionMenu() {
     useCallback(
       (
         track,
+        options = {},
       ) => ({
         onContextMenu:
           (event) => {
@@ -94,6 +95,18 @@ export default function useTrackActionMenu() {
 
             setMenu({
               track,
+
+              contextActions:
+                Array.isArray(
+                  options.actions,
+                )
+                  ? options.actions
+                  : [],
+
+              hideLikeAction:
+                Boolean(
+                  options.hideLikeAction,
+                ),
 
               mode:
                 "desktop",
@@ -141,6 +154,18 @@ export default function useTrackActionMenu() {
 
                   setMenu({
                     track,
+
+                    contextActions:
+                      Array.isArray(
+                        options.actions,
+                      )
+                        ? options.actions
+                        : [],
+
+                    hideLikeAction:
+                      Boolean(
+                        options.hideLikeAction,
+                      ),
 
                     mode:
                       "mobile",

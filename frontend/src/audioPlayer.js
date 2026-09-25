@@ -14,11 +14,13 @@ import {
   buildTrackQueue,
   getNextQueueIndex,
   getQueueTrackAtIndex,
+  insertQueueEntryAsNext,
 } from "./playerQueue.js";
 
 import {
   prepareTrackAudioSource,
   recordTrackPlayback,
+  warmTrackPlayback,
 } from "./mediaPlayback.js";
 
 import {
@@ -71,6 +73,12 @@ let lastMediaSessionSignature =
 let activeObjectUrl =
   null;
 
+let warmPlaybackTask =
+  null;
+
+let warmPlaybackTaskKey =
+  null;
+
 
 /*
  * When the application is refreshed,
@@ -104,11 +112,17 @@ let currentQueue =
 let currentQueueIndex =
   -1;
 
+let recentTrackIds =
+  [];
+
 const AUTOPLAY_REFILL_THRESHOLD =
   2;
 
 const AUTOPLAY_BATCH_SIZE =
   8;
+
+const AUTOPLAY_CONTEXT_SIZE =
+  12;
 
 let queueRevision =
   0;
@@ -272,6 +286,16 @@ function normalizeTrackMeta(
       meta.media_version ??
       null,
 
+    artworkVersion:
+      meta.artworkVersion ??
+      meta.artwork_version ??
+      null,
+
+    durationSeconds:
+      meta.durationSeconds ??
+      meta.duration_seconds ??
+      null,
+
     title:
       meta.title ??
       "",
@@ -348,6 +372,10 @@ function persistPlayerState({
 
     muted:
       audio.muted,
+
+    recentTrackIds: [
+      ...recentTrackIds,
+    ],
   });
 }
 
@@ -384,6 +412,113 @@ function upcomingQueueCount() {
       currentQueueIndex -
       1,
     0,
+  );
+}
+
+
+function appendRecentContextId(
+  ids,
+  value,
+) {
+  const id =
+    String(
+      value ?? "",
+    ).trim();
+
+  if (!id) {
+    return;
+  }
+
+  const existingIndex =
+    ids.indexOf(
+      id,
+    );
+
+  if (
+    existingIndex >= 0
+  ) {
+    ids.splice(
+      existingIndex,
+      1,
+    );
+  }
+
+  ids.push(
+    id,
+  );
+}
+
+
+function rememberAutoplayTrack(
+  trackId,
+) {
+  const next = [
+    ...recentTrackIds,
+  ];
+
+  appendRecentContextId(
+    next,
+    trackId,
+  );
+
+  recentTrackIds =
+    next.slice(
+      -AUTOPLAY_CONTEXT_SIZE,
+    );
+}
+
+
+function getAutoplayContextTrackIds() {
+  const ids = [];
+
+  for (
+    const id
+    of recentTrackIds
+  ) {
+    appendRecentContextId(
+      ids,
+      id,
+    );
+  }
+
+  if (
+    currentQueue.length >
+      0 &&
+    currentQueueIndex >= 0
+  ) {
+    const startIndex =
+      Math.max(
+        0,
+        currentQueueIndex -
+          (
+            AUTOPLAY_CONTEXT_SIZE -
+            1
+          ),
+      );
+
+    for (
+      const entry
+      of currentQueue.slice(
+        startIndex,
+        currentQueueIndex + 1,
+      )
+    ) {
+      appendRecentContextId(
+        ids,
+        entry?.id,
+      );
+    }
+  }
+
+  if (currentTrackId) {
+    appendRecentContextId(
+      ids,
+      currentTrackId,
+    );
+  }
+
+  return ids.slice(
+    -AUTOPLAY_CONTEXT_SIZE,
   );
 }
 
@@ -529,19 +664,38 @@ async function ensureAutoplayQueue({
 
 
   const excludeTrackIds =
-    currentQueue
-      .slice(
-        exclusionStart,
-      )
-      .map(
-        (entry) =>
-          String(
-            entry.id,
-          ),
-      )
-      .slice(
-        -100,
-      );
+    [];
+
+  for (
+    const id
+    of recentTrackIds
+  ) {
+    appendRecentContextId(
+      excludeTrackIds,
+      id,
+    );
+  }
+
+  for (
+    const entry
+    of currentQueue.slice(
+      exclusionStart,
+    )
+  ) {
+    appendRecentContextId(
+      excludeTrackIds,
+      entry?.id,
+    );
+  }
+
+  excludeTrackIds.splice(
+    0,
+    Math.max(
+      excludeTrackIds.length -
+        100,
+      0,
+    ),
+  );
 
 
   let requestPromise;
@@ -566,6 +720,9 @@ async function ensureAutoplayQueue({
 
                   exclude_track_ids:
                     excludeTrackIds,
+
+                  context_track_ids:
+                    getAutoplayContextTrackIds(),
 
                   limit:
                     AUTOPLAY_BATCH_SIZE,
@@ -851,6 +1008,30 @@ export function getState() {
     artist:
       currentTrackArtist,
 
+    album:
+      currentTrackMeta?.album ??
+      "",
+
+    mimeType:
+      currentTrackMeta?.mimeType ??
+      null,
+
+    fileSize:
+      currentTrackMeta?.fileSize ??
+      null,
+
+    mediaVersion:
+      currentTrackMeta?.mediaVersion ??
+      null,
+
+    artworkVersion:
+      currentTrackMeta?.artworkVersion ??
+      null,
+
+    durationSeconds:
+      currentTrackMeta?.durationSeconds ??
+      null,
+
     queue:
       currentQueue,
 
@@ -1118,6 +1299,107 @@ function attachEvents() {
 
 attachEvents();
 restorePersistedPlayerState();
+
+
+function warmCurrentTrackForResume() {
+  if (
+    !currentTrackId ||
+    !currentTrackMeta
+  ) {
+    return null;
+  }
+
+  const mediaVersion =
+    currentTrackMeta
+      .mediaVersion ??
+    currentTrackMeta
+      .media_version ??
+    null;
+
+  if (!mediaVersion) {
+    return null;
+  }
+
+  const position =
+    getSafeCurrentTime();
+
+  const duration =
+    Number.isFinite(
+      audio.duration,
+    ) &&
+    audio.duration > 0
+      ? audio.duration
+      : Number(
+          currentTrackMeta
+            .durationSeconds ??
+          currentTrackMeta
+            .duration_seconds ??
+          0,
+        );
+
+  const taskKey = [
+    currentTrackId,
+    mediaVersion,
+    Math.floor(
+      position /
+      20,
+    ),
+  ].join(
+    ":",
+  );
+
+  if (
+    warmPlaybackTask &&
+    warmPlaybackTaskKey ===
+      taskKey
+  ) {
+    return warmPlaybackTask;
+  }
+
+  const useStableMediaRoute =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
+  warmPlaybackTaskKey =
+    taskKey;
+
+  warmPlaybackTask =
+    warmTrackPlayback(
+      currentTrackId,
+      currentTrackMeta,
+      {
+        positionSeconds:
+          position,
+
+        durationSeconds:
+          duration,
+
+        useStableMediaRoute,
+      },
+    )
+      .catch(
+        () => null,
+      )
+      .finally(
+        () => {
+          if (
+            warmPlaybackTaskKey ===
+              taskKey
+          ) {
+            warmPlaybackTask =
+              null;
+
+            warmPlaybackTaskKey =
+              null;
+          }
+        },
+      );
+
+  return warmPlaybackTask;
+}
 
 
 function loadAudioSource(
@@ -1405,6 +1687,25 @@ function restorePersistedPlayerState() {
     );
 
 
+  recentTrackIds =
+    [];
+
+  for (
+    const trackId
+    of (
+      Array.isArray(
+        saved.recentTrackIds,
+      )
+        ? saved.recentTrackIds
+        : []
+    )
+  ) {
+    rememberAutoplayTrack(
+      trackId,
+    );
+  }
+
+
   currentTrackId =
     String(
       saved.trackId,
@@ -1421,6 +1722,10 @@ function restorePersistedPlayerState() {
 
   currentTrackArtist =
     meta.artist;
+
+  rememberAutoplayTrack(
+    currentTrackId,
+  );
 
 
   const savedTime =
@@ -1479,6 +1784,14 @@ function restorePersistedPlayerState() {
   );
 
   notify();
+
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
 
 
   /*
@@ -1725,6 +2038,16 @@ async function playTrackInternal(
     return null;
   }
 
+rememberAutoplayTrack(
+  trackId,
+);
+
+persistPlayerState({
+  force:
+    true,
+});
+
+
 /*
  * Cache-retention bookkeeping must not
  * block or break successful playback.
@@ -1750,6 +2073,196 @@ beginListeningEvent(
 
 return getState();
 }
+
+export async function restoreAccountPlayback(
+  track,
+  positionSeconds = 0,
+) {
+  const trackId =
+    String(
+      track?.id ??
+      "",
+    ).trim();
+
+  if (!trackId) {
+    stopTrack();
+
+    return getState();
+  }
+
+  const meta =
+    normalizeTrackMeta(
+      track,
+    );
+
+  const requestedTime =
+    Number.isFinite(
+      Number(
+        positionSeconds,
+      ),
+    )
+      ? Math.max(
+          Number(
+            positionSeconds,
+          ),
+          0,
+        )
+      : 0;
+
+  /*
+   * Account sync never auto-starts audio.
+   * A user gesture on this device is still
+   * required before it takes playback over.
+   */
+  audio.pause();
+
+  if (
+    currentTrackId ===
+      trackId &&
+    currentTrackMeta
+  ) {
+    currentTrackMeta =
+      meta;
+
+    currentArtworkUrl =
+      meta.artworkUrl;
+
+    currentTrackTitle =
+      meta.title;
+
+    currentTrackArtist =
+      meta.artist;
+
+    restoredTimeSeconds =
+      requestedTime;
+
+    if (
+      hasAudioSource()
+    ) {
+      const duration =
+        Number.isFinite(
+          audio.duration,
+        ) &&
+        audio.duration > 0
+          ? audio.duration
+          : requestedTime;
+
+      try {
+        audio.currentTime =
+          Math.max(
+            0,
+            Math.min(
+              requestedTime,
+              duration,
+            ),
+          );
+      } catch {
+        // The source may still be loading.
+      }
+    }
+
+    setPlaybackPhase(
+      "paused",
+    );
+
+    rememberAutoplayTrack(
+      trackId,
+    );
+
+    persistPlayerState({
+      force:
+        true,
+      currentTime:
+        requestedTime,
+    });
+
+    clearQueue();
+
+    ensureCurrentTrackInQueue();
+
+    notify();
+
+    void ensureAutoplayQueue({
+      force:
+        true,
+    }).catch(
+      () => {},
+    );
+
+    return getState();
+  }
+
+  cancelActivePlaybackSession();
+
+  clearQueue();
+
+  audio.removeAttribute(
+    "src",
+  );
+
+  audio.load();
+
+  currentTrackId =
+    trackId;
+
+  currentTrackMeta =
+    meta;
+
+  currentArtworkUrl =
+    meta.artworkUrl;
+
+  currentTrackTitle =
+    meta.title;
+
+  currentTrackArtist =
+    meta.artist;
+
+  rememberAutoplayTrack(
+    trackId,
+  );
+
+  restoredTimeSeconds =
+    requestedTime;
+
+  setPlaybackPhase(
+    "paused",
+  );
+
+  persistPlayerState({
+    force:
+      true,
+    currentTime:
+      requestedTime,
+  });
+
+  notify();
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
+
+  void ensureCurrentTrackSource()
+    .catch(
+      () => {
+        if (
+          currentTrackId ===
+            trackId
+        ) {
+          setPlaybackPhase(
+            "paused",
+          );
+
+          notify();
+        }
+      },
+    );
+
+  return getState();
+}
+
 
 export async function playTrack(
   trackId,
@@ -1906,7 +2419,7 @@ export async function playTrackQueue(
   return state;
 }
 
-export function addTrackToQueue(
+export function playTrackNext(
   track,
 ) {
   const entries =
@@ -1922,42 +2435,42 @@ export function addTrackToQueue(
   }
 
   /*
-   * If a song is already playing outside
-   * a queue, turn the current song into
-   * the first queue item before adding
-   * the new song.
+   * Manual queue choices always win over
+   * autoplay. If the current song started
+   * outside a queue, materialize it first
+   * so "Play next" has a stable insertion
+   * point.
    */
-  if (
-    currentQueue.length === 0 &&
-    currentTrackId &&
-    currentTrackMeta
-  ) {
-    currentQueue = [
-      {
-        id:
-          String(
-            currentTrackId,
-          ),
+  ensureCurrentTrackInQueue();
 
-        meta: {
-          ...currentTrackMeta,
-        },
-      },
-
+  currentQueue =
+    insertQueueEntryAsNext(
+      currentQueue,
+      currentQueueIndex,
       entry,
-    ];
+    );
 
-    currentQueueIndex = 0;
-  } else {
-    currentQueue = [
-      ...currentQueue,
-      entry,
-    ];
-  }
+  /*
+   * Any recommendation request that began
+   * before this manual edit is stale. Its
+   * response will be ignored by the
+   * revision guard in ensureAutoplayQueue.
+   */
+  queueRevision +=
+    1;
 
   notify();
 
   return true;
+}
+
+
+export function addTrackToQueue(
+  track,
+) {
+  return playTrackNext(
+    track,
+  );
 }
 
 export async function playUrl(
@@ -2102,6 +2615,13 @@ export async function togglePlay() {
 
   } else {
     audio.pause();
+
+    /*
+     * Do not make pause wait on network.
+     * Warm the resume window in the
+     * background for the next Play tap.
+     */
+    void warmCurrentTrackForResume();
   }
 
 
@@ -2115,6 +2635,15 @@ export function pausePlayback() {
   ) {
     audio.pause();
   }
+
+  /*
+   * Keep this exact pause point hot for
+   * two hours. The Audio element remains
+   * attached, and the nearby media bytes
+   * are also persisted through the
+   * service worker cache.
+   */
+  void warmCurrentTrackForResume();
 
 
   if (
@@ -2152,6 +2681,12 @@ export function stopTrack(
 
 
   cancelActivePlaybackSession();
+
+  warmPlaybackTask =
+    null;
+
+  warmPlaybackTaskKey =
+    null;
 
 
   audio.pause();
@@ -2266,7 +2801,9 @@ if (
 ) {
   window.__HYPERSYNC_PLAYER = {
     playTrack,
+    restoreAccountPlayback,
     playTrackQueue,
+    playTrackNext,
     addTrackToQueue,
     playQueueIndex,
     playUrl,
@@ -2295,10 +2832,7 @@ export async function skipToNext() {
   );
 
 
-  await ensureAutoplayQueue({
-    force:
-      true,
-  });
+  await ensureAutoplayQueue();
 
 
   await playNextQueueTrack();
