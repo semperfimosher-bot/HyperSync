@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     b2_profile_prefix: str = "profiles"
     b2_presigned_url_ttl_seconds: int = 86400
     b2_media_source_ttl_seconds: int = 300
+    b2_direct_upload_enabled: bool = True
+    b2_direct_upload_ttl_seconds: int = 300
 
     audio_compression_enabled: bool = True
     audio_compression_mp3_vbr_quality: int = 2
