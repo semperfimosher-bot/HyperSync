@@ -52,5 +52,5 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend
 
-      - name: Run admin security regression tests
-        run: python -m pytest -q tests/test_admin_full_reset.py tests/test_admin_registration.py tests/test_upload_duplicate_prevention.py
+      - name: Run admin security and media regression tests
+        run: python -m pytest -q tests/test_admin_full_reset.py tests/test_admin_registration.py tests/test_upload_duplicate_prevention.py tests/test_audio_compression.py
