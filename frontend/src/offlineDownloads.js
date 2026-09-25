@@ -1575,17 +1575,10 @@ export async function getDownloadedTracks(
     return [];
   }
 
-  const individualPinRefs =
+  const manualPinRef =
     manualOnly
-      ? new Set(
-          [
-            getManualDownloadPinRef(
-              normalizedOwnerKey,
-            ),
-            getLikedSongsDownloadPinRef(
-              normalizedOwnerKey,
-            ),
-          ].filter(Boolean),
+      ? getManualDownloadPinRef(
+          normalizedOwnerKey,
         )
       : null;
 
@@ -1602,11 +1595,8 @@ export async function getDownloadedTracks(
           !manualOnly ||
           getMediaPinReferences(
             record,
-          ).some(
-            (pinRef) =>
-              individualPinRefs.has(
-                pinRef,
-              ),
+          ).includes(
+            manualPinRef,
           )
         ),
     );
