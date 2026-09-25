@@ -2639,6 +2639,11 @@ if (
       onOpenProfile={
         onOpenProfile
       }
+      onBackToSearch={() => {
+        onNavigate(
+          "search",
+        );
+      }}
       resetToken={
         messagesResetToken
       }
