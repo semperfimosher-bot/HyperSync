@@ -6,6 +6,7 @@ import {
   syncGlobalResetState,
 } from "./globalResetSync.js";
 import {
+  clearDevelopmentServiceWorkerState,
   registerHyperSyncServiceWorker,
 } from "./serviceWorkerRegistration.js";
 
@@ -78,7 +79,22 @@ window.addEventListener(
 );
 
 
-if (import.meta.env.PROD) {
+if (import.meta.env.DEV) {
+  /*
+   * A production/preview service worker can
+   * survive on the same localhost origin and
+   * cache an old Vite client. Vite 8 uses a
+   * per-process WebSocket token, so that stale
+   * client is rejected with HTTP 400.
+   *
+   * Keep offline media databases intact; only
+   * remove service workers and app-shell caches.
+   */
+  void clearDevelopmentServiceWorkerState()
+    .catch(
+      () => {},
+    );
+} else if (import.meta.env.PROD) {
   const registerAppWorker =
     () => {
       void registerHyperSyncServiceWorker()
