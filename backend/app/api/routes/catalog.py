@@ -56,7 +56,7 @@ class TrackResponse(BaseModel):
     title: str
     artist: str
     album: str | None
-    genre: str | None
+    genre: str | None = None
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
@@ -266,6 +266,7 @@ async def get_track(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=track.genre,
         duration_seconds=(track.duration_seconds),
         mime_type=(track.mime_type),
         file_size=(track.file_size),
