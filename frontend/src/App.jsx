@@ -912,8 +912,12 @@ function AdminDashboardPage() {
 
             <input
               type="password"
+              name="hypersync_admin_reset_code"
               inputMode="numeric"
-              autoComplete="off"
+              autoComplete="one-time-code"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              aria-label="Admin reset verification code"
               value={wipePassword}
               onChange={(event) => {
                 setWipePassword(
@@ -3355,6 +3359,48 @@ const clearPlaylistToOpen =
     ],
   );
 
+  const updateTopbarSearch =
+  useCallback(
+    (value) => {
+      if (
+        activePage !==
+        "search"
+      ) {
+        return;
+      }
+
+      updateSearch(
+        value,
+      );
+    },
+    [
+      activePage,
+      updateSearch,
+    ],
+  );
+
+
+  const openSearchFromTopbar =
+  useCallback(
+    () => {
+      if (
+        activePage ===
+        "search"
+      ) {
+        return;
+      }
+
+      navigate(
+        "search",
+      );
+    },
+    [
+      activePage,
+      navigate,
+    ],
+  );
+
+
   const openAuth = useCallback((mode = "signin") => {
     setAuthMode(mode);
     setAuthOpen(true);
@@ -3432,7 +3478,12 @@ const clearPlaylistToOpen =
         <DesktopTopbar
           activePage={activePage}
           searchQuery={searchQuery}
-          onSearchChange={updateSearch}
+          onSearchChange={
+            updateTopbarSearch
+          }
+          onSearchFocus={
+            openSearchFromTopbar
+          }
           currentUser={currentUser}
           onNavigate={navigate}
           onOpenAuth={() => {
