@@ -162,22 +162,6 @@ export default function MessageNotificationPanel({
                 : "Enable push notifications"}
           </button>
 
-          {pushEnabled ? (
-            <div
-              className="message-push-success"
-              role="status"
-              aria-live="polite"
-            >
-              <Icon
-                name="check"
-                size={13}
-              />
-
-              <span>
-                Push notifications enabled successfully.
-              </span>
-            </div>
-          ) : null}
         </>
       ) : null}
     </div>
