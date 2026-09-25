@@ -8257,6 +8257,14 @@ button > span:nth-child(2) {
       transform 150ms ease;
   }
 
+  .desktop-player-install-button:disabled {
+    cursor: progress;
+
+    opacity: 0.58;
+
+    transform: none;
+  }
+
   .desktop-player-install-button:hover {
     transform:
       translateY(-1px);
