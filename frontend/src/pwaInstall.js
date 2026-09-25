@@ -4,6 +4,9 @@ let deferredInstallPrompt =
 let initialized =
   false;
 
+let installedThisSession =
+  false;
+
 const listeners =
   new Set();
 
@@ -28,6 +31,7 @@ export function isStandaloneApp() {
     navigatorLike();
 
   return Boolean(
+    installedThisSession ||
     win?.matchMedia?.(
       "(display-mode: standalone)",
     )?.matches ||
@@ -203,6 +207,9 @@ export function initializePwaInstall() {
       deferredInstallPrompt =
         null;
 
+      installedThisSession =
+        true;
+
       void requestPersistentAppStorage();
 
       emitState();
@@ -289,6 +296,9 @@ export async function requestPwaInstall() {
           "accepted";
 
       if (accepted) {
+        installedThisSession =
+          true;
+
         void requestPersistentAppStorage();
       }
 
