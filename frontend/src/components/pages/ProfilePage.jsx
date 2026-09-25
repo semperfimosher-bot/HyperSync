@@ -121,6 +121,8 @@ export default function ProfilePage({
   onSearchArtist,
   onOpenProfile,
   onProfileUpdated,
+  installState,
+  onInstallApp,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -629,6 +631,49 @@ export default function ProfilePage({
         </header>
 
         <div className="hs-account-actions">
+          <button
+            type="button"
+            className="hs-install-app-control"
+            onClick={
+              onInstallApp
+            }
+            disabled={
+              installState?.installed
+            }
+          >
+            <Icon
+              name={
+                installState?.installed
+                  ? "downloaded"
+                  : "download"
+              }
+              size={18}
+            />
+
+            <span>
+              <strong>
+                {installState?.installed
+                  ? "HyperSynced Installed"
+                  : "Install HyperSynced"}
+              </strong>
+
+              <small>
+                {installState?.installed
+                  ? "Offline app is ready"
+                  : "Add the offline app to this device"}
+              </small>
+            </span>
+
+            <Icon
+              name={
+                installState?.installed
+                  ? "check"
+                  : "chevron"
+              }
+              size={15}
+            />
+          </button>
+
           <button
             type="button"
             onClick={() => {
