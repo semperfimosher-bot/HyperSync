@@ -11,7 +11,10 @@ from pydantic import BaseModel
 from mutagen.flac import Picture
 
 from ...config import get_settings
-from ...models import Base
+from ...models import (
+    Base,
+    SystemResetState,
+)
 from ...models.media import Track
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -48,7 +51,10 @@ class DeleteAllDatabaseDataRequest(
 
 async def _delete_all_database_rows(
     session: DatabaseSession,
-) -> dict[str, int]:
+) -> tuple[
+    dict[str, int],
+    int,
+]:
     deleted_rows: dict[
         str,
         int,
@@ -58,6 +64,13 @@ async def _delete_all_database_rows(
         for table in reversed(
             Base.metadata.sorted_tables,
         ):
+            if (
+                table.name
+                ==
+                "system_reset_state"
+            ):
+                continue
+
             result = (
                 await session.execute(
                     table.delete(),
@@ -80,6 +93,39 @@ async def _delete_all_database_rows(
                 0,
             )
 
+        reset_state = (
+            await session.get(
+                SystemResetState,
+                1,
+            )
+        )
+
+        if reset_state is None:
+            reset_state = (
+                SystemResetState(
+                    id=1,
+                    generation=0,
+                )
+            )
+
+            session.add(
+                reset_state,
+            )
+
+            await session.flush()
+
+        reset_state.generation = (
+            int(
+                reset_state.generation
+                or 0
+            )
+            + 1
+        )
+
+        generation = int(
+            reset_state.generation,
+        )
+
         await session.commit()
 
     except Exception:
@@ -87,7 +133,10 @@ async def _delete_all_database_rows(
 
         raise
 
-    return deleted_rows
+    return (
+        deleted_rows,
+        generation,
+    )
 
 
 @router.get("/access")
@@ -193,7 +242,10 @@ async def delete_all_database_data(
         ) from exc
 
     try:
-        deleted_rows = (
+        (
+            deleted_rows,
+            reset_generation,
+        ) = (
             await _delete_all_database_rows(
                 session,
             )
@@ -226,6 +278,8 @@ async def delete_all_database_data(
             ),
         "deleted_b2_versions":
             deleted_b2_versions,
+        "reset_generation":
+            reset_generation,
         "message": (
             "All application database data "
             "and every B2 file version were "
