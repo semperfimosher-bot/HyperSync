@@ -17,6 +17,7 @@ from backend.app.api.routes.search import (
     _collaboration_results,
     extract_featured_artists,
 )
+from backend.app.models.account import User
 from backend.app.services.search import (
     ParsedSearch,
     parse_search_query,
@@ -595,14 +596,22 @@ async def test_recent_history_query_has_no_command_limit():
         ),
     )
 
-    user = SimpleNamespace(
-        id=uuid4(),
+    user = cast(
+        User,
+        SimpleNamespace(
+            id=uuid4(),
+        ),
     )
 
     result = await search_route._load_history_track_ids(
         session,
         user,
         "recent",
+    )
+
+    assert (
+        execute_mock.await_args
+        is not None
     )
 
     statement = execute_mock.await_args.args[0]
@@ -691,8 +700,11 @@ async def test_recent_track_rows_return_full_history_newest_first(
             SimpleNamespace(),
         ),
         parsed,
-        SimpleNamespace(
-            id=uuid4(),
+        cast(
+            User,
+            SimpleNamespace(
+                id=uuid4(),
+            ),
         ),
         "smart",
     )
