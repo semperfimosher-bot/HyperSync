@@ -118,15 +118,15 @@ test(
     );
 
     assert.ok(
-      discoveryIndex <
-        peopleIndex,
-      "Discovery sections must appear before People.",
+      tracksIndex <
+        discoveryIndex,
+      "Tracks must stay above the discovery deck.",
     );
 
     assert.ok(
-      peopleIndex <
-        tracksIndex,
-      "People must appear before Tracks.",
+      discoveryIndex <
+        peopleIndex,
+      "Discovery sections must appear before People.",
     );
   },
 );
