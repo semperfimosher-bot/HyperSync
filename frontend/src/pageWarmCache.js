@@ -107,12 +107,47 @@ export function touchWarmPage(
       profileUsername,
     );
 
+  const entries =
+    Array.isArray(
+      pages,
+    )
+      ? pages
+      : [];
+
+  const existing =
+    entries.find(
+      (entry) =>
+        entry?.ownerKey ===
+          ownerKey &&
+        entry?.key ===
+          key,
+    ) ??
+    null;
+
+  const existingLastVisitedAt =
+    Number(
+      existing?.lastVisitedAt,
+    );
+
+  const existingIsWarm =
+    Boolean(
+      existing,
+    ) &&
+    Number.isFinite(
+      existingLastVisitedAt,
+    ) &&
+    now -
+      existingLastVisitedAt <
+      ttlMs;
+
   const retained =
     pruneWarmPages(
-      pages,
+      entries,
       {
         activeKey:
-          key,
+          existingIsWarm
+            ? key
+            : "",
         ownerKey,
         now,
         ttlMs,
@@ -126,6 +161,22 @@ export function touchWarmPage(
     ...retained,
     {
       key,
+      instanceKey:
+        existingIsWarm
+          ? (
+              existing
+                .instanceKey ??
+              (
+                key +
+                ":" +
+                existingLastVisitedAt
+              )
+            )
+          : (
+              key +
+              ":" +
+              now
+            ),
       page:
         key === "home"
           ? "home"
