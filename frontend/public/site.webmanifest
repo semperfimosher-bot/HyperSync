@@ -1,10 +1,24 @@
 {
+  "id": "/",
   "name": "HyperSynced",
   "short_name": "HyperSynced",
+  "description": "HyperSynced music streaming with account sync and offline downloaded playback.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#03070b",
   "theme_color": "#03070b",
+  "categories": [
+    "music",
+    "entertainment"
+  ],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",
