@@ -1246,9 +1246,9 @@ async def recommend_autoplay_tracks(
 
     dominant_session_genre = (
         max(
-            positive_session_genres,
-            key=positive_session_genres.get,
-        )
+            positive_session_genres.items(),
+            key=lambda item: item[1],
+        )[0]
         if positive_session_genres
         else ""
     )
