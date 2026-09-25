@@ -1834,7 +1834,10 @@ export async function getDownloadedPlaylists(
               job.playlistDescription ??
               null,
             artwork_url:
-              tracks[0]
+              tracks.find(
+                (track) =>
+                  track?.artwork_url,
+              )
                 ?.artwork_url ??
               (
                 online
@@ -1842,6 +1845,17 @@ export async function getDownloadedPlaylists(
                     null
                   : null
               ),
+            artwork_urls:
+              tracks
+                .slice(
+                  0,
+                  4,
+                )
+                .map(
+                  (track) =>
+                    track?.artwork_url ??
+                    null,
+                ),
             owner_username:
               job.playlistOwnerUsername ??
               null,
