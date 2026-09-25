@@ -1,5 +1,4 @@
 import {
-  clearAuthSession,
   getAccessToken,
   saveAuthSession,
 } from "./storage.js";
@@ -45,11 +44,27 @@ export async function refreshAccessToken() {
     );
 
     if (!response.ok) {
-      clearAuthSession();
+      const errorData =
+        await response.json()
+          .catch(
+            () => null,
+          );
 
-      throw new Error(
-        "Authentication session expired.",
-      );
+      const error =
+        new Error(
+          formatApiError(
+            errorData?.detail ??
+              "Authentication refresh failed.",
+          ),
+        );
+
+      error.status =
+        response.status;
+
+      error.detail =
+        errorData?.detail;
+
+      throw error;
     }
 
     const data =
@@ -133,7 +148,11 @@ export async function apiRequest(
         },
       );
     } catch {
-      clearAuthSession();
+      /*
+       * Do not erase the browser's stored
+       * session because one refresh attempt
+       * failed. A later request can retry.
+       */
     }
   }
 
