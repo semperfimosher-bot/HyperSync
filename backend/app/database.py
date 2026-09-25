@@ -35,8 +35,45 @@ def get_engine() -> AsyncEngine:
     else:
         ssl_context = ssl.create_default_context()
 
+        engine_kwargs.update(
+            {
+                "pool_size":
+                    max(
+                        1,
+                        int(
+                            settings
+                            .db_pool_size,
+                        ),
+                    ),
+                "max_overflow":
+                    max(
+                        0,
+                        int(
+                            settings
+                            .db_max_overflow,
+                        ),
+                    ),
+                "pool_timeout":
+                    max(
+                        1,
+                        int(
+                            settings
+                            .db_pool_timeout_seconds,
+                        ),
+                    ),
+            }
+        )
+
         engine_kwargs["connect_args"] = {
             "ssl": ssl_context,
+            "command_timeout":
+                max(
+                    1,
+                    int(
+                        settings
+                        .db_command_timeout_seconds,
+                    ),
+                ),
         }
 
     return create_async_engine(
