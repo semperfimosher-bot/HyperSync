@@ -18,6 +18,7 @@ import {
 
 import {
   addTrackToPlaylist,
+  getLibraryTrack,
   getLikedTrackState,
   getMyPlaylists,
   likeTrack,
@@ -458,8 +459,14 @@ export default function TrackActionMenu({
         );
 
         try {
+          const canonicalTrack =
+            await getLibraryTrack(
+              track.id,
+            );
+
           await downloadTrackForOffline(
-            track,
+            canonicalTrack ??
+              track,
             {
               pinRef:
                 likedSongsDownloadPinRef,
@@ -537,8 +544,17 @@ export default function TrackActionMenu({
         );
       }
 
+      const canonicalTrack =
+        await getLibraryTrack(
+          track.id,
+        );
+
+      const offlineTrack =
+        canonicalTrack ??
+        track;
+
       await downloadTrackForOffline(
-        track,
+        offlineTrack,
         {
           pinRef:
             manualDownloadPinRef,
@@ -552,7 +568,7 @@ export default function TrackActionMenu({
        * This adds no second network download.
        */
       await addLikedTrackOfflinePin(
-        track,
+        offlineTrack,
         offlineOwnerKey,
       );
 
