@@ -56,6 +56,7 @@ class TrackResponse(BaseModel):
     title: str
     artist: str
     album: str | None
+    genre: str | None
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
@@ -167,7 +168,7 @@ async def list_tracks(
     response: Response,
     q: str | None = Query(
         default=None,
-        description="Search by title, artist, or album",
+        description="Search by title, artist, album, or genre",
     ),
 ) -> list[TrackResponse]:
 
@@ -189,6 +190,7 @@ async def list_tracks(
                     Track.title.ilike(term),
                     Track.artist.ilike(term),
                     Track.album.ilike(term),
+                    Track.genre.ilike(term),
                 )
             )
 
@@ -203,6 +205,7 @@ async def list_tracks(
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
+                genre=track.genre,
                 duration_seconds=(track.duration_seconds),
                 mime_type=(track.mime_type),
                 file_size=(track.file_size),
@@ -405,6 +408,7 @@ async def get_track_lyrics(
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
+                genre=track.genre,
                 duration_seconds=(track.duration_seconds),
             )
 
