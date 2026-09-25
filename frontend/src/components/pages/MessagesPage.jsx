@@ -78,23 +78,17 @@ export default function MessagesPage({
   const [
     selectedUsername,
     setSelectedUsername,
-  ] = useState(
-    "",
-  );
+  ] = useState("");
 
   const [
     conversation,
     setConversation,
-  ] = useState(
-    null,
-  );
+  ] = useState(null);
 
   const [
     searchQuery,
     setSearchQuery,
-  ] = useState(
-    "",
-  );
+  ] = useState("");
 
   const [
     searchResults,
@@ -104,42 +98,30 @@ export default function MessagesPage({
   const [
     draft,
     setDraft,
-  ] = useState(
-    "",
-  );
+  ] = useState("");
 
   const [
     loading,
     setLoading,
-  ] = useState(
-    true,
-  );
+  ] = useState(true);
 
   const [
     conversationLoading,
     setConversationLoading,
-  ] = useState(
-    false,
-  );
+  ] = useState(false);
 
   const [
     sending,
     setSending,
-  ] = useState(
-    false,
-  );
+  ] = useState(false);
 
   const [
     error,
     setError,
-  ] = useState(
-    "",
-  );
+  ] = useState("");
 
   const endRef =
-    useRef(
-      null,
-    );
+    useRef(null);
 
 
   const loadConversations =
@@ -173,9 +155,7 @@ export default function MessagesPage({
               : "Unable to load messages.",
           );
         } finally {
-          setLoading(
-            false,
-          );
+          setLoading(false);
         }
       },
       [
@@ -201,6 +181,10 @@ export default function MessagesPage({
 
         setSelectedUsername(
           normalized,
+        );
+
+        setConversation(
+          null,
         );
 
         setConversationLoading(
@@ -248,6 +232,33 @@ export default function MessagesPage({
       [
         loadConversations,
         onUnreadChange,
+      ],
+    );
+
+
+  const closeConversation =
+    useCallback(
+      () => {
+        setSelectedUsername(
+          "",
+        );
+
+        setConversation(
+          null,
+        );
+
+        setDraft(
+          "",
+        );
+
+        setError(
+          "",
+        );
+
+        void loadConversations();
+      },
+      [
+        loadConversations,
       ],
     );
 
@@ -452,320 +463,146 @@ export default function MessagesPage({
   }
 
 
-  return (
-    <div className="page-stack hs-messages-page">
-
-      <section className="hs-search-console hs-messages-console">
-        <div
-          className="hs-search-console__grid"
-          aria-hidden="true"
-        />
-
-        <div className="hs-search-console__heading">
-          <div className="hs-search-console__intro">
-            <div className="hs-search-console__eyebrow-row">
-              <span className="hs-search-eyebrow">
-                <i aria-hidden="true" />
-                PRIVATE MESSAGING
-              </span>
-            </div>
-
-            <h2>
-              Messages
-            </h2>
-
-            <p className="hs-messages-console__copy">
-              Messages stay stored until seven days
-              after the recipient views them.
-            </p>
-          </div>
-
-          <span className="hs-messages-unread">
-            {unreadCount}
-            {" unread"}
-          </span>
-        </div>
-
-        <label className="hs-search-input hs-messages-search">
-          <span className="hs-search-input__icon">
+  if (selectedUsername) {
+    return (
+      <div className="page-stack hs-messages-page hs-messages-page--thread">
+        {error ? (
+          <section className="hs-search-message hs-search-message--error">
             <Icon
-              name="search"
-              size={17}
+              name="mail"
+              size={22}
             />
-          </span>
 
-          <input
-            type="search"
-            value={searchQuery}
-            autoComplete="off"
-            placeholder="Search a username to start a message..."
-            onChange={(
-              event,
-            ) => {
-              setSearchQuery(
-                event.target.value,
-              );
-            }}
-          />
-        </label>
+            <div>
+              <strong>
+                MESSAGING ERROR
+              </strong>
 
-        {searchResults.length > 0 ? (
-          <div className="hs-messages-search-results">
-            {searchResults.map(
-              (person) => (
-                <button
-                  type="button"
-                  key={
-                    person.username
-                  }
-                  onClick={() => {
-                    void openConversation(
-                      person.username,
-                    );
-                  }}
-                >
-                  <Avatar
-                    src={
-                      person.avatar_url
-                    }
-                    name={
-                      person.display_name
-                    }
-                    size="small"
-                  />
-
-                  <span>
-                    <strong>
-                      {person.display_name}
-                    </strong>
-
-                    <small>
-                      {"@"}
-                      {person.username}
-                    </small>
-                  </span>
-
-                  <Icon
-                    name="mail"
-                    size={17}
-                  />
-                </button>
-              ),
-            )}
-          </div>
+              <p>
+                {error}
+              </p>
+            </div>
+          </section>
         ) : null}
-      </section>
 
-
-      {error ? (
-        <section className="hs-search-message hs-search-message--error">
-          <Icon
-            name="mail"
-            size={22}
-          />
-
-          <div>
-            <strong>
-              MESSAGING ERROR
-            </strong>
-
-            <p>
-              {error}
-            </p>
-          </div>
-        </section>
-      ) : null}
-
-
-      <section className="hs-messages-shell">
-
-        <aside className="hs-messages-list">
-          <div className="hs-messages-list__heading">
-            <span>
-              CONVERSATIONS
-            </span>
-
-            <strong>
-              {conversations.length}
-            </strong>
-          </div>
-
-          {loading ? (
-            <div className="hs-messages-empty">
-              <span className="library-spinner" />
-              <span>
-                Loading messages...
-              </span>
-            </div>
-          ) : conversations.length ===
-            0 ? (
-            <div className="hs-messages-empty">
+        <section className="hs-message-thread hs-message-thread--focused">
+          <header className="hs-message-thread__header hs-message-thread__header--focused">
+            <button
+              type="button"
+              className="hs-search-playlist-back hs-message-thread__back"
+              onClick={
+                closeConversation
+              }
+            >
               <Icon
-                name="mail"
-                size={24}
+                name="chevron"
+                size={15}
               />
 
-              <strong>
-                No conversations yet
-              </strong>
+              Back to messages
+            </button>
 
-              <span>
-                Search for a username above to start one.
-              </span>
-            </div>
-          ) : (
-            conversations.map(
-              (item) => (
-                <button
-                  type="button"
-                  className={
-                    selectedUsername ===
-                    item.username
-                      ? "hs-message-conversation is-active"
-                      : "hs-message-conversation"
+            {conversation ? (
+              <button
+                type="button"
+                className="hs-message-thread__person"
+                onClick={() => {
+                  onOpenProfile?.(
+                    conversation
+                      .participant
+                      .username,
+                  );
+                }}
+              >
+                <Avatar
+                  src={
+                    conversation
+                      .participant
+                      .avatar_url
                   }
-                  key={
-                    item.username
+                  name={
+                    conversation
+                      .participant
+                      .display_name
                   }
-                  onClick={() => {
-                    void openConversation(
-                      item.username,
-                    );
-                  }}
-                >
-                  <Avatar
-                    src={
-                      item.avatar_url
-                    }
-                    name={
-                      item.display_name
-                    }
-                    size="small"
-                  />
+                  size="small"
+                />
 
-                  <span className="hs-message-conversation__copy">
-                    <span>
-                      <strong>
-                        {item.display_name}
-                      </strong>
+                <span>
+                  <strong>
+                    {conversation
+                      .participant
+                      .display_name}
+                  </strong>
 
-                      <small>
-                        {formatMessageTime(
-                          item.latest_at,
-                        )}
-                      </small>
-                    </span>
-
-                    <em>
-                      {item.latest_body}
-                    </em>
-                  </span>
-
-                  {item.unread_count > 0 ? (
-                    <b>
-                      {item.unread_count}
-                    </b>
-                  ) : null}
-                </button>
-              ),
-            )
-          )}
-        </aside>
-
-
-        <div className="hs-message-thread">
-
-          {!selectedUsername ? (
-            <div className="hs-message-thread__standby">
-              <Icon
-                name="mail"
-                size={34}
-              />
-
-              <strong>
-                Select a conversation
-              </strong>
-
-              <span>
-                Or search for someone by username.
+                  <small>
+                    {"@"}
+                    {conversation
+                      .participant
+                      .username}
+                  </small>
+                </span>
+              </button>
+            ) : (
+              <span className="hs-message-thread__loading-name">
+                {"@"}
+                {selectedUsername}
               </span>
-            </div>
-          ) : conversationLoading ? (
+            )}
+          </header>
+
+          {conversationLoading ? (
             <div className="hs-message-thread__standby">
               <span className="library-spinner" />
+
               <strong>
                 Opening conversation...
               </strong>
             </div>
           ) : conversation ? (
             <>
-              <header className="hs-message-thread__header">
-                <button
-                  type="button"
-                  className="hs-message-thread__person"
-                  onClick={() => {
-                    onOpenProfile?.(
-                      conversation
-                        .participant
-                        .username,
-                    );
-                  }}
-                >
-                  <Avatar
-                    src={
-                      conversation
-                        .participant
-                        .avatar_url
-                    }
-                    name={
-                      conversation
-                        .participant
-                        .display_name
-                    }
-                    size="small"
-                  />
+              <div className="hs-message-thread__messages">
+                {(conversation.messages ?? []).length >
+                0 ? (
+                  (conversation.messages ?? []).map(
+                    (message) => (
+                      <article
+                        key={
+                          message.id
+                        }
+                        className={
+                          message.mine
+                            ? "hs-message-bubble is-mine"
+                            : "hs-message-bubble"
+                        }
+                      >
+                        <p>
+                          {message.body}
+                        </p>
 
-                  <span>
+                        <small>
+                          {formatMessageTime(
+                            message.created_at,
+                          )}
+                        </small>
+                      </article>
+                    ),
+                  )
+                ) : (
+                  <div className="hs-message-thread__standby">
+                    <Icon
+                      name="mail"
+                      size={28}
+                    />
+
                     <strong>
-                      {conversation
-                        .participant
-                        .display_name}
+                      Start the conversation
                     </strong>
 
-                    <small>
-                      {"@"}
-                      {conversation
-                        .participant
-                        .username}
-                    </small>
-                  </span>
-                </button>
-              </header>
-
-              <div className="hs-message-thread__messages">
-                {(conversation.messages ?? []).map(
-                  (message) => (
-                    <article
-                      key={
-                        message.id
-                      }
-                      className={
-                        message.mine
-                          ? "hs-message-bubble is-mine"
-                          : "hs-message-bubble"
-                      }
-                    >
-                      <p>
-                        {message.body}
-                      </p>
-
-                      <small>
-                        {formatMessageTime(
-                          message.created_at,
-                        )}
-                      </small>
-                    </article>
-                  ),
+                    <span>
+                      Send the first message below.
+                    </span>
+                  </div>
                 )}
 
                 <div
@@ -834,11 +671,307 @@ export default function MessagesPage({
               </form>
             </>
           ) : null}
+        </section>
+      </div>
+    );
+  }
 
+
+  return (
+    <div className="page-stack hs-search-page hs-messages-page">
+      <section className="hs-search-console hs-messages-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--two"
+          aria-hidden="true"
+        />
+
+        <div className="hs-search-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+
+                HYPERSYNCED MESSAGES
+              </span>
+            </div>
+
+            <h2>
+              Your conversations
+            </h2>
+
+            <p className="hs-messages-console__copy">
+              Find someone by username or open one
+              of your existing conversations.
+            </p>
+          </div>
+
+          <span className="hs-messages-unread">
+            {unreadCount}
+            {" unread"}
+          </span>
         </div>
 
+        <label className="hs-search-input hs-messages-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={23}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={searchQuery}
+            autoComplete="off"
+            spellCheck="false"
+            placeholder="Search people by name or @username..."
+            onChange={(
+              event,
+            ) => {
+              setSearchQuery(
+                event.target.value,
+              );
+            }}
+          />
+
+          <span
+            className={
+              searchQuery.trim().length >= 2
+                ? "hs-search-scan-dot is-active"
+                : "hs-search-scan-dot"
+            }
+            aria-hidden="true"
+          />
+        </label>
+
+        <div className="hs-search-console__status">
+          <span className="hs-search-status-chip hs-search-status-chip--primary">
+            <i />
+
+            PRIVATE
+          </span>
+
+          <span className="hs-search-status-chip">
+            {conversations.length}
+            {" CONVERSATIONS"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            VIEWED MESSAGES EXPIRE IN 7 DAYS
+          </span>
+        </div>
       </section>
 
+
+      {error ? (
+        <section className="hs-search-message hs-search-message--error">
+          <Icon
+            name="mail"
+            size={22}
+          />
+
+          <div>
+            <strong>
+              MESSAGING ERROR
+            </strong>
+
+            <p>
+              {error}
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+
+      {searchResults.length > 0 ? (
+        <section className="hs-search-section hs-messages-search-section">
+          <div className="hs-search-section__heading">
+            <div>
+              <span>
+                PEOPLE
+              </span>
+
+              <h3>
+                Start a conversation
+              </h3>
+            </div>
+
+            <strong>
+              {searchResults.length}
+            </strong>
+          </div>
+
+          <div className="user-search-results">
+            {searchResults.map(
+              (person) => (
+                <button
+                  type="button"
+                  className="user-search-card hs-user-result"
+                  key={
+                    person.username
+                  }
+                  onClick={() => {
+                    void openConversation(
+                      person.username,
+                    );
+                  }}
+                >
+                  <Avatar
+                    src={
+                      person.avatar_url
+                    }
+                    name={
+                      person.display_name
+                    }
+                    size="small"
+                  />
+
+                  <div>
+                    <strong>
+                      {person.display_name}
+                    </strong>
+
+                    <small>
+                      {"@"}
+                      {person.username}
+                    </small>
+
+                    <p>
+                      Open a private conversation
+                    </p>
+                  </div>
+
+                  <Icon
+                    name="mail"
+                    size={17}
+                  />
+                </button>
+              ),
+            )}
+          </div>
+        </section>
+      ) : null}
+
+
+      <section className="hs-search-section hs-messages-directory">
+        <div className="hs-search-section__heading">
+          <div>
+            <span>
+              MESSAGES
+            </span>
+
+            <h3>
+              Conversations
+            </h3>
+          </div>
+
+          <strong>
+            {conversations.length}
+          </strong>
+        </div>
+
+        {loading ? (
+          <div className="hs-messages-empty hs-messages-empty--directory">
+            <span className="library-spinner" />
+
+            <span>
+              Loading messages...
+            </span>
+          </div>
+        ) : conversations.length ===
+          0 ? (
+          <div className="hs-messages-empty hs-messages-empty--directory">
+            <Icon
+              name="mail"
+              size={28}
+            />
+
+            <strong>
+              No conversations yet
+            </strong>
+
+            <span>
+              Search for a username above to start one.
+            </span>
+          </div>
+        ) : (
+          <div className="user-search-results hs-message-conversation-list">
+            {conversations.map(
+              (item) => (
+                <button
+                  type="button"
+                  className="user-search-card hs-user-result hs-message-conversation-card"
+                  key={
+                    item.username
+                  }
+                  onClick={() => {
+                    void openConversation(
+                      item.username,
+                    );
+                  }}
+                >
+                  <Avatar
+                    src={
+                      item.avatar_url
+                    }
+                    name={
+                      item.display_name
+                    }
+                    size="small"
+                  />
+
+                  <div>
+                    <strong>
+                      {item.display_name}
+                    </strong>
+
+                    <small>
+                      {"@"}
+                      {item.username}
+                      {item.latest_at
+                        ? (
+                          " • " +
+                          formatMessageTime(
+                            item.latest_at,
+                          )
+                        )
+                        : ""}
+                    </small>
+
+                    <p>
+                      {item.latest_body ||
+                        "Open conversation"}
+                    </p>
+                  </div>
+
+                  <span className="hs-message-conversation-card__action">
+                    {item.unread_count > 0 ? (
+                      <b>
+                        {item.unread_count}
+                      </b>
+                    ) : (
+                      <Icon
+                        name="mail"
+                        size={17}
+                      />
+                    )}
+                  </span>
+                </button>
+              ),
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
