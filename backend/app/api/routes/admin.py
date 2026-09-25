@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
@@ -108,6 +108,7 @@ async def check_admin_access(
 )
 async def delete_all_database_data(
     payload: DeleteAllDatabaseDataRequest,
+    response: Response,
     user: AdminUser,
     session: DatabaseSession,
 ):
@@ -209,6 +210,11 @@ async def delete_all_database_data(
                 f"{exc}"
             ),
         ) from exc
+
+    response.delete_cookie(
+        key="hypersync_refresh",
+        path="/api/auth",
+    )
 
     return {
         "success": True,
