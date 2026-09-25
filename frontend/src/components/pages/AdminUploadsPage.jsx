@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useState,
 } from "react";
 
@@ -23,6 +24,41 @@ export default function AdminUploadsPage() {
 
   const [catalogMessage, setCatalogMessage] =
     useState("");
+
+  const [
+    diagnostics,
+    setDiagnostics,
+  ] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    apiRequest(
+      "/admin/diagnostics",
+    )
+      .then(
+        (result) => {
+          if (!cancelled) {
+            setDiagnostics(
+              result,
+            );
+          }
+        },
+      )
+      .catch(
+        () => {
+          if (!cancelled) {
+            setDiagnostics(
+              null,
+            );
+          }
+        },
+      );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     queue,
@@ -73,16 +109,85 @@ export default function AdminUploadsPage() {
           ) / queue.length,
         );
 
+  const apiHealthy =
+    diagnostics?.api
+      ?.healthy === true;
+
+  const storageHealthy =
+    diagnostics?.storage
+      ?.healthy === true;
+
   return (
-    <div className="page-stack admin-page">
-      <section className="admin-page__header">
-        <span>ADMINISTRATION</span>
+    <div className="page-stack hs-search-page admin-page admin-upload-page">
+      <section className="hs-search-console admin-command-console admin-upload-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
 
-        <h2>Upload Studio</h2>
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
 
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                INGEST PIPELINE
+              </span>
+            </div>
+
+            <h2>
+              Upload Studio
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Stage tracks, inspect metadata,
+              watch upload progress, and publish
+              directly into the HyperSync catalog.
+            </p>
+          </div>
+        </div>
+
+        <div className="hs-search-console__status admin-command-status">
+          <span className="hs-search-status-chip hs-search-status-chip--primary">
+            <i
+              className={
+                apiHealthy
+                  ? "admin-blue-light is-on"
+                  : "admin-blue-light"
+              }
+            />
+
+            {apiHealthy
+              ? "API READY"
+              : "API CHECK"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            <i
+              className={
+                storageHealthy
+                  ? "admin-blue-light is-on"
+                  : "admin-blue-light"
+              }
+            />
+
+            {storageHealthy
+              ? "B2 READY"
+              : "B2 CHECK"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {queue.length}
+            {" IN QUEUE"}
+          </span>
+        </div>
       </section>
 
-      <section className="upload-studio">
+      <section className="upload-studio admin-upload-studio">
         <div className="upload-studio__topbar">
           <div>
             <span>
@@ -177,7 +282,7 @@ export default function AdminUploadsPage() {
         </div>
       </section>
 
-      <section className="admin-upload-list">
+      <section className="admin-upload-list admin-panel admin-upload-catalog">
         <div className="admin-panel__heading">
           <div>
             <span>
