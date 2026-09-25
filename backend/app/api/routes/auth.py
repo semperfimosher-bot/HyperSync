@@ -82,6 +82,53 @@ def normalize_username(username: str) -> str:
     return username.strip().lower()
 
 
+def resolve_registration_role(
+    *,
+    create_admin: bool,
+    provided_admin_password: str | None,
+    configured_admin_password: str,
+) -> UserRole:
+    if not create_admin:
+        return UserRole.USER
+
+    configured_password = (
+        configured_admin_password
+        .strip()
+    )
+
+    if not configured_password:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Administrator account creation "
+                "is not configured."
+            ),
+        )
+
+    provided_password = (
+        provided_admin_password
+        or ""
+    )
+
+    if not hmac.compare_digest(
+        provided_password,
+        configured_password,
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Invalid administrator "
+                "verification password."
+            ),
+        )
+
+    return UserRole.ADMIN
+
+
 def make_user_response(
     user: User,
 ) -> UserResponse:
@@ -184,48 +231,21 @@ async def register(
                 detail=("That email or username is already registered."),
             )
 
-        role = UserRole.USER
+        settings = get_settings()
 
-        if payload.create_admin:
-            settings = get_settings()
-
-            configured_admin_password = (
+        role = resolve_registration_role(
+            create_admin=(
+                payload.create_admin
+            ),
+            provided_admin_password=(
+                payload
+                .admin_verification_password
+            ),
+            configured_admin_password=(
                 settings
                 .admin_account_creation_password
-                .strip()
-            )
-
-            if not configured_admin_password:
-                raise HTTPException(
-                    status_code=(
-                        status.HTTP_503_SERVICE_UNAVAILABLE
-                    ),
-                    detail=(
-                        "Administrator account creation "
-                        "is not configured."
-                    ),
-                )
-
-            provided_admin_password = (
-                payload.admin_verification_password
-                or ""
-            )
-
-            if not hmac.compare_digest(
-                provided_admin_password,
-                configured_admin_password,
-            ):
-                raise HTTPException(
-                    status_code=(
-                        status.HTTP_403_FORBIDDEN
-                    ),
-                    detail=(
-                        "Invalid administrator "
-                        "verification password."
-                    ),
-                )
-
-            role = UserRole.ADMIN
+            ),
+        )
 
         user = User(
             account_type=AccountType.REGISTERED,
