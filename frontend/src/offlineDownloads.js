@@ -1429,6 +1429,9 @@ async function downloadedTrackFromRecord(
       null,
     media_version:
       record.mediaVersion,
+    updated_at:
+      record.updatedAt ??
+      null,
     downloaded:
       true,
   };
@@ -1761,6 +1764,9 @@ export async function getDownloadedPlaylists(
                 0,
               ),
             tracks,
+            updated_at:
+              job.updatedAt ??
+              null,
             downloaded:
               true,
             is_offline_download:
