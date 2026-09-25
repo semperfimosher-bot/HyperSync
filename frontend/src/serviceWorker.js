@@ -1,4 +1,5 @@
 import {
+  clearAllMediaDatabases,
   cleanupExpiredMedia,
   getArtwork,
   getMediaRecord,
@@ -162,6 +163,57 @@ globalThis.self?.addEventListener?.(
           await precacheAppShell();
 
           await self.skipWaiting();
+        }
+      )(),
+    );
+  },
+);
+
+
+async function clearAllWorkerCaches() {
+  const keys =
+    await caches.keys();
+
+  await Promise.allSettled(
+    keys.map(
+      (key) =>
+        caches.delete(
+          key,
+        ),
+    ),
+  );
+
+  return keys;
+}
+
+
+globalThis.self?.addEventListener?.(
+  "message",
+  (event) => {
+    if (
+      event.data?.type !==
+      "HYPERSYNC_CLEAR_ALL_CLIENT_DATA"
+    ) {
+      return;
+    }
+
+    event.waitUntil(
+      (
+        async () => {
+          await clearAllMediaDatabases()
+            .catch(
+              () => [],
+            );
+
+          await clearAllWorkerCaches()
+            .catch(
+              () => [],
+            );
+
+          event.source?.postMessage?.({
+            type:
+              "HYPERSYNC_CLEAR_ALL_CLIENT_DATA_COMPLETE",
+          });
         }
       )(),
     );
