@@ -118,6 +118,150 @@ import {
   enablePushNotifications,
   syncExistingPushSubscription,
 } from "./pushNotifications.js";
+const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
+  3000;
+
+const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
+  15000;
+
+const ACCOUNT_PLAYBACK_DEVICE_KEY =
+  "hypersync:playback-device-id";
+
+
+function getAccountPlaybackDeviceId() {
+  try {
+    const existing =
+      globalThis.sessionStorage
+        ?.getItem(
+          ACCOUNT_PLAYBACK_DEVICE_KEY,
+        );
+
+    if (existing) {
+      return existing;
+    }
+  } catch {
+    // Storage can be unavailable in strict
+    // privacy modes. A transient id is fine.
+  }
+
+  const id =
+    globalThis.crypto
+      ?.randomUUID?.() ??
+    (
+      "device-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random()
+        .toString(36)
+        .slice(
+          2,
+          12,
+        )
+    );
+
+  try {
+    globalThis.sessionStorage
+      ?.setItem(
+        ACCOUNT_PLAYBACK_DEVICE_KEY,
+        id,
+      );
+  } catch {
+    // Keep the in-memory id.
+  }
+
+  return id;
+}
+
+
+function playbackUpdatedAtMs(
+  value,
+) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed =
+    Date.parse(
+      value,
+    );
+
+  return Number.isFinite(
+    parsed,
+  )
+    ? parsed
+    : 0;
+}
+
+
+function accountPlaybackPosition(
+  snapshot,
+) {
+  const base =
+    Math.max(
+      Number(
+        snapshot
+          ?.position_seconds ??
+        0,
+      ) || 0,
+      0,
+    );
+
+  if (
+    snapshot?.paused
+  ) {
+    return base;
+  }
+
+  const updatedAt =
+    playbackUpdatedAtMs(
+      snapshot?.updated_at,
+    );
+
+  const ageMs =
+    updatedAt > 0
+      ? Math.max(
+          Date.now() -
+            updatedAt,
+          0,
+        )
+      : 0;
+
+  /*
+   * A browser that disappears cannot keep
+   * claiming to play forever. Only advance
+   * a recent active-device heartbeat.
+   */
+  if (
+    ageMs >
+    ACCOUNT_PLAYBACK_STALE_PLAYING_MS
+  ) {
+    return base;
+  }
+
+  const duration =
+    Number(
+      snapshot?.track
+        ?.duration_seconds,
+    );
+
+  const advanced =
+    base +
+    ageMs / 1000;
+
+  return (
+    Number.isFinite(
+      duration,
+    ) &&
+    duration > 0
+      ? Math.min(
+          advanced,
+          duration,
+        )
+      : advanced
+  );
+}
+
+
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -3885,6 +4029,35 @@ export default function App() {
     setActivePlaylistDownloads,
   ] = useState([]);
 
+  const playbackDeviceIdRef =
+    useRef(
+      getAccountPlaybackDeviceId(),
+    );
+
+  const playbackApplyingRemoteRef =
+    useRef(false);
+
+  const playbackLastServerUpdateRef =
+    useRef(0);
+
+  const playbackLastPublishedRef =
+    useRef({
+      trackId:
+        null,
+      paused:
+        true,
+      position:
+        0,
+      at:
+        0,
+    });
+
+  const playbackWriteInFlightRef =
+    useRef(false);
+
+  const playbackPendingWriteRef =
+    useRef(null);
+
 
   useEffect(() => {
     const handlePlaybackShortcut =
@@ -4202,6 +4375,436 @@ export default function App() {
       }
     };
   }, []);
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      playbackLastServerUpdateRef.current =
+        0;
+
+      playbackPendingWriteRef.current =
+        null;
+
+      return undefined;
+    }
+
+    let cancelled =
+      false;
+
+    let unsubscribe =
+      null;
+
+    let pollInterval =
+      null;
+
+    const deviceId =
+      playbackDeviceIdRef.current;
+
+    const markPublished =
+      (state) => {
+        playbackLastPublishedRef.current = {
+          trackId:
+            state?.trackId
+              ? String(
+                  state.trackId,
+                )
+              : null,
+          paused:
+            Boolean(
+              state?.paused ??
+              true,
+            ),
+          position:
+            Math.max(
+              Number(
+                state?.currentTime ??
+                0,
+              ) || 0,
+              0,
+            ),
+          at:
+            Date.now(),
+        };
+      };
+
+    const publishPlayback =
+      async (
+        state,
+      ) => {
+        if (
+          cancelled ||
+          playbackApplyingRemoteRef
+            .current ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return;
+        }
+
+        if (
+          playbackWriteInFlightRef
+            .current
+        ) {
+          playbackPendingWriteRef.current =
+            state;
+
+          return;
+        }
+
+        playbackWriteInFlightRef.current =
+          true;
+
+        try {
+          const response =
+            await apiRequest(
+              "/users/me/playback-state",
+              {
+                method:
+                  "PATCH",
+
+                body:
+                  JSON.stringify({
+                    track_id:
+                      state?.trackId ??
+                      null,
+
+                    position_seconds:
+                      Math.max(
+                        Number(
+                          state?.currentTime ??
+                          0,
+                        ) || 0,
+                        0,
+                      ),
+
+                    paused:
+                      state?.trackId
+                        ? Boolean(
+                            state.paused,
+                          )
+                        : true,
+
+                    device_id:
+                      deviceId,
+                  }),
+              },
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          playbackLastServerUpdateRef
+            .current =
+              Math.max(
+                playbackLastServerUpdateRef
+                  .current,
+                playbackUpdatedAtMs(
+                  response
+                    ?.updated_at,
+                ),
+              );
+
+          markPublished(
+            state,
+          );
+        } catch {
+          // Playback remains fully usable
+          // if account sync is temporarily
+          // unavailable.
+        } finally {
+          playbackWriteInFlightRef.current =
+            false;
+
+          const pending =
+            playbackPendingWriteRef
+              .current;
+
+          playbackPendingWriteRef.current =
+            null;
+
+          if (
+            pending &&
+            !cancelled
+          ) {
+            void publishPlayback(
+              pending,
+            );
+          }
+        }
+      };
+
+    const shouldPublish =
+      (state) => {
+        const previous =
+          playbackLastPublishedRef
+            .current;
+
+        const trackId =
+          state?.trackId
+            ? String(
+                state.trackId,
+              )
+            : null;
+
+        const position =
+          Math.max(
+            Number(
+              state?.currentTime ??
+              0,
+            ) || 0,
+            0,
+          );
+
+        const paused =
+          Boolean(
+            state?.paused ??
+            true,
+          );
+
+        const now =
+          Date.now();
+
+        return (
+          trackId !==
+            previous.trackId ||
+          paused !==
+            previous.paused ||
+          Math.abs(
+            position -
+              previous.position,
+          ) >=
+            4 ||
+          (
+            !paused &&
+            now -
+              previous.at >=
+              ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS
+          )
+        );
+      };
+
+    const applyRemotePlayback =
+      async (
+        snapshot,
+      ) => {
+        const updatedAt =
+          playbackUpdatedAtMs(
+            snapshot?.updated_at,
+          );
+
+        if (
+          updatedAt <=
+          playbackLastServerUpdateRef
+            .current
+        ) {
+          return;
+        }
+
+        playbackLastServerUpdateRef.current =
+          updatedAt;
+
+        if (
+          snapshot?.device_id ===
+            deviceId
+        ) {
+          return;
+        }
+
+        playbackApplyingRemoteRef.current =
+          true;
+
+        try {
+          if (
+            snapshot?.track?.id
+          ) {
+            await player
+              .restoreAccountPlayback(
+                snapshot.track,
+                accountPlaybackPosition(
+                  snapshot,
+                ),
+              );
+          } else {
+            player.stopTrack();
+          }
+
+          markPublished(
+            player.getState(),
+          );
+        } finally {
+          playbackApplyingRemoteRef.current =
+            false;
+        }
+      };
+
+    const fetchRemotePlayback =
+      async () => {
+        if (
+          cancelled ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return null;
+        }
+
+        try {
+          const snapshot =
+            await apiRequest(
+              "/users/me/playback-state",
+            );
+
+          if (cancelled) {
+            return null;
+          }
+
+          await applyRemotePlayback(
+            snapshot,
+          );
+
+          return snapshot;
+        } catch {
+          return null;
+        }
+      };
+
+    const bootstrap =
+      async () => {
+        const remote =
+          await fetchRemotePlayback();
+
+        if (cancelled) {
+          return;
+        }
+
+        const local =
+          player.getState();
+
+        /*
+         * If this account has never synced
+         * playback before, seed it from the
+         * local restored player state.
+         */
+        if (
+          !remote?.updated_at &&
+          local?.trackId
+        ) {
+          await publishPlayback(
+            local,
+          );
+        } else {
+          markPublished(
+            player.getState(),
+          );
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        unsubscribe =
+          player.subscribe(
+            (state) => {
+              if (
+                cancelled ||
+                playbackApplyingRemoteRef
+                  .current ||
+                globalThis.navigator
+                  ?.onLine ===
+                  false ||
+                !shouldPublish(
+                  state,
+                )
+              ) {
+                return;
+              }
+
+              void publishPlayback(
+                state,
+              );
+            },
+          );
+
+        pollInterval =
+          window.setInterval(
+            () => {
+              void fetchRemotePlayback();
+            },
+            ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS,
+          );
+      };
+
+    void bootstrap();
+
+    const handleFocus =
+      () => {
+        void fetchRemotePlayback();
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+            "visible"
+        ) {
+          void fetchRemotePlayback();
+        }
+      };
+
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    window.addEventListener(
+      "online",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
+
+    return () => {
+      cancelled =
+        true;
+
+      unsubscribe?.();
+
+      if (pollInterval) {
+        window.clearInterval(
+          pollInterval,
+        );
+      }
+
+      playbackPendingWriteRef.current =
+        null;
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "online",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    currentUser?.id,
+  ]);
 
 
   useEffect(() => {
