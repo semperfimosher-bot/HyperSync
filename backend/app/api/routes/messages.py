@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import (
@@ -31,6 +31,10 @@ from ...models.messaging import (
     PushSubscription,
 )
 from ...security.rate_limit import enforce_rate_limit
+from ...services.message_retention import (
+    MESSAGE_RETENTION_AFTER_VIEW,
+    delete_expired_messages,
+)
 from ...services.web_push import (
     PushSubscriptionData,
     deliver_message_push,
@@ -46,9 +50,6 @@ router = APIRouter(
     prefix="/messages",
     tags=["messages"],
 )
-
-MESSAGE_RETENTION_AFTER_VIEW = timedelta(days=7)
-
 
 class MessageCreateRequest(BaseModel):
     body: str = Field(
@@ -196,16 +197,8 @@ def _message_response(
 async def _cleanup_expired(
     session: DatabaseSession,
 ) -> None:
-    cutoff = (
-        datetime.now(UTC)
-        - MESSAGE_RETENTION_AFTER_VIEW
-    )
-
-    await session.execute(
-        delete(Message).where(
-            Message.viewed_at.is_not(None),
-            Message.viewed_at <= cutoff,
-        )
+    await delete_expired_messages(
+        session,
     )
 
 
