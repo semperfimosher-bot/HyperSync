@@ -3737,6 +3737,44 @@ export async function removeDownloadedTrackForOwner(
 }
 
 
+export async function addLikedTrackOfflinePin(
+  track,
+  ownerKey,
+) {
+  const {
+    trackId,
+    mediaVersion,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const pinRef =
+    getLikedSongsDownloadPinRef(
+      ownerKey,
+    );
+
+  if (
+    !trackId ||
+    !mediaVersion ||
+    !pinRef
+  ) {
+    return false;
+  }
+
+  const record =
+    await addMediaPinReference(
+      trackId,
+      mediaVersion,
+      pinRef,
+    );
+
+  return Boolean(
+    record,
+  );
+}
+
+
 export async function removeLikedTrackFromOffline(
   track,
   ownerKey,
