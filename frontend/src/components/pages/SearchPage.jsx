@@ -606,8 +606,13 @@ useEffect(() => {
         }
 
         setSortMode(
-          data?.sort_mode ||
-            "smart",
+          data?.sort_mode ===
+            "artist"
+            ? "albums"
+            : (
+                data?.sort_mode ||
+                "smart"
+              ),
         );
 
         setPreferenceStatus(
