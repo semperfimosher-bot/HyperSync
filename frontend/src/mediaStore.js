@@ -44,6 +44,149 @@ let offlineDatabasePromise =
   null;
 
 
+async function closeOpenMediaDatabases() {
+  const pending = [
+    databasePromise,
+    offlineDatabasePromise,
+  ].filter(Boolean);
+
+  for (const promise of pending) {
+    try {
+      const database =
+        await promise;
+
+      database?.close?.();
+    } catch {
+      // A failed/opening database has
+      // nothing useful to close.
+    }
+  }
+
+  databasePromise =
+    null;
+
+  offlineDatabasePromise =
+    null;
+}
+
+
+function deleteIndexedDatabase(
+  name,
+) {
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      if (
+        typeof indexedDB ===
+        "undefined"
+      ) {
+        resolve(false);
+
+        return;
+      }
+
+      const request =
+        indexedDB.deleteDatabase(
+          name,
+        );
+
+      request.onsuccess =
+        () => {
+          resolve(true);
+        };
+
+      request.onerror =
+        () => {
+          reject(
+            request.error ??
+              new Error(
+                `Unable to delete IndexedDB database: ${name}`,
+              ),
+          );
+        };
+
+      request.onblocked =
+        () => {
+          reject(
+            new Error(
+              `IndexedDB deletion was blocked: ${name}`,
+            ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function clearAllMediaDatabases() {
+  if (
+    typeof indexedDB ===
+    "undefined"
+  ) {
+    return [];
+  }
+
+  await closeOpenMediaDatabases();
+
+  const knownNames = new Set([
+    MEDIA_DATABASE_NAME,
+    OFFLINE_DATABASE_NAME,
+  ]);
+
+  if (
+    typeof indexedDB.databases ===
+    "function"
+  ) {
+    try {
+      const databases =
+        await indexedDB.databases();
+
+      for (const database of databases) {
+        if (
+          database?.name &&
+          String(
+            database.name,
+          ).startsWith(
+            "hypersync",
+          )
+        ) {
+          knownNames.add(
+            database.name,
+          );
+        }
+      }
+    } catch {
+      // Fall back to known HyperSync DBs.
+    }
+  }
+
+  const deleted = [];
+
+  for (const name of knownNames) {
+    try {
+      await deleteIndexedDatabase(
+        name,
+      );
+
+      deleted.push(
+        name,
+      );
+    } catch {
+      /*
+       * Another context (typically the
+       * service worker) may still hold a
+       * handle. The caller can ask that
+       * context to close and retry.
+       */
+    }
+  }
+
+  return deleted;
+}
+
+
 function openCompatibleDatabase({
   name,
   preferredVersion,
