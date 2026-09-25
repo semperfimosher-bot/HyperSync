@@ -318,9 +318,6 @@ export default function TrackActionMenu({
 
     setNotice("");
 
-    let addedToLikedSongs =
-      false;
-
     try {
       const result =
         await getMyPlaylists();
@@ -522,6 +519,9 @@ export default function TrackActionMenu({
     );
 
     setNotice("");
+
+    let addedToLikedSongs =
+      false;
 
     try {
       /*
