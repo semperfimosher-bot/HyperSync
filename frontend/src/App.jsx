@@ -2825,6 +2825,7 @@ function PlayerBar({
   onOpenMessage,
   onEnablePush,
   pushBusy,
+  pushEnabled,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -3240,6 +3241,9 @@ function PlayerBar({
                 }
                 pushBusy={
                   pushBusy
+                }
+                pushEnabled={
+                  pushEnabled
                 }
               />
             </div>
@@ -3824,6 +3828,11 @@ export default function App() {
   const [
     pushBusy,
     setPushBusy,
+  ] = useState(false);
+
+  const [
+    pushEnabled,
+    setPushEnabled,
   ] = useState(false);
 
   const [authOpen, setAuthOpen] =
@@ -4631,6 +4640,9 @@ const persistAppView =
     notifications:
       [],
   });
+  setPushEnabled(
+    false,
+  );
   dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
@@ -5083,6 +5095,10 @@ const clearPlaylistToOpen =
         if (
           !result?.supported
         ) {
+          setPushEnabled(
+            false,
+          );
+
           setStatusMessage(
             "Push notifications are not supported by this browser.",
           );
@@ -5094,6 +5110,10 @@ const clearPlaylistToOpen =
           result?.configured ===
           false
         ) {
+          setPushEnabled(
+            false,
+          );
+
           setStatusMessage(
             "Push notifications need VAPID keys configured on the server.",
           );
@@ -5104,17 +5124,32 @@ const clearPlaylistToOpen =
         if (
           !result?.enabled
         ) {
+          setPushEnabled(
+            false,
+          );
+
           setStatusMessage(
-            "Push notification permission was not granted.",
+            result?.permission ===
+              "denied"
+              ? "Push notifications are blocked in this browser's site settings."
+              : "Push notification permission was not granted.",
           );
 
           return;
         }
 
+        setPushEnabled(
+          true,
+        );
+
         setStatusMessage(
           "Push notifications enabled.",
         );
       } catch (error) {
+        setPushEnabled(
+          false,
+        );
+
         setStatusMessage(
           error instanceof Error
             ? error.message
@@ -5145,14 +5180,31 @@ const clearPlaylistToOpen =
           [],
       });
 
+      setPushEnabled(
+        false,
+      );
+
       return undefined;
     }
 
     void refreshMessageNotifications();
 
     void syncExistingPushSubscription()
+      .then(
+        (result) => {
+          setPushEnabled(
+            Boolean(
+              result?.enabled,
+            ),
+          );
+        },
+      )
       .catch(
-        () => {},
+        () => {
+          setPushEnabled(
+            false,
+          );
+        },
       );
 
     const interval =
@@ -5330,6 +5382,9 @@ const clearPlaylistToOpen =
     pushBusy={
       pushBusy
     }
+    pushEnabled={
+      pushEnabled
+    }
     />
 
         <DesktopTopbar
@@ -5445,6 +5500,9 @@ const clearPlaylistToOpen =
         }}
         pushBusy={
           pushBusy
+        }
+        pushEnabled={
+          pushEnabled
         }
       />
 
