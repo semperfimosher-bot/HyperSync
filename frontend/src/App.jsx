@@ -1327,7 +1327,13 @@ function PlayerBar({
 
   const subtitleText =
     state.artist
-      ? state.artist
+      ? [
+          state.artist,
+          state.album ||
+            "",
+        ]
+          .filter(Boolean)
+          .join(" • ")
       : state.src
         ? "Now playing"
         : "Select a track to start listening";
@@ -1378,6 +1384,7 @@ function PlayerBar({
               ?.artist ??
             "",
           album:
+            state.album ??
             currentQueueTrack?.meta
               ?.album ??
             "",
@@ -1391,16 +1398,29 @@ function PlayerBar({
               ?.artworkUrl ??
             null,
           mime_type:
+            state.mimeType ??
             currentQueueTrack?.meta
               ?.mimeType ??
             null,
           file_size:
+            state.fileSize ??
             currentQueueTrack?.meta
               ?.fileSize ??
             null,
           media_version:
+            state.mediaVersion ??
             currentQueueTrack?.meta
               ?.mediaVersion ??
+            null,
+          artwork_version:
+            state.artworkVersion ??
+            currentQueueTrack?.meta
+              ?.artworkVersion ??
+            null,
+          duration_seconds:
+            state.durationSeconds ??
+            currentQueueTrack?.meta
+              ?.durationSeconds ??
             null,
         }
       : null;
