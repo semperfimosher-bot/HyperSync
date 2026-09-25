@@ -132,3 +132,45 @@ export function alphabetizeSearchResults(
     ),
   };
 }
+
+export function orderSearchResultsForDisplay(
+  results,
+) {
+  const ordered =
+    alphabetizeSearchResults(
+      results,
+    );
+
+  const intent =
+    results?.intent ?? "general";
+
+  if (
+    intent === "my_most_played" ||
+    intent === "new_releases" ||
+    intent === "recent"
+  ) {
+    ordered.tracks = [
+      ...(results?.tracks || []),
+    ];
+  }
+
+  if (intent === "top_artists") {
+    ordered.artists = [
+      ...(results?.artists || []),
+    ];
+  }
+
+  if (intent === "top_albums") {
+    ordered.albums = [
+      ...(results?.albums || []),
+    ];
+  }
+
+  if (intent === "people") {
+    ordered.people = [
+      ...(results?.people || []),
+    ];
+  }
+
+  return ordered;
+}
