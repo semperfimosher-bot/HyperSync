@@ -323,6 +323,12 @@ function DesktopRightRail({
                 media_version:
                   track.meta?.mediaVersion ??
                   null,
+                artwork_version:
+                  track.meta?.artworkVersion ??
+                  null,
+                duration_seconds:
+                  track.meta?.durationSeconds ??
+                  null,
               })}
               onClick={() => {
                 void player
@@ -372,9 +378,14 @@ function DesktopRightRail({
                 </strong>
 
                 <small>
-                  {track.meta
-                    ?.artist ||
-                    "Unknown artist"}
+                  {[
+                    track.meta?.artist ||
+                      "Unknown artist",
+                    track.meta?.album ||
+                      "",
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
                 </small>
               </span>
 
