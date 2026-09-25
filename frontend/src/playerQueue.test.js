@@ -329,3 +329,132 @@ test(
     );
   },
 );
+
+test(
+  "insertQueueEntryAsNext places a manual track directly after the current song",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const queue = [
+      { id: "current" },
+      { id: "auto-1" },
+      { id: "auto-2" },
+    ];
+
+    const next = {
+      id: "manual",
+      meta: {
+        title: "Play Me Next",
+        artist: "Correct Artist",
+      },
+    };
+
+    assert.deepEqual(
+      queueModule.insertQueueEntryAsNext(
+        queue,
+        0,
+        next,
+      ),
+      [
+        queue[0],
+        next,
+        queue[1],
+        queue[2],
+      ],
+    );
+  },
+);
+
+
+test(
+  "insertQueueEntryAsNext moves an existing upcoming track instead of duplicating it",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const current = {
+      id: "current",
+    };
+
+    const existing = {
+      id: "move-me",
+      meta: {
+        title: "Existing",
+      },
+    };
+
+    const queue = [
+      current,
+      { id: "other" },
+      existing,
+      { id: "later" },
+    ];
+
+    const moved = {
+      id: "move-me",
+      meta: {
+        title: "Fresh Metadata",
+        artist: "Fresh Artist",
+      },
+    };
+
+    assert.deepEqual(
+      queueModule.insertQueueEntryAsNext(
+        queue,
+        0,
+        moved,
+      ),
+      [
+        current,
+        moved,
+        queue[1],
+        queue[3],
+      ],
+    );
+  },
+);
+
+
+test(
+  "buildTrackQueue keeps album artwork version and duration metadata",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const [entry] =
+      queueModule.buildTrackQueue([
+        {
+          id: "meta-track",
+          title: "Song",
+          artist: "Artist",
+          album: "Album",
+          artwork_version:
+            "art-v2",
+          duration_seconds:
+            321,
+        },
+      ]);
+
+    assert.equal(
+      entry.meta.album,
+      "Album",
+    );
+
+    assert.equal(
+      entry.meta.artist,
+      "Artist",
+    );
+
+    assert.equal(
+      entry.meta.artworkVersion,
+      "art-v2",
+    );
+
+    assert.equal(
+      entry.meta.durationSeconds,
+      321,
+    );
+  },
+);
+
