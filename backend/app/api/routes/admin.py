@@ -18,6 +18,7 @@ from ...services.audio_metadata import (
     resolve_track_metadata,
 )
 from ...services.b2 import (
+    delete_all_bucket_versions,
     delete_all_object_versions,
     get_b2_bucket,
 )
@@ -113,12 +114,14 @@ async def delete_all_database_data(
     session: DatabaseSession,
 ):
     """
-    Permanently delete every application
-    row from the database.
+    Permanently delete every file version
+    from the configured B2 bucket, then
+    delete every application row from the
+    database.
 
-    The schema and Alembic migration state
-    are intentionally preserved. External
-    B2 objects are not deleted here.
+    The database schema and Alembic
+    migration state are intentionally
+    preserved.
     """
 
     password_ok = (
@@ -148,6 +151,29 @@ async def delete_all_database_data(
             ),
         )
 
+    bucket = get_b2_bucket()
+
+    try:
+        deleted_b2_versions = (
+            await delete_all_bucket_versions(
+                bucket,
+            )
+        )
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Failed to delete every "
+                f"B2 file version: {exc}. "
+                "Database data was not wiped."
+            ),
+        ) from exc
+
     try:
         deleted_rows = (
             await _delete_all_database_rows(
@@ -161,8 +187,9 @@ async def delete_all_database_data(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Failed to delete all "
-                f"database data: {exc}"
+                "B2 files were deleted, but "
+                "the database wipe failed: "
+                f"{exc}"
             ),
         ) from exc
 
@@ -174,11 +201,13 @@ async def delete_all_database_data(
             sum(
                 deleted_rows.values()
             ),
+        "deleted_b2_versions":
+            deleted_b2_versions,
         "message": (
-            "All application database "
-            "data was deleted. Database "
-            "schema and B2 files were "
-            "left intact."
+            "All application database data "
+            "and every B2 file version were "
+            "permanently deleted. Database "
+            "schema and migrations remain."
         ),
     }
 
