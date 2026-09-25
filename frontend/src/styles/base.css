@@ -6077,6 +6077,28 @@ button.is-active span {
   opacity: 0.45;
 }
 
+.track-action-menu > button.track-action-menu__danger {
+  color:
+    rgba(255, 143, 154, 0.92);
+}
+
+.track-action-menu > button.track-action-menu__danger
+.track-action-icon {
+  color:
+    rgba(255, 130, 143, 0.95);
+
+  background:
+    rgba(255, 70, 89, 0.06);
+}
+
+.track-action-menu > button.track-action-menu__danger:hover {
+  color:
+    #ffd5da;
+
+  background:
+    rgba(255, 70, 89, 0.07);
+}
+
 .track-action-icon {
   display: grid;
 
