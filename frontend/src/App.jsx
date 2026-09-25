@@ -1,6 +1,8 @@
 import {
+  Activity,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,6 +36,13 @@ import {
 } from "./globalResetSync.js";
 
 import { normalizeAppViewState } from "./appViewState.js";
+
+import {
+  PAGE_WARM_SWEEP_MS,
+  pruneWarmPages,
+  touchWarmPage,
+  warmPageKey,
+} from "./pageWarmCache.js";
 
 import HexBackdrop from "./components/HexBackdrop.jsx";
 
@@ -2623,49 +2632,269 @@ function MainPage({
   installState,
   onInstallApp,
 }) {
-  const adminPage =
-    ADMIN_NAV_ITEMS.some(
-      (item) =>
-        item.id === activePage,
+  const warmOwnerKey =
+    [
+      String(
+        currentUser?.id ??
+        "guest",
+      ),
+      String(
+        currentUser?.account_type ??
+        "guest",
+      ),
+      String(
+        currentUser?.role ??
+        "user",
+      ),
+    ].join(
+      ":",
     );
 
+  const activeWarmKey =
+    warmPageKey(
+      activePage,
+      profileUsername,
+    );
 
-  if (adminPage) {
-    if (
-      !isAdminUser(
-        currentUser,
-      )
-    ) {
-      return (
-        <div className="page-stack">
-          <section className="admin-page__denied">
-            <Icon
-              name="lock"
-              size={28}
-            />
+  const previousActiveRef =
+    useRef({
+      key:
+        activeWarmKey,
+      ownerKey:
+        warmOwnerKey,
+    });
 
-            <h2>
-              Admin access required
-            </h2>
+  const [
+    warmPages,
+    setWarmPages,
+  ] = useState(
+    () =>
+      touchWarmPage(
+        [],
+        {
+          page:
+            activePage,
+          profileUsername,
+          ownerKey:
+            warmOwnerKey,
+        },
+      ),
+  );
 
-            <p>
-              This area is available
-              only to HyperSync
-              administrators.
-            </p>
-          </section>
-        </div>
+
+  /*
+   * Keep visited pages alive for two hours.
+   *
+   * React Activity preserves their UI and
+   * component state while hidden, but cleans
+   * up Effects so inactive pages do not keep
+   * polling or holding subscriptions.
+   */
+  useLayoutEffect(() => {
+    const now =
+      Date.now();
+
+    setWarmPages(
+      (current) => {
+        const previous =
+          previousActiveRef.current;
+
+        const stamped =
+          current.map(
+            (entry) =>
+              (
+                previous &&
+                entry.ownerKey ===
+                  previous.ownerKey &&
+                entry.key ===
+                  previous.key &&
+                (
+                  previous.key !==
+                    activeWarmKey ||
+                  previous.ownerKey !==
+                    warmOwnerKey
+                )
+              )
+                ? {
+                    ...entry,
+                    lastVisitedAt:
+                      now,
+                  }
+                : entry,
+          );
+
+        return touchWarmPage(
+          stamped,
+          {
+            page:
+              activePage,
+            profileUsername,
+            ownerKey:
+              warmOwnerKey,
+            now,
+          },
+        );
+      },
+    );
+
+    previousActiveRef.current =
+      {
+        key:
+          activeWarmKey,
+        ownerKey:
+          warmOwnerKey,
+      };
+  }, [
+    activePage,
+    activeWarmKey,
+    profileUsername,
+    warmOwnerKey,
+  ]);
+
+
+  useEffect(() => {
+    const intervalId =
+      window.setInterval(
+        () => {
+          setWarmPages(
+            (current) =>
+              pruneWarmPages(
+                current,
+                {
+                  activeKey:
+                    activeWarmKey,
+                  ownerKey:
+                    warmOwnerKey,
+                  now:
+                    Date.now(),
+                },
+              ),
+          );
+        },
+        PAGE_WARM_SWEEP_MS,
       );
+
+    return () => {
+      window.clearInterval(
+        intervalId,
+      );
+    };
+  }, [
+    activeWarmKey,
+    warmOwnerKey,
+  ]);
+
+
+  function renderPage(
+    page,
+    cachedProfileUsername,
+  ) {
+    const adminPage =
+      ADMIN_NAV_ITEMS.some(
+        (item) =>
+          item.id === page,
+      );
+
+    if (adminPage) {
+      if (
+        !isAdminUser(
+          currentUser,
+        )
+      ) {
+        return (
+          <div className="page-stack">
+            <section className="admin-page__denied">
+              <Icon
+                name="lock"
+                size={28}
+              />
+
+              <h2>
+                Admin access required
+              </h2>
+
+              <p>
+                This area is available
+                only to HyperSync
+                administrators.
+              </p>
+            </section>
+          </div>
+        );
+      }
+
+      if (
+        page === "admin"
+      ) {
+        return (
+          <AdminDashboardPage
+            onNavigate={
+              onNavigate
+            }
+          />
+        );
+      }
+
+      if (
+        page ===
+        "admin-bot"
+      ) {
+        return (
+          <AdminBotPage />
+        );
+      }
+
+      if (
+        page ===
+        "admin-uploads"
+      ) {
+        return (
+          <AdminUploadsPage />
+        );
+      }
+
+      if (
+        page ===
+        "admin-catalog"
+      ) {
+        return (
+          <AdminCatalogPage />
+        );
+      }
     }
 
 
     if (
-      activePage === "admin"
+      page === "search"
     ) {
       return (
-        <AdminDashboardPage
-          onNavigate={
-            onNavigate
+        <SearchPage
+          currentUser={
+            currentUser
+          }
+          query={
+            query
+          }
+          resetToken={
+            searchResetToken
+          }
+          onQueryChange={
+            onQueryChange
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onMessageUser={
+            onMessageUser
+          }
+          onOpenPlaylist={
+            onOpenPlaylist
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          activePlaylistDownloads={
+            activePlaylistDownloads
           }
         />
       );
@@ -2673,251 +2902,219 @@ function MainPage({
 
 
     if (
-      activePage ===
-      "admin-bot"
+      page === "messages"
     ) {
-      return (
-        <AdminBotPage />
-      );
-    }
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        return (
+          <div className="page-stack">
+            <section className="admin-page__denied">
+              <Icon
+                name="mail"
+                size={28}
+              />
 
+              <h2>
+                Sign in to message
+              </h2>
 
-    if (
-      activePage ===
-      "admin-uploads"
-    ) {
-      return (
-        <AdminUploadsPage />
-      );
-    }
+              <p>
+                Private messages are available
+                to registered HyperSync accounts.
+              </p>
 
-
-    if (
-      activePage ===
-      "admin-catalog"
-    ) {
-      return (
-        <AdminCatalogPage />
-      );
-    }
-  }
-
-
-  if (
-    activePage === "search"
-  ) {
-    return (
-      <SearchPage
-  currentUser={
-    currentUser
-  }
-  query={
-    query
-  }
-  resetToken={
-  searchResetToken
-  }
-  onQueryChange={
-    onQueryChange
-  }
-  onOpenProfile={
-    onOpenProfile
-  }
-  onMessageUser={
-    onMessageUser
-  }
-  onOpenPlaylist={
-    onOpenPlaylist
-  }
-  onOpenAuth={
-    onOpenAuth
-  }
-  activePlaylistDownloads={
-    activePlaylistDownloads
-  }
-/>
-    );
-  }
-
-if (
-  activePage === "messages"
-) {
-  if (
-    currentUser?.account_type !==
-      "registered"
-  ) {
-    return (
-      <div className="page-stack">
-        <section className="admin-page__denied">
-          <Icon
-            name="mail"
-            size={28}
-          />
-
-          <h2>
-            Sign in to message
-          </h2>
-
-          <p>
-            Private messages are available
-            to registered HyperSync accounts.
-          </p>
-
-          <button
-            type="button"
-            className="hs-search-primary-action"
-            onClick={
-              onOpenAuth
-            }
-          >
-            Sign in
-          </button>
-        </section>
-      </div>
-    );
-  }
-
-  return (
-    <MessagesPage
-      currentUser={
-        currentUser
-      }
-      initialUsername={
-        messageUsername
-      }
-      onInitialUsernameHandled={
-        onMessageUsernameHandled
-      }
-      onUnreadChange={
-        onMessageNotificationsChanged
-      }
-      onOpenProfile={
-        onOpenProfile
-      }
-      onBackToSearch={() => {
-        onNavigate(
-          "search",
+              <button
+                type="button"
+                className="hs-search-primary-action"
+                onClick={
+                  onOpenAuth
+                }
+              >
+                Sign in
+              </button>
+            </section>
+          </div>
         );
-      }}
-      resetToken={
-        messagesResetToken
       }
-    />
-  );
-}
 
-if (
-  activePage === "library"
-) {
-  return (
-    <LibraryPage
-      currentUser={
-        currentUser
-      }
-      resetToken={
-        libraryResetToken
-      }
-      onOpenAuth={
-        onOpenAuth
-      }
-      initialPlaylistId={
-        playlistToOpen
-      }
-      onInitialPlaylistHandled={
-        onPlaylistOpened
-      }
-      activePlaylistDownloads={
-        activePlaylistDownloads
-      }
-    />
-  );
-}
+      return (
+        <MessagesPage
+          currentUser={
+            currentUser
+          }
+          initialUsername={
+            messageUsername
+          }
+          onInitialUsernameHandled={
+            onMessageUsernameHandled
+          }
+          onUnreadChange={
+            onMessageNotificationsChanged
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onBackToSearch={() => {
+            onNavigate(
+              "search",
+            );
+          }}
+          resetToken={
+            messagesResetToken
+          }
+        />
+      );
+    }
 
-  if (
-    activePage === "profile"
-  ) {
+
+    if (
+      page === "library"
+    ) {
+      return (
+        <LibraryPage
+          currentUser={
+            currentUser
+          }
+          resetToken={
+            libraryResetToken
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          initialPlaylistId={
+            playlistToOpen
+          }
+          onInitialPlaylistHandled={
+            onPlaylistOpened
+          }
+          activePlaylistDownloads={
+            activePlaylistDownloads
+          }
+        />
+      );
+    }
+
+
+    if (
+      page === "profile"
+    ) {
+      return (
+        <ProfilePage
+          currentUser={
+            currentUser
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          onLogout={
+            onLogout
+          }
+          compactMode={
+            compactMode
+          }
+          onToggleCompact={
+            onToggleCompact
+          }
+          statusMessage={
+            statusMessage
+          }
+          onStatusMessage={
+            onStatusMessage
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onSearchArtist={
+            onQueryChange
+          }
+          onProfileUpdated={
+            onProfileUpdated
+          }
+          installState={
+            installState
+          }
+          onInstallApp={
+            onInstallApp
+          }
+        />
+      );
+    }
+
+
+    if (
+      page ===
+        "public-profile" &&
+      cachedProfileUsername
+    ) {
+      return (
+        <PublicProfilePage
+          username={
+            cachedProfileUsername
+          }
+          currentUser={
+            currentUser
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onSearchArtist={
+            onQueryChange
+          }
+        />
+      );
+    }
+
+
     return (
-      <ProfilePage
+      <HomePage
         currentUser={
           currentUser
         }
+        onNavigate={
+          onNavigate
+        }
         onOpenAuth={
           onOpenAuth
-        }
-        onLogout={
-          onLogout
-        }
-        compactMode={
-          compactMode
-        }
-        onToggleCompact={
-          onToggleCompact
-        }
-        statusMessage={
-          statusMessage
-        }
-        onStatusMessage={
-          onStatusMessage
-        }
-        onOpenProfile={
-          onOpenProfile
-        }
-        onSearchArtist={
-          onQueryChange
-        }
-        onProfileUpdated={
-          onProfileUpdated
-        }
-        installState={
-          installState
-        }
-        onInstallApp={
-          onInstallApp
         }
       />
     );
   }
 
 
-  if (
-    activePage ===
-      "public-profile" &&
-    profileUsername
-  ) {
-    return (
-      <PublicProfilePage
-        username={
-          profileUsername
-        }
-        currentUser={
-          currentUser
-        }
-        onOpenAuth={
-          onOpenAuth
-        }
-        onOpenProfile={
-          onOpenProfile
-        }
-        onSearchArtist={
-          onQueryChange
-        }
-      />
-    );
-  }
-
-
   return (
-    <HomePage
-      currentUser={
-        currentUser
-      }
-      onNavigate={
-        onNavigate
-      }
-      onOpenAuth={
-        onOpenAuth
-      }
-    />
+    <>
+      {warmPages
+        .filter(
+          (entry) =>
+            entry.ownerKey ===
+            warmOwnerKey,
+        )
+        .map(
+          (entry) => (
+            <Activity
+              key={
+                entry.instanceKey
+              }
+              mode={
+                entry.key ===
+                activeWarmKey
+                  ? "visible"
+                  : "hidden"
+              }
+            >
+              {renderPage(
+                entry.page,
+                entry.profileUsername,
+              )}
+            </Activity>
+          ),
+        )}
+    </>
   );
 }
 
