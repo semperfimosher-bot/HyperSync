@@ -1,5 +1,7 @@
 from types import SimpleNamespace
+from typing import cast
 
+from backend.app.models.media import Track
 from backend.app.services.autoplay import (
     CONTEXT_DECAY,
     CONTEXT_TRACK_LIMIT,
@@ -14,11 +16,14 @@ def _track(
     artist: str,
     genre: str | None,
     album: str | None = None,
-):
-    return SimpleNamespace(
-        artist=artist,
-        genre=genre,
-        album=album,
+) -> Track:
+    return cast(
+        Track,
+        SimpleNamespace(
+            artist=artist,
+            genre=genre,
+            album=album,
+        ),
     )
 
 
