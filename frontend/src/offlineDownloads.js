@@ -378,6 +378,20 @@ export function getManualDownloadPinRef(
 }
 
 
+export function getLikedSongsDownloadPinRef(
+  ownerKey,
+) {
+  const prefix =
+    getOfflineOwnerPinPrefix(
+      ownerKey,
+    );
+
+  return prefix
+    ? prefix + "liked"
+    : null;
+}
+
+
 export function getPlaylistDownloadPinRef(
   ownerKey,
   playlistId,
@@ -1561,10 +1575,17 @@ export async function getDownloadedTracks(
     return [];
   }
 
-  const manualPinRef =
+  const individualPinRefs =
     manualOnly
-      ? getManualDownloadPinRef(
-          normalizedOwnerKey,
+      ? new Set(
+          [
+            getManualDownloadPinRef(
+              normalizedOwnerKey,
+            ),
+            getLikedSongsDownloadPinRef(
+              normalizedOwnerKey,
+            ),
+          ].filter(Boolean),
         )
       : null;
 
@@ -1581,8 +1602,11 @@ export async function getDownloadedTracks(
           !manualOnly ||
           getMediaPinReferences(
             record,
-          ).includes(
-            manualPinRef,
+          ).some(
+            (pinRef) =>
+              individualPinRefs.has(
+                pinRef,
+              ),
           )
         ),
     );
@@ -3710,6 +3734,68 @@ export async function removeDownloadedTrackForOwner(
   }
 
   return true;
+}
+
+
+export async function removeLikedTrackFromOffline(
+  track,
+  ownerKey,
+) {
+  const {
+    trackId,
+  } =
+    trackIdentity(
+      track,
+    );
+
+  const pinRef =
+    getLikedSongsDownloadPinRef(
+      ownerKey,
+    );
+
+  if (
+    !trackId ||
+    !pinRef
+  ) {
+    return false;
+  }
+
+  const records =
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        record.trackId ===
+          trackId &&
+        getMediaPinReferences(
+          record,
+        ).includes(
+          pinRef,
+        ),
+    );
+
+  if (
+    records.length ===
+    0
+  ) {
+    return false;
+  }
+
+  const results =
+    await Promise.all(
+      records.map(
+        (record) =>
+          removeDownloadedMedia(
+            record.trackId,
+            record.mediaVersion,
+            pinRef,
+          ),
+      ),
+    );
+
+  return results.some(
+    Boolean,
+  );
 }
 
 
