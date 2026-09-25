@@ -338,3 +338,183 @@ test(
     }
   },
 );
+
+
+test(
+  "download button prepares the offline app system",
+  async () => {
+    const windowListeners =
+      new Map();
+
+    const workerListeners =
+      new Map();
+
+    let persisted =
+      false;
+
+    const worker = {
+      postMessage(
+        message,
+      ) {
+        setTimeout(
+          () => {
+            workerListeners
+              .get(
+                "message",
+              )
+              ?.({
+                data: {
+                  type:
+                    "HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE",
+
+                  requestId:
+                    message.requestId,
+
+                  ok:
+                    true,
+                },
+              });
+          },
+          0,
+        );
+      },
+    };
+
+    const registration = {
+      active:
+        worker,
+
+      async update() {},
+    };
+
+    const restoreWindow =
+      replaceGlobal(
+        "window",
+        {
+          location: {
+            hostname:
+              "example.test",
+          },
+
+          addEventListener(
+            type,
+            listener,
+          ) {
+            windowListeners.set(
+              type,
+              listener,
+            );
+          },
+
+          matchMedia() {
+            return {
+              matches:
+                false,
+
+              addEventListener() {},
+            };
+          },
+        },
+      );
+
+    const restoreNavigator =
+      replaceGlobal(
+        "navigator",
+        {
+          serviceWorker: {
+            controller:
+              worker,
+
+            ready:
+              Promise.resolve(
+                registration,
+              ),
+
+            async register() {
+              return registration;
+            },
+
+            addEventListener(
+              type,
+              listener,
+            ) {
+              workerListeners.set(
+                type,
+                listener,
+              );
+            },
+
+            removeEventListener(
+              type,
+              listener,
+            ) {
+              if (
+                workerListeners.get(
+                  type,
+                ) ===
+                listener
+              ) {
+                workerListeners.delete(
+                  type,
+                );
+              }
+            },
+          },
+
+          storage: {
+            async persist() {
+              persisted =
+                true;
+
+              return true;
+            },
+          },
+
+          userAgent:
+            "Mozilla/5.0",
+
+          platform:
+            "Android",
+
+          maxTouchPoints:
+            5,
+        },
+      );
+
+    const restoreSecure =
+      replaceGlobal(
+        "isSecureContext",
+        true,
+      );
+
+    try {
+      const module =
+        await loadInstallModule();
+
+      const result =
+        await module
+          .prepareOfflineAppSystem();
+
+      assert.equal(
+        result.ready,
+        true,
+      );
+
+      assert.equal(
+        module
+          .getPwaInstallState()
+          .systemReady,
+        true,
+      );
+
+      assert.equal(
+        persisted,
+        true,
+      );
+    } finally {
+      restoreSecure();
+      restoreNavigator();
+      restoreWindow();
+    }
+  },
+);
