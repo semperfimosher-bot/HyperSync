@@ -1103,6 +1103,152 @@ globalThis.self?.addEventListener?.(
   },
 );
 
+globalThis.self?.addEventListener?.(
+  "push",
+  (event) => {
+    let payload = {};
+
+    try {
+      payload =
+        event.data?.json?.() ??
+        {};
+    } catch {
+      payload = {};
+    }
+
+    const username =
+      String(
+        payload.username ??
+        "",
+      ).trim();
+
+    const title =
+      String(
+        payload.title ??
+        "HyperSync",
+      );
+
+    const body =
+      String(
+        payload.body ??
+        "You have a new notification.",
+      );
+
+    event.waitUntil(
+      self.registration
+        .showNotification(
+          title,
+          {
+            body,
+            icon:
+              "/icon-192.png",
+            badge:
+              "/icon-192.png",
+            tag:
+              username
+                ? (
+                    "hypersync-message-" +
+                    username
+                  )
+                : "hypersync-notification",
+            renotify:
+              true,
+            data: {
+              username,
+              url:
+                String(
+                  payload.url ??
+                  "/",
+                ),
+            },
+          },
+        ),
+    );
+  },
+);
+
+
+globalThis.self?.addEventListener?.(
+  "notificationclick",
+  (event) => {
+    event.notification
+      ?.close?.();
+
+    const username =
+      String(
+        event.notification
+          ?.data
+          ?.username ??
+        "",
+      ).trim();
+
+    const requestedUrl =
+      new URL(
+        String(
+          event.notification
+            ?.data
+            ?.url ??
+          "/",
+        ),
+        self.location.origin,
+      );
+
+    const targetUrl =
+      requestedUrl.origin ===
+        self.location.origin
+        ? requestedUrl
+        : new URL(
+            "/",
+            self.location.origin,
+          );
+
+    event.waitUntil(
+      (
+        async () => {
+          const windows =
+            await self.clients
+              .matchAll({
+                type:
+                  "window",
+                includeUncontrolled:
+                  true,
+              });
+
+          for (
+            const client
+            of windows
+          ) {
+            if (
+              new URL(
+                client.url,
+              ).origin !==
+              self.location.origin
+            ) {
+              continue;
+            }
+
+            await client.focus();
+
+            client.postMessage({
+              type:
+                "HYPERSYNC_OPEN_MESSAGE",
+              username,
+            });
+
+            return;
+          }
+
+          await self.clients
+            .openWindow(
+              targetUrl.href,
+            );
+        }
+      )(),
+    );
+  },
+);
+
+
 if (
   typeof globalThis.self !==
     "undefined" &&
