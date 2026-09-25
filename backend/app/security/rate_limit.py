@@ -15,6 +15,9 @@ _BUCKETS: dict[
 
 _LOCK = Lock()
 
+_MAX_BUCKETS = 10_000
+_EVICT_BUCKETS = 1_000
+
 
 def _client_identifier(
     request: Request,
@@ -129,6 +132,21 @@ def enforce_rate_limit(
     retry_after = 1
 
     with _LOCK:
+        if (
+            key not in _BUCKETS
+            and len(_BUCKETS)
+            >= _MAX_BUCKETS
+        ):
+            for stale_key in list(
+                _BUCKETS,
+            )[
+                :_EVICT_BUCKETS
+            ]:
+                _BUCKETS.pop(
+                    stale_key,
+                    None,
+                )
+
         bucket = _BUCKETS.setdefault(
             key,
             deque(),
