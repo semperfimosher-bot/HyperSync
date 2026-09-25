@@ -158,7 +158,7 @@ async def delete_all_bucket_versions(
         return list(
             bucket.ls(
                 "",
-                show_versions=True,
+                latest_only=False,
                 recursive=True,
             )
         )
