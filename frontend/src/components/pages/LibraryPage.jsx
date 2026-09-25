@@ -24,7 +24,6 @@ import {
   getPlaylist,
   getSavedPlaylists,
   removeTrackFromPlaylist,
-  reorderPlaylistTracks,
   savePlaylist,
   unsavePlaylist,
 } from "../../playlistApi.js";
@@ -1602,98 +1601,6 @@ if (offline) {
   }
 
 
-  async function moveTrack(
-    trackIndex,
-    direction,
-  ) {
-    if (
-      !selectedPlaylist ||
-      !selectedPlaylist.is_owner ||
-      actionBusy
-    ) {
-      return;
-    }
-
-    const nextIndex =
-      trackIndex + direction;
-
-    if (
-      nextIndex < 0 ||
-      nextIndex >=
-        selectedPlaylist.tracks.length
-    ) {
-      return;
-    }
-
-    const nextTracks = [
-      ...selectedPlaylist.tracks,
-    ];
-
-    const [movedTrack] =
-      nextTracks.splice(
-        trackIndex,
-        1,
-      );
-
-    nextTracks.splice(
-      nextIndex,
-      0,
-      movedTrack,
-    );
-
-    setSelectedPlaylist(
-      (current) => ({
-        ...current,
-        tracks:
-          nextTracks.map(
-            (
-              track,
-              index,
-            ) => ({
-              ...track,
-              position:
-                index,
-            }),
-          ),
-      }),
-    );
-
-    setActionBusy(true);
-
-    try {
-      const updated =
-        await reorderPlaylistTracks(
-          selectedPlaylist.id,
-          nextTracks.map(
-            (track) =>
-              track.playlist_track_id,
-          ),
-        );
-
-      setSelectedPlaylist(
-        updated,
-      );
-    } catch (requestError) {
-      setError(
-        requestError
-          instanceof Error
-          ? requestError.message
-          : "Unable to reorder playlist.",
-      );
-
-      const refreshed =
-        await getPlaylist(
-          selectedPlaylist.id,
-        );
-
-      setSelectedPlaylist(
-        refreshed,
-      );
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
   async function downloadPlaylist() {
     const tracks =
       selectedPlaylist?.tracks ??
@@ -3043,15 +2950,41 @@ if (offline) {
                       tabIndex={0}
                       {...trackActionMenu.getTriggerProps(
                         track,
+                        {
+                          hideLikeAction:
+                            presentation.kind ===
+                            "liked",
+
+                          actions:
+                            selectedPlaylist.is_owner &&
+                            selectedPlaylist.visibility !==
+                              "generated"
+                              ? [
+                                  {
+                                    id:
+                                      "remove-from-playlist",
+                                    label:
+                                      "Remove from playlist",
+                                    icon:
+                                      "close",
+                                    danger:
+                                      true,
+                                    disabled:
+                                      actionBusy,
+                                    onSelect:
+                                      () =>
+                                        handleRemoveTrack(
+                                          track.playlist_track_id,
+                                        ),
+                                  },
+                                ]
+                              : [],
+                        },
                       )}
                       className={[
                         "hs-search-track",
                         "hs-search-track--playlist-download",
                         "hs-library-track-row",
-
-                        selectedPlaylist.is_owner
-                          ? "is-owner"
-                          : "",
 
                         isCurrentTrack
                           ? "is-current-track"
@@ -3246,99 +3179,13 @@ if (offline) {
                       })()}
 
 
-                      {selectedPlaylist.is_owner ? (
+                      <span className="hs-search-track__play">
+                        <Icon
+                          name="play"
+                          size={16}
+                        />
+                      </span>
 
-                        <div
-                          className="hs-library-track-actions"
-                          onClick={(
-                            event,
-                          ) => {
-                            event.stopPropagation();
-                          }}
-                        >
-
-                          <button
-                            type="button"
-                            title="Move up"
-                            disabled={
-                              actionBusy ||
-                              sortMode !==
-                                "smart" ||
-                              trackIndex ===
-                                0
-                            }
-                            onClick={(
-                              event,
-                            ) => {
-                              event.stopPropagation();
-
-                              void moveTrack(
-                                trackIndex,
-                                -1,
-                              );
-                            }}
-                          >
-                            ↑
-                          </button>
-
-
-                          <button
-                            type="button"
-                            title="Move down"
-                            disabled={
-                              actionBusy ||
-                              sortMode !==
-                                "smart" ||
-                              trackIndex ===
-                                selectedPlaylist.tracks.length -
-                                  1
-                            }
-                            onClick={(
-                              event,
-                            ) => {
-                              event.stopPropagation();
-
-                              void moveTrack(
-                                trackIndex,
-                                1,
-                              );
-                            }}
-                          >
-                            ↓
-                          </button>
-
-
-                          <button
-                            type="button"
-                            title="Remove"
-                            disabled={
-                              actionBusy
-                            }
-                            onClick={(
-                              event,
-                            ) => {
-                              event.stopPropagation();
-
-                              void handleRemoveTrack(
-                                track.playlist_track_id,
-                              );
-                            }}
-                          >
-                            ×
-                          </button>
-
-                        </div>
-
-                      ) : (
-
-                        <span className="hs-search-track__play">
-                          <Icon
-                            name="play"
-                            size={16}
-                          />
-                        </span>
-
-                      )}
 
                     </div>
                   );
