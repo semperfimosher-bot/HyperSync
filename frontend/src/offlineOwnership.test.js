@@ -1022,7 +1022,7 @@ test(
 
 
 test(
-  "Liked Songs pins are account scoped and count as individual downloads",
+  "Liked Songs pins are account scoped owner downloads",
   async () => {
     const mediaStore =
       await import(
@@ -1091,15 +1091,16 @@ test(
     const ownerATracks =
       await offline.getDownloadedTracks(
         ownerA,
-        {
-          manualOnly:
-            true,
-        },
       );
 
     const ownerBTracks =
       await offline.getDownloadedTracks(
         ownerB,
+      );
+
+    const manualTracks =
+      await offline.getDownloadedTracks(
+        ownerA,
         {
           manualOnly:
             true,
@@ -1119,6 +1120,17 @@ test(
 
     assert.equal(
       ownerBTracks.some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      false,
+    );
+
+    assert.equal(
+      manualTracks.some(
         (track) =>
           String(
             track.id,
