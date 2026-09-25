@@ -1,4 +1,5 @@
 import {
+  getHyperSyncServiceWorkerScope,
   registerHyperSyncServiceWorker,
 } from "./serviceWorkerRegistration.js";
 
@@ -267,7 +268,7 @@ async function getPushRegistration() {
       await withTimeout(
         serviceWorker
           .getRegistration(
-            "/",
+            getHyperSyncServiceWorkerScope(),
           ),
         PUSH_OPERATION_TIMEOUT_MS,
         "Unable to read the push service worker registration.",
