@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from mutagen.flac import Picture
 from sqlalchemy import select, text
 
+from bot.service import get_state
+
 from ...config import get_settings
 from ...models import (
     Base,
@@ -83,6 +85,93 @@ async def _lock_track_upload_identity(
                 identity,
         },
     )
+
+
+def _duplicate_track_groups(
+    tracks: list[Track],
+) -> list[dict]:
+    groups: dict[
+        tuple[str, str],
+        list[Track],
+    ] = {}
+
+    for track in tracks:
+        key = (
+            normalize_track_identity(
+                track.artist,
+            ),
+            normalize_track_identity(
+                track.title,
+            ),
+        )
+
+        groups.setdefault(
+            key,
+            [],
+        ).append(
+            track,
+        )
+
+    duplicates: list[dict] = []
+
+    for (
+        artist_key,
+        title_key,
+    ), grouped_tracks in groups.items():
+        if len(grouped_tracks) < 2:
+            continue
+
+        first = grouped_tracks[0]
+
+        duplicates.append(
+            {
+                "artist_key":
+                    artist_key,
+                "title_key":
+                    title_key,
+                "artist":
+                    first.artist,
+                "title":
+                    first.title,
+                "count":
+                    len(
+                        grouped_tracks,
+                    ),
+                "tracks": [
+                    {
+                        "id":
+                            str(
+                                item.id,
+                            ),
+                        "title":
+                            item.title,
+                        "artist":
+                            item.artist,
+                        "album":
+                            item.album,
+                        "b2_object_key":
+                            item.b2_object_key,
+                    }
+                    for item in grouped_tracks
+                ],
+            }
+        )
+
+    duplicates.sort(
+        key=lambda group: (
+            -int(
+                group["count"],
+            ),
+            str(
+                group["artist_key"],
+            ),
+            str(
+                group["title_key"],
+            ),
+        )
+    )
+
+    return duplicates
 
 
 async def _find_duplicate_track(
@@ -386,6 +475,183 @@ async def check_admin_access(
         "username": user.username,
         "role": user.role.value,
         "message": "Administrator access granted.",
+    }
+
+
+@router.get(
+    "/diagnostics",
+)
+async def admin_diagnostics(
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    database_status = {
+        "healthy": False,
+        "message":
+            "Database unavailable.",
+    }
+
+    catalog_status = {
+        "healthy": False,
+        "track_count": 0,
+        "duplicate_groups": 0,
+    }
+
+    storage_status = {
+        "healthy": False,
+        "message":
+            "B2 storage unavailable.",
+    }
+
+    tracks: list[Track] = []
+
+    try:
+        await session.execute(
+            text(
+                "SELECT 1"
+            )
+        )
+
+        database_status = {
+            "healthy": True,
+            "message":
+                "Database query succeeded.",
+        }
+
+        result = await session.execute(
+            select(
+                Track,
+            )
+        )
+
+        tracks = list(
+            result.scalars().all()
+        )
+
+        duplicate_groups = (
+            _duplicate_track_groups(
+                tracks,
+            )
+        )
+
+        catalog_status = {
+            "healthy": True,
+            "track_count":
+                len(
+                    tracks,
+                ),
+            "duplicate_groups":
+                len(
+                    duplicate_groups,
+                ),
+        }
+
+    except Exception as exc:
+        await session.rollback()
+
+        database_status[
+            "message"
+        ] = str(
+            exc,
+        )
+
+    try:
+        bucket = await asyncio.to_thread(
+            get_b2_bucket,
+        )
+
+        storage_status = {
+            "healthy": True,
+            "message":
+                (
+                    "Connected to "
+                    f"{getattr(bucket, 'name', 'B2 bucket')}."
+                ),
+        }
+
+    except Exception as exc:
+        storage_status[
+            "message"
+        ] = str(
+            exc,
+        )
+
+    bot_state = get_state()
+
+    return {
+        "api": {
+            "healthy": True,
+            "message":
+                "Admin API is responding.",
+        },
+        "database":
+            database_status,
+        "storage":
+            storage_status,
+        "catalog":
+            catalog_status,
+        "bot": {
+            "healthy": True,
+            "running":
+                bool(
+                    bot_state.running,
+                ),
+            "status":
+                bot_state.status,
+            "current_job":
+                bot_state.current_job,
+            "queued_jobs":
+                bot_state.queued_jobs,
+            "completed_jobs":
+                bot_state.completed_jobs,
+            "failed_jobs":
+                bot_state.failed_jobs,
+        },
+    }
+
+
+@router.get(
+    "/duplicates",
+)
+async def scan_catalog_duplicates(
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    result = await session.execute(
+        select(
+            Track,
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    duplicate_groups = (
+        _duplicate_track_groups(
+            tracks,
+        )
+    )
+
+    return {
+        "scanned_tracks":
+            len(
+                tracks,
+            ),
+        "duplicate_group_count":
+            len(
+                duplicate_groups,
+            ),
+        "duplicate_track_count":
+            sum(
+                int(
+                    group["count"],
+                )
+                for group
+                in duplicate_groups
+            ),
+        "groups":
+            duplicate_groups,
     }
 
 
