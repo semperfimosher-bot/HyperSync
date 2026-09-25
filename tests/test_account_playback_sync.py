@@ -3,9 +3,21 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from backend.app.database import get_session_factory
+from backend.app.database import (
+    get_engine,
+    get_session_factory,
+)
 from backend.app.main import app
+from backend.app.models.base import Base
 from backend.app.models.media import Track
+
+
+@pytest.fixture(autouse=True)
+async def playback_database_schema() -> None:
+    async with get_engine().begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+        )
 
 
 async def register_and_login(
