@@ -1825,6 +1825,16 @@ function AuthOverlay({
   const [showPassword, setShowPassword] =
     useState(false);
 
+  const [
+    createAdmin,
+    setCreateAdmin,
+  ] = useState(false);
+
+  const [
+    showAdminPassword,
+    setShowAdminPassword,
+  ] = useState(false);
+
   const [rememberMe, setRememberMe] =
     useState(true);
 
@@ -1855,6 +1865,25 @@ function AuthOverlay({
       form.get("password") ?? "",
     );
 
+  const adminVerificationPassword =
+    String(
+      form.get(
+        "admin_verification_password",
+      ) ?? "",
+    );
+
+  if (
+    isCreate &&
+    createAdmin &&
+    !adminVerificationPassword
+  ) {
+    setMessage(
+      "Enter the administrator verification password.",
+    );
+
+    return;
+  }
+
   try {
     const data = await apiRequest(
       isCreate
@@ -1870,6 +1899,12 @@ function AuthOverlay({
                   form.get("email") ?? "",
                 ).trim(),
                 password,
+                create_admin:
+                  createAdmin,
+                admin_verification_password:
+                  createAdmin
+                    ? adminVerificationPassword
+                    : null,
               }
             : {
                 username,
@@ -1893,6 +1928,8 @@ function AuthOverlay({
 
     onClose();
 
+    setCreateAdmin(false);
+    setShowAdminPassword(false);
     setMessage("");
   } catch (error) {
     setMessage(
@@ -2028,6 +2065,91 @@ function AuthOverlay({
               />
             </button>
           </label>
+
+          {isCreate ? (
+            <div className="auth-admin-create">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={createAdmin}
+                  onChange={(event) => {
+                    const checked =
+                      event.target.checked;
+
+                    setCreateAdmin(
+                      checked,
+                    );
+
+                    if (!checked) {
+                      setShowAdminPassword(
+                        false,
+                      );
+                    }
+
+                    setMessage("");
+                  }}
+                />
+
+                <span>
+                  <Icon
+                    name="check"
+                    size={15}
+                  />
+                </span>
+
+                Create administrator account
+              </label>
+
+              {createAdmin ? (
+                <label className="auth-admin-password">
+                  <Icon
+                    name="shield"
+                    size={22}
+                  />
+
+                  <input
+                    type={
+                      showAdminPassword
+                        ? "text"
+                        : "password"
+                    }
+                    name="admin_verification_password"
+                    autoComplete="off"
+                    placeholder="Administrator verification password"
+                    required
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdminPassword(
+                        (value) =>
+                          !value,
+                      );
+                    }}
+                    aria-label={
+                      showAdminPassword
+                        ? "Hide administrator password"
+                        : "Show administrator password"
+                    }
+                  >
+                    <Icon
+                      name={
+                        showAdminPassword
+                          ? "eyeOff"
+                          : "eye"
+                      }
+                      size={22}
+                    />
+                  </button>
+                </label>
+              ) : null}
+
+              <small>
+                Administrator accounts require a server-side verification password.
+              </small>
+            </div>
+          ) : null}
 
           {!isCreate ? (
             <div className="auth-options">
