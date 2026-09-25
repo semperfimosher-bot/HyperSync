@@ -33,7 +33,8 @@ function DesktopSidebar({
           .filter(
             (item) =>
               !item.requiresAuth ||
-              Boolean(currentUser),
+              currentUser?.account_type ===
+                "registered",
           )
           .map((item) => (
           <button
