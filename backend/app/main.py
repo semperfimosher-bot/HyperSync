@@ -5,7 +5,7 @@ from contextlib import (
     suppress,
 )
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.router import api_router
@@ -64,6 +64,17 @@ app = FastAPI(
     title=f"{settings.app_name} API",
     version=settings.app_version,
     lifespan=lifespan,
+    docs_url=(
+        "/docs"
+        if settings.api_docs_enabled
+        else None
+    ),
+    redoc_url=None,
+    openapi_url=(
+        "/openapi.json"
+        if settings.api_docs_enabled
+        else None
+    ),
 )
 
 app.add_middleware(
@@ -77,10 +88,61 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.middleware("http")
+async def security_headers(
+    request: Request,
+    call_next,
+):
+    response = await call_next(
+        request,
+    )
+
+    response.headers[
+        "X-Content-Type-Options"
+    ] = "nosniff"
+
+    response.headers[
+        "X-Frame-Options"
+    ] = "DENY"
+
+    response.headers[
+        "Referrer-Policy"
+    ] = "strict-origin-when-cross-origin"
+
+    response.headers[
+        "Permissions-Policy"
+    ] = (
+        "camera=(), microphone=(), "
+        "geolocation=(), payment=()"
+    )
+
+    response.headers[
+        "Content-Security-Policy"
+    ] = (
+        "default-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'"
+    )
+
+    if settings.environment == "production":
+        response.headers[
+            "Strict-Transport-Security"
+        ] = (
+            "max-age=31536000; "
+            "includeSubDomains"
+        )
+
+    return response
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     return {
         "application": settings.app_name,
         "status": "online",
-        "documentation": "/docs",
+        "documentation": (
+            "/docs"
+            if settings.api_docs_enabled
+            else "disabled"
+        ),
     }
