@@ -26,6 +26,7 @@ async def test_catalog_returns_direct_signed_media_urls(
         title="Fast Song",
         artist="HyperSync",
         album="Direct B2",
+        genre="Electronic",
         duration_seconds=180,
         mime_type="audio/mpeg",
         file_size=5_000_000,
@@ -184,6 +185,8 @@ def test_catalog_track_response_exposes_media_cache_metadata() -> None:
         file_size=5_000_000,
         media_version="media-v1",
     )
+
+    assert response.genre == ("Electronic")
 
     assert response.mime_type == ("audio/mpeg")
 
