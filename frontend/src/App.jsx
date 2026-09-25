@@ -3420,8 +3420,19 @@ function PlayerBar({
             onClick={
               onInstallApp
             }
-            aria-label="Install HyperSynced app"
-            title="Install HyperSynced app"
+            disabled={
+              installState?.preparing
+            }
+            aria-label={
+              installState?.preparing
+                ? "Preparing HyperSynced offline app"
+                : "Download and install HyperSynced app"
+            }
+            title={
+              installState?.preparing
+                ? "Preparing offline app..."
+                : "Download and install HyperSynced"
+            }
           >
             <Icon
               name="download"
@@ -6037,7 +6048,9 @@ const clearPlaylistToOpen =
           "installed"
       ) {
         setStatusMessage(
-          "HyperSynced app installed.",
+          result?.systemReady
+            ? "HyperSynced installed. Offline app system is ready."
+            : "HyperSynced installed.",
         );
 
         setInstallHelpMode(
@@ -6067,6 +6080,17 @@ const clearPlaylistToOpen =
         );
 
         return;
+      }
+
+      if (
+        result?.systemReady
+      ) {
+        setStatusMessage(
+          result?.status ===
+            "manual-ios"
+            ? "Offline app system downloaded. Finish Add to Home Screen."
+            : "Offline app system downloaded. Finish installing from your browser.",
+        );
       }
 
       setInstallHelpMode(
