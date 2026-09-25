@@ -108,103 +108,105 @@ function DesktopTopbar({
       )}
 
 
-      <div className="desktop-notification-center">
-        <button
-          type="button"
-          className="icon-button desktop-notification-button"
-          aria-label="Open notifications"
-          aria-expanded={
-            notificationsOpen
-          }
-          onClick={() => {
-            if (!currentUser) {
-              onOpenAuth();
-              return;
+      <div className="desktop-topbar__actions">
+        <div className="desktop-notification-center">
+          <button
+            type="button"
+            className="icon-button desktop-notification-button"
+            aria-label="Open notifications"
+            aria-expanded={
+              notificationsOpen
             }
+            onClick={() => {
+              if (!currentUser) {
+                onOpenAuth();
+                return;
+              }
 
-            setNotificationsOpen(
-              (open) => !open,
-            );
-          }}
-        >
-          <Icon
-            name="bell"
-            size={18}
-          />
-
-          {messageNotifications?.unread_count ? (
-            <span
-              className="icon-button__dot"
-              aria-hidden="true"
-            />
-          ) : null}
-        </button>
-
-        {notificationsOpen ? (
-          <div
-            className="desktop-notification-panel"
-            role="region"
-            aria-label="Notifications"
+              setNotificationsOpen(
+                (open) => !open,
+              );
+            }}
           >
-            <MessageNotificationPanel
-              data={
-                messageNotifications
-              }
-              onOpenMessage={(
-                username,
-              ) => {
-                setNotificationsOpen(
-                  false,
-                );
-
-                onOpenMessage?.(
-                  username,
-                );
-              }}
-              onEnablePush={
-                onEnablePush
-              }
-              pushBusy={
-                pushBusy
-              }
+            <Icon
+              name="bell"
+              size={18}
             />
-          </div>
-        ) : null}
-      </div>
+
+            {messageNotifications?.unread_count ? (
+              <span
+                className="icon-button__dot"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+
+          {notificationsOpen ? (
+            <div
+              className="desktop-notification-panel"
+              role="region"
+              aria-label="Notifications"
+            >
+              <MessageNotificationPanel
+                data={
+                  messageNotifications
+                }
+                onOpenMessage={(
+                  username,
+                ) => {
+                  setNotificationsOpen(
+                    false,
+                  );
+
+                  onOpenMessage?.(
+                    username,
+                  );
+                }}
+                onEnablePush={
+                  onEnablePush
+                }
+                pushBusy={
+                  pushBusy
+                }
+              />
+            </div>
+          ) : null}
+        </div>
 
 
-      <button
-        className="desktop-profile-button"
-        type="button"
-        onClick={handleProfileClick}
-      >
-        {currentUser ? (
-          <Avatar
-            src={currentUser.avatar_url}
-            name={
-              currentUser.display_name ||
-              currentUser.username
-            }
-            size="header"
-            className="hs-header-avatar"
-          />
-        ) : (
-          <span className="avatar avatar--tiny">
-            G
+        <button
+          className="desktop-profile-button"
+          type="button"
+          onClick={handleProfileClick}
+        >
+          {currentUser ? (
+            <Avatar
+              src={currentUser.avatar_url}
+              name={
+                currentUser.display_name ||
+                currentUser.username
+              }
+              size="header"
+              className="hs-header-avatar"
+            />
+          ) : (
+            <span className="avatar avatar--tiny">
+              G
+            </span>
+          )}
+
+          <span>
+            {currentUser
+              ? greetingName
+              : "Guest"}
           </span>
-        )}
 
-        <span>
-          {currentUser
-            ? greetingName
-            : "Guest"}
-        </span>
-
-        <Icon
-          name="chevron"
-          size={15}
-        />
-      </button>
+          <Icon
+            name="chevron"
+            size={15}
+          />
+        </button>
+      </div>
     </header>
   );
 }
