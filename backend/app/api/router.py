@@ -11,6 +11,7 @@ from .routes import (
     playlists,
     recommendations,
     search,
+    system,
     users,
 )
 
@@ -19,6 +20,12 @@ api_router = APIRouter()
 
 api_router.include_router(
     health.router,
+)
+
+
+api_router.include_router(
+    system.router,
+    prefix="/api",
 )
 
 
