@@ -196,6 +196,8 @@ class PlaylistSummaryResponse(
 
     is_saved: bool = False
 
+    is_liked_songs: bool = False
+
     created_at: datetime
 
     updated_at: datetime
@@ -474,6 +476,12 @@ async def serialize_playlist_summary(
         playlist.id,
     )
 
+    is_liked_songs = bool(
+        playlist.owner_id is not None
+        and playlist.generated_key
+        == f"liked:{playlist.owner_id}"
+    )
+
     return PlaylistSummaryResponse(
         id=playlist.id,
         title=playlist.title,
@@ -487,6 +495,7 @@ async def serialize_playlist_summary(
         artwork_urls=(artwork_urls),
         is_owner=is_owner,
         is_saved=is_saved,
+        is_liked_songs=is_liked_songs,
         created_at=(playlist.created_at),
         updated_at=(playlist.updated_at),
     )
