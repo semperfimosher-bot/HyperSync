@@ -5,8 +5,7 @@ import unicodedata
 from pathlib import Path
 from uuid import UUID
 
-import anyio
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -249,6 +248,65 @@ async def stream_b2_file(
             pass
 
 
+def resolve_local_audio_fallback(
+    object_key: str,
+) -> Path | None:
+    settings = get_settings()
+
+    if settings.environment == "production":
+        return None
+
+    raw_path = Path(
+        object_key,
+    )
+
+    candidates: list[Path] = []
+
+    if (
+        not raw_path.is_absolute()
+        and ".." not in raw_path.parts
+    ):
+        candidates.append(
+            raw_path.resolve(),
+        )
+
+    demo_path = Path(
+        settings.demo_audio_path,
+    ).resolve()
+
+    candidates.append(
+        demo_path,
+    )
+
+    allowed_roots = [
+        Path(
+            settings.local_upload_root,
+        ).resolve(),
+        demo_path.parent,
+    ]
+
+    for candidate in candidates:
+        try:
+            allowed = any(
+                candidate.is_relative_to(
+                    root,
+                )
+                for root
+                in allowed_roots
+            )
+        except ValueError:
+            allowed = False
+
+        if (
+            allowed
+            and candidate.exists()
+            and candidate.is_file()
+        ):
+            return candidate
+
+    return None
+
+
 async def stream_local_file(
     file_path: Path,
     start: int,
@@ -298,10 +356,6 @@ async def stream_audio(
             detail="Track not found.",
         )
 
-    settings = get_settings()
-    local_file = Path(settings.demo_audio_path)
-    local_file.parent.mkdir(parents=True, exist_ok=True)
-
     try:
         bucket = get_b2_bucket()
         file_info = await asyncio.to_thread(
@@ -320,22 +374,38 @@ async def stream_audio(
         )
         body = stream_b2_file(downloaded)
 
-    except Exception:
-        fallback_file = anyio.Path(track.b2_object_key)
+    except Exception as storage_error:
+        fallback_file = (
+            resolve_local_audio_fallback(
+                track.b2_object_key,
+            )
+        )
 
-        if not await fallback_file.exists():
-            fallback_file = anyio.Path(local_file)
+        if fallback_file is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                ),
+                detail=(
+                    "Audio storage is temporarily unavailable."
+                ),
+                headers={
+                    "Retry-After":
+                        "2",
+                },
+            ) from storage_error
 
-        if not await fallback_file.exists():
-            await fallback_file.write_bytes(b"\x00")
+        file_size = (
+            fallback_file.stat().st_size
+        )
 
-        file_size = (await fallback_file.stat()).st_size
         start, end = parse_range(
             range,
             file_size,
         )
+
         body = stream_local_file(
-            Path(fallback_file),
+            fallback_file,
             start,
             end,
         )
