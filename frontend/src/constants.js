@@ -83,9 +83,9 @@ export const SEARCH_QUICK_COMMANDS = [
   {
     id: "find-people",
     label: "Find People",
-    query: "",
+    query: "find people",
     filter: "people",
-    focus: true,
+    focus: false,
   },
   {
     id: "most-played",
