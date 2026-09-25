@@ -7525,6 +7525,33 @@ button > span:nth-child(2) {
   opacity: 1;
 }
 
+.message-push-success {
+  display: flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  min-height: 30px;
+
+  padding:
+    7px
+    9px;
+
+  border:
+    1px solid
+    rgba(75, 224, 165, 0.16);
+
+  border-radius: 7px;
+
+  color: #8be8c0;
+
+  background:
+    rgba(32, 177, 115, 0.055);
+
+  font-size: 6.5px;
+}
+
 
 /* =========================================================
    DESKTOP NOTIFICATION CENTER
