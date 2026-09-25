@@ -20,6 +20,13 @@ function DesktopTopbar({
   const greetingName =
     getGreetingName(currentUser);
 
+  const isAdminPage =
+    String(
+      activePage ?? "",
+    ).startsWith(
+      "admin",
+    );
+
 
   function handleProfileClick() {
     if (currentUser) {
@@ -42,34 +49,41 @@ function DesktopTopbar({
       </div>
 
 
-      <label className="desktop-search">
-        <Icon
-          name="search"
-          size={18}
+      {isAdminPage ? (
+        <div
+          className="desktop-search-spacer"
+          aria-hidden="true"
         />
+      ) : (
+        <label className="desktop-search">
+          <Icon
+            name="search"
+            size={18}
+          />
 
-        <input
-          type="search"
-          name="hypersync_global_search"
-          autoComplete="off"
-          enterKeyHint="search"
-          value={searchQuery}
-          placeholder="Search songs, artists, albums or people..."
-          data-1p-ignore="true"
-          data-lpignore="true"
-          onPointerDown={() => {
-            onSearchFocus?.();
-          }}
-          onKeyDown={() => {
-            onSearchFocus?.();
-          }}
-          onChange={(event) => {
-            onSearchChange(
-              event.target.value,
-            );
-          }}
-        />
-      </label>
+          <input
+            type="search"
+            name="hypersync_global_search"
+            autoComplete="off"
+            enterKeyHint="search"
+            value={searchQuery}
+            placeholder="Search songs, artists, albums or people..."
+            data-1p-ignore="true"
+            data-lpignore="true"
+            onPointerDown={() => {
+              onSearchFocus?.();
+            }}
+            onKeyDown={() => {
+              onSearchFocus?.();
+            }}
+            onChange={(event) => {
+              onSearchChange(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+      )}
 
 
       <button
