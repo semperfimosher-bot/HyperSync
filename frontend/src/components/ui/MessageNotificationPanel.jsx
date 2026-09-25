@@ -42,6 +42,7 @@ export default function MessageNotificationPanel({
   onOpenMessage,
   onEnablePush,
   pushBusy = false,
+  pushEnabled = false,
 }) {
   const notifications =
     Array.isArray(
@@ -137,7 +138,8 @@ export default function MessageNotificationPanel({
           type="button"
           className="message-push-enable"
           disabled={
-            pushBusy
+            pushBusy ||
+            pushEnabled
           }
           onClick={
             onEnablePush
@@ -148,7 +150,11 @@ export default function MessageNotificationPanel({
             size={14}
           />
 
-          Enable push notifications
+          {pushEnabled
+            ? "Push notifications on"
+            : pushBusy
+              ? "Turning on..."
+              : "Enable push notifications"}
         </button>
       ) : null}
     </div>
