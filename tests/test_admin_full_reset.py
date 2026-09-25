@@ -24,11 +24,11 @@ class FakeBucket:
         self,
         folder_to_list: str,
         *,
-        show_versions: bool,
+        latest_only: bool,
         recursive: bool,
     ):
         assert folder_to_list == ""
-        assert show_versions is True
+        assert latest_only is False
         assert recursive is True
 
         return [
