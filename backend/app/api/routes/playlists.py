@@ -159,6 +159,14 @@ class LibraryTrackResponse(
     created_at: datetime | None = None
 
 
+class LikedTrackStateResponse(
+    BaseModel,
+):
+    liked: bool
+
+    playlist_id: UUID | None = None
+
+
 class PlaylistSummaryResponse(
     BaseModel,
 ):
@@ -963,12 +971,13 @@ async def get_liked_playlist(
 
 @router.get(
     "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
 )
 async def get_liked_track_state(
     track_id: UUID,
     user: CurrentUser,
     session: DatabaseSession,
-) -> dict[str, bool]:
+) -> LikedTrackStateResponse:
     require_registered_user(
         user,
     )
@@ -981,9 +990,10 @@ async def get_liked_track_state(
     )
 
     if playlist is None:
-        return {
-            "liked": False,
-        }
+        return LikedTrackStateResponse(
+            liked=False,
+            playlist_id=None,
+        )
 
     result = await session.execute(
         select(
@@ -996,21 +1006,24 @@ async def get_liked_track_state(
         )
     )
 
-    return {
-        "liked":
+    return LikedTrackStateResponse(
+        liked=(
             result.scalar_one_or_none()
-            is not None,
-    }
+            is not None
+        ),
+        playlist_id=playlist.id,
+    )
 
 
 @router.post(
     "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
 )
 async def like_track(
     track_id: UUID,
     user: CurrentUser,
     session: DatabaseSession,
-) -> dict[str, bool]:
+) -> LikedTrackStateResponse:
     require_registered_user(
         user,
     )
@@ -1087,19 +1100,21 @@ async def like_track(
 
         await session.commit()
 
-    return {
-        "liked": True,
-    }
+    return LikedTrackStateResponse(
+        liked=True,
+        playlist_id=playlist.id,
+    )
 
 
 @router.delete(
     "/liked/tracks/{track_id}",
+    response_model=LikedTrackStateResponse,
 )
 async def unlike_track(
     track_id: UUID,
     user: CurrentUser,
     session: DatabaseSession,
-) -> dict[str, bool]:
+) -> LikedTrackStateResponse:
     require_registered_user(
         user,
     )
@@ -1112,9 +1127,10 @@ async def unlike_track(
     )
 
     if playlist is None:
-        return {
-            "liked": False,
-        }
+        return LikedTrackStateResponse(
+            liked=False,
+            playlist_id=None,
+        )
 
     result = await session.execute(
         select(
@@ -1146,9 +1162,10 @@ async def unlike_track(
 
         await session.commit()
 
-    return {
-        "liked": False,
-    }
+    return LikedTrackStateResponse(
+        liked=False,
+        playlist_id=playlist.id,
+    )
 
 
 @router.post(
