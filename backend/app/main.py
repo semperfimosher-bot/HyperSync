@@ -15,8 +15,12 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
+from .services.message_retention import (
+    cleanup_expired_messages,
+)
 
 DATABASE_KEEPALIVE_SECONDS = 240.0
+MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
 
 
 async def keep_database_warm() -> None:
@@ -33,6 +37,19 @@ async def keep_database_warm() -> None:
             continue
 
 
+async def run_message_retention_cleanup() -> None:
+    while True:
+        try:
+            await cleanup_expired_messages()
+        except Exception:
+            # Retention cleanup must never take down the API.
+            pass
+
+        await asyncio.sleep(
+            MESSAGE_RETENTION_CLEANUP_SECONDS,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await ensure_demo_data()
@@ -45,15 +62,25 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         keep_database_warm(),
     )
 
+    retention_task = asyncio.create_task(
+        run_message_retention_cleanup(),
+    )
+
     try:
         yield
     finally:
         keepalive_task.cancel()
+        retention_task.cancel()
 
         with suppress(
             asyncio.CancelledError,
         ):
             await keepalive_task
+
+        with suppress(
+            asyncio.CancelledError,
+        ):
+            await retention_task
 
         await close_database()
 
