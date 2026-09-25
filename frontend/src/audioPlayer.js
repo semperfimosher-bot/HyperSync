@@ -399,6 +399,59 @@ function upcomingQueueCount() {
 }
 
 
+function getAutoplayContextTrackIds() {
+  if (
+    currentQueue.length ===
+      0 ||
+    currentQueueIndex < 0
+  ) {
+    return currentTrackId
+      ? [
+          String(
+            currentTrackId,
+          ),
+        ]
+      : [];
+  }
+
+  const startIndex =
+    Math.max(
+      0,
+      currentQueueIndex - 7,
+    );
+
+  const ids = [];
+
+  for (
+    const entry
+    of currentQueue.slice(
+      startIndex,
+      currentQueueIndex + 1,
+    )
+  ) {
+    const id =
+      String(
+        entry?.id ?? "",
+      ).trim();
+
+    if (
+      id &&
+      !ids.includes(
+        id,
+      )
+    ) {
+      ids.push(
+        id,
+      );
+    }
+  }
+
+  return ids.slice(
+    -8,
+  );
+}
+
+
 function ensureCurrentTrackInQueue() {
   if (
     currentQueue.length > 0 ||
@@ -577,6 +630,9 @@ async function ensureAutoplayQueue({
 
                   exclude_track_ids:
                     excludeTrackIds,
+
+                  context_track_ids:
+                    getAutoplayContextTrackIds(),
 
                   limit:
                     AUTOPLAY_BATCH_SIZE,
@@ -2331,10 +2387,7 @@ export async function skipToNext() {
   );
 
 
-  await ensureAutoplayQueue({
-    force:
-      true,
-  });
+  await ensureAutoplayQueue();
 
 
   await playNextQueueTrack();
