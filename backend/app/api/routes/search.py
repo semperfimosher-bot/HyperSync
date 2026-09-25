@@ -101,6 +101,10 @@ class SearchPlaylistResult(
 
     artwork_url: str | None = None
 
+    artwork_urls: list[str | None] = Field(
+        default_factory=list,
+    )
+
     owner_username: str
 
     visibility: str
@@ -263,17 +267,24 @@ async def _serialize_search_playlist(
             )
             .order_by(
                 PlaylistTrack.position.asc(),
+                PlaylistTrack.created_at.asc(),
             )
             .limit(
-                1,
+                4,
             )
         )
     )
 
-    artwork_track = (
-        artwork_result.scalars()
-        .first()
+    artwork_tracks = list(
+        artwork_result.scalars().all()
     )
+
+    artwork_urls = [
+        _track_artwork_url(
+            track,
+        )
+        for track in artwork_tracks
+    ]
 
     return SearchPlaylistResult(
         id=playlist.id,
@@ -288,13 +299,17 @@ async def _serialize_search_playlist(
             track_count
         ),
 
-        artwork_url=(
-            _track_artwork_url(
-                artwork_track,
-            )
-            if artwork_track
-            is not None
-            else None
+        artwork_url=next(
+            (
+                artwork
+                for artwork in artwork_urls
+                if artwork
+            ),
+            None,
+        ),
+
+        artwork_urls=(
+            artwork_urls
         ),
 
         owner_username=(
