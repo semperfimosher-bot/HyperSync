@@ -409,7 +409,6 @@ async def get_track_lyrics(
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
-                genre=track.genre,
                 duration_seconds=(track.duration_seconds),
             )
 
@@ -470,12 +469,6 @@ async def get_track_lyrics(
                 lyrics_row.plain_lyrics = fetched["plain_lyrics"]
 
                 lyrics_row.synced_lyrics = None
-
-        await session.commit()
-
-        return _lyrics_response(
-            lyrics_row,
-        )
 
         await session.commit()
 
