@@ -790,33 +790,35 @@ export default function TrackActionMenu({
             <div className="track-action-menu__divider" />
 
 
-            <button
-              type="button"
-              role="menuitem"
-              disabled={
-                busy === "like"
-              }
-              onClick={() => {
-                void toggleLike();
-              }}
-            >
-              <span className="track-action-icon">
-                <Icon
-                  name={
-                    liked
-                      ? "check"
-                      : "heart"
-                  }
-                  size={15}
-                />
-              </span>
+            {!menu.hideLikeAction ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={
+                  busy === "like"
+                }
+                onClick={() => {
+                  void toggleLike();
+                }}
+              >
+                <span className="track-action-icon">
+                  <Icon
+                    name={
+                      liked
+                        ? "check"
+                        : "heart"
+                    }
+                    size={15}
+                  />
+                </span>
 
-              <span>
-                {liked
-                  ? "Remove from Liked Songs"
-                  : "Add to Liked Songs"}
-              </span>
-            </button>
+                <span>
+                  {liked
+                    ? "Remove from Liked Songs"
+                    : "Add to Liked Songs"}
+                </span>
+              </button>
+            ) : null}
 
 
             <button
