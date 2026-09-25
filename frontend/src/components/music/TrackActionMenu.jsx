@@ -7,10 +7,13 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
+  addLikedTrackOfflinePin,
   downloadTrackForOffline,
+  getLikedSongsDownloadPinRef,
   getManualDownloadPinRef,
   getOfflineOwnerKey,
   isTrackDownloaded,
+  removeLikedTrackFromOffline,
 } from "../../offlineDownloads.js";
 
 import {
@@ -150,6 +153,11 @@ export default function TrackActionMenu({
       offlineOwnerKey,
     );
 
+  const likedSongsDownloadPinRef =
+    getLikedSongsDownloadPinRef(
+      offlineOwnerKey,
+    );
+
 
   useEffect(() => {
     setPlaylistMode(false);
@@ -234,6 +242,7 @@ export default function TrackActionMenu({
     menu,
     track?.id,
     isRegistered,
+    likedSongsDownloadPinRef,
     manualDownloadPinRef,
     offlineOwnerKey,
   ]);
@@ -394,6 +403,44 @@ export default function TrackActionMenu({
 
         setLiked(false);
 
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+
+        if (offlineOwnerKey) {
+          await removeLikedTrackFromOffline(
+            track,
+            offlineOwnerKey,
+          ).catch(
+            () => false,
+          );
+
+          const stillDownloaded =
+            await isTrackDownloaded(
+              track,
+              {
+                ownerKey:
+                  offlineOwnerKey,
+              },
+            ).catch(
+              () => downloaded,
+            );
+
+          setDownloaded(
+            Boolean(
+              stillDownloaded,
+            ),
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "hypersync:offline-downloads-changed",
+            ),
+          );
+        }
+
         setNotice(
           "Removed from Liked Songs",
         );
@@ -404,16 +451,45 @@ export default function TrackActionMenu({
 
         setLiked(true);
 
-        setNotice(
-          "Added to Liked Songs",
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
         );
-      }
 
-      window.dispatchEvent(
-        new CustomEvent(
-          "hypersync:library-changed",
-        ),
-      );
+        try {
+          await downloadTrackForOffline(
+            track,
+            {
+              pinRef:
+                likedSongsDownloadPinRef,
+            },
+          );
+
+          setDownloaded(
+            true,
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "hypersync:offline-downloads-changed",
+            ),
+          );
+
+          setNotice(
+            "Added to Liked Songs • available offline",
+          );
+        } catch (downloadError) {
+          setNotice(
+            downloadError instanceof Error
+              ? (
+                  "Added to Liked Songs, but offline download failed: " +
+                  downloadError.message
+                )
+              : "Added to Liked Songs, but offline download failed.",
+          );
+        }
+      }
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -467,6 +543,17 @@ export default function TrackActionMenu({
           pinRef:
             manualDownloadPinRef,
         },
+      );
+
+      /*
+       * A manual download also lives in
+       * Liked Songs, so give the same cached
+       * media an independent Liked Songs pin.
+       * This adds no second network download.
+       */
+      await addLikedTrackOfflinePin(
+        track,
+        offlineOwnerKey,
       );
 
       setDownloaded(
