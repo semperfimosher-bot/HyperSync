@@ -46,6 +46,13 @@ class AutoplayRequest(
         max_length=100,
     )
 
+    context_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+
     limit: int = Field(
         default=8,
         ge=1,
@@ -102,6 +109,9 @@ async def autoplay(
             ),
             exclude_track_ids=set(
                 payload.exclude_track_ids
+            ),
+            context_track_ids=(
+                payload.context_track_ids
             ),
             limit=(
                 payload.limit
