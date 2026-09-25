@@ -16,54 +16,54 @@ const searchPageSource =
 
 
 test(
-  "SearchPage uses alphabetical results consistently",
+  "SearchPage uses intent-aware display ordering consistently",
   () => {
     assert.match(
       searchPageSource,
-      /import\s*\{\s*alphabetizeSearchResults\s*,?\s*\}\s*from\s*["']\.\.\/\.\.\/searchAlphabetical\.js["'];/,
-      "Expected SearchPage to import alphabetizeSearchResults.",
+      /import\s*\{\s*orderSearchResultsForDisplay\s*,?\s*\}\s*from\s*["']\.\.\/\.\.\/searchAlphabetical\.js["'];/,
+      "Expected SearchPage to import orderSearchResultsForDisplay.",
     );
 
     assert.match(
       searchPageSource,
-      /const\s+alphabeticalResults\s*=\s*useMemo\([\s\S]*?alphabetizeSearchResults\(\s*results\s*,?\s*\)/,
-      "Expected SearchPage to memoize alphabetical results.",
+      /const\s+displayResults\s*=\s*useMemo\([\s\S]*?orderSearchResultsForDisplay\(\s*results\s*,?\s*\)/,
+      "Expected SearchPage to memoize display-ordered results.",
     );
 
     assert.match(
       searchPageSource,
-      /pickTopSignal\(\s*alphabeticalResults\s*,?\s*\)/,
+      /pickTopSignal\(\s*displayResults\s*,?\s*\)/,
       "Top Signal must use the same alphabetical results.",
     );
 
     assert.match(
       searchPageSource,
-      /alphabeticalResults\.tracks\.map\(/,
-      "Track rows must use alphabeticalResults.tracks.",
+      /displayResults\.tracks\.map\(/,
+      "Track rows must use displayResults.tracks.",
     );
 
     assert.match(
       searchPageSource,
-      /alphabeticalResults\.artists\.map\(/,
-      "Artist cards must use alphabeticalResults.artists.",
+      /displayResults\.artists\.map\(/,
+      "Artist cards must use displayResults.artists.",
     );
 
     assert.match(
       searchPageSource,
-      /alphabeticalResults\.collaborations\.map\(/,
-      "Collaboration cards must use alphabeticalResults.collaborations.",
+      /displayResults\.collaborations\.map\(/,
+      "Collaboration cards must use displayResults.collaborations.",
     );
 
     assert.match(
       searchPageSource,
-      /alphabeticalResults\.albums\.map\(/,
-      "Album cards must use alphabeticalResults.albums.",
+      /displayResults\.albums\.map\(/,
+      "Album cards must use displayResults.albums.",
     );
 
     assert.match(
       searchPageSource,
-      /alphabeticalResults\.people\.map\(/,
-      "People rows must use alphabeticalResults.people.",
+      /displayResults\.people\.map\(/,
+      "People rows must use displayResults.people.",
     );
   },
 );
