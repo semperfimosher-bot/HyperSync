@@ -48,7 +48,13 @@ const OFFLINE_ARTWORK_RETRY_MS =
 const OFFLINE_METADATA_REVALIDATE_MS =
   15 * 60 * 1000;
 
+const OFFLINE_METADATA_REPAIR_CONCURRENCY =
+  6;
+
 const offlineArtworkObjectUrls =
+  new Map();
+
+const activeTrackMetadataRefreshes =
   new Map();
 
 
@@ -1077,32 +1083,74 @@ async function fetchCurrentTrackMetadata(
     signal = null,
   } = {},
 ) {
-  const response =
-    await fetch(
-      buildApiUrl(
-        "/api/catalog/tracks/" +
-          encodeURIComponent(
-            trackId,
-          ),
-      ),
-      {
-        method:
-          "GET",
-        credentials:
-          "include",
-        cache:
-          "no-cache",
-        signal,
-      },
-    );
+  const normalizedTrackId =
+    String(
+      trackId ?? "",
+    ).trim();
 
-  if (!response.ok) {
+  if (!normalizedTrackId) {
     throw new Error(
-      `Unable to refresh downloaded track metadata (${response.status}).`,
+      "Track id is required to refresh metadata.",
     );
   }
 
-  return response.json();
+  const existingRequest =
+    activeTrackMetadataRefreshes.get(
+      normalizedTrackId,
+    );
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request =
+    (async () => {
+      const response =
+        await fetch(
+          buildApiUrl(
+            "/api/catalog/tracks/" +
+              encodeURIComponent(
+                normalizedTrackId,
+              ),
+          ),
+          {
+            method:
+              "GET",
+            credentials:
+              "include",
+            cache:
+              "no-cache",
+            signal,
+          },
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          `Unable to refresh downloaded track metadata (${response.status}).`,
+        );
+      }
+
+      return response.json();
+    })();
+
+  activeTrackMetadataRefreshes.set(
+    normalizedTrackId,
+    request,
+  );
+
+  try {
+    return await request;
+  } finally {
+    if (
+      activeTrackMetadataRefreshes.get(
+        normalizedTrackId,
+      ) === request
+    ) {
+      activeTrackMetadataRefreshes.delete(
+        normalizedTrackId,
+      );
+    }
+  }
 }
 
 
@@ -1278,6 +1326,66 @@ async function repairDownloadedArtworkRecord(
     return updated;
   }
 }
+
+async function repairDownloadedArtworkRecords(
+  records,
+) {
+  if (
+    !Array.isArray(
+      records,
+    ) ||
+    records.length === 0
+  ) {
+    return [];
+  }
+
+  const repaired =
+    new Array(
+      records.length,
+    );
+
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index =
+        nextIndex;
+
+      nextIndex += 1;
+
+      if (
+        index >=
+        records.length
+      ) {
+        return;
+      }
+
+      repaired[index] =
+        await repairDownloadedArtworkRecord(
+          records[index],
+        );
+    }
+  }
+
+  const workerCount =
+    Math.min(
+      OFFLINE_METADATA_REPAIR_CONCURRENCY,
+      records.length,
+    );
+
+  await Promise.all(
+    Array.from(
+      {
+        length:
+          workerCount,
+      },
+      () => worker(),
+    ),
+  );
+
+  return repaired;
+}
+
 
 async function resolveDownloadedArtworkUrl(
   record,
@@ -1485,13 +1593,8 @@ export async function getDownloadedTracks(
 
   const repairedRecords =
     online
-      ? await Promise.all(
-          records.map(
-            (record) =>
-              repairDownloadedArtworkRecord(
-                record,
-              ),
-          ),
+      ? await repairDownloadedArtworkRecords(
+          records,
         )
       : records;
 
@@ -1551,13 +1654,8 @@ export async function getDownloadedPlaylists(
 
   const repairedRecords =
     online
-      ? await Promise.all(
-          records.map(
-            (record) =>
-              repairDownloadedArtworkRecord(
-                record,
-              ),
-          ),
+      ? await repairDownloadedArtworkRecords(
+          records,
         )
       : records;
 
