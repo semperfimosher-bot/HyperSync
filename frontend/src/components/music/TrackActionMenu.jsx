@@ -57,11 +57,24 @@ function playerTrack(
       track.mediaVersion ??
       null,
 
+    artworkVersion:
+      track.artwork_version ??
+      track.artworkVersion ??
+      null,
+
+    durationSeconds:
+      track.duration_seconds ??
+      track.durationSeconds ??
+      null,
+
     title:
       track.title ?? "",
 
     artist:
       track.artist ?? "",
+
+    album:
+      track.album ?? "",
   };
 }
 
@@ -671,14 +684,14 @@ export default function TrackActionMenu({
               type="button"
               role="menuitem"
               onClick={() => {
-                player.addTrackToQueue(
+                player.playTrackNext(
                   playerTrack(
                     track,
                   ),
                 );
 
                 setNotice(
-                  "Added to queue",
+                  "Will play next",
                 );
               }}
             >
@@ -690,7 +703,7 @@ export default function TrackActionMenu({
               </span>
 
               <span>
-                Add to queue
+                Play next
               </span>
             </button>
 
