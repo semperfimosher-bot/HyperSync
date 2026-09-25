@@ -101,6 +101,7 @@ async function precacheAppShell() {
           "/apple-touch-icon.png",
           "/icon-192.png",
           "/icon-512.png",
+          "/hypersync-home-hero.png",
         ]
           .filter(
             (value) =>
