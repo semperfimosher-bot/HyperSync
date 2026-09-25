@@ -3853,6 +3853,29 @@ export default function App() {
     useState("");
 
   const [
+    mobileSeekFeedback,
+    setMobileSeekFeedback,
+  ] = useState(null);
+
+  const mobileSeekFeedbackTimerRef =
+    useRef(null);
+
+  const mobileTapRef =
+    useRef({
+      time:
+        0,
+      side:
+        "",
+      x:
+        0,
+      y:
+        0,
+    });
+
+  const mobilePointerStartRef =
+    useRef(null);
+
+  const [
     playlistUpdates,
     setPlaylistUpdates,
   ] = useState([]);
@@ -3930,6 +3953,253 @@ export default function App() {
         "keydown",
         handlePlaybackShortcut,
       );
+    };
+  }, []);
+
+
+  useEffect(() => {
+    const isMobileGesture =
+      () => (
+        typeof window.matchMedia ===
+          "function" &&
+        window.matchMedia(
+          "(max-width: 979px) and (pointer: coarse)",
+        ).matches
+      );
+
+    const handlePointerDown =
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !isMobileGesture()
+        ) {
+          return;
+        }
+
+        mobilePointerStartRef.current = {
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+      };
+
+    const handlePointerUp =
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !isMobileGesture() ||
+          shouldIgnorePlaybackShortcut(
+            event.target,
+          )
+        ) {
+          mobilePointerStartRef.current =
+            null;
+
+          return;
+        }
+
+        const start =
+          mobilePointerStartRef.current;
+
+        mobilePointerStartRef.current =
+          null;
+
+        if (
+          start &&
+          (
+            Math.abs(
+              event.clientX -
+                start.x,
+            ) >
+              24 ||
+            Math.abs(
+              event.clientY -
+                start.y,
+            ) >
+              24
+          )
+        ) {
+          return;
+        }
+
+        const playerState =
+          player.getState();
+
+        if (
+          !playerState?.trackId &&
+          !playerState?.src
+        ) {
+          return;
+        }
+
+        const side =
+          event.clientX <
+          window.innerWidth / 2
+            ? "back"
+            : "forward";
+
+        const now =
+          Date.now();
+
+        const previous =
+          mobileTapRef.current;
+
+        const isDoubleTap =
+          previous.side ===
+            side &&
+          now -
+            previous.time <=
+            325 &&
+          Math.abs(
+            event.clientX -
+              previous.x,
+          ) <=
+            90 &&
+          Math.abs(
+            event.clientY -
+              previous.y,
+          ) <=
+            90;
+
+        mobileTapRef.current = {
+          time:
+            now,
+          side,
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+
+        if (!isDoubleTap) {
+          return;
+        }
+
+        event.preventDefault();
+
+        mobileTapRef.current = {
+          time:
+            0,
+          side:
+            "",
+          x:
+            0,
+          y:
+            0,
+        };
+
+        const currentTime =
+          Number.isFinite(
+            playerState.currentTime,
+          )
+            ? playerState.currentTime
+            : 0;
+
+        const duration =
+          Number.isFinite(
+            playerState.duration,
+          ) &&
+          playerState.duration >
+            0
+            ? playerState.duration
+            : Infinity;
+
+        const delta =
+          side ===
+            "back"
+            ? -10
+            : 10;
+
+        const nextTime =
+          Math.max(
+            0,
+            Math.min(
+              currentTime +
+                delta,
+              duration,
+            ),
+          );
+
+        player.seekTo(
+          nextTime,
+        );
+
+        setMobileSeekFeedback({
+          side,
+          label:
+            side === "back"
+              ? "-10"
+              : "+10",
+        });
+
+        if (
+          mobileSeekFeedbackTimerRef
+            .current
+        ) {
+          window.clearTimeout(
+            mobileSeekFeedbackTimerRef
+              .current,
+          );
+        }
+
+        mobileSeekFeedbackTimerRef.current =
+          window.setTimeout(
+            () => {
+              setMobileSeekFeedback(
+                null,
+              );
+
+              mobileSeekFeedbackTimerRef.current =
+                null;
+            },
+            650,
+          );
+      };
+
+    window.addEventListener(
+      "pointerdown",
+      handlePointerDown,
+      {
+        passive:
+          true,
+      },
+    );
+
+    window.addEventListener(
+      "pointerup",
+      handlePointerUp,
+      {
+        passive:
+          false,
+      },
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pointerdown",
+        handlePointerDown,
+      );
+
+      window.removeEventListener(
+        "pointerup",
+        handlePointerUp,
+      );
+
+      if (
+        mobileSeekFeedbackTimerRef
+          .current
+      ) {
+        window.clearTimeout(
+          mobileSeekFeedbackTimerRef
+            .current,
+        );
+
+        mobileSeekFeedbackTimerRef.current =
+          null;
+      }
     };
   }, []);
 
@@ -5513,6 +5783,26 @@ const clearPlaylistToOpen =
           currentUser
         }
       />
+
+      {mobileSeekFeedback ? (
+        <div
+          className={
+            mobileSeekFeedback.side ===
+              "back"
+              ? "mobile-seek-feedback mobile-seek-feedback--back"
+              : "mobile-seek-feedback mobile-seek-feedback--forward"
+          }
+          aria-hidden="true"
+        >
+          <strong>
+            {mobileSeekFeedback.label}
+          </strong>
+
+          <span>
+            seconds
+          </span>
+        </div>
+      ) : null}
 
 <AuthOverlay
   open={authOpen}
