@@ -60,6 +60,10 @@ test(
         fileSize: 5_000_000,
         mediaVersion:
           "media-version-one",
+        artworkVersion:
+          null,
+        durationSeconds:
+          null,
       },
     },
     {
@@ -73,6 +77,10 @@ test(
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
+        artworkVersion:
+          null,
+        durationSeconds:
+          null,
       },
     },
     {
@@ -86,6 +94,10 @@ test(
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
+        artworkVersion:
+          null,
+        durationSeconds:
+          null,
       },
     },
   ],
