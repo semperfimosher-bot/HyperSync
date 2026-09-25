@@ -72,3 +72,20 @@ export async function savePushSubscription(
     },
   );
 }
+
+
+export async function deletePushSubscription(
+  endpoint,
+) {
+  return apiRequest(
+    "/messages/push/subscriptions",
+    {
+      method:
+        "DELETE",
+      body:
+        JSON.stringify({
+          endpoint,
+        }),
+    },
+  );
+}
