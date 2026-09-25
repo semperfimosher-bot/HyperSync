@@ -404,12 +404,6 @@ export default function TrackActionMenu({
 
         setLiked(false);
 
-        window.dispatchEvent(
-          new CustomEvent(
-            "hypersync:library-changed",
-          ),
-        );
-
         if (offlineOwnerKey) {
           await removeLikedTrackFromOffline(
             track,
@@ -442,6 +436,12 @@ export default function TrackActionMenu({
           );
         }
 
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
+
         setNotice(
           "Removed from Liked Songs",
         );
@@ -451,12 +451,6 @@ export default function TrackActionMenu({
         );
 
         setLiked(true);
-
-        window.dispatchEvent(
-          new CustomEvent(
-            "hypersync:library-changed",
-          ),
-        );
 
         try {
           const canonicalTrack =
@@ -496,6 +490,12 @@ export default function TrackActionMenu({
               : "Added to Liked Songs, but offline download failed.",
           );
         }
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "hypersync:library-changed",
+          ),
+        );
       }
     } catch (error) {
       setNotice(
