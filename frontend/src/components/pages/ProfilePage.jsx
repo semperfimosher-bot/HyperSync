@@ -638,7 +638,8 @@ export default function ProfilePage({
               onInstallApp
             }
             disabled={
-              installState?.installed
+              installState?.installed ||
+              installState?.preparing
             }
           >
             <Icon
@@ -654,13 +655,19 @@ export default function ProfilePage({
               <strong>
                 {installState?.installed
                   ? "HyperSynced Installed"
-                  : "Install HyperSynced"}
+                  : installState?.preparing
+                    ? "Preparing Offline App..."
+                    : "Install HyperSynced"}
               </strong>
 
               <small>
                 {installState?.installed
                   ? "Offline app is ready"
-                  : "Add the offline app to this device"}
+                  : installState?.preparing
+                    ? "Downloading the app system and offline shell"
+                    : installState?.systemReady
+                      ? "Offline system ready — install the app"
+                      : "Download the system and install the app"}
               </small>
             </span>
 
