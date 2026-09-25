@@ -4707,6 +4707,8 @@ button.is-active strong {
 
 
 .hs-search-playlist-view__art {
+  position: relative;
+
   width: 130px;
 
   aspect-ratio:
