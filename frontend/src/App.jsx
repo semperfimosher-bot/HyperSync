@@ -3704,6 +3704,26 @@ export default function App() {
   setPlaylistToOpen,
   ] = useState(null);
 
+  const [
+    messageToOpen,
+    setMessageToOpen,
+  ] = useState("");
+
+  const [
+    messageNotifications,
+    setMessageNotifications,
+  ] = useState({
+    unread_count:
+      0,
+    notifications:
+      [],
+  });
+
+  const [
+    pushBusy,
+    setPushBusy,
+  ] = useState(false);
+
   const [authOpen, setAuthOpen] =
     useState(
       () => (
@@ -3882,6 +3902,60 @@ export default function App() {
 const restoreSavedAppView =
   useCallback(
     async (user) => {
+      const params =
+        new URLSearchParams(
+          window.location.search,
+        );
+
+      const linkedUsername =
+        params.get(
+          "view",
+        ) ===
+          "messages"
+          ? String(
+              params.get(
+                "user",
+              ) ??
+              "",
+            ).trim()
+          : "";
+
+      if (
+        linkedUsername &&
+        user?.account_type ===
+          "registered"
+      ) {
+        setMessageToOpen(
+          linkedUsername,
+        );
+
+        setActivePage(
+          "messages",
+        );
+
+        setSearchQuery(
+          "",
+        );
+
+        setActiveProfileUsername(
+          "",
+        );
+
+        window.history
+          .replaceState(
+            null,
+            "",
+            (
+              window.location
+                .pathname +
+              window.location
+                .hash
+            ),
+          );
+
+        return;
+      }
+
       try {
         const state =
           await apiRequest(
@@ -4354,6 +4428,55 @@ const checkDownloadedGeneratedPlaylistUpdates =
     null;
 
 
+  const refreshMessageNotifications =
+  useCallback(
+    async () => {
+      if (
+        currentUser?.account_type !==
+          "registered" ||
+        globalThis.navigator
+          ?.onLine ===
+          false
+      ) {
+        setMessageNotifications({
+          unread_count:
+            0,
+          notifications:
+            [],
+        });
+
+        return;
+      }
+
+      try {
+        const result =
+          await getMessageNotifications();
+
+        setMessageNotifications({
+          unread_count:
+            Number(
+              result?.unread_count ??
+              0,
+            ) || 0,
+          notifications:
+            Array.isArray(
+              result?.notifications,
+            )
+              ? result.notifications
+              : [],
+        });
+      } catch {
+        // Keep the current notification snapshot
+        // during a temporary network failure.
+      }
+    },
+    [
+      currentUser?.account_type,
+      currentUser?.id,
+    ],
+  );
+
+
 const persistAppView =
   useCallback(
     (state) => {
@@ -4399,6 +4522,13 @@ const persistAppView =
 
   setCurrentUser(null);
   setPlaylistUpdates([]);
+  setMessageToOpen("");
+  setMessageNotifications({
+    unread_count:
+      0,
+    notifications:
+      [],
+  });
   dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
