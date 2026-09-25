@@ -173,3 +173,44 @@ test(
     );
   },
 );
+
+
+test(
+  "expired pages receive a fresh instance key when revisited",
+  () => {
+    const ownerKey =
+      "user:1";
+
+    const first =
+      touchWarmPage(
+        [],
+        {
+          page:
+            "admin-catalog",
+          ownerKey,
+          now:
+            100,
+        },
+      );
+
+    const revisited =
+      touchWarmPage(
+        first,
+        {
+          page:
+            "admin-catalog",
+          ownerKey,
+          now:
+            100 +
+            PAGE_WARM_TTL_MS,
+        },
+      );
+
+    assert.notEqual(
+      revisited[0]
+        .instanceKey,
+      first[0]
+        .instanceKey,
+    );
+  },
+);
