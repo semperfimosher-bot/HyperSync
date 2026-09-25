@@ -7726,6 +7726,10 @@ button > span:nth-child(2) {
   flex: 0 0 auto;
 }
 
+.hs-message-thread__back--mobile {
+  display: none;
+}
+
 .hs-message-thread__loading-name {
   overflow: hidden;
   color: #6d8a96;
@@ -7735,6 +7739,14 @@ button > span:nth-child(2) {
 }
 
 @media (max-width: 760px) {
+  .hs-message-thread__back--desktop {
+    display: none;
+  }
+
+  .hs-message-thread__back--mobile {
+    display: inline-flex;
+  }
+
   .hs-message-thread--focused {
     min-height: 500px;
     height:
