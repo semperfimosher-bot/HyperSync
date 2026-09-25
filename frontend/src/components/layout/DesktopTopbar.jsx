@@ -57,7 +57,10 @@ function DesktopTopbar({
           placeholder="Search songs, artists, albums or people..."
           data-1p-ignore="true"
           data-lpignore="true"
-          onFocus={() => {
+          onPointerDown={() => {
+            onSearchFocus?.();
+          }}
+          onKeyDown={() => {
             onSearchFocus?.();
           }}
           onChange={(event) => {
