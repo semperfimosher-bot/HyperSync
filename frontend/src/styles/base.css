@@ -7629,3 +7629,151 @@ button > span:nth-child(2) {
     font-size: 0;
   }
 }
+
+
+/* =========================================================
+   MESSAGES — SEARCH-STYLE SINGLE VIEW
+   ========================================================= */
+
+.hs-messages-directory,
+.hs-messages-search-section {
+  display: grid;
+  gap: 10px;
+}
+
+.hs-message-conversation-list {
+  gap: 7px;
+}
+
+.hs-message-conversation-card__action {
+  display: grid;
+  min-width: 28px;
+  place-items: center;
+  justify-self: end;
+  color: rgba(93, 160, 190, 0.7);
+}
+
+.hs-message-conversation-card__action > b {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #021117;
+  background: #55dcf7;
+  box-shadow:
+    0 0 12px
+    rgba(85, 220, 247, 0.22);
+  font:
+    800 7px
+    "JetBrains Mono",
+    monospace;
+}
+
+.hs-messages-empty--directory {
+  min-height: 220px;
+  border:
+    1px solid
+    rgba(72, 159, 201, 0.1);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      100deg,
+      rgba(7, 17, 24, 0.94),
+      rgba(4, 12, 18, 0.88)
+    );
+}
+
+.hs-messages-page--thread {
+  min-height: 0;
+}
+
+.hs-message-thread--focused {
+  min-height: 540px;
+  height:
+    min(
+      70vh,
+      760px
+    );
+  overflow: hidden;
+  border:
+    1px solid
+    rgba(72, 159, 201, 0.14);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(5, 15, 22, 0.98),
+      rgba(3, 10, 15, 0.995)
+    );
+  box-shadow:
+    inset 0 1px
+    rgba(255, 255, 255, 0.02),
+    0 20px 45px
+    rgba(0, 0, 0, 0.2);
+}
+
+.hs-message-thread__header--focused {
+  justify-content: space-between;
+  gap: 14px;
+  padding:
+    9px
+    12px;
+}
+
+.hs-message-thread__back {
+  flex: 0 0 auto;
+}
+
+.hs-message-thread__loading-name {
+  overflow: hidden;
+  color: #6d8a96;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .hs-message-thread--focused {
+    min-height: 500px;
+    height:
+      min(
+        68vh,
+        680px
+      );
+  }
+
+  .hs-message-thread__header--focused {
+    align-items: center;
+  }
+
+  .hs-message-thread__person {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .hs-message-thread--focused {
+    min-height: 440px;
+    height:
+      min(
+        65vh,
+        620px
+      );
+  }
+
+  .hs-message-thread__header--focused {
+    padding:
+      8px
+      9px;
+  }
+
+  .hs-message-thread__back {
+    font-size: 7px;
+  }
+
+  .hs-message-thread__person strong {
+    font-size: 8px;
+  }
+}
