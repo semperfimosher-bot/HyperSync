@@ -332,6 +332,19 @@ def _lyrics_status(
     return "not_found"
 
 
+def _utc_datetime(
+    value: datetime,
+) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
+    )
+
+
 def _lyrics_response(
     lyrics: TrackLyrics,
 ) -> TrackLyricsResponse:
@@ -389,7 +402,11 @@ async def get_track_lyrics(
             )
 
         if cached is not None:
-            retry_at = cached.checked_at + timedelta(
+            checked_at = _utc_datetime(
+                cached.checked_at,
+            )
+
+            retry_at = checked_at + timedelta(
                 hours=(settings.lrclib_not_found_retry_hours),
             )
 
@@ -397,7 +414,10 @@ async def get_track_lyrics(
                 UTC,
             )
 
-            cache_is_from_this_run = cached.checked_at >= LYRICS_NEGATIVE_CACHE_EPOCH
+            cache_is_from_this_run = (
+                checked_at
+                >= LYRICS_NEGATIVE_CACHE_EPOCH
+            )
 
             if cache_is_from_this_run and retry_at > now:
                 return _lyrics_response(
