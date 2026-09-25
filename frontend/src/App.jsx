@@ -801,15 +801,6 @@ function AdminBotPage() {
     async (
       track,
     ) => {
-      const confirmed =
-        window.confirm(
-          `Permanently delete "${track.title}" by ${track.artist} from the catalog and storage?`,
-        );
-
-      if (!confirmed) {
-        return;
-      }
-
       setMessage("");
 
       try {
@@ -1610,15 +1601,6 @@ function AdminDashboardPage({
       async (
         foundUser,
       ) => {
-        const confirmed =
-          window.confirm(
-            `Permanently delete @${foundUser.username} and all server-side account data, playlists, listening history, sessions, follows, and avatar storage?`,
-          );
-
-        if (!confirmed) {
-          return;
-        }
-
         setUserDeleteBusy(
           foundUser.id,
         );
