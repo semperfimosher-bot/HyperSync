@@ -827,44 +827,6 @@ function AdminBotPage() {
           },
         )}
 
-        <button
-          type="button"
-          className="admin-explorer-folder"
-          onClick={() => {
-            setSearchQuery(
-              " ",
-            );
-
-            window.setTimeout(
-              () => {
-                setSearchQuery(
-                  "",
-                );
-              },
-              0,
-            );
-          }}
-        >
-          <span className="admin-explorer-folder__icon">
-            <Icon
-              name="music"
-              size={24}
-            />
-          </span>
-
-          <span>
-            <strong>
-              All Files
-            </strong>
-
-            <small>
-              {tracks.length}
-              {" tracks"}
-            </small>
-          </span>
-
-          <span className="admin-tool-light is-on" />
-        </button>
       </div>
     );
 
