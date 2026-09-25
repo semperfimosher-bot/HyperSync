@@ -8,7 +8,13 @@ import {
 import {
   registerHyperSyncServiceWorker,
 } from "./serviceWorkerRegistration.js";
+
+import {
+  initializePwaInstall,
+} from "./pwaInstall.js";
 import "./styles.css";
+
+initializePwaInstall();
 
 const rootElement = document.getElementById("root");
 
@@ -73,10 +79,15 @@ window.addEventListener(
 
 
 if (import.meta.env.PROD) {
-  window.addEventListener(
-    "load",
+  const registerAppWorker =
     () => {
       void registerHyperSyncServiceWorker()
+        .then(
+          (registration) => {
+            void registration
+              ?.update?.();
+          },
+        )
         .catch(
           (error) => {
             console.error(
@@ -85,6 +96,17 @@ if (import.meta.env.PROD) {
             );
           },
         );
-    },
+    };
+
+  /*
+   * Register immediately so Chromium can
+   * evaluate installability without waiting
+   * for every image/font to finish loading.
+   */
+  registerAppWorker();
+
+  window.addEventListener(
+    "online",
+    registerAppWorker,
   );
 }
