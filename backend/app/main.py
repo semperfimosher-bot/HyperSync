@@ -119,7 +119,6 @@ async def security_headers(
     response.headers[
         "Content-Security-Policy"
     ] = (
-        "default-src 'none'; "
         "frame-ancestors 'none'; "
         "base-uri 'none'"
     )
