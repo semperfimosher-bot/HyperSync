@@ -12,6 +12,7 @@ function DesktopTopbar({
   activePage,
   searchQuery,
   onSearchChange,
+  onSearchFocus,
   currentUser,
   onNavigate,
   onOpenAuth,
@@ -49,8 +50,16 @@ function DesktopTopbar({
 
         <input
           type="search"
+          name="hypersync_global_search"
+          autoComplete="off"
+          enterKeyHint="search"
           value={searchQuery}
           placeholder="Search songs, artists, albums or people..."
+          data-1p-ignore="true"
+          data-lpignore="true"
+          onFocus={() => {
+            onSearchFocus?.();
+          }}
           onChange={(event) => {
             onSearchChange(
               event.target.value,
