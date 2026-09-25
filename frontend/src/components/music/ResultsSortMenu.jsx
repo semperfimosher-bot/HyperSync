@@ -53,6 +53,22 @@ export default function ResultsSortMenu({
     return null;
   }
 
+  const desktopStyle =
+    menu.mode === "desktop"
+      ? {
+          position: "fixed",
+          left: Math.min(
+            Math.max(menu.x ?? 12, 12),
+            Math.max(window.innerWidth - 292, 12),
+          ),
+          top: Math.min(
+            Math.max(menu.y ?? 12, 12),
+            Math.max(window.innerHeight - 330, 12),
+          ),
+          margin: 0,
+        }
+      : undefined;
+
   const activeOption =
     RESULTS_SORT_OPTIONS.find(
       (option) =>
@@ -90,6 +106,7 @@ export default function ResultsSortMenu({
         role="menu"
         aria-label="Sort results"
         className="track-action-menu"
+        style={desktopStyle}
         onPointerDown={(
           event,
         ) => {
