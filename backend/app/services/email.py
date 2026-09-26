@@ -106,7 +106,7 @@ async def send_password_recovery_email(
 
     use_code_url = (
         frontend_url
-        + "/?"
+        + "/#?"
         + urlencode(
             {
                 "recovery_identifier": username,
