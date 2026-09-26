@@ -977,6 +977,61 @@ const [
   );
 
 
+  useQuietRefresh(
+    async () => {
+      const playlistId =
+        selectedPlaylist?.id;
+
+      if (!playlistId) {
+        return;
+      }
+
+      try {
+        const refreshed =
+          await getPlaylist(
+            playlistId,
+          );
+
+        await reconcileDownloadedPlaylistMembership(
+          refreshed,
+          offlineOwnerKey,
+        );
+
+        setSelectedPlaylist(
+          refreshed,
+        );
+
+        setCachedPlaylist(
+          libraryCacheKey,
+          refreshed,
+        );
+      } catch (requestError) {
+        if (
+          requestError?.status ===
+            404
+        ) {
+          setSelectedPlaylist(
+            null,
+          );
+
+          void loadLibrary({
+            quiet:
+              true,
+          });
+        }
+      }
+    },
+    {
+      enabled:
+        Boolean(
+          selectedPlaylist?.id,
+        ),
+      intervalMs:
+        20_000,
+    },
+  );
+
+
   useEffect(() => {
     const handleLibraryChanged =
       () => {
