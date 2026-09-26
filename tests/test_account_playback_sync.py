@@ -1,13 +1,23 @@
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from backend.app.database import (
     get_engine,
     get_session_factory,
 )
 from backend.app.main import app
+from backend.app.models.account import (
+    PlaybackDevice,
+    User,
+)
 from backend.app.models.base import Base
 from backend.app.models.media import Track
 
@@ -507,3 +517,104 @@ async def test_playback_devices_are_account_scoped() -> None:
             == 404
         ), cross_account.text
 
+
+
+@pytest.mark.asyncio
+async def test_offline_playback_devices_are_removed_from_database() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-prune-{run_id}"
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        session_factory = (
+            get_session_factory()
+        )
+
+        async with session_factory() as session:
+            user = (
+                await session.execute(
+                    select(
+                        User,
+                    ).where(
+                        User.username
+                        == username,
+                    )
+                )
+            ).scalar_one()
+
+            stale_device = PlaybackDevice(
+                user_id=user.id,
+                device_id="stale-device",
+                name="Old Browser",
+                device_type="desktop",
+                last_seen_at=(
+                    datetime.now(
+                        UTC,
+                    )
+                    -
+                    timedelta(
+                        minutes=10,
+                    )
+                ),
+            )
+
+            session.add(
+                stale_device,
+            )
+
+            await session.commit()
+
+            user_id = user.id
+
+        poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "live-device",
+                "name":
+                    "Current Browser",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert (
+            poll.status_code
+            == 200
+        ), poll.text
+
+        assert {
+            device["device_id"]
+            for device in
+            poll.json()["devices"]
+        } == {
+            "live-device",
+        }
+
+        async with session_factory() as session:
+            stale_row = await session.get(
+                PlaybackDevice,
+                (
+                    user_id,
+                    "stale-device",
+                ),
+            )
+
+            assert stale_row is None
