@@ -381,6 +381,8 @@ export function applyManualMetadataEdit(
       "title",
       "artist",
       "album",
+      "genre",
+      "releaseYear",
       "duration",
     ]
   ) {
