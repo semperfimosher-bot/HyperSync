@@ -322,6 +322,15 @@ export default function ArtistProfilePage({
         album:
           track.album ??
           "",
+
+        genre:
+          track.genre ??
+          "",
+
+        releaseYear:
+          track.release_year ??
+          track.releaseYear ??
+          null,
       }),
     );
 
