@@ -710,7 +710,7 @@
   }
 
   .player-bar {
-    position: relative;
+    position: static;
     grid-column: 1 / -1;
     grid-row: 2;
     display: grid;
@@ -1038,8 +1038,9 @@
   }
 
   .playback-devices-popover {
+    position: fixed;
     right: 18px;
-    bottom: calc(100% + 12px);
+    bottom: 78px;
     left: auto;
     width: min(
       360px,
