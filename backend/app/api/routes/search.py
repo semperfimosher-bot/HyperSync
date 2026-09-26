@@ -41,6 +41,7 @@ from ...models.playlist import (
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
+    smart_track_score,
 )
 from ...services.search import (
     SEARCH_SORT_MODES,
@@ -87,6 +88,7 @@ TOP_ENTITY_LIMIT = 20
 
 NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
+SMART_VIBE_CANDIDATE_LIMIT = 500
 
 class SearchPlaylistResult(
     BaseModel,
@@ -579,7 +581,12 @@ async def _load_track_candidates(
             )
         )
 
-        return list(result.scalars().all())
+        direct = list(
+            result.scalars().all()
+        )
+
+        if direct:
+            return direct
 
     direct_pattern = prefix_pattern if len(term) == 1 else contains_pattern
 
@@ -609,6 +616,50 @@ async def _load_track_candidates(
 
     if direct:
         return direct
+
+    smart_result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            )
+        )
+        .order_by(
+            Track.created_at.desc(),
+        )
+        .limit(
+            SMART_VIBE_CANDIDATE_LIMIT,
+        )
+    )
+
+    smart_candidates = [
+        track
+        for track
+        in smart_result.scalars().all()
+        if smart_track_score(
+            track,
+            parsed.raw,
+        )
+        > 0
+    ]
+
+    if smart_candidates:
+        smart_candidates.sort(
+            key=lambda track: (
+                -smart_track_score(
+                    track,
+                    parsed.raw,
+                ),
+                track.artist.casefold(),
+                track.title.casefold(),
+            )
+        )
+
+        return smart_candidates[
+            :TRACK_CANDIDATE_LIMIT
+        ]
 
     if len(term) < 3 or _is_postgresql(
         session,
@@ -732,7 +783,7 @@ def _match_for_track(
             field="created_at",
         )
 
-    return score_track(
+    direct_match = score_track(
         track.title,
         track.artist,
         track.album,
@@ -743,6 +794,24 @@ def _match_for_track(
             None,
         ),
     )
+
+    if direct_match.score > 0:
+        return direct_match
+
+    smart_score = smart_track_score(
+        track,
+        parsed.raw,
+    )
+
+    if smart_score > 0:
+        return MatchResult(
+            score=smart_score,
+            tier=2,
+            label="VIBE MATCH",
+            field="genre",
+        )
+
+    return direct_match
 
 
 async def _build_track_rows(
