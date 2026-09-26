@@ -69,6 +69,31 @@ class Message(
         nullable=False,
     )
 
+    shared_kind: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+    )
+
+    shared_key: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+
+    shared_title: Mapped[str | None] = mapped_column(
+        String(300),
+        nullable=True,
+    )
+
+    shared_subtitle: Mapped[str | None] = mapped_column(
+        String(300),
+        nullable=True,
+    )
+
+    shared_artwork_url: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     viewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(
             timezone=True,
