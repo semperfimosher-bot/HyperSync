@@ -2808,45 +2808,47 @@ async function downloadOpenedPlaylist() {
             />
           </label>
 
-          <span>
-            {playlistSearchQuery.trim()
-              ? (
-                  filteredOpenedPlaylistTracks.length +
-                  " of " +
-                  (
-                    openedPlaylist.tracks
-                      ?.length ??
-                    0
-                  ) +
-                  " tracks"
-                )
-              : (
-                  (
-                    openedPlaylist.tracks
-                      ?.length ??
-                    0
-                  ) +
-                  (
-                    openedPlaylist.tracks?.length ===
-                      1
-                      ? " track"
-                      : " tracks"
+          <div className="hs-playlist-track-search__meta">
+            <span>
+              {playlistSearchQuery.trim()
+                ? (
+                    filteredOpenedPlaylistTracks.length +
+                    " of " +
+                    (
+                      openedPlaylist.tracks
+                        ?.length ??
+                      0
+                    ) +
+                    " tracks"
                   )
-                )}
-          </span>
+                : (
+                    (
+                      openedPlaylist.tracks
+                        ?.length ??
+                      0
+                    ) +
+                    (
+                      openedPlaylist.tracks?.length ===
+                        1
+                        ? " track"
+                        : " tracks"
+                    )
+                  )}
+            </span>
 
-          {playlistSearchQuery ? (
-            <button
-              type="button"
-              onClick={() => {
-                setPlaylistSearchQuery(
-                  "",
-                );
-              }}
-            >
-              Clear
-            </button>
-          ) : null}
+            {playlistSearchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlaylistSearchQuery(
+                    "",
+                  );
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
