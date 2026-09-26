@@ -270,6 +270,56 @@ export default function UploadQueueItem({
           </label>
 
           <label>
+            Genre
+
+            <input
+              value={
+                item.genre ?? ""
+              }
+              placeholder="e.g. Country"
+              disabled={
+                disabled ||
+                isUploading
+              }
+              onChange={(event) =>
+                onUpdate(item.id, {
+                  genre:
+                    event.target.value,
+                })
+              }
+            />
+          </label>
+
+          <label>
+            Release year
+
+            <input
+              type="number"
+              min="1900"
+              max="2100"
+              value={
+                item.releaseYear ?? ""
+              }
+              placeholder="e.g. 2024"
+              disabled={
+                disabled ||
+                isUploading
+              }
+              onChange={(event) => {
+                const value =
+                  event.target.value;
+
+                onUpdate(item.id, {
+                  releaseYear:
+                    value
+                      ? Number(value)
+                      : null,
+                });
+              }}
+            />
+          </label>
+
+          <label>
             Duration
 
             <input

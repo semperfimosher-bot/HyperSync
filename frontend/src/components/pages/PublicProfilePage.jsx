@@ -29,6 +29,15 @@ import useTrackActionMenu from
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
+import useOnlineStatus from
+  "../../hooks/useOnlineStatus.js";
+
+import OfflineNotice from
+  "../ui/OfflineNotice.jsx";
+
 
 function memberFor(value) {
   if (!value) {
@@ -80,6 +89,9 @@ export default function PublicProfilePage({
   onOpenProfile,
   onSearchArtist,
 }) {
+  const online =
+    useOnlineStatus();
+
   const trackActionMenu =
     useTrackActionMenu();
 
@@ -103,43 +115,88 @@ export default function PublicProfilePage({
 
 
   const load =
-    useCallback(async () => {
-      if (!username) {
-        return;
-      }
+    useCallback(
+      async ({
+        quiet = false,
+      } = {}) => {
+        if (!username) {
+          return;
+        }
 
-      setLoading(true);
-      setError("");
+        if (!online) {
+          setLoading(false);
+          setError("");
+          return;
+        }
 
-      try {
-        const data =
-          await getPublicProfile(
-            username,
-          );
+        if (!quiet) {
+          setLoading(true);
+          setError("");
+        }
 
-        setProfile(data);
+        try {
+          const data =
+            await getPublicProfile(
+              username,
+            );
 
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load profile.",
-        );
+          setProfile(data);
+          setError("");
 
-      } finally {
-        setLoading(false);
-      }
-    }, [username]);
+        } catch (loadError) {
+          if (!quiet) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unable to load profile.",
+            );
+          }
+
+        } finally {
+          if (!quiet) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        username,
+        online,
+      ],
+    );
 
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [
+    load,
+  ]);
+
+
+  useQuietRefresh(
+    () =>
+      load({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        Boolean(
+          username
+          && online,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   async function followAction() {
     if (!currentUser) {
       onOpenAuth?.();
+      return;
+    }
+
+    if (!online) {
       return;
     }
 
@@ -179,6 +236,21 @@ export default function PublicProfilePage({
     } finally {
       setActing(false);
     }
+  }
+
+
+  if (
+    !online &&
+    !profile
+  ) {
+    return (
+      <div className="hs-profile-page">
+        <OfflineNotice
+          title="Go back online to see this profile"
+          description="Public profiles, follow state, and listening activity sync from HyperSync."
+        />
+      </div>
+    );
   }
 
 
@@ -234,6 +306,14 @@ export default function PublicProfilePage({
 
   return (
     <div className="hs-profile-page">
+      {!online ? (
+        <OfflineNotice
+          compact
+          title="You’re offline"
+          description="Go back online to refresh this profile and its listening activity."
+        />
+      ) : null}
+
       <section className="hs-profile-hero">
         <div className="hs-profile-hero__ambient" />
 
@@ -512,6 +592,14 @@ export default function PublicProfilePage({
 
   mediaVersion:
   track?.media_version ??
+  null,
+
+  genre:
+  track?.genre ??
+  "",
+
+  releaseYear:
+  track?.release_year ??
   null,
 },
                 ).catch(

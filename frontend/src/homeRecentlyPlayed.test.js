@@ -30,7 +30,7 @@ test(
   () => {
     const profile = {
       recently_played: Array.from(
-        { length: 14 },
+        { length: 40 },
         (_, index) => ({
           id: String(index + 1),
         }),

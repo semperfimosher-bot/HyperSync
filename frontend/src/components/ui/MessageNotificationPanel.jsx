@@ -39,7 +39,7 @@ function notificationTime(
 
 export default function MessageNotificationPanel({
   data,
-  onOpenMessage,
+  onOpenNotification,
   onEnablePush,
   pushBusy = false,
   pushEnabled = false,
@@ -61,7 +61,7 @@ export default function MessageNotificationPanel({
     <div className="message-notification-block">
       <div className="message-notification-block__heading">
         <span>
-          NEW MESSAGES
+          NOTIFICATIONS
         </span>
 
         <strong>
@@ -74,50 +74,71 @@ export default function MessageNotificationPanel({
           {notifications.map(
             (
               notification,
-            ) => (
-              <button
-                type="button"
-                key={
-                  notification.message_id
-                }
-                onClick={() => {
-                  onOpenMessage?.(
-                    notification
-                      .sender_username,
-                  );
-                }}
-              >
-                <Avatar
-                  src={
-                    notification
-                      .sender_avatar_url
+            ) => {
+              const adminActivity =
+                notification.type ===
+                "admin_activity";
+
+              return (
+                <button
+                  type="button"
+                  key={
+                    adminActivity
+                      ? notification
+                          .notification_id
+                      : notification
+                          .message_id
                   }
-                  name={
-                    notification
-                      .sender_display_name
-                  }
-                  size="small"
-                />
+                  onClick={() => {
+                    onOpenNotification?.(
+                      notification,
+                    );
+                  }}
+                >
+                  <Avatar
+                    src={
+                      adminActivity
+                        ? null
+                        : notification
+                            .sender_avatar_url
+                    }
+                    name={
+                      adminActivity
+                        ? (
+                            notification
+                              .actor_username
+                            || "HyperSync"
+                          )
+                        : notification
+                            .sender_display_name
+                    }
+                    size="small"
+                  />
 
-                <span>
-                  <strong>
-                    {notification
-                      .sender_display_name}
-                  </strong>
+                  <span>
+                    <strong>
+                      {adminActivity
+                        ? notification.title
+                        : notification
+                            .sender_display_name}
+                    </strong>
 
-                  <em>
-                    {notification.preview}
-                  </em>
-                </span>
+                    <em>
+                      {adminActivity
+                        ? notification.body
+                        : notification.preview}
+                    </em>
+                  </span>
 
-                <small>
-                  {notificationTime(
-                    notification
-                      .created_at,
-                  )}
-                </small>
-              </button>
-            ),
+                  <small>
+                    {notificationTime(
+                      notification
+                        .created_at,
+                    )}
+                  </small>
+                </button>
+              );
+            },
           )}
         </div>
       ) : (
@@ -128,7 +149,7 @@ export default function MessageNotificationPanel({
           />
 
           <span>
-            No unread messages
+            No unread notifications
           </span>
         </div>
       )}

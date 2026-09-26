@@ -521,3 +521,18 @@
     min-height: 160px;
   }
 }
+
+
+.admin-upload-catalog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 699px) {
+  .admin-upload-catalog__actions {
+    justify-content: flex-start;
+  }
+}

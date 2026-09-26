@@ -88,6 +88,49 @@ export function buildInitialMetadata(
   };
 }
 
+function parseReleaseYear(
+  ...values
+) {
+  for (const value of values) {
+    if (
+      value === null
+      || value === undefined
+      || value === ""
+    ) {
+      continue;
+    }
+
+    const match =
+      String(
+        value,
+      ).match(
+        /(?:^|\D)(19\d{2}|20\d{2}|21\d{2})(?:\D|$)/,
+      );
+
+    if (!match) {
+      continue;
+    }
+
+    const year =
+      Number(
+        match[1],
+      );
+
+    if (
+      Number.isInteger(
+        year,
+      )
+      && year >= 1900
+      && year <= 2100
+    ) {
+      return year;
+    }
+  }
+
+  return null;
+}
+
+
 function cleanEmbeddedValue(
   value,
 ) {
@@ -153,6 +196,13 @@ export function mergeEmbeddedMetadata(
         embedded.genre,
       ),
 
+    releaseYear:
+      Number.isInteger(
+        embedded.releaseYear,
+      )
+        ? embedded.releaseYear
+        : null,
+
     bitrateKbps:
       Number.isFinite(
         embedded.bitrateKbps,
@@ -181,6 +231,7 @@ export async function readEmbeddedAudioMetadata(
     artist: "",
     album: "",
     genre: "",
+    releaseYear: null,
     bitrateKbps: null,
     artworkBlob: null,
     artworkMimeType: "",
@@ -258,6 +309,14 @@ export async function readEmbeddedAudioMetadata(
             common.genre,
           );
 
+    const releaseYear =
+      parseReleaseYear(
+        common.year,
+        common.date,
+        common.originaldate,
+        common.originalyear,
+      );
+
     const bitrate =
       Number(
         metadata?.format
@@ -281,6 +340,7 @@ export async function readEmbeddedAudioMetadata(
         ),
 
       genre,
+      releaseYear,
 
       bitrateKbps:
         Number.isFinite(
@@ -321,6 +381,8 @@ export function applyManualMetadataEdit(
       "title",
       "artist",
       "album",
+      "genre",
+      "releaseYear",
       "duration",
     ]
   ) {

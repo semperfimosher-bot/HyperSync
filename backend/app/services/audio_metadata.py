@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from io import BytesIO
 from typing import TypedDict
@@ -18,6 +19,7 @@ class EmbeddedAudioMetadata(
     album: str | None
     duration_seconds: int | None
     genre: str | None
+    release_year: int | None
 
 
 class ResolvedTrackMetadata(
@@ -28,6 +30,7 @@ class ResolvedTrackMetadata(
     album: str | None
     duration_seconds: int
     genre: str | None
+    release_year: int | None
 
 
 def normalize_track_identity(
@@ -91,6 +94,47 @@ def _tag_value(
     )
 
 
+def _release_year(
+    tags,
+) -> int | None:
+    for key in (
+        "date",
+        "year",
+        "originaldate",
+        "originalyear",
+    ):
+        value = _tag_value(
+            tags,
+            key,
+        )
+
+        if not value:
+            continue
+
+        match = re.search(
+            r"(?<!\d)(19\d{2}|20\d{2}|21\d{2})(?!\d)",
+            value,
+        )
+
+        if not match:
+            continue
+
+        year = int(
+            match.group(
+                1,
+            )
+        )
+
+        if (
+            1900
+            <= year
+            <= 2100
+        ):
+            return year
+
+    return None
+
+
 def extract_embedded_audio_metadata(
     file_content: bytes,
 ) -> EmbeddedAudioMetadata:
@@ -100,6 +144,7 @@ def extract_embedded_audio_metadata(
         "album": None,
         "duration_seconds": None,
         "genre": None,
+        "release_year": None,
     }
 
     if not file_content:
@@ -182,6 +227,9 @@ def extract_embedded_audio_metadata(
             tags,
             "genre",
         ),
+        "release_year": _release_year(
+            tags,
+        ),
     }
 
 
@@ -233,5 +281,8 @@ def resolve_track_metadata(
         ),
         "genre": embedded.get(
             "genre",
+        ),
+        "release_year": embedded.get(
+            "release_year",
         ),
     }

@@ -66,13 +66,24 @@ function DesktopTopbar({
             autoComplete="off"
             enterKeyHint="search"
             value={searchQuery}
-            placeholder="Search songs, artists, albums or people..."
+            placeholder="Search songs, artists, genres, or type a vibe..."
             data-1p-ignore="true"
             data-lpignore="true"
             onPointerDown={() => {
               onSearchFocus?.();
             }}
             onKeyDown={(event) => {
+              if (
+                event.key === "Enter"
+              ) {
+                event.currentTarget
+                  .blur();
+
+                onSearchFocus?.();
+
+                return;
+              }
+
               if (
                 event.key === "Tab" ||
                 event.key === "Shift" ||

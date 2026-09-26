@@ -1,5 +1,7 @@
 import {
+  clearAuthSession,
   getAccessToken,
+  hasStoredSession,
   saveAuthSession,
 } from "./storage.js";
 
@@ -10,6 +12,187 @@ export const API_BASE =
     : "https://api.hypersynced.app/api");
 
 let refreshInFlight = null;
+
+let refreshBlockedUntil = 0;
+
+let refreshBlockedError = null;
+
+
+function isAuthEndpoint(
+  path,
+) {
+  return (
+    path === "/auth/login" ||
+    path === "/auth/register" ||
+    path === "/auth/refresh" ||
+    path.startsWith(
+      "/auth/password-recovery/",
+    )
+  );
+}
+
+
+function pathRequiresAuthentication(
+  path,
+  method = "GET",
+) {
+  const normalizedMethod =
+    String(
+      method ??
+      "GET",
+    ).toUpperCase();
+
+  if (
+    path.startsWith(
+      "/users/me",
+    ) ||
+    path.startsWith(
+      "/messages",
+    ) ||
+    path.startsWith(
+      "/admin",
+    ) ||
+    path.startsWith(
+      "/library",
+    ) ||
+    path ===
+      "/search/preferences" ||
+    path.startsWith(
+      "/playlists/mine",
+    ) ||
+    path.startsWith(
+      "/playlists/saved",
+    ) ||
+    path.startsWith(
+      "/playlists/liked",
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    path.startsWith(
+      "/playlists/",
+    ) &&
+    normalizedMethod !==
+      "GET"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
+function retryAfterMilliseconds(
+  response,
+) {
+  const raw =
+    response?.headers
+      ?.get?.(
+        "Retry-After",
+      );
+
+  const seconds =
+    Number.parseInt(
+      String(
+        raw ?? "",
+      ),
+      10,
+    );
+
+  if (
+    Number.isFinite(
+      seconds,
+    ) &&
+    seconds > 0
+  ) {
+    return Math.min(
+      seconds * 1000,
+      5 * 60 * 1000,
+    );
+  }
+
+  return 30_000;
+}
+
+
+function rememberRefreshFailure(
+  error,
+  response,
+) {
+  const status =
+    Number(
+      error?.status ??
+      0,
+    );
+
+  const blockMs =
+    status === 429
+      ? retryAfterMilliseconds(
+          response,
+        )
+      : (
+          status === 401 ||
+          status === 403
+            ? 60_000
+            : 5_000
+        );
+
+  refreshBlockedUntil =
+    Date.now() +
+    blockMs;
+
+  refreshBlockedError =
+    error;
+}
+
+
+function clearRefreshFailure() {
+  refreshBlockedUntil =
+    0;
+
+  refreshBlockedError =
+    null;
+}
+
+
+function refreshCooldownError() {
+  if (
+    Date.now() >=
+    refreshBlockedUntil
+  ) {
+    clearRefreshFailure();
+
+    return null;
+  }
+
+  const source =
+    refreshBlockedError;
+
+  const error =
+    new Error(
+      source?.message ??
+      "Authentication refresh is temporarily paused.",
+    );
+
+  error.status =
+    source?.status ??
+    429;
+
+  error.detail =
+    source?.detail;
+
+  error.retryAfterMs =
+    Math.max(
+      refreshBlockedUntil -
+        Date.now(),
+      0,
+    );
+
+  return error;
+}
+
 
 export function formatApiError(detail) {
   if (!detail) {
@@ -29,9 +212,24 @@ export function formatApiError(detail) {
   return String(detail);
 }
 
+
+export function isAuthRefreshCoolingDown() {
+  return Boolean(
+    refreshCooldownError(),
+  );
+}
+
+
 export async function refreshAccessToken() {
   if (refreshInFlight) {
     return refreshInFlight;
+  }
+
+  const blockedError =
+    refreshCooldownError();
+
+  if (blockedError) {
+    throw blockedError;
   }
 
   refreshInFlight = (async () => {
@@ -64,6 +262,31 @@ export async function refreshAccessToken() {
       error.detail =
         errorData?.detail;
 
+      if (
+        response.status ===
+          401 ||
+        response.status ===
+          403
+      ) {
+        /*
+         * The server has definitively rejected
+         * the refresh session. Remove the stale
+         * remembered browser session so future
+         * reloads do not repeat this failed
+         * refresh forever.
+         *
+         * Temporary failures (429, 5xx, network)
+         * continue to preserve the remembered
+         * session.
+         */
+        clearAuthSession();
+      }
+
+      rememberRefreshFailure(
+        error,
+        response,
+      );
+
       throw error;
     }
 
@@ -80,6 +303,8 @@ export async function refreshAccessToken() {
       { remember },
     );
 
+    clearRefreshFailure();
+
     return data;
   })();
 
@@ -90,18 +315,70 @@ export async function refreshAccessToken() {
   }
 }
 
+
 export async function apiRequest(
   path,
   options = {},
   accessToken = null,
 ) {
-  const token =
+  let token =
     accessToken ?? getAccessToken();
 
-  // Don't set Content-Type for FormData (file uploads) - let browser set multipart/form-data
-  const isFormData = options.body instanceof FormData;
+  const authEndpoint =
+    isAuthEndpoint(
+      path,
+    );
+
+  const requiresAuthentication =
+    pathRequiresAuthentication(
+      path,
+      options.method,
+    );
+
+  /*
+   * After a reload access tokens are memory-only.
+   * Restore one before sending protected requests
+   * instead of first generating a wave of 401s.
+   */
+  if (
+    !token &&
+    !authEndpoint &&
+    requiresAuthentication
+  ) {
+    if (
+      hasStoredSession()
+    ) {
+      const auth =
+        await refreshAccessToken();
+
+      token =
+        auth.access_token;
+    } else {
+      const error =
+        new Error(
+          "Authentication required.",
+        );
+
+      error.status =
+        401;
+
+      error.detail =
+        "Authentication required.";
+
+      throw error;
+    }
+  }
+
+  const isFormData =
+    options.body instanceof FormData;
+
   const headers = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(isFormData
+      ? {}
+      : {
+          "Content-Type":
+            "application/json",
+        }),
     ...(options.headers ?? {}),
   };
 
@@ -119,21 +396,21 @@ export async function apiRequest(
     },
   );
 
-  const isAuthEndpoint =
-    path === "/auth/login" ||
-    path === "/auth/register" ||
-    path === "/auth/refresh";
-
   if (
     response.status === 401 &&
-    !isAuthEndpoint
+    !authEndpoint
   ) {
     try {
       const auth =
         await refreshAccessToken();
 
       const retryHeaders = {
-        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        ...(isFormData
+          ? {}
+          : {
+              "Content-Type":
+                "application/json",
+            }),
         ...(options.headers ?? {}),
         Authorization:
           `Bearer ${auth.access_token}`,
@@ -147,12 +424,13 @@ export async function apiRequest(
           credentials: "include",
         },
       );
-    } catch {
+    } catch (refreshError) {
       /*
-       * Do not erase the browser's stored
-       * session because one refresh attempt
-       * failed. A later request can retry.
+       * Preserve remembered session data, but
+       * surface the refresh failure so callers
+       * stop retrying during its cooldown.
        */
+      throw refreshError;
     }
   }
 
@@ -174,6 +452,15 @@ export async function apiRequest(
       data?.detail;
 
     throw error;
+  }
+
+  if (
+    path === "/auth/login" ||
+    path === "/auth/register" ||
+    path ===
+      "/auth/password-recovery/verify-otp"
+  ) {
+    clearRefreshFailure();
   }
 
   return data;

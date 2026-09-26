@@ -16,6 +16,9 @@ import SocialModal from "../profile/SocialModal.jsx";
 import Icon from "../ui/Icon.jsx";
 import TrackArtwork from "../ui/TrackArtwork.jsx";
 
+import PlaybackDevicesPanel from
+  "../player/PlaybackDevicesPanel.jsx";
+
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
@@ -27,6 +30,15 @@ import useTrackActionMenu from
 
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
+
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
+import useOnlineStatus from
+  "../../hooks/useOnlineStatus.js";
+
+import OfflineNotice from
+  "../ui/OfflineNotice.jsx";
 
 
 function memberFor(value) {
@@ -123,7 +135,15 @@ export default function ProfilePage({
   onProfileUpdated,
   installState,
   onInstallApp,
+  playbackDevices = [],
+  currentPlaybackDeviceId,
+  controlledPlaybackDeviceId,
+  onSelectPlaybackDevice,
+  onPlaybackDeviceCommand,
 }) {
+  const online =
+    useOnlineStatus();
+
   const trackActionMenu =
     useTrackActionMenu();
 
@@ -144,6 +164,11 @@ export default function ProfilePage({
   const [editing, setEditing] =
     useState(false);
 
+  const [
+    devicesOpen,
+    setDevicesOpen,
+  ] = useState(false);
+
   const [socialMode, setSocialMode] =
     useState("");
 
@@ -152,38 +177,79 @@ export default function ProfilePage({
 
 
   const loadProfile =
-    useCallback(async () => {
-      if (!currentUser) {
-        setProfile(null);
-        setLoading(false);
-        return;
-      }
+    useCallback(
+      async ({
+        quiet = false,
+      } = {}) => {
+        if (!currentUser) {
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
 
-      setLoading(true);
-      setError("");
+        if (!online) {
+          setLoading(false);
+          setError("");
+          return;
+        }
 
-      try {
-        const data =
-          await getMyProfile();
+        if (!quiet) {
+          setLoading(true);
+          setError("");
+        }
 
-        setProfile(data);
+        try {
+          const data =
+            await getMyProfile();
 
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load profile.",
-        );
+          setProfile(data);
+          setError("");
 
-      } finally {
-        setLoading(false);
-      }
-    }, [currentUser]);
+        } catch (loadError) {
+          if (!quiet) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unable to load profile.",
+            );
+          }
+
+        } finally {
+          if (!quiet) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        currentUser,
+        online,
+      ],
+    );
 
 
   useEffect(() => {
     void loadProfile();
-  }, [loadProfile]);
+  }, [
+    loadProfile,
+  ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadProfile({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        Boolean(
+          currentUser
+          && online,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   if (!currentUser) {
@@ -220,6 +286,21 @@ export default function ProfilePage({
 
 
   if (
+    !online &&
+    !profile
+  ) {
+    return (
+      <div className="hs-profile-page">
+        <OfflineNotice
+          title="Go back online to see your profile"
+          description="Your profile stats, followers, Recently Played, and Top Artists sync from HyperSync."
+        />
+      </div>
+    );
+  }
+
+
+  if (
     loading &&
     !profile
   ) {
@@ -241,6 +322,14 @@ export default function ProfilePage({
 
   return (
     <div className="hs-profile-page">
+      {!online ? (
+        <OfflineNotice
+          compact
+          title="You’re offline"
+          description="Profile activity shown below may be from your last online session. Go back online to refresh it."
+        />
+      ) : null}
+
       <section className="hs-profile-hero">
         <div className="hs-profile-hero__ambient" />
 
@@ -416,7 +505,13 @@ export default function ProfilePage({
         </header>
 
 
-        {profile?.recently_played?.length ? (
+        {!online ? (
+          <OfflineNotice
+            compact
+            title="Go back online to see Recently Played"
+            description="Listening history is synced to your account and is not replaced by downloaded-library activity."
+          />
+        ) : profile?.recently_played?.length ? (
           <div className="hs-recent-grid">
             {profile.recently_played.map(
               (track) => (
@@ -453,6 +548,14 @@ export default function ProfilePage({
 
   mediaVersion:
   track?.media_version ??
+  null,
+
+  genre:
+  track?.genre ??
+  "",
+
+  releaseYear:
+  track?.release_year ??
   null,
 },
       ).catch(
@@ -530,7 +633,13 @@ export default function ProfilePage({
         </header>
 
 
-        {profile?.top_artists?.length ? (
+        {!online ? (
+          <OfflineNotice
+            compact
+            title="Go back online to see Top Artists"
+            description="Your listening stats need a connection to refresh."
+          />
+        ) : profile?.top_artists?.length ? (
           <div className="hs-top-artists">
             {profile.top_artists.map(
               (
@@ -631,6 +740,116 @@ export default function ProfilePage({
         </header>
 
         <div className="hs-account-actions">
+          {currentUser?.account_type ===
+          "registered" ? (
+            <>
+              <button
+                type="button"
+                className={[
+                  "hs-playback-device-control",
+                  controlledPlaybackDeviceId &&
+                  controlledPlaybackDeviceId !==
+                    currentPlaybackDeviceId
+                    ? "is-remote"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-expanded={
+                  devicesOpen
+                }
+                onClick={() => {
+                  setDevicesOpen(
+                    (open) =>
+                      !open,
+                  );
+                }}
+              >
+                <Icon
+                  name="devices"
+                  size={18}
+                />
+
+                <span>
+                  <strong>
+                    Playback Devices
+                  </strong>
+
+                  <small>
+                    {(() => {
+                      const selected =
+                        playbackDevices.find(
+                          (device) =>
+                            device.device_id ===
+                            controlledPlaybackDeviceId,
+                        );
+
+                      if (
+                        selected?.name
+                      ) {
+                        return (
+                          "Controlling " +
+                          selected.name
+                        );
+                      }
+
+                      const onlineCount =
+                        playbackDevices.filter(
+                          (device) =>
+                            device.is_online,
+                        ).length;
+
+                      return (
+                        onlineCount +
+                        (
+                          onlineCount === 1
+                            ? " device online"
+                            : " devices online"
+                        )
+                      );
+                    })()}
+                  </small>
+                </span>
+
+                <Icon
+                  name="chevron"
+                  size={15}
+                />
+              </button>
+
+              {devicesOpen ? (
+                <div className="hs-playback-device-panel">
+                  <PlaybackDevicesPanel
+                    devices={
+                      playbackDevices
+                    }
+                    currentDeviceId={
+                      currentPlaybackDeviceId
+                    }
+                    controlledDeviceId={
+                      controlledPlaybackDeviceId
+                    }
+                    onSelectDevice={(
+                      deviceId,
+                    ) => {
+                      onSelectPlaybackDevice?.(
+                        deviceId,
+                      );
+                    }}
+                    onTransferToDevice={(
+                      deviceId,
+                    ) => {
+                      void onPlaybackDeviceCommand?.(
+                        deviceId,
+                        "transfer",
+                      );
+                    }}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
           <button
             type="button"
             className="hs-install-app-control"

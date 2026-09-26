@@ -5,6 +5,10 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
+import {
+  requestMusicShare,
+} from "../../musicShare.js";
+
 
 export default function CollectionActionMenu({
   menu,
@@ -58,8 +62,27 @@ export default function CollectionActionMenu({
       (action) =>
         action &&
         typeof action.onSelect ===
-          "function",
+          "function" &&
+        action.id !==
+          "share",
     );
+
+  const shareItem = {
+    kind:
+      menu.kind,
+    key:
+      menu.shareKey ??
+      menu.key,
+    title:
+      menu.title,
+    subtitle:
+      menu.subtitle ??
+      null,
+    artwork_url:
+      menu.artwork_url ??
+      menu.artworkUrl ??
+      null,
+  };
 
 
   return (
@@ -165,6 +188,29 @@ export default function CollectionActionMenu({
             </button>
           ),
         )}
+
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            requestMusicShare(
+              shareItem,
+            );
+
+            onClose();
+          }}
+        >
+          <span className="track-action-icon">
+            <Icon
+              name="mail"
+              size={15}
+            />
+          </span>
+
+          <span>
+            Share in chat
+          </span>
+        </button>
       </div>
     </div>
   );

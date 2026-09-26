@@ -69,6 +69,93 @@ class Message(
         nullable=False,
     )
 
+    shared_kind: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+    )
+
+    shared_key: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+
+    shared_title: Mapped[str | None] = mapped_column(
+        String(300),
+        nullable=True,
+    )
+
+    shared_subtitle: Mapped[str | None] = mapped_column(
+        String(300),
+        nullable=True,
+    )
+
+    shared_artwork_url: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    viewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=True,
+    )
+
+
+class AdminNotification(
+    UUIDPrimaryKeyMixin,
+    TimestampMixin,
+    Base,
+):
+    __tablename__ = "admin_notifications"
+
+    __table_args__ = (
+        Index(
+            "ix_admin_notifications_recipient_viewed_created",
+            "recipient_id",
+            "viewed_at",
+            "created_at",
+        ),
+    )
+
+    recipient_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    kind: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+    )
+
+    body: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    actor_username: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    source_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "messages.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
     viewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(
             timezone=True,

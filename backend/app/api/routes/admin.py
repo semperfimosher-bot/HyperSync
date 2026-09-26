@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile, status
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
@@ -31,6 +31,9 @@ from ...services.audio_compression import (
     compress_audio_for_storage,
     should_attempt_audio_compression,
 )
+from ...services.artists import (
+    ensure_artist_profile,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
@@ -45,6 +48,11 @@ from ...services.b2 import (
 )
 from ...services.generated_playlists import (
     ensure_artist_playlist,
+    refresh_smart_playlists_for_track,
+)
+from ...services.music_metadata import (
+    enrich_track_metadata,
+    enrich_track_metadata_by_id,
 )
 from ..dependencies import AdminUser, DatabaseSession
 
@@ -243,6 +251,7 @@ class PrepareDirectTrackUploadRequest(
     artist: str
     album: str | None = None
     genre: str | None = None
+    release_year: int | None = None
     estimated_bitrate_kbps: float | None = None
 
 
@@ -250,6 +259,12 @@ class CancelDirectTrackUploadRequest(
     BaseModel,
 ):
     object_key: str
+
+
+class BulkTrackDeleteRequest(
+    BaseModel,
+):
+    track_ids: list[UUID]
 
 
 def _direct_upload_extension(
@@ -343,6 +358,25 @@ def _direct_upload_is_safe(
                 .audio_compression_min_source_kbps
             ),
         )
+    )
+
+
+def _valid_release_year(
+    value: int | None,
+) -> int | None:
+    if value is None:
+        return None
+
+    year = int(
+        value,
+    )
+
+    return (
+        year
+        if 1900
+        <= year
+        <= 2100
+        else None
     )
 
 
@@ -1216,6 +1250,11 @@ async def finalize_direct_track_upload(
     ],
     user: AdminUser,
     session: DatabaseSession,
+    background_tasks: BackgroundTasks,
+    release_year: Annotated[
+        int | None,
+        Form(),
+    ] = None,
     artwork: Annotated[
         UploadFile | None,
         File(),
@@ -1404,6 +1443,11 @@ async def finalize_direct_track_upload(
                 genre.strip()
                 or None
             ),
+            release_year=(
+                _valid_release_year(
+                    release_year,
+                )
+            ),
             b2_object_key=(
                 object_key
             ),
@@ -1430,7 +1474,17 @@ async def finalize_direct_track_upload(
             track,
         )
 
+        await ensure_artist_profile(
+            session,
+            track.artist,
+        )
+
         await session.commit()
+
+        background_tasks.add_task(
+            enrich_track_metadata_by_id,
+            track.id,
+        )
 
         cleanup_audio = False
 
@@ -1446,6 +1500,10 @@ async def finalize_direct_track_upload(
                 track.artist,
             "album":
                 track.album,
+            "genre":
+                track.genre,
+            "release_year":
+                track.release_year,
             "b2_object_key":
                 object_key,
             "artwork_object_key":
@@ -1478,6 +1536,11 @@ async def finalize_direct_track_upload(
             await ensure_artist_playlist(
                 session,
                 track.artist,
+            )
+
+            await refresh_smart_playlists_for_track(
+                session,
+                track,
             )
         except Exception:
             await session.rollback()
@@ -1530,10 +1593,19 @@ async def upload_track(
     duration_seconds: Annotated[int, Form(...)],
     user: AdminUser,
     session: DatabaseSession,
+    background_tasks: BackgroundTasks,
     title_edited: Annotated[bool, Form()] = False,
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,
     duration_edited: Annotated[bool, Form()] = False,
+    genre: Annotated[
+        str,
+        Form(),
+    ] = "",
+    release_year: Annotated[
+        int | None,
+        Form(),
+    ] = None,
 ):
     """Upload an audio file to B2 and create a Track record."""
 
@@ -1775,7 +1847,18 @@ async def upload_track(
             title=(resolved_metadata["title"]),
             artist=(resolved_metadata["artist"]),
             album=(resolved_metadata["album"]),
-            genre=(resolved_metadata["genre"]),
+            genre=(
+                genre.strip()
+                or resolved_metadata["genre"]
+            ),
+            release_year=(
+                _valid_release_year(
+                    release_year
+                    or resolved_metadata.get(
+                        "release_year",
+                    ),
+                )
+            ),
             b2_object_key=(object_key),
             artwork_object_key=(artwork_object_key),
             mime_type=(
@@ -1788,7 +1871,17 @@ async def upload_track(
 
         session.add(track)
 
+        await ensure_artist_profile(
+            session,
+            track.artist,
+        )
+
         await session.commit()
+
+        background_tasks.add_task(
+            enrich_track_metadata_by_id,
+            track.id,
+        )
 
         response_payload = {
             "success": True,
@@ -1798,6 +1891,9 @@ async def upload_track(
             "title": track.title,
             "artist": track.artist,
             "album": track.album,
+            "genre": track.genre,
+            "release_year":
+                track.release_year,
             "b2_object_key": (object_key),
             "artwork_object_key": (artwork_object_key),
             "file_size":
@@ -1849,6 +1945,11 @@ async def upload_track(
                 session,
                 track.artist,
             )
+
+            await refresh_smart_playlists_for_track(
+                session,
+                track,
+            )
         except Exception:
             await session.rollback()
 
@@ -1866,6 +1967,538 @@ async def upload_track(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail=(f"Upload failed: {exc}"),
         ) from exc
+
+
+async def _delete_track_object_versions(
+    bucket,
+    track: Track,
+) -> int:
+    object_keys = [
+        key
+        for key in (
+            track.b2_object_key,
+            track.artwork_object_key,
+        )
+        if key
+    ]
+
+    deleted_versions = await asyncio.gather(
+        *(
+            delete_all_object_versions(
+                bucket,
+                object_key,
+            )
+            for object_key in object_keys
+        )
+    )
+
+    return sum(
+        deleted_versions,
+    )
+
+
+@router.post(
+    "/tracks/{track_id}/enrich-metadata",
+)
+async def enrich_track_metadata_endpoint(
+    track_id: UUID,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    track = await session.get(
+        Track,
+        track_id,
+    )
+
+    if track is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail="Track not found.",
+        )
+
+    result = await enrich_track_metadata(
+        session,
+        track,
+    )
+
+    return {
+        "track_id":
+            str(
+                track.id,
+            ),
+        "title":
+            track.title,
+        "artist":
+            track.artist,
+        **result,
+    }
+
+
+@router.post(
+    "/tracks/backfill-metadata",
+)
+async def backfill_track_metadata(
+    user: AdminUser,
+    session: DatabaseSession,
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=500,
+    ),
+    external_limit: int = Query(
+        default=12,
+        ge=0,
+        le=50,
+    ),
+):
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            (
+                Track.genre.is_(None)
+                | (
+                    Track.genre
+                    == ""
+                )
+                | Track.release_year.is_(None)
+            ),
+        )
+        .order_by(
+            Track.created_at.asc(),
+        )
+        .limit(
+            limit,
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    if not tracks:
+        return {
+            "scanned": 0,
+            "updated": 0,
+            "genre_updated": 0,
+            "year_updated": 0,
+            "external_checked": 0,
+            "external_matched": 0,
+            "external_sources": {},
+            "failed": [],
+        }
+
+    bucket = get_b2_bucket()
+    updated = 0
+    genre_updated = 0
+    year_updated = 0
+    external_checked = 0
+    external_matched = 0
+    external_sources: dict[
+        str,
+        int,
+    ] = {}
+    failed: list[dict] = []
+
+    for track in tracks:
+        old_genre = (
+            track.genre
+        )
+
+        old_year = (
+            track.release_year
+        )
+
+        embedded_error: str | None = (
+            None
+        )
+
+        try:
+            downloaded = (
+                await asyncio.to_thread(
+                    bucket.download_file_by_name,
+                    track.b2_object_key,
+                )
+            )
+
+            def _read_bytes() -> bytes:
+                buffer = BytesIO()
+
+                downloaded.save(
+                    buffer,
+                )
+
+                return (
+                    buffer.getvalue()
+                )
+
+            file_content = (
+                await asyncio.to_thread(
+                    _read_bytes,
+                )
+            )
+
+            embedded = (
+                extract_embedded_audio_metadata(
+                    file_content,
+                )
+            )
+
+            if (
+                not (
+                    track.genre
+                    or ""
+                ).strip()
+                and embedded.get(
+                    "genre",
+                )
+            ):
+                track.genre = (
+                    str(
+                        embedded[
+                            "genre"
+                        ]
+                    )
+                    .strip()[:120]
+                    or None
+                )
+
+            if (
+                track.release_year
+                is None
+                and embedded.get(
+                    "release_year",
+                )
+                is not None
+            ):
+                track.release_year = (
+                    _valid_release_year(
+                        embedded[
+                            "release_year"
+                        ],
+                    )
+                )
+
+        except Exception as exc:
+            embedded_error = str(
+                exc,
+            )
+
+        still_missing = (
+            not (
+                track.genre
+                or ""
+            ).strip()
+            or track.release_year
+            is None
+        )
+
+        external_result = None
+
+        if (
+            still_missing
+            and external_checked
+            < external_limit
+        ):
+            external_checked += 1
+
+            external_result = (
+                await enrich_track_metadata(
+                    session,
+                    track,
+                )
+            )
+
+            if external_result[
+                "matched"
+            ]:
+                external_matched += 1
+
+                source = (
+                    external_result.get(
+                        "source",
+                    )
+                )
+
+                if source:
+                    external_sources[
+                        str(
+                            source,
+                        )
+                    ] = (
+                        external_sources.get(
+                            str(
+                                source,
+                            ),
+                            0,
+                        )
+                        + 1
+                    )
+
+        genre_changed = (
+            track.genre
+            != old_genre
+        )
+
+        year_changed = (
+            track.release_year
+            != old_year
+        )
+
+        if genre_changed:
+            genre_updated += 1
+
+        if year_changed:
+            year_updated += 1
+
+        if (
+            genre_changed
+            or year_changed
+        ):
+            updated += 1
+
+        elif (
+            embedded_error
+            and (
+                external_result
+                is None
+                or not external_result[
+                    "matched"
+                ]
+            )
+        ):
+            failed.append(
+                {
+                    "track_id":
+                        str(
+                            track.id,
+                        ),
+                    "title":
+                        track.title,
+                    "error":
+                        embedded_error,
+                }
+            )
+
+    await session.commit()
+
+    return {
+        "scanned":
+            len(
+                tracks,
+            ),
+        "updated":
+            updated,
+        "genre_updated":
+            genre_updated,
+        "year_updated":
+            year_updated,
+        "external_checked":
+            external_checked,
+        "external_matched":
+            external_matched,
+        "external_sources":
+            dict(
+                sorted(
+                    external_sources.items(),
+                )
+            ),
+        "failed":
+            failed,
+    }
+
+@router.post(
+    "/tracks/delete-bulk",
+)
+async def delete_tracks_bulk(
+    payload: BulkTrackDeleteRequest,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    unique_track_ids = list(
+        dict.fromkeys(
+            payload.track_ids,
+        )
+    )
+
+    if not unique_track_ids:
+        return {
+            "success": True,
+            "deleted_track_ids": [],
+            "deleted_count": 0,
+            "failed": [],
+            "deleted_b2_versions": 0,
+        }
+
+    if len(unique_track_ids) > 2000:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Bulk deletion is limited "
+                "to 2000 tracks at a time."
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                unique_track_ids,
+            )
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    track_by_id = {
+        track.id: track
+        for track in tracks
+    }
+
+    bucket = get_b2_bucket()
+
+    storage_limit = (
+        asyncio.Semaphore(
+            12,
+        )
+    )
+
+    async def delete_storage(
+        track: Track,
+    ):
+        async with storage_limit:
+            try:
+                deleted_versions = (
+                    await _delete_track_object_versions(
+                        bucket,
+                        track,
+                    )
+                )
+
+                return (
+                    track,
+                    deleted_versions,
+                    None,
+                )
+
+            except Exception as exc:
+                return (
+                    track,
+                    0,
+                    str(
+                        exc,
+                    ),
+                )
+
+    storage_results = (
+        await asyncio.gather(
+            *(
+                delete_storage(
+                    track,
+                )
+                for track in tracks
+            )
+        )
+    )
+
+    deleted_track_ids: list[str] = []
+    failed: list[dict[str, str]] = []
+    deleted_b2_versions = 0
+
+    for (
+        track,
+        deleted_versions,
+        error_message,
+    ) in storage_results:
+        if error_message is not None:
+            failed.append(
+                {
+                    "track_id":
+                        str(
+                            track.id,
+                        ),
+                    "message":
+                        (
+                            "Failed to permanently "
+                            "remove track files from "
+                            f"B2: {error_message}"
+                        ),
+                }
+            )
+
+            continue
+
+        await session.delete(
+            track,
+        )
+
+        deleted_track_ids.append(
+            str(
+                track.id,
+            )
+        )
+
+        deleted_b2_versions += int(
+            deleted_versions,
+        )
+
+    for track_id in unique_track_ids:
+        if track_id in track_by_id:
+            continue
+
+        failed.append(
+            {
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+                "message":
+                    "Track not found.",
+            }
+        )
+
+    try:
+        await session.commit()
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Track files were removed from "
+                "storage, but the database bulk "
+                f"delete failed: {exc}"
+            ),
+        ) from exc
+
+    return {
+        "success":
+            len(
+                failed,
+            )
+            == 0,
+        "deleted_track_ids":
+            deleted_track_ids,
+        "deleted_count":
+            len(
+                deleted_track_ids,
+            ),
+        "failed":
+            failed,
+        "deleted_b2_versions":
+            deleted_b2_versions,
+    }
 
 
 @router.delete("/tracks/{track_id}")
@@ -1889,23 +2522,11 @@ async def delete_track(
 
     bucket = get_b2_bucket()
 
-    object_keys = [
-        key
-        for key in (
-            track.b2_object_key,
-            track.artwork_object_key,
-        )
-        if key
-    ]
-
     try:
-        deleted_versions = await asyncio.gather(
-            *(
-                delete_all_object_versions(
-                    bucket,
-                    object_key,
-                )
-                for object_key in object_keys
+        deleted_versions = (
+            await _delete_track_object_versions(
+                bucket,
+                track,
             )
         )
 
@@ -1926,5 +2547,5 @@ async def delete_track(
         "deleted_track_id": str(track_id),
         "deleted_object_key": track.b2_object_key,
         "deleted_artwork_object_key": track.artwork_object_key,
-        "deleted_b2_versions": sum(deleted_versions),
+        "deleted_b2_versions": deleted_versions,
     }

@@ -56,6 +56,8 @@ test(
         title: "Song One",
         artist: "Artist One",
         album: "",
+        genre: "",
+        releaseYear: null,
         mimeType: "audio/mpeg",
         fileSize: 5_000_000,
         mediaVersion:
@@ -74,6 +76,8 @@ test(
         title: "Song Two",
         artist: "Artist Two",
         album: "",
+        genre: "",
+        releaseYear: null,
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
@@ -91,6 +95,8 @@ test(
         title: "Song Three",
         artist: "Artist Three",
         album: "",
+        genre: "",
+        releaseYear: null,
         mimeType: null,
         fileSize: null,
         mediaVersion: null,
@@ -441,6 +447,8 @@ test(
           title: "Song",
           artist: "Artist",
           album: "Album",
+          genre: "Country",
+          release_year: 2024,
           artwork_version:
             "art-v2",
           duration_seconds:
@@ -456,6 +464,16 @@ test(
     assert.equal(
       entry.meta.artist,
       "Artist",
+    );
+
+    assert.equal(
+      entry.meta.genre,
+      "Country",
+    );
+
+    assert.equal(
+      entry.meta.releaseYear,
+      2024,
     );
 
     assert.equal(

@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import {
+  deleteMessage,
   getConversation,
   getConversations,
   sendMessage,
@@ -15,11 +16,18 @@ import {
   searchUsers,
 } from "../../profileApi.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import Avatar from
   "../profile/Avatar.jsx";
 
 import Icon from
   "../ui/Icon.jsx";
+
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
 
 
 function formatMessageTime(
@@ -58,10 +66,122 @@ function formatMessageTime(
 }
 
 
+function sharedMusicLabel(
+  kind,
+) {
+  if (
+    kind === "track"
+  ) {
+    return "SONG";
+  }
+
+  if (
+    kind === "album"
+  ) {
+    return "ALBUM";
+  }
+
+  if (
+    kind === "artist"
+  ) {
+    return "ARTIST";
+  }
+
+  return "PLAYLIST";
+}
+
+
+function SharedMusicCard({
+  item,
+  onOpen = null,
+}) {
+  if (!item) {
+    return null;
+  }
+
+  const artwork =
+    resolveArtworkUrl(
+      item.artwork_url,
+    );
+
+  const content = (
+    <>
+      <span className="hs-shared-music-card__art">
+        {artwork ? (
+          <img
+            src={
+              artwork
+            }
+            alt=""
+          />
+        ) : (
+          <Icon
+            name={
+              item.kind ===
+                "playlist"
+                ? "playlist"
+                : item.kind ===
+                    "album"
+                  ? "disc"
+                  : "music"
+            }
+            size={22}
+          />
+        )}
+      </span>
+
+      <span className="hs-shared-music-card__copy">
+        <small>
+          {sharedMusicLabel(
+            item.kind,
+          )}
+        </small>
+
+        <strong>
+          {item.title}
+        </strong>
+
+        {item.subtitle ? (
+          <em>
+            {item.subtitle}
+          </em>
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (
+    typeof onOpen ===
+      "function"
+  ) {
+    return (
+      <button
+        type="button"
+        className="hs-shared-music-card is-clickable"
+        onClick={
+          onOpen
+        }
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="hs-shared-music-card">
+      {content}
+    </div>
+  );
+}
+
+
 export default function MessagesPage({
   currentUser,
   initialUsername = "",
   onInitialUsernameHandled,
+  sharedMusicToSend = null,
+  onSharedMusicHandled,
+  onOpenSharedMusic,
   onUnreadChange,
   onOpenProfile,
   onBackToSearch,
@@ -118,6 +238,11 @@ export default function MessagesPage({
   ] = useState(false);
 
   const [
+    deletingMessageId,
+    setDeletingMessageId,
+  ] = useState("");
+
+  const [
     error,
     setError,
   ] = useState("");
@@ -133,7 +258,9 @@ export default function MessagesPage({
 
   const loadConversations =
     useCallback(
-      async () => {
+      async ({
+        quiet = false,
+      } = {}) => {
         try {
           const result =
             await getConversations();
@@ -155,14 +282,18 @@ export default function MessagesPage({
 
           onUnreadChange?.();
         } catch (requestError) {
-          setError(
-            requestError
-              instanceof Error
-              ? requestError.message
-              : "Unable to load messages.",
-          );
+          if (!quiet) {
+            setError(
+              requestError
+                instanceof Error
+                ? requestError.message
+                : "Unable to load messages.",
+            );
+          }
         } finally {
-          setLoading(false);
+          if (!quiet) {
+            setLoading(false);
+          }
         }
       },
       [
@@ -290,23 +421,71 @@ export default function MessagesPage({
 
   useEffect(() => {
     void loadConversations();
-
-    const interval =
-      window.setInterval(
-        () => {
-          void loadConversations();
-        },
-        10_000,
-      );
-
-    return () => {
-      window.clearInterval(
-        interval,
-      );
-    };
   }, [
     loadConversations,
   ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadConversations({
+        quiet:
+          true,
+      }),
+    {
+      intervalMs:
+        15_000,
+    },
+  );
+
+
+  const refreshOpenConversation =
+    useCallback(
+      async () => {
+        const username =
+          String(
+            selectedUsername ??
+            "",
+          ).trim();
+
+        if (!username) {
+          return;
+        }
+
+        try {
+          const result =
+            await getConversation(
+              username,
+            );
+
+          setConversation(
+            result,
+          );
+        } catch {
+          /*
+           * Keep the current thread visible
+           * through temporary background
+           * refresh failures.
+           */
+        }
+      },
+      [
+        selectedUsername,
+      ],
+    );
+
+
+  useQuietRefresh(
+    refreshOpenConversation,
+    {
+      enabled:
+        Boolean(
+          selectedUsername,
+        ),
+      intervalMs:
+        5_000,
+    },
+  );
 
 
   useEffect(() => {
@@ -418,6 +597,96 @@ export default function MessagesPage({
   ]);
 
 
+  const openRecipient =
+    useCallback(
+      async (
+        username,
+      ) => {
+        await openConversation(
+          username,
+        );
+      },
+      [
+        openConversation,
+      ],
+    );
+
+
+  async function removeSentMessage(
+    message,
+  ) {
+    if (
+      !message?.mine
+      || !message?.id
+      || deletingMessageId
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Permanently delete this message? It will be removed for both people and cannot be restored.",
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingMessageId(
+      String(
+        message.id,
+      ),
+    );
+
+    setError(
+      "",
+    );
+
+    try {
+      await deleteMessage(
+        message.id,
+      );
+
+      setConversation(
+        (current) =>
+          current
+            ? {
+                ...current,
+                messages:
+                  (
+                    current.messages
+                    ?? []
+                  ).filter(
+                    (item) =>
+                      String(
+                        item.id,
+                      ) !==
+                      String(
+                        message.id,
+                      ),
+                  ),
+              }
+            : current,
+      );
+
+      await loadConversations();
+
+      onUnreadChange?.();
+    } catch (requestError) {
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to delete message.",
+      );
+    } finally {
+      setDeletingMessageId(
+        "",
+      );
+    }
+  }
+
+
   async function submitMessage(
     event,
   ) {
@@ -427,7 +696,10 @@ export default function MessagesPage({
       draft.trim();
 
     if (
-      !body ||
+      (
+        !body &&
+        !sharedMusicToSend
+      ) ||
       !selectedUsername ||
       sending
     ) {
@@ -447,6 +719,7 @@ export default function MessagesPage({
         await sendMessage(
           selectedUsername,
           body,
+          sharedMusicToSend,
         );
 
       setConversation(
@@ -469,6 +742,12 @@ export default function MessagesPage({
       setDraft(
         "",
       );
+
+      if (
+        sharedMusicToSend
+      ) {
+        onSharedMusicHandled?.();
+      }
 
       await loadConversations();
 
@@ -616,15 +895,56 @@ export default function MessagesPage({
                             : "hs-message-bubble"
                         }
                       >
-                        <p>
-                          {message.body}
-                        </p>
+                        {message.shared_music ? (
+                          <SharedMusicCard
+                            item={
+                              message.shared_music
+                            }
+                            onOpen={() => {
+                              onOpenSharedMusic?.(
+                                message.shared_music,
+                              );
+                            }}
+                          />
+                        ) : null}
 
-                        <small>
-                          {formatMessageTime(
-                            message.created_at,
-                          )}
-                        </small>
+                        {message.body ? (
+                          <p>
+                            {message.body}
+                          </p>
+                        ) : null}
+
+                        <div className="hs-message-bubble__meta">
+                          <small>
+                            {formatMessageTime(
+                              message.created_at,
+                            )}
+                          </small>
+
+                          {message.mine ? (
+                            <button
+                              type="button"
+                              disabled={
+                                deletingMessageId ===
+                                String(
+                                  message.id,
+                                )
+                              }
+                              onClick={() => {
+                                void removeSentMessage(
+                                  message,
+                                );
+                              }}
+                            >
+                              {deletingMessageId ===
+                              String(
+                                message.id,
+                              )
+                                ? "Deleting..."
+                                : "Delete"}
+                            </button>
+                          ) : null}
+                        </div>
                       </article>
                     ),
                   )
@@ -658,6 +978,30 @@ export default function MessagesPage({
                   submitMessage
                 }
               >
+                {sharedMusicToSend ? (
+                  <div className="hs-message-composer-share">
+                    <SharedMusicCard
+                      item={
+                        sharedMusicToSend
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      aria-label="Remove shared music"
+                      title="Remove shared music"
+                      onClick={() => {
+                        onSharedMusicHandled?.();
+                      }}
+                    >
+                      <Icon
+                        name="close"
+                        size={14}
+                      />
+                    </button>
+                  </div>
+                ) : null}
+
                 <textarea
                   value={draft}
                   rows={2}
@@ -696,7 +1040,10 @@ export default function MessagesPage({
                   type="submit"
                   disabled={
                     sending ||
-                    !draft.trim()
+                    (
+                      !draft.trim() &&
+                      !sharedMusicToSend
+                    )
                   }
                 >
                   <Icon
@@ -719,6 +1066,35 @@ export default function MessagesPage({
 
   return (
     <div className="page-stack hs-search-page hs-messages-page">
+      {sharedMusicToSend ? (
+        <section className="hs-message-share-picker">
+          <div>
+            <span>
+              SHARE IN CHAT
+            </span>
+
+            <strong>
+              Choose who to send this to
+            </strong>
+          </div>
+
+          <SharedMusicCard
+            item={
+              sharedMusicToSend
+            }
+          />
+
+          <button
+            type="button"
+            onClick={() => {
+              onSharedMusicHandled?.();
+            }}
+          >
+            Cancel
+          </button>
+        </section>
+      ) : null}
+
       <section className="hs-search-console hs-messages-console">
         <div
           className="hs-search-console__grid"
@@ -774,7 +1150,11 @@ export default function MessagesPage({
             value={searchQuery}
             autoComplete="off"
             spellCheck="false"
-            placeholder="Search people by name or @username..."
+            placeholder={
+              sharedMusicToSend
+                ? "Search people to share with..."
+                : "Search people by name or @username..."
+            }
             onChange={(
               event,
             ) => {
@@ -861,7 +1241,7 @@ export default function MessagesPage({
                     person.username
                   }
                   onClick={() => {
-                    void openConversation(
+                    void openRecipient(
                       person.username,
                     );
                   }}
@@ -887,7 +1267,9 @@ export default function MessagesPage({
                     </small>
 
                     <p>
-                      Open a private conversation
+                      {sharedMusicToSend
+                        ? "Send shared music"
+                        : "Open a private conversation"}
                     </p>
                   </div>
 
@@ -955,7 +1337,7 @@ export default function MessagesPage({
                     item.username
                   }
                   onClick={() => {
-                    void openConversation(
+                    void openRecipient(
                       item.username,
                     );
                   }}

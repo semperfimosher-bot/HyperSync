@@ -1,6 +1,8 @@
 import {
+  Activity,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -35,6 +37,13 @@ import {
 
 import { normalizeAppViewState } from "./appViewState.js";
 
+import {
+  PAGE_WARM_SWEEP_MS,
+  pruneWarmPages,
+  touchWarmPage,
+  warmPageKey,
+} from "./pageWarmCache.js";
+
 import HexBackdrop from "./components/HexBackdrop.jsx";
 
 import Icon from "./components/ui/Icon.jsx";
@@ -59,7 +68,21 @@ import useTrackActionMenu from
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
 import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.jsx";
 
+import NotificationDetailOverlay from
+  "./components/ui/NotificationDetailOverlay.jsx";
+
+import PlaybackDevicesPanel from
+  "./components/player/PlaybackDevicesPanel.jsx";
+
+import MobilePlayerDetails from
+  "./components/player/MobilePlayerDetails.jsx";
+
 import BrandLogo from "./components/ui/BrandLogo.jsx";
+
+import PasswordRecoveryOverlay, {
+  readPasswordRecoveryLinkFromLocation,
+  readPasswordResetTokenFromLocation,
+} from "./components/auth/PasswordRecoveryOverlay.jsx";
 
 import MobileHeader from "./components/layout/MobileHeader.jsx";
 
@@ -87,8 +110,17 @@ import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
 
 import {
   deleteCatalogTrack,
+  deleteCatalogTracks,
   useCatalogTracks,
 } from "./catalogStore.js";
+
+import {
+  addTrackGroupSelection,
+  getTrackGroupSelectionState,
+  pruneTrackSelection,
+  toggleTrackGroupSelection,
+  toggleTrackSelection,
+} from "./catalogSelection.js";
 
 import {
   cleanupLegacyUnscopedDownloads,
@@ -98,6 +130,7 @@ import {
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
+  removePlaylistFromOffline,
   startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
 
@@ -112,6 +145,8 @@ import {
 
 import {
   getMessageNotifications,
+  markAdminNotificationRead,
+  markMessageNotificationRead,
 } from "./messageApi.js";
 
 import {
@@ -125,10 +160,32 @@ import {
   subscribePwaInstall,
 } from "./pwaInstall.js";
 
+import {
+  getPlaybackDeviceDescriptor,
+  pollPlaybackDevice,
+  sendPlaybackDeviceCommand,
+} from "./playbackDevices.js";
+
+import {
+  applyPlaybackRemoteCommand,
+} from "./playbackRemoteCommands.js";
+
+import {
+  MUSIC_SHARE_REQUEST_EVENT,
+  normalizeSharedMusicItem,
+} from "./musicShare.js";
+
+import {
+  sharedMusicSearchQuery,
+} from "./sharedMusicNavigation.js";
+
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
   3000;
+
+const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
+  1500;
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
   15000;
@@ -591,6 +648,32 @@ function AdminBotPage() {
     setFolderValue,
   ] = useState(null);
 
+  const [
+    selectedTrackIds,
+    setSelectedTrackIds,
+  ] = useState(
+    () =>
+      new Set(),
+  );
+
+  const [
+    bulkDeleteBusy,
+    setBulkDeleteBusy,
+  ] = useState(false);
+
+
+  useEffect(() => {
+    setSelectedTrackIds(
+      (current) =>
+        pruneTrackSelection(
+          current,
+          tracks,
+        ),
+    );
+  }, [
+    tracks,
+  ]);
+
 
   const normalizedSearch =
     searchQuery
@@ -788,24 +871,148 @@ function AdminBotPage() {
     );
 
 
+  const visibleTrackIds =
+    (
+      normalizedSearch
+        ? searchResults
+        : folderValue
+          ? folderTracks
+          : []
+    ).map(
+      (track) =>
+        String(
+          track.id,
+        ),
+    );
+
+  const selectedTrackCount =
+    selectedTrackIds.size;
+
+
+  const deleteSelectedTracks =
+    async () => {
+      if (
+        bulkDeleteBusy ||
+        selectedTrackCount ===
+          0
+      ) {
+        return;
+      }
+
+      const requestedTrackIds =
+        Array.from(
+          selectedTrackIds,
+        );
+
+      setBulkDeleteBusy(
+        true,
+      );
+
+      setMessage("");
+
+      try {
+        const result =
+          await deleteCatalogTracks(
+            requestedTrackIds,
+          );
+
+        const deletedTrackIds =
+          new Set(
+            (
+              Array.isArray(
+                result?.deleted_track_ids,
+              )
+                ? result.deleted_track_ids
+                : []
+            ).map(
+              (trackId) =>
+                String(
+                  trackId,
+                ),
+            ),
+          );
+
+        setSelectedTrackIds(
+          (current) =>
+            new Set(
+              Array.from(
+                current,
+              ).filter(
+                (trackId) =>
+                  !deletedTrackIds.has(
+                    String(
+                      trackId,
+                    ),
+                  ),
+              ),
+            ),
+        );
+
+        const failed =
+          Array.isArray(
+            result?.failed,
+          )
+            ? result.failed
+            : [];
+
+        if (
+          failed.length >
+          0
+        ) {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} songs; ${failed.length} could not be deleted.`,
+          );
+        } else {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} selected songs.`,
+          );
+
+          setSelectedTrackIds(
+            new Set(),
+          );
+        }
+
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete selected tracks.",
+        );
+
+      } finally {
+        setBulkDeleteBusy(
+          false,
+        );
+      }
+    };
+
+
   const deleteTrack =
     async (
       track,
     ) => {
-      const confirmed =
-        window.confirm(
-          `Permanently delete "${track.title}" by ${track.artist} from the catalog and storage?`,
-        );
-
-      if (!confirmed) {
-        return;
-      }
-
       setMessage("");
 
       try {
         await deleteCatalogTrack(
           track.id,
+        );
+
+        setSelectedTrackIds(
+          (current) => {
+            const next =
+              new Set(
+                current,
+              );
+
+            next.delete(
+              String(
+                track.id,
+              ),
+            );
+
+            return next;
+          },
         );
 
         setMessage(
@@ -824,10 +1031,44 @@ function AdminBotPage() {
   const renderFile =
     (
       track,
-    ) => (
+    ) => {
+      const trackId =
+        String(
+          track.id,
+        );
+
+      const selected =
+        selectedTrackIds.has(
+          trackId,
+        );
+
+      return (
       <div
-        className="admin-explorer-file"
+        className={
+          selected
+            ? "admin-explorer-file is-selected"
+            : "admin-explorer-file"
+        }
         key={track.id}
+        onContextMenu={(
+          event,
+        ) => {
+          event.preventDefault();
+
+          if (
+            bulkDeleteBusy
+          ) {
+            return;
+          }
+
+          setSelectedTrackIds(
+            (current) =>
+              toggleTrackSelection(
+                current,
+                trackId,
+              ),
+          );
+        }}
       >
         <TrackArtwork
           src={track.artwork_url}
@@ -875,7 +1116,8 @@ function AdminBotPage() {
           Delete
         </button>
       </div>
-    );
+      );
+    };
 
 
   let explorerBody = null;
@@ -1002,16 +1244,88 @@ function AdminBotPage() {
     explorerBody = (
       <div className="admin-explorer-folder-list">
         {folders.map(
-          (folder) => (
+          (folder) => {
+            const folderTrackIds =
+              folder.tracks.map(
+                (track) =>
+                  String(
+                    track.id,
+                  ),
+              );
+
+            const selectionState =
+              getTrackGroupSelectionState(
+                selectedTrackIds,
+                folderTrackIds,
+              );
+
+            const artistSelectable =
+              category ===
+              "artists";
+
+            const folderClassName =
+              [
+                "admin-explorer-folder",
+                "admin-explorer-folder--row",
+                selectionState.allSelected
+                  ? "is-selected"
+                  : "",
+                selectionState.partiallySelected
+                  ? "is-partial"
+                  : "",
+                artistSelectable
+                  ? "is-multiselectable"
+                  : "",
+              ]
+                .filter(
+                  Boolean,
+                )
+                .join(
+                  " ",
+                );
+
+            return (
             <button
               type="button"
-              className="admin-explorer-folder admin-explorer-folder--row"
+              className={
+                folderClassName
+              }
               key={folder.key}
               onClick={() => {
                 setFolderValue(
                   folder.value,
                 );
               }}
+              onContextMenu={(
+                event,
+              ) => {
+                if (
+                  !artistSelectable
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+
+                if (
+                  bulkDeleteBusy
+                ) {
+                  return;
+                }
+
+                setSelectedTrackIds(
+                  (current) =>
+                    toggleTrackGroupSelection(
+                      current,
+                      folderTrackIds,
+                    ),
+                );
+              }}
+              title={
+                artistSelectable
+                  ? "Right-click to select every song by this artist"
+                  : undefined
+              }
             >
               <span className="admin-explorer-folder__icon">
                 <Icon
@@ -1032,6 +1346,16 @@ function AdminBotPage() {
                 <small>
                   {folder.tracks.length}
                   {" files"}
+
+                  {artistSelectable &&
+                  selectionState.selectedCount >
+                    0
+                    ? (
+                        " • " +
+                        selectionState.selectedCount +
+                        " selected"
+                      )
+                    : ""}
                 </small>
               </span>
 
@@ -1040,7 +1364,8 @@ function AdminBotPage() {
                 size={15}
               />
             </button>
-          ),
+            );
+          },
         )}
       </div>
     );
@@ -1244,6 +1569,88 @@ function AdminBotPage() {
           </strong>
         </div>
 
+        <div
+          className={
+            selectedTrackCount >
+              0
+              ? "admin-explorer-selection-bar is-active"
+              : "admin-explorer-selection-bar"
+          }
+        >
+          <span>
+            {selectedTrackCount >
+            0
+              ? (
+                  selectedTrackCount +
+                  " songs selected"
+                )
+              : "Right-click songs or artist folders to select multiple items while you scroll."}
+          </span>
+
+          {selectedTrackCount >
+          0 ? (
+            <div className="admin-explorer-selection-bar__actions">
+              {visibleTrackIds.length >
+              0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    bulkDeleteBusy
+                  }
+                  onClick={() => {
+                    setSelectedTrackIds(
+                      (current) =>
+                        addTrackGroupSelection(
+                          current,
+                          visibleTrackIds,
+                        ),
+                    );
+                  }}
+                >
+                  Select all shown
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  setSelectedTrackIds(
+                    new Set(),
+                  );
+                }}
+              >
+                Clear
+              </button>
+
+              <button
+                type="button"
+                className="danger-button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  void deleteSelectedTracks();
+                }}
+              >
+                {bulkDeleteBusy
+                  ? (
+                      "Deleting " +
+                      selectedTrackCount +
+                      "..."
+                    )
+                  : (
+                      "Delete selected (" +
+                      selectedTrackCount +
+                      ")"
+                    )}
+              </button>
+            </div>
+          ) : null}
+        </div>
+
         {explorerBody}
       </section>
     </div>
@@ -1353,7 +1760,7 @@ function AdminDashboardPage({
 
       const confirmed =
         window.confirm(
-          "This permanently deletes ALL HyperSync database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
+          "This permanently deletes ALL HyperSynced database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
         );
 
       if (!confirmed) {
@@ -1601,15 +2008,6 @@ function AdminDashboardPage({
       async (
         foundUser,
       ) => {
-        const confirmed =
-          window.confirm(
-            `Permanently delete @${foundUser.username} and all server-side account data, playlists, listening history, sessions, follows, and avatar storage?`,
-          );
-
-        if (!confirmed) {
-          return;
-        }
-
         setUserDeleteBusy(
           foundUser.id,
         );
@@ -2601,10 +2999,16 @@ function MainPage({
   playlistToOpen,
   onOpenPlaylist,
   onPlaylistOpened,
+  artistToOpen,
+  onArtistOpened,
+  onOpenArtist,
   onOpenProfile,
   onMessageUser,
   messageUsername,
   onMessageUsernameHandled,
+  sharedMusicToSend,
+  onSharedMusicHandled,
+  onOpenSharedMusic,
   onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
@@ -2622,50 +3026,281 @@ function MainPage({
   activePlaylistDownloads,
   installState,
   onInstallApp,
+  playbackDevices = [],
+  currentPlaybackDeviceId,
+  controlledPlaybackDeviceId,
+  onSelectPlaybackDevice,
+  onPlaybackDeviceCommand,
 }) {
-  const adminPage =
-    ADMIN_NAV_ITEMS.some(
-      (item) =>
-        item.id === activePage,
+  const warmOwnerKey =
+    [
+      String(
+        currentUser?.id ??
+        "guest",
+      ),
+      String(
+        currentUser?.account_type ??
+        "guest",
+      ),
+      String(
+        currentUser?.role ??
+        "user",
+      ),
+    ].join(
+      ":",
     );
 
+  const activeWarmKey =
+    warmPageKey(
+      activePage,
+      profileUsername,
+    );
 
-  if (adminPage) {
-    if (
-      !isAdminUser(
-        currentUser,
-      )
-    ) {
-      return (
-        <div className="page-stack">
-          <section className="admin-page__denied">
-            <Icon
-              name="lock"
-              size={28}
-            />
+  const previousActiveRef =
+    useRef({
+      key:
+        activeWarmKey,
+      ownerKey:
+        warmOwnerKey,
+    });
 
-            <h2>
-              Admin access required
-            </h2>
+  const [
+    warmPages,
+    setWarmPages,
+  ] = useState(
+    () =>
+      touchWarmPage(
+        [],
+        {
+          page:
+            activePage,
+          profileUsername,
+          ownerKey:
+            warmOwnerKey,
+        },
+      ),
+  );
 
-            <p>
-              This area is available
-              only to HyperSync
-              administrators.
-            </p>
-          </section>
-        </div>
+
+  /*
+   * Keep visited pages alive for two hours.
+   *
+   * React Activity preserves their UI and
+   * component state while hidden, but cleans
+   * up Effects so inactive pages do not keep
+   * polling or holding subscriptions.
+   */
+  useLayoutEffect(() => {
+    const now =
+      Date.now();
+
+    setWarmPages(
+      (current) => {
+        const previous =
+          previousActiveRef.current;
+
+        const stamped =
+          current.map(
+            (entry) =>
+              (
+                previous &&
+                entry.ownerKey ===
+                  previous.ownerKey &&
+                entry.key ===
+                  previous.key &&
+                (
+                  previous.key !==
+                    activeWarmKey ||
+                  previous.ownerKey !==
+                    warmOwnerKey
+                )
+              )
+                ? {
+                    ...entry,
+                    lastVisitedAt:
+                      now,
+                  }
+                : entry,
+          );
+
+        return touchWarmPage(
+          stamped,
+          {
+            page:
+              activePage,
+            profileUsername,
+            ownerKey:
+              warmOwnerKey,
+            now,
+          },
+        );
+      },
+    );
+
+    previousActiveRef.current =
+      {
+        key:
+          activeWarmKey,
+        ownerKey:
+          warmOwnerKey,
+      };
+  }, [
+    activePage,
+    activeWarmKey,
+    profileUsername,
+    warmOwnerKey,
+  ]);
+
+
+  useEffect(() => {
+    const intervalId =
+      window.setInterval(
+        () => {
+          setWarmPages(
+            (current) =>
+              pruneWarmPages(
+                current,
+                {
+                  activeKey:
+                    activeWarmKey,
+                  ownerKey:
+                    warmOwnerKey,
+                  now:
+                    Date.now(),
+                },
+              ),
+          );
+        },
+        PAGE_WARM_SWEEP_MS,
       );
+
+    return () => {
+      window.clearInterval(
+        intervalId,
+      );
+    };
+  }, [
+    activeWarmKey,
+    warmOwnerKey,
+  ]);
+
+
+  function renderPage(
+    page,
+    cachedProfileUsername,
+  ) {
+    const adminPage =
+      ADMIN_NAV_ITEMS.some(
+        (item) =>
+          item.id === page,
+      );
+
+    if (adminPage) {
+      if (
+        !isAdminUser(
+          currentUser,
+        )
+      ) {
+        return (
+          <div className="page-stack">
+            <section className="admin-page__denied">
+              <Icon
+                name="lock"
+                size={28}
+              />
+
+              <h2>
+                Admin access required
+              </h2>
+
+              <p>
+                This area is available
+                only to HyperSynced
+                administrators.
+              </p>
+            </section>
+          </div>
+        );
+      }
+
+      if (
+        page === "admin"
+      ) {
+        return (
+          <AdminDashboardPage
+            onNavigate={
+              onNavigate
+            }
+          />
+        );
+      }
+
+      if (
+        page ===
+        "admin-bot"
+      ) {
+        return (
+          <AdminBotPage />
+        );
+      }
+
+      if (
+        page ===
+        "admin-uploads"
+      ) {
+        return (
+          <AdminUploadsPage />
+        );
+      }
+
+      if (
+        page ===
+        "admin-catalog"
+      ) {
+        return (
+          <AdminCatalogPage />
+        );
+      }
     }
 
 
     if (
-      activePage === "admin"
+      page === "search"
     ) {
       return (
-        <AdminDashboardPage
-          onNavigate={
-            onNavigate
+        <SearchPage
+          currentUser={
+            currentUser
+          }
+          query={
+            query
+          }
+          resetToken={
+            searchResetToken
+          }
+          initialArtistName={
+            artistToOpen
+          }
+          onInitialArtistHandled={
+            onArtistOpened
+          }
+          onQueryChange={
+            onQueryChange
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onMessageUser={
+            onMessageUser
+          }
+          onOpenPlaylist={
+            onOpenPlaylist
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          activePlaylistDownloads={
+            activePlaylistDownloads
           }
         />
       );
@@ -2673,251 +3308,243 @@ function MainPage({
 
 
     if (
-      activePage ===
-      "admin-bot"
+      page === "messages"
     ) {
-      return (
-        <AdminBotPage />
-      );
-    }
+      if (
+        currentUser?.account_type !==
+          "registered"
+      ) {
+        return (
+          <div className="page-stack">
+            <section className="admin-page__denied">
+              <Icon
+                name="mail"
+                size={28}
+              />
 
+              <h2>
+                Sign in to message
+              </h2>
 
-    if (
-      activePage ===
-      "admin-uploads"
-    ) {
-      return (
-        <AdminUploadsPage />
-      );
-    }
+              <p>
+                Private messages are available
+                to registered HyperSynced accounts.
+              </p>
 
-
-    if (
-      activePage ===
-      "admin-catalog"
-    ) {
-      return (
-        <AdminCatalogPage />
-      );
-    }
-  }
-
-
-  if (
-    activePage === "search"
-  ) {
-    return (
-      <SearchPage
-  currentUser={
-    currentUser
-  }
-  query={
-    query
-  }
-  resetToken={
-  searchResetToken
-  }
-  onQueryChange={
-    onQueryChange
-  }
-  onOpenProfile={
-    onOpenProfile
-  }
-  onMessageUser={
-    onMessageUser
-  }
-  onOpenPlaylist={
-    onOpenPlaylist
-  }
-  onOpenAuth={
-    onOpenAuth
-  }
-  activePlaylistDownloads={
-    activePlaylistDownloads
-  }
-/>
-    );
-  }
-
-if (
-  activePage === "messages"
-) {
-  if (
-    currentUser?.account_type !==
-      "registered"
-  ) {
-    return (
-      <div className="page-stack">
-        <section className="admin-page__denied">
-          <Icon
-            name="mail"
-            size={28}
-          />
-
-          <h2>
-            Sign in to message
-          </h2>
-
-          <p>
-            Private messages are available
-            to registered HyperSync accounts.
-          </p>
-
-          <button
-            type="button"
-            className="hs-search-primary-action"
-            onClick={
-              onOpenAuth
-            }
-          >
-            Sign in
-          </button>
-        </section>
-      </div>
-    );
-  }
-
-  return (
-    <MessagesPage
-      currentUser={
-        currentUser
-      }
-      initialUsername={
-        messageUsername
-      }
-      onInitialUsernameHandled={
-        onMessageUsernameHandled
-      }
-      onUnreadChange={
-        onMessageNotificationsChanged
-      }
-      onOpenProfile={
-        onOpenProfile
-      }
-      onBackToSearch={() => {
-        onNavigate(
-          "search",
+              <button
+                type="button"
+                className="hs-search-primary-action"
+                onClick={
+                  onOpenAuth
+                }
+              >
+                Sign in
+              </button>
+            </section>
+          </div>
         );
-      }}
-      resetToken={
-        messagesResetToken
       }
-    />
-  );
-}
 
-if (
-  activePage === "library"
-) {
-  return (
-    <LibraryPage
-      currentUser={
-        currentUser
-      }
-      resetToken={
-        libraryResetToken
-      }
-      onOpenAuth={
-        onOpenAuth
-      }
-      initialPlaylistId={
-        playlistToOpen
-      }
-      onInitialPlaylistHandled={
-        onPlaylistOpened
-      }
-      activePlaylistDownloads={
-        activePlaylistDownloads
-      }
-    />
-  );
-}
+      return (
+        <MessagesPage
+          currentUser={
+            currentUser
+          }
+          initialUsername={
+            messageUsername
+          }
+          onInitialUsernameHandled={
+            onMessageUsernameHandled
+          }
+          sharedMusicToSend={
+            sharedMusicToSend
+          }
+          onSharedMusicHandled={
+            onSharedMusicHandled
+          }
+          onOpenSharedMusic={
+            onOpenSharedMusic
+          }
+          onUnreadChange={
+            onMessageNotificationsChanged
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onBackToSearch={() => {
+            onNavigate(
+              "search",
+            );
+          }}
+          resetToken={
+            messagesResetToken
+          }
+        />
+      );
+    }
 
-  if (
-    activePage === "profile"
-  ) {
+
+    if (
+      page === "library"
+    ) {
+      return (
+        <LibraryPage
+          currentUser={
+            currentUser
+          }
+          resetToken={
+            libraryResetToken
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          initialPlaylistId={
+            playlistToOpen
+          }
+          onInitialPlaylistHandled={
+            onPlaylistOpened
+          }
+          activePlaylistDownloads={
+            activePlaylistDownloads
+          }
+        />
+      );
+    }
+
+
+    if (
+      page === "profile"
+    ) {
+      return (
+        <ProfilePage
+          currentUser={
+            currentUser
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          onLogout={
+            onLogout
+          }
+          compactMode={
+            compactMode
+          }
+          onToggleCompact={
+            onToggleCompact
+          }
+          statusMessage={
+            statusMessage
+          }
+          onStatusMessage={
+            onStatusMessage
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onSearchArtist={
+            onOpenArtist
+          }
+          onProfileUpdated={
+            onProfileUpdated
+          }
+          installState={
+            installState
+          }
+          onInstallApp={
+            onInstallApp
+          }
+          playbackDevices={
+            playbackDevices
+          }
+          currentPlaybackDeviceId={
+            currentPlaybackDeviceId
+          }
+          controlledPlaybackDeviceId={
+            controlledPlaybackDeviceId
+          }
+          onSelectPlaybackDevice={
+            onSelectPlaybackDevice
+          }
+          onPlaybackDeviceCommand={
+            onPlaybackDeviceCommand
+          }
+        />
+      );
+    }
+
+
+    if (
+      page ===
+        "public-profile" &&
+      cachedProfileUsername
+    ) {
+      return (
+        <PublicProfilePage
+          username={
+            cachedProfileUsername
+          }
+          currentUser={
+            currentUser
+          }
+          onOpenAuth={
+            onOpenAuth
+          }
+          onOpenProfile={
+            onOpenProfile
+          }
+          onSearchArtist={
+            onOpenArtist
+          }
+        />
+      );
+    }
+
+
     return (
-      <ProfilePage
+      <HomePage
         currentUser={
           currentUser
         }
+        onNavigate={
+          onNavigate
+        }
         onOpenAuth={
           onOpenAuth
-        }
-        onLogout={
-          onLogout
-        }
-        compactMode={
-          compactMode
-        }
-        onToggleCompact={
-          onToggleCompact
-        }
-        statusMessage={
-          statusMessage
-        }
-        onStatusMessage={
-          onStatusMessage
-        }
-        onOpenProfile={
-          onOpenProfile
-        }
-        onSearchArtist={
-          onQueryChange
-        }
-        onProfileUpdated={
-          onProfileUpdated
-        }
-        installState={
-          installState
-        }
-        onInstallApp={
-          onInstallApp
         }
       />
     );
   }
 
 
-  if (
-    activePage ===
-      "public-profile" &&
-    profileUsername
-  ) {
-    return (
-      <PublicProfilePage
-        username={
-          profileUsername
-        }
-        currentUser={
-          currentUser
-        }
-        onOpenAuth={
-          onOpenAuth
-        }
-        onOpenProfile={
-          onOpenProfile
-        }
-        onSearchArtist={
-          onQueryChange
-        }
-      />
-    );
-  }
-
-
   return (
-    <HomePage
-      currentUser={
-        currentUser
-      }
-      onNavigate={
-        onNavigate
-      }
-      onOpenAuth={
-        onOpenAuth
-      }
-    />
+    <>
+      {warmPages
+        .filter(
+          (entry) =>
+            entry.ownerKey ===
+            warmOwnerKey,
+        )
+        .map(
+          (entry) => (
+            <Activity
+              key={
+                entry.instanceKey
+              }
+              mode={
+                entry.key ===
+                activeWarmKey
+                  ? "visible"
+                  : "hidden"
+              }
+            >
+              {renderPage(
+                entry.page,
+                entry.profileUsername,
+              )}
+            </Activity>
+          ),
+        )}
+    </>
   );
 }
 
@@ -2984,11 +3611,19 @@ function PlayerBar({
   onOpenAuth,
   messageNotifications,
   onOpenMessage,
+  onOpenNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
   installState,
   onInstallApp,
+  playbackDevices = [],
+  currentPlaybackDeviceId,
+  controlledPlaybackDeviceId,
+  accountPlaybackSnapshot,
+  onSelectPlaybackDevice,
+  onPlaybackDeviceCommand,
+  onOpenPlayerDetails,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -2997,6 +3632,33 @@ function PlayerBar({
     notificationsOpen,
     setNotificationsOpen,
   ] = useState(false);
+
+  const [
+    devicesOpen,
+    setDevicesOpen,
+  ] = useState(false);
+
+  const [
+    remoteClock,
+    setRemoteClock,
+  ] = useState(
+    Date.now(),
+  );
+
+  const [
+    remoteSeekPreview,
+    setRemoteSeekPreview,
+  ] = useState(null);
+
+  const remoteSeekTimerRef =
+    useRef(null);
+
+  const playerDetailsPressTimerRef =
+    useRef(null);
+
+  const playerDetailsPointerRef =
+    useRef(null);
+
   const [
     state,
     setState,
@@ -3022,17 +3684,146 @@ function PlayerBar({
   }, []);
 
 
+  const controlledDevice =
+    playbackDevices.find(
+      (device) =>
+        device.device_id ===
+        controlledPlaybackDeviceId,
+    ) ??
+    null;
+
+  const controllingRemote =
+    Boolean(
+      currentUser?.account_type ===
+        "registered" &&
+      controlledPlaybackDeviceId &&
+      controlledPlaybackDeviceId !==
+        currentPlaybackDeviceId &&
+      controlledDevice?.is_online,
+    );
+
+  useEffect(() => {
+    if (
+      !controllingRemote ||
+      accountPlaybackSnapshot
+        ?.paused ||
+      !accountPlaybackSnapshot
+        ?.track?.id
+    ) {
+      return undefined;
+    }
+
+    const intervalId =
+      window.setInterval(
+        () => {
+          setRemoteClock(
+            Date.now(),
+          );
+        },
+        500,
+      );
+
+    return () => {
+      window.clearInterval(
+        intervalId,
+      );
+    };
+  }, [
+    controllingRemote,
+    accountPlaybackSnapshot
+      ?.paused,
+    accountPlaybackSnapshot
+      ?.track?.id,
+    accountPlaybackSnapshot
+      ?.updated_at,
+  ]);
+
+
+  useEffect(() => {
+    return () => {
+      if (
+        remoteSeekTimerRef
+          .current
+      ) {
+        window.clearTimeout(
+          remoteSeekTimerRef
+            .current,
+        );
+      }
+    };
+  }, []);
+
+
+  useEffect(() => {
+    setRemoteSeekPreview(
+      null,
+    );
+  }, [
+    controlledPlaybackDeviceId,
+    accountPlaybackSnapshot
+      ?.updated_at,
+  ]);
+
+
+  const remotePosition =
+    useMemo(
+      () => {
+        if (
+          !controllingRemote
+        ) {
+          return 0;
+        }
+
+        /*
+         * remoteClock intentionally causes
+         * this memo to advance while the
+         * selected remote device is playing.
+         */
+        void remoteClock;
+
+        return accountPlaybackPosition(
+          accountPlaybackSnapshot,
+        );
+      },
+      [
+        accountPlaybackSnapshot,
+        controllingRemote,
+        remoteClock,
+      ],
+    );
+
+
   const toggle =
     useCallback(
       async () => {
         try {
+          if (
+            controllingRemote
+          ) {
+            await onPlaybackDeviceCommand?.(
+              controlledPlaybackDeviceId,
+              accountPlaybackSnapshot
+                ?.paused
+                ? "play"
+                : "pause",
+            );
+
+            return;
+          }
+
           await player.togglePlay();
         } catch {
           // Browser autoplay restrictions
           // can prevent playback.
         }
       },
-      [],
+      [
+        accountPlaybackSnapshot
+          ?.paused,
+        controlledPlaybackDeviceId,
+        controllingRemote,
+        onPlaybackDeviceCommand,
+      ],
     );
 
 
@@ -3062,48 +3853,12 @@ function PlayerBar({
     return `${mins}:${secs}`;
   };
 
-  const titleText =
-    state.title ||
-    (
-      state.src
-        ? decodeURIComponent(
-            state.src.replace(
-              /.*\//,
-              "",
-            ),
-          )
-        : "Nothing playing"
-    );
-
-  const subtitleText =
-    state.artist
-      ? [
-          state.artist,
-          state.album ||
-            "",
-        ]
-          .filter(Boolean)
-          .join(" • ")
-      : state.src
-        ? "Now playing"
-        : "Select a track to start listening";
-
-  const canControl =
-    Boolean(state.src);
-
-  const progressMax =
-    state.duration > 0
-      ? state.duration
-      : 1;
-
-  const progressValue =
-    Math.min(
-      Math.max(
-        state.currentTime || 0,
-        0,
-      ),
-      progressMax,
-    );
+  const remoteTrack =
+    controllingRemote
+      ? accountPlaybackSnapshot
+          ?.track ??
+        null
+      : null;
 
   const currentQueueTrack =
     Array.isArray(
@@ -3118,56 +3873,405 @@ function PlayerBar({
         null
       : null;
 
+  const displayTrackId =
+    remoteTrack?.id ??
+    state.trackId ??
+    null;
+
+  const displayTitle =
+    remoteTrack?.title ??
+    state.title ??
+    currentQueueTrack?.meta
+      ?.title ??
+    "";
+
+  const displayArtist =
+    remoteTrack?.artist ??
+    state.artist ??
+    currentQueueTrack?.meta
+      ?.artist ??
+    "";
+
+  const displayAlbum =
+    remoteTrack?.album ??
+    state.album ??
+    currentQueueTrack?.meta
+      ?.album ??
+    "";
+
+  const displayArtworkUrl =
+    remoteTrack?.artwork_url ??
+    state.artworkUrl ??
+    currentQueueTrack?.meta
+      ?.artworkUrl ??
+    null;
+
+  const titleText =
+    displayTitle ||
+    (
+      state.src
+        ? decodeURIComponent(
+            state.src.replace(
+              /.*\//,
+              "",
+            ),
+          )
+        : "Nothing playing"
+    );
+
+  const subtitleText =
+    displayArtist
+      ? [
+          displayArtist,
+          displayAlbum,
+        ]
+          .filter(Boolean)
+          .join(" • ")
+      : displayTrackId
+        ? (
+            controllingRemote &&
+            controlledDevice?.name
+              ? (
+                  "Playing on " +
+                  controlledDevice.name
+                )
+              : "Now playing"
+          )
+        : "Select a track to start listening";
+
+  const effectivePaused =
+    controllingRemote
+      ? Boolean(
+          accountPlaybackSnapshot
+            ?.paused ??
+          true,
+        )
+      : Boolean(
+          state.paused,
+        );
+
+  const canControl =
+    controllingRemote
+      ? Boolean(
+          controlledDevice
+            ?.is_online &&
+          accountPlaybackSnapshot
+            ?.track?.id,
+        )
+      : Boolean(
+          state.src,
+        );
+
+  const effectiveDuration =
+    controllingRemote
+      ? Math.max(
+          Number(
+            remoteTrack
+              ?.duration_seconds ??
+            0,
+          ) || 0,
+          0,
+        )
+      : (
+          state.duration >
+            0
+            ? state.duration
+            : 0
+        );
+
+  const progressMax =
+    effectiveDuration > 0
+      ? effectiveDuration
+      : 1;
+
+  const effectiveCurrentTime =
+    controllingRemote
+      ? (
+          remoteSeekPreview ??
+          remotePosition
+        )
+      : (
+          state.currentTime ||
+          0
+        );
+
+  const progressValue =
+    Math.min(
+      Math.max(
+        effectiveCurrentTime,
+        0,
+      ),
+      progressMax,
+    );
+
+  const handlePrevious =
+    () => {
+      if (
+        controllingRemote
+      ) {
+        void onPlaybackDeviceCommand?.(
+          controlledPlaybackDeviceId,
+          "previous",
+        );
+
+        return;
+      }
+
+      player.seekTo(
+        0,
+      );
+    };
+
+  const handleNext =
+    () => {
+      if (
+        controllingRemote
+      ) {
+        void onPlaybackDeviceCommand?.(
+          controlledPlaybackDeviceId,
+          "next",
+        );
+
+        return;
+      }
+
+      void player.skipToNext();
+    };
+
+  const handleSeek =
+    (value) => {
+      if (
+        !controllingRemote
+      ) {
+        player.seekTo(
+          value,
+        );
+
+        return;
+      }
+
+      setRemoteSeekPreview(
+        value,
+      );
+
+      if (
+        remoteSeekTimerRef
+          .current
+      ) {
+        window.clearTimeout(
+          remoteSeekTimerRef
+            .current,
+        );
+      }
+
+      remoteSeekTimerRef.current =
+        window.setTimeout(
+          () => {
+            remoteSeekTimerRef.current =
+              null;
+
+            void onPlaybackDeviceCommand?.(
+              controlledPlaybackDeviceId,
+              "seek",
+              value,
+            );
+          },
+          180,
+        );
+    };
+
+  const clearPlayerDetailsPress =
+    useCallback(
+      () => {
+        if (
+          playerDetailsPressTimerRef
+            .current
+        ) {
+          window.clearTimeout(
+            playerDetailsPressTimerRef
+              .current,
+          );
+
+          playerDetailsPressTimerRef.current =
+            null;
+        }
+
+        playerDetailsPointerRef.current =
+          null;
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    return () => {
+      clearPlayerDetailsPress();
+    };
+  }, [
+    clearPlayerDetailsPress,
+  ]);
+
+
+  const handlePlayerDetailsPointerDown =
+    useCallback(
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !onOpenPlayerDetails ||
+          (
+            !displayTrackId &&
+            !state.queue?.length
+          )
+        ) {
+          return;
+        }
+
+        if (
+          event.target instanceof
+            Element &&
+          event.target.closest(
+            [
+              "button",
+              "input",
+              "a[href]",
+              "[role='button']",
+              "[role='slider']",
+            ].join(", "),
+          )
+        ) {
+          return;
+        }
+
+        clearPlayerDetailsPress();
+
+        const pointer = {
+          pointerId:
+            event.pointerId,
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+
+        playerDetailsPointerRef.current =
+          pointer;
+
+        playerDetailsPressTimerRef.current =
+          window.setTimeout(
+            () => {
+              playerDetailsPressTimerRef.current =
+                null;
+
+              playerDetailsPointerRef.current =
+                null;
+
+              try {
+                navigator.vibrate?.(
+                  10,
+                );
+              } catch {
+                // Haptics are optional.
+              }
+
+              onOpenPlayerDetails();
+            },
+            520,
+          );
+      },
+      [
+        clearPlayerDetailsPress,
+        displayTrackId,
+        onOpenPlayerDetails,
+        state.queue?.length,
+      ],
+    );
+
+
+  const handlePlayerDetailsPointerMove =
+    useCallback(
+      (event) => {
+        const pointer =
+          playerDetailsPointerRef
+            .current;
+
+        if (
+          !pointer ||
+          pointer.pointerId !==
+            event.pointerId
+        ) {
+          return;
+        }
+
+        const movedX =
+          Math.abs(
+            event.clientX -
+              pointer.x,
+          );
+
+        const movedY =
+          Math.abs(
+            event.clientY -
+              pointer.y,
+          );
+
+        if (
+          movedX > 12 ||
+          movedY > 12
+        ) {
+          clearPlayerDetailsPress();
+        }
+      },
+      [
+        clearPlayerDetailsPress,
+      ],
+    );
+
+
   const currentTrackAction =
-    state.trackId
+    displayTrackId
       ? {
           id:
-            state.trackId,
+            displayTrackId,
           title:
-            state.title ??
-            currentQueueTrack?.meta
-              ?.title ??
-            "",
+            displayTitle,
           artist:
-            state.artist ??
-            currentQueueTrack?.meta
-              ?.artist ??
-            "",
+            displayArtist,
           album:
-            state.album ??
-            currentQueueTrack?.meta
-              ?.album ??
-            "",
+            displayAlbum,
           audio_url:
+            remoteTrack?.audio_url ??
             currentQueueTrack?.meta
               ?.audioUrl ??
             null,
           artwork_url:
-            state.artworkUrl ??
-            currentQueueTrack?.meta
-              ?.artworkUrl ??
-            null,
+            displayArtworkUrl,
           mime_type:
+            remoteTrack?.mime_type ??
             state.mimeType ??
             currentQueueTrack?.meta
               ?.mimeType ??
             null,
           file_size:
+            remoteTrack?.file_size ??
             state.fileSize ??
             currentQueueTrack?.meta
               ?.fileSize ??
             null,
           media_version:
+            remoteTrack?.media_version ??
             state.mediaVersion ??
             currentQueueTrack?.meta
               ?.mediaVersion ??
             null,
           artwork_version:
+            remoteTrack?.artwork_version ??
             state.artworkVersion ??
             currentQueueTrack?.meta
               ?.artworkVersion ??
             null,
           duration_seconds:
+            remoteTrack?.duration_seconds ??
             state.durationSeconds ??
             currentQueueTrack?.meta
               ?.durationSeconds ??
@@ -3175,10 +4279,29 @@ function PlayerBar({
         }
       : null;
 
+  const currentTrackMenuTriggerProps =
+    currentTrackAction
+      ? trackActionMenu.getTriggerProps(
+          currentTrackAction,
+        )
+      : {};
+
   return (
     <section
       className="player-bar"
       aria-label="Player"
+      onPointerDown={
+        handlePlayerDetailsPointerDown
+      }
+      onPointerMove={
+        handlePlayerDetailsPointerMove
+      }
+      onPointerUp={
+        clearPlayerDetailsPress
+      }
+      onPointerCancel={
+        clearPlayerDetailsPress
+      }
     >
 
       {/* =================================================
@@ -3187,17 +4310,33 @@ function PlayerBar({
 
       <div
         className="player-bar__track"
-        {...(
-          currentTrackAction
-            ? trackActionMenu.getTriggerProps(
-                currentTrackAction,
-              )
-            : {}
-        )}
+        onContextMenu={(event) => {
+          const nativeEvent =
+            event.nativeEvent;
+
+          if (
+            nativeEvent
+              ?.pointerType ===
+                "touch" ||
+            nativeEvent
+              ?.sourceCapabilities
+              ?.firesTouchEvents
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+
+          currentTrackMenuTriggerProps
+            .onContextMenu
+            ?.(
+              event,
+            );
+        }}
       >
 
         <TrackArtwork
-          src={state.artworkUrl}
+          src={displayArtworkUrl}
           alt={titleText}
           variant={1}
         />
@@ -3227,8 +4366,8 @@ function PlayerBar({
 
           <button
             type="button"
-            onClick={() =>
-              player.seekTo(0)
+            onClick={
+              handlePrevious
             }
             disabled={!canControl}
             aria-label="Previous"
@@ -3246,14 +4385,14 @@ function PlayerBar({
             onClick={toggle}
             disabled={!canControl}
             aria-label={
-              state.paused
+              effectivePaused
                 ? "Play"
                 : "Pause"
             }
           >
             <Icon
               name={
-                state.paused
+                effectivePaused
                   ? "play"
                   : "pause"
               }
@@ -3264,9 +4403,9 @@ function PlayerBar({
 
           <button
             type="button"
-            onClick={() => {
-              void player.skipToNext();
-            }}
+            onClick={
+              handleNext
+            }
             disabled={!canControl}
             aria-label="Next"
           >
@@ -3283,7 +4422,7 @@ function PlayerBar({
 
           <span>
             {formatTime(
-              state.currentTime,
+              effectiveCurrentTime,
             )}
           </span>
 
@@ -3313,7 +4452,7 @@ function PlayerBar({
         event.target.value,
       );
 
-    player.seekTo(
+    handleSeek(
       value,
     );
   }}
@@ -3322,7 +4461,7 @@ function PlayerBar({
 
           <span>
             {formatTime(
-              state.duration,
+              effectiveDuration,
             )}
           </span>
 
@@ -3332,6 +4471,61 @@ function PlayerBar({
 
 
       <div className="player-bar__right">
+        {currentUser?.account_type ===
+        "registered" ? (
+          <div className="desktop-player-device-center">
+            <button
+              type="button"
+              className={[
+                "icon-button",
+                "desktop-player-device-button",
+                controllingRemote
+                  ? "is-remote"
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-label="Choose playback device"
+              aria-expanded={
+                devicesOpen
+              }
+              title={
+                controlledDevice?.name
+                  ? (
+                      "Controlling " +
+                      controlledDevice.name
+                    )
+                  : "Choose playback device"
+              }
+              onClick={() => {
+                setDevicesOpen(
+                  (open) =>
+                    !open,
+                );
+
+                setNotificationsOpen(
+                  false,
+                );
+              }}
+            >
+              <Icon
+                name="devices"
+                size={18}
+              />
+
+              {playbackDevices.filter(
+                (device) =>
+                  device.is_online,
+              ).length > 1 ? (
+                <span
+                  className="icon-button__dot"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </button>
+          </div>
+        ) : null}
+
         <PlaylistUpdateNotice
           update={playlistUpdate}
           variant="desktop"
@@ -3363,6 +4557,10 @@ function PlayerBar({
               setNotificationsOpen(
                 (open) => !open,
               );
+
+              setDevicesOpen(
+                false,
+              );
             }}
           >
             <Icon
@@ -3388,15 +4586,15 @@ function PlayerBar({
                 data={
                   messageNotifications
                 }
-                onOpenMessage={(
-                  username,
+                onOpenNotification={(
+                  notification,
                 ) => {
                   setNotificationsOpen(
                     false,
                   );
 
-                  onOpenMessage?.(
-                    username,
+                  onOpenNotification?.(
+                    notification,
                   );
                 }}
                 onEnablePush={
@@ -3447,22 +4645,58 @@ function PlayerBar({
           MOBILE CONTROL
           ================================================= */}
 
-      <button
-        className="mobile-player-control"
-        type="button"
-        onClick={toggle}
-        disabled={!canControl}
-        aria-label="Playback"
-      >
-        <Icon
-          name={
-            state.paused
-              ? "play"
-              : "pause"
-          }
-          size={19}
-        />
-      </button>
+      <div className="mobile-player-actions">
+        <button
+          className="mobile-player-control"
+          type="button"
+          onClick={toggle}
+          disabled={!canControl}
+          aria-label="Playback"
+        >
+          <Icon
+            name={
+              effectivePaused
+                ? "play"
+                : "pause"
+            }
+            size={19}
+          />
+        </button>
+
+      </div>
+
+      {devicesOpen &&
+      currentUser?.account_type ===
+        "registered" ? (
+        <div className="playback-devices-popover">
+          <PlaybackDevicesPanel
+            devices={
+              playbackDevices
+            }
+            currentDeviceId={
+              currentPlaybackDeviceId
+            }
+            controlledDeviceId={
+              controlledPlaybackDeviceId
+            }
+            onSelectDevice={(
+              deviceId,
+            ) => {
+              onSelectPlaybackDevice?.(
+                deviceId,
+              );
+            }}
+            onTransferToDevice={(
+              deviceId,
+            ) => {
+              void onPlaybackDeviceCommand?.(
+                deviceId,
+                "transfer",
+              );
+            }}
+          />
+        </div>
+      ) : null}
 
 
       <TrackActionMenu
@@ -3496,6 +4730,7 @@ function AuthOverlay({
   onClose,
   onGuest,
   onAuthenticated,
+  onForgotPassword,
 }) {
   const [showPassword, setShowPassword] =
     useState(false);
@@ -3657,14 +4892,14 @@ function AuthOverlay({
         <div className="auth-heading">
           <h2 id="auth-title">
             {isCreate
-              ? "Create your HyperSync account"
+              ? "Create your HyperSynced account"
               : "Welcome to HyperSynced"}
           </h2>
 
           <p>
             {isCreate
               ? (
-                "Create a HyperSync account to save " +
+                "Create a HyperSynced account to save " +
                 "your library and sync across devices."
               )
               : (
@@ -3688,7 +4923,7 @@ function AuthOverlay({
               type="text"
               name="username"
               autoComplete="username"
-              placeholder="Username"
+              placeholder="Username or email"
               required
             />
           </label>
@@ -3867,10 +5102,8 @@ function AuthOverlay({
               <button
                 type="button"
                 onClick={() => {
-                  setMessage(
-                    "Password recovery is not " +
-                    "implemented yet.",
-                  );
+                  setMessage("");
+                  onForgotPassword?.();
                 }}
               >
                 Forgot password?
@@ -3938,6 +5171,29 @@ function AuthOverlay({
 // App shell
 // ======================================================================================
 
+function shouldKeepTextFocus(
+  target,
+) {
+  if (
+    !(target instanceof Element)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "textarea",
+        "select",
+        "[contenteditable='true']",
+        "[role='textbox']",
+        "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])",
+      ].join(", "),
+    ),
+  );
+}
+
+
 function shouldIgnorePlaybackShortcut(
   target,
 ) {
@@ -4002,9 +5258,19 @@ export default function App() {
   ] = useState(null);
 
   const [
+    artistToOpen,
+    setArtistToOpen,
+  ] = useState("");
+
+  const [
     messageToOpen,
     setMessageToOpen,
   ] = useState("");
+
+  const [
+    sharedMusicToSend,
+    setSharedMusicToSend,
+  ] = useState(null);
 
   const [
     messageNotifications,
@@ -4015,6 +5281,11 @@ export default function App() {
     notifications:
       [],
   });
+
+  const [
+    notificationDetail,
+    setNotificationDetail,
+  ] = useState(null);
 
   const [
     pushBusy,
@@ -4038,12 +5309,45 @@ export default function App() {
     setInstallHelpMode,
   ] = useState("");
 
+  const [
+    recoveryOpen,
+    setRecoveryOpen,
+  ] = useState(
+    () => {
+      const recoveryLink =
+        readPasswordRecoveryLinkFromLocation();
+
+      return Boolean(
+        readPasswordResetTokenFromLocation() ||
+        (
+          recoveryLink.identifier &&
+          recoveryLink.code
+        ),
+      );
+    },
+  );
+
+  const [
+    mobilePlayerDetailsOpen,
+    setMobilePlayerDetailsOpen,
+  ] = useState(false);
+
   const [authOpen, setAuthOpen] =
     useState(
-      () => (
-        !shouldRestoreSession() &&
-        !readCachedUserProfile()
-      ),
+      () => {
+        const recoveryLink =
+          readPasswordRecoveryLinkFromLocation();
+
+        return (
+          !readPasswordResetTokenFromLocation() &&
+          !(
+            recoveryLink.identifier &&
+            recoveryLink.code
+          ) &&
+          !shouldRestoreSession() &&
+          !readCachedUserProfile()
+        );
+      },
     );
 
   const [authMode, setAuthMode] =
@@ -4088,9 +5392,29 @@ export default function App() {
     setActivePlaylistDownloads,
   ] = useState([]);
 
+  const [
+    playbackDevices,
+    setPlaybackDevices,
+  ] = useState([]);
+
+  const [
+    accountPlaybackSnapshot,
+    setAccountPlaybackSnapshot,
+  ] = useState(null);
+
+  const [
+    controlledPlaybackDeviceId,
+    setControlledPlaybackDeviceId,
+  ] = useState(null);
+
   const playbackDeviceIdRef =
     useRef(
       getAccountPlaybackDeviceId(),
+    );
+
+  const playbackDeviceDescriptorRef =
+    useRef(
+      getPlaybackDeviceDescriptor(),
     );
 
   const playbackApplyingRemoteRef =
@@ -4118,6 +5442,89 @@ export default function App() {
     useRef(null);
 
 
+  const sendAccountPlaybackCommand =
+    useCallback(
+      async (
+        targetDeviceId,
+        action,
+        value = null,
+      ) => {
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          return false;
+        }
+
+        const targetId =
+          String(
+            targetDeviceId ??
+            "",
+          ).trim();
+
+        if (!targetId) {
+          return false;
+        }
+
+        const currentDeviceId =
+          playbackDeviceIdRef.current;
+
+        try {
+          if (
+            targetId ===
+            currentDeviceId
+          ) {
+            const result =
+              await applyPlaybackRemoteCommand(
+                {
+                  action,
+                  value,
+                },
+                {
+                  player,
+                  snapshot:
+                    accountPlaybackSnapshot,
+                  snapshotPosition:
+                    accountPlaybackPosition,
+                },
+              );
+
+            if (result) {
+              setControlledPlaybackDeviceId(
+                currentDeviceId,
+              );
+            }
+
+            return Boolean(
+              result,
+            );
+          }
+
+          await sendPlaybackDeviceCommand({
+            targetDeviceId:
+              targetId,
+            sourceDeviceId:
+              currentDeviceId,
+            action,
+            value,
+          });
+
+          setControlledPlaybackDeviceId(
+            targetId,
+          );
+
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      [
+        accountPlaybackSnapshot,
+        currentUser?.account_type,
+      ],
+    );
+
+
   useEffect(() => {
     return subscribePwaInstall(
       (nextState) => {
@@ -4126,6 +5533,90 @@ export default function App() {
         );
       },
     );
+  }, []);
+
+
+  useEffect(() => {
+    let releaseTimer =
+      null;
+
+    const releaseNonTextFocus =
+      (event) => {
+        if (
+          shouldKeepTextFocus(
+            event.target,
+          )
+        ) {
+          return;
+        }
+
+        if (releaseTimer) {
+          window.clearTimeout(
+            releaseTimer,
+          );
+        }
+
+        /*
+         * Wait until the click has fully
+         * dispatched, then release button/
+         * link/card focus back to dead
+         * document space. Text entry keeps
+         * focus so typing still works.
+         */
+        releaseTimer =
+          window.setTimeout(
+            () => {
+              releaseTimer =
+                null;
+
+              const active =
+                document.activeElement;
+
+              if (
+                active instanceof
+                  HTMLElement
+                && active !==
+                  document.body
+                && active !==
+                  document.documentElement
+                && !shouldKeepTextFocus(
+                  active,
+                )
+              ) {
+                active.blur();
+              }
+            },
+            0,
+          );
+      };
+
+    window.addEventListener(
+      "click",
+      releaseNonTextFocus,
+    );
+
+    window.addEventListener(
+      "contextmenu",
+      releaseNonTextFocus,
+    );
+
+    return () => {
+      if (releaseTimer) {
+        window.clearTimeout(
+          releaseTimer,
+        );
+      }
+
+      window.removeEventListener(
+        "click",
+        releaseNonTextFocus,
+      );
+
+      window.removeEventListener(
+        "contextmenu",
+        releaseNonTextFocus,
+      );
+    };
   }, []);
 
 
@@ -4475,6 +5966,18 @@ export default function App() {
       playbackPendingWriteRef.current =
         null;
 
+      setPlaybackDevices(
+        [],
+      );
+
+      setAccountPlaybackSnapshot(
+        null,
+      );
+
+      setControlledPlaybackDeviceId(
+        null,
+      );
+
       return undefined;
     }
 
@@ -4487,8 +5990,14 @@ export default function App() {
     let pollInterval =
       null;
 
+    let pollInFlight =
+      false;
+
     const deviceId =
       playbackDeviceIdRef.current;
+
+    const deviceDescriptor =
+      playbackDeviceDescriptorRef.current;
 
     const markPublished =
       (state) => {
@@ -4529,7 +6038,7 @@ export default function App() {
             ?.onLine ===
             false
         ) {
-          return;
+          return null;
         }
 
         if (
@@ -4539,7 +6048,7 @@ export default function App() {
           playbackPendingWriteRef.current =
             state;
 
-          return;
+          return null;
         }
 
         playbackWriteInFlightRef.current =
@@ -4582,7 +6091,7 @@ export default function App() {
             );
 
           if (cancelled) {
-            return;
+            return null;
           }
 
           playbackLastServerUpdateRef
@@ -4596,13 +6105,20 @@ export default function App() {
                 ),
               );
 
+          setAccountPlaybackSnapshot(
+            response,
+          );
+
           markPublished(
             state,
           );
+
+          return response;
         } catch {
           // Playback remains fully usable
           // if account sync is temporarily
           // unavailable.
+          return null;
         } finally {
           playbackWriteInFlightRef.current =
             false;
@@ -4642,7 +6158,7 @@ export default function App() {
           Math.max(
             Number(
               state?.currentTime ??
-              0,
+                0,
             ) || 0,
             0,
           );
@@ -4650,7 +6166,7 @@ export default function App() {
         const paused =
           Boolean(
             state?.paused ??
-            true,
+              true,
           );
 
         const now =
@@ -4729,10 +6245,74 @@ export default function App() {
         }
       };
 
-    const fetchRemotePlayback =
+    const applyPendingCommands =
+      async (
+        commands,
+        snapshot,
+      ) => {
+        const queue =
+          Array.isArray(
+            commands,
+          )
+            ? commands
+            : [];
+
+        for (
+          const command
+          of queue
+        ) {
+          if (cancelled) {
+            return;
+          }
+
+          let applied =
+            false;
+
+          playbackApplyingRemoteRef.current =
+            true;
+
+          try {
+            const result =
+              await applyPlaybackRemoteCommand(
+                command,
+                {
+                  player,
+                  snapshot,
+                  snapshotPosition:
+                    accountPlaybackPosition,
+                },
+              );
+
+            applied =
+              Boolean(
+                result,
+              );
+          } catch {
+            // Browser autoplay policies can
+            // reject a remote Play on a device
+            // that has never been interacted
+            // with. Other commands continue.
+          } finally {
+            playbackApplyingRemoteRef.current =
+              false;
+          }
+
+          if (
+            applied &&
+            !cancelled
+          ) {
+            await publishPlayback(
+              player.getState(),
+            );
+          }
+        }
+      };
+
+    const pollDevice =
       async () => {
         if (
           cancelled ||
+          pollInFlight ||
           globalThis.navigator
             ?.onLine ===
             false
@@ -4740,30 +6320,96 @@ export default function App() {
           return null;
         }
 
+        pollInFlight =
+          true;
+
         try {
-          const snapshot =
-            await apiRequest(
-              "/users/me/playback-state",
-            );
+          const response =
+            await pollPlaybackDevice({
+              deviceId,
+              name:
+                deviceDescriptor.name,
+              deviceType:
+                deviceDescriptor.deviceType,
+            });
 
           if (cancelled) {
             return null;
           }
 
+          const devices =
+            Array.isArray(
+              response?.devices,
+            )
+              ? response.devices
+              : [];
+
+          const snapshot =
+            response
+              ?.playback_state ??
+            null;
+
+          setPlaybackDevices(
+            devices,
+          );
+
+          setAccountPlaybackSnapshot(
+            snapshot,
+          );
+
+          setControlledPlaybackDeviceId(
+            (current) => {
+              const currentStillOnline =
+                current &&
+                devices.some(
+                  (device) =>
+                    device.device_id ===
+                      current &&
+                    device.is_online,
+                );
+
+              if (
+                currentStillOnline
+              ) {
+                return current;
+              }
+
+              const active =
+                devices.find(
+                  (device) =>
+                    device.is_active &&
+                    device.is_online,
+                );
+
+              return (
+                active?.device_id ??
+                deviceId
+              );
+            },
+          );
+
           await applyRemotePlayback(
+            snapshot,
+          );
+
+          await applyPendingCommands(
+            response?.commands,
             snapshot,
           );
 
           return snapshot;
         } catch {
           return null;
+        } finally {
+          pollInFlight =
+            false;
         }
       };
 
     const bootstrap =
       async () => {
         const remote =
-          await fetchRemotePlayback();
+          await pollDevice();
 
         if (cancelled) {
           return;
@@ -4820,9 +6466,9 @@ export default function App() {
         pollInterval =
           window.setInterval(
             () => {
-              void fetchRemotePlayback();
+              void pollDevice();
             },
-            ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS,
+            ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
           );
       };
 
@@ -4830,7 +6476,7 @@ export default function App() {
 
     const handleFocus =
       () => {
-        void fetchRemotePlayback();
+        void pollDevice();
       };
 
     const handleVisibility =
@@ -4839,7 +6485,7 @@ export default function App() {
           document.visibilityState ===
             "visible"
         ) {
-          void fetchRemotePlayback();
+          void pollDevice();
         }
       };
 
@@ -5229,7 +6875,25 @@ const checkDownloadedGeneratedPlaylistUpdates =
                       progress:
                         0,
                     };
-                  } catch {
+                  } catch (error) {
+                    if (
+                      error?.status ===
+                      404
+                    ) {
+                      await removePlaylistFromOffline(
+                        downloadedPlaylist.id,
+                        offlineOwnerKey,
+                      ).catch(
+                        () => false,
+                      );
+
+                      window.dispatchEvent(
+                        new CustomEvent(
+                          "hypersync:offline-downloads-changed",
+                        ),
+                      );
+                    }
+
                     return null;
                   }
                 },
@@ -5626,6 +7290,51 @@ const checkDownloadedGeneratedPlaylistUpdates =
   );
 
 
+  const openNotificationDetail =
+    useCallback(
+      (
+        notification,
+      ) => {
+        if (!notification) {
+          return;
+        }
+
+        setNotificationDetail(
+          notification,
+        );
+
+        void (
+          async () => {
+            try {
+              if (
+                notification.type ===
+                "admin_activity"
+              ) {
+                await markAdminNotificationRead(
+                  notification
+                    .notification_id,
+                );
+              } else {
+                await markMessageNotificationRead(
+                  notification
+                    .message_id,
+                );
+              }
+            } catch {
+              // The detail overlay can still show the
+              // locally received notification payload.
+            } finally {
+              await refreshMessageNotifications();
+            }
+          }
+        )();
+      },
+      [
+        refreshMessageNotifications,
+      ],
+    );
+
+
 const persistAppView =
   useCallback(
     (state) => {
@@ -5672,6 +7381,8 @@ const persistAppView =
   setCurrentUser(null);
   setPlaylistUpdates([]);
   setMessageToOpen("");
+  setArtistToOpen("");
+  setNotificationDetail(null);
   setMessageNotifications({
     unread_count:
       0,
@@ -5721,7 +7432,7 @@ const persistAppView =
       ? "Profile"
       : PAGE_TITLES[
           activePage
-        ] ?? "HyperSync";
+        ] ?? "HyperSynced";
 
   const appClassName = useMemo(
     () => (
@@ -5930,6 +7641,52 @@ const clearPlaylistToOpen =
     [],
   );
 
+  const clearArtistToOpen =
+    useCallback(
+      () => {
+        setArtistToOpen(
+          "",
+        );
+      },
+      [],
+    );
+
+
+  const openArtistProfile =
+    useCallback(
+      (artistName) => {
+        const cleanName =
+          String(
+            artistName ?? "",
+          ).trim();
+
+        if (!cleanName) {
+          return;
+        }
+
+        setArtistToOpen(
+          cleanName,
+        );
+
+        setSearchQuery(
+          cleanName,
+        );
+
+        setActiveProfileUsername(
+          "",
+        );
+
+        setActivePage(
+          "search",
+        );
+
+        setStatusMessage(
+          "",
+        );
+      },
+      [],
+    );
+
     const openUserProfile =
   useCallback(
     (username) => {
@@ -6106,6 +7863,106 @@ const clearPlaylistToOpen =
     },
     [],
   );
+
+
+  useEffect(() => {
+    const handleMusicShare =
+      (event) => {
+        const item =
+          normalizeSharedMusicItem(
+            event?.detail,
+          );
+
+        if (!item) {
+          return;
+        }
+
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          openAuth(
+            "signin",
+          );
+
+          return;
+        }
+
+        setSharedMusicToSend(
+          item,
+        );
+
+        setMessageToOpen(
+          "",
+        );
+
+        setMessagesResetToken(
+          (current) =>
+            current + 1,
+        );
+
+        navigate(
+          "messages",
+        );
+      };
+
+    window.addEventListener(
+      MUSIC_SHARE_REQUEST_EVENT,
+      handleMusicShare,
+    );
+
+    return () => {
+      window.removeEventListener(
+        MUSIC_SHARE_REQUEST_EVENT,
+        handleMusicShare,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    navigate,
+    openAuth,
+  ]);
+
+
+  const clearSharedMusicToSend =
+    useCallback(
+      () => {
+        setSharedMusicToSend(
+          null,
+        );
+      },
+      [],
+    );
+
+
+  const openSharedMusicFromMessage =
+    useCallback(
+      (
+        rawItem,
+      ) => {
+        const item =
+          normalizeSharedMusicItem(
+            rawItem,
+          );
+
+        if (!item) {
+          return;
+        }
+
+        setPlaylistToOpen(
+          null,
+        );
+
+        updateSearch(
+          sharedMusicSearchQuery(
+            item,
+          ),
+        );
+      },
+      [
+        updateSearch,
+      ],
+    );
 
 
   const handleInstallApp =
@@ -6488,6 +8345,9 @@ const clearPlaylistToOpen =
     onOpenMessage={
       openMessageUser
     }
+    onOpenNotification={
+      openNotificationDetail
+    }
     onEnablePush={() => {
       void handleEnablePush();
     }}
@@ -6533,6 +8393,15 @@ const clearPlaylistToOpen =
             onPlaylistOpened={
             clearPlaylistToOpen
             }
+            artistToOpen={
+              artistToOpen
+            }
+            onArtistOpened={
+              clearArtistToOpen
+            }
+            onOpenArtist={
+              openArtistProfile
+            }
             profileUsername={
               activeProfileUsername
             }
@@ -6550,6 +8419,15 @@ const clearPlaylistToOpen =
             }
             onMessageUsernameHandled={
               clearMessageToOpen
+            }
+            sharedMusicToSend={
+              sharedMusicToSend
+            }
+            onSharedMusicHandled={
+              clearSharedMusicToSend
+            }
+            onOpenSharedMusic={
+              openSharedMusicFromMessage
             }
             onMessageNotificationsChanged={
               refreshMessageNotifications
@@ -6578,6 +8456,21 @@ const clearPlaylistToOpen =
             onInstallApp={
               handleInstallApp
             }
+            playbackDevices={
+              playbackDevices
+            }
+            currentPlaybackDeviceId={
+              playbackDeviceIdRef.current
+            }
+            controlledPlaybackDeviceId={
+              controlledPlaybackDeviceId
+            }
+            onSelectPlaybackDevice={
+              setControlledPlaybackDeviceId
+            }
+            onPlaybackDeviceCommand={
+              sendAccountPlaybackCommand
+            }
           />
         </main>
       </section>
@@ -6586,9 +8479,9 @@ const clearPlaylistToOpen =
         currentUser={
           currentUser
         }
-        onOpenAuth={() => {
-          openAuth("signin");
-        }}
+        onOpenAuth={
+          openSignIn
+        }
       />
 
       <PlayerBar
@@ -6613,6 +8506,9 @@ const clearPlaylistToOpen =
         onOpenMessage={
           openMessageUser
         }
+        onOpenNotification={
+          openNotificationDetail
+        }
         onEnablePush={() => {
           void handleEnablePush();
         }}
@@ -6628,6 +8524,40 @@ const clearPlaylistToOpen =
         onInstallApp={
           handleInstallApp
         }
+        playbackDevices={
+          playbackDevices
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
+        }
+        controlledPlaybackDeviceId={
+          controlledPlaybackDeviceId
+        }
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        onSelectPlaybackDevice={
+          setControlledPlaybackDeviceId
+        }
+        onPlaybackDeviceCommand={
+          sendAccountPlaybackCommand
+        }
+        onOpenPlayerDetails={() => {
+          setMobilePlayerDetailsOpen(
+            true,
+          );
+        }}
+      />
+
+      <MobilePlayerDetails
+        open={
+          mobilePlayerDetailsOpen
+        }
+        onClose={() => {
+          setMobilePlayerDetailsOpen(
+            false,
+          );
+        }}
       />
 
       <MobileBottomNav
@@ -6674,6 +8604,23 @@ const clearPlaylistToOpen =
   }}
 />
 
+<NotificationDetailOverlay
+  notification={
+    notificationDetail
+  }
+  onClose={() => {
+    setNotificationDetail(
+      null,
+    );
+  }}
+  onOpenMessage={
+    openMessageUser
+  }
+  onOpenSharedMusic={
+    openSharedMusicFromMessage
+  }
+/>
+
 <AuthOverlay
   open={authOpen}
   mode={authMode}
@@ -6684,8 +8631,36 @@ const clearPlaylistToOpen =
   onAuthenticated={
     handleAuthenticated
   }
+  onForgotPassword={() => {
+    setAuthOpen(false);
+    setRecoveryOpen(true);
+  }}
   onGuest={() => {
     setAuthOpen(false);
+  }}
+/>
+
+<PasswordRecoveryOverlay
+  open={
+    recoveryOpen
+  }
+  onClose={() => {
+    setRecoveryOpen(false);
+  }}
+  onBackToSignIn={() => {
+    setRecoveryOpen(false);
+    openAuth("signin");
+  }}
+  onAuthenticated={
+    handleAuthenticated
+  }
+  onPasswordReset={() => {
+    setCurrentUser(null);
+    setPushEnabled(false);
+    setMessageNotifications({
+      unread_count: 0,
+      notifications: [],
+    });
   }}
 />
     </div>

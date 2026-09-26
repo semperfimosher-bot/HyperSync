@@ -70,6 +70,8 @@ class AutoplayTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     audio_url: str | None
 
@@ -128,6 +130,16 @@ async def autoplay(
             artist=track.artist,
 
             album=track.album,
+            genre=getattr(
+                track,
+                "genre",
+                None,
+            ),
+            release_year=getattr(
+                track,
+                "release_year",
+                None,
+            ),
 
             audio_url=(
                 _track_audio_url(

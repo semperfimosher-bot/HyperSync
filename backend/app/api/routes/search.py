@@ -41,6 +41,9 @@ from ...models.playlist import (
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
+    is_direct_genre_query,
+    smart_query_has_semantic_signal,
+    smart_track_score,
 )
 from ...services.search import (
     SEARCH_SORT_MODES,
@@ -87,6 +90,7 @@ TOP_ENTITY_LIMIT = 20
 
 NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
+SMART_VIBE_CANDIDATE_LIMIT = 500
 
 class SearchPlaylistResult(
     BaseModel,
@@ -130,6 +134,8 @@ class SearchTrackResult(
     title: str
     artist: str
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -313,7 +319,7 @@ async def _serialize_search_playlist(
         ),
 
         owner_username=(
-            "HyperSync"
+            "HyperSynced"
         ),
 
         visibility=(
@@ -490,6 +496,44 @@ async def _load_track_candidates(
     if not term:
         return []
 
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        result = await session.execute(
+            select(
+                Track,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+        )
+
+        genre_candidates = [
+            track
+            for track
+            in result.scalars().all()
+            if smart_track_score(
+                track,
+                parsed.raw,
+            )
+            > 0
+        ]
+
+        genre_candidates.sort(
+            key=lambda track: (
+                -smart_track_score(
+                    track,
+                    parsed.raw,
+                ),
+                track.artist.casefold(),
+                track.title.casefold(),
+            )
+        )
+
+        return genre_candidates
+
     prefix_pattern = f"{term}%"
 
     contains_pattern = f"%{term}%"
@@ -509,15 +553,18 @@ async def _load_track_candidates(
             Track.title,
             Track.artist,
             Track.album,
+            Track.genre,
         )
     )
 
-    if (
+    used_postgresql_similarity = (
         _is_postgresql(
             session,
         )
         and len(term) >= 3
-    ):
+    )
+
+    if used_postgresql_similarity:
         query_literal = literal(
             term,
         )
@@ -576,43 +623,80 @@ async def _load_track_candidates(
             )
         )
 
-        return list(result.scalars().all())
-
-    direct_pattern = prefix_pattern if len(term) == 1 else contains_pattern
-
-    direct_conditions = [
-        field.ilike(
-            direct_pattern,
+        direct = list(
+            result.scalars().all()
         )
-        for field in fields
-    ]
 
-    result = await session.execute(
-        stmt.where(
-            or_(
-                *direct_conditions,
+        if direct:
+            return direct
+
+    if not used_postgresql_similarity:
+        direct_pattern = (
+            prefix_pattern
+            if len(term) == 1
+            else contains_pattern
+        )
+
+        direct_conditions = [
+            field.ilike(
+                direct_pattern,
+            )
+            for field in fields
+        ]
+
+        result = await session.execute(
+            stmt.where(
+                or_(
+                    *direct_conditions,
+                )
+            )
+            .order_by(
+                Track.artist.asc(),
+                Track.title.asc(),
+            )
+            .limit(
+                TRACK_CANDIDATE_LIMIT,
             )
         )
-        .order_by(
-            Track.artist.asc(),
-            Track.title.asc(),
+
+        direct = list(
+            result.scalars().all()
         )
-        .limit(
-            TRACK_CANDIDATE_LIMIT,
-        )
-    )
 
-    direct = list(result.scalars().all())
+        if direct:
+            return direct
 
-    if direct:
-        return direct
-
-    if len(term) < 3 or _is_postgresql(
-        session,
+    if not smart_query_has_semantic_signal(
+        parsed.raw,
     ):
-        return []
+        if (
+            len(term) < 3
+            or used_postgresql_similarity
+        ):
+            return []
 
-    fuzzy_result = await session.execute(
+        fuzzy_result = await session.execute(
+            select(
+                Track,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+            .order_by(
+                Track.created_at.desc(),
+            )
+            .limit(
+                TRACK_CANDIDATE_LIMIT,
+            )
+        )
+
+        return list(
+            fuzzy_result.scalars().all()
+        )
+
+    smart_result = await session.execute(
         select(
             Track,
         )
@@ -625,11 +709,38 @@ async def _load_track_candidates(
             Track.created_at.desc(),
         )
         .limit(
-            TRACK_CANDIDATE_LIMIT,
+            SMART_VIBE_CANDIDATE_LIMIT,
         )
     )
 
-    return list(fuzzy_result.scalars().all())
+    smart_candidates = [
+        track
+        for track
+        in smart_result.scalars().all()
+        if smart_track_score(
+            track,
+            parsed.raw,
+        )
+        > 0
+    ]
+
+    if smart_candidates:
+        smart_candidates.sort(
+            key=lambda track: (
+                -smart_track_score(
+                    track,
+                    parsed.raw,
+                ),
+                track.artist.casefold(),
+                track.title.casefold(),
+            )
+        )
+
+        return smart_candidates[
+            :TRACK_CANDIDATE_LIMIT
+        ]
+
+    return []
 
 
 async def _global_play_counts(
@@ -729,12 +840,51 @@ def _match_for_track(
             field="created_at",
         )
 
-    return score_track(
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        smart_score = smart_track_score(
+            track,
+            parsed.raw,
+        )
+
+        if smart_score > 0:
+            return MatchResult(
+                score=smart_score,
+                tier=1,
+                label="GENRE MATCH",
+                field="genre",
+            )
+
+    direct_match = score_track(
         track.title,
         track.artist,
         track.album,
         parsed,
+        getattr(
+            track,
+            "genre",
+            None,
+        ),
     )
+
+    if direct_match.score > 0:
+        return direct_match
+
+    smart_score = smart_track_score(
+        track,
+        parsed.raw,
+    )
+
+    if smart_score > 0:
+        return MatchResult(
+            score=smart_score,
+            tier=2,
+            label="VIBE MATCH",
+            field="genre",
+        )
+
+    return direct_match
 
 
 async def _build_track_rows(
@@ -764,6 +914,40 @@ async def _build_track_rows(
         user,
         track_ids,
     )
+
+    artist_user_plays: dict[
+        str,
+        int,
+    ] = {}
+
+    for track in candidates:
+        artist_key = (
+            track.artist
+            or ""
+        ).casefold()
+
+        if not artist_key:
+            continue
+
+        track_plays = user_history.get(
+            track.id,
+            (
+                0,
+                None,
+            ),
+        )[0]
+
+        artist_user_plays[
+            artist_key
+        ] = (
+            artist_user_plays.get(
+                artist_key,
+                0,
+            )
+            + int(
+                track_plays,
+            )
+        )
 
     rows: list[dict] = []
 
@@ -799,6 +983,15 @@ async def _build_track_rows(
                 "match_label": (match.label),
                 "matched_field": (match.field),
                 "user_play_count": (user_play_count),
+                "artist_user_play_count": (
+                    artist_user_plays.get(
+                        (
+                            track.artist
+                            or ""
+                        ).casefold(),
+                        0,
+                    )
+                ),
                 "global_play_count": (
                     global_counts.get(
                         track.id,
@@ -820,6 +1013,184 @@ async def _build_track_rows(
         and not parsed.term
     ):
         return sorted_rows
+
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        now = datetime.now(
+            UTC,
+        )
+
+        def genre_rank(
+            row: dict,
+        ) -> tuple[
+            float,
+            str,
+            str,
+        ]:
+            created_at = row.get(
+                "created_at",
+            )
+
+            freshness = 0.0
+
+            if created_at is not None:
+                normalized_created = (
+                    created_at.replace(
+                        tzinfo=UTC,
+                    )
+                    if created_at.tzinfo
+                    is None
+                    else created_at.astimezone(
+                        UTC,
+                    )
+                )
+
+                age_days = max(
+                    (
+                        now
+                        - normalized_created
+                    ).days,
+                    0,
+                )
+
+                freshness = max(
+                    0.0,
+                    90.0
+                    - min(
+                        age_days,
+                        730,
+                    )
+                    * (
+                        90.0
+                        / 730.0
+                    ),
+                )
+
+            personalized = min(
+                int(
+                    row.get(
+                        "user_play_count",
+                        0,
+                    )
+                ),
+                40,
+            ) * 7.0
+
+            artist_affinity = min(
+                int(
+                    row.get(
+                        "artist_user_play_count",
+                        0,
+                    )
+                ),
+                80,
+            ) * 2.5
+
+            popularity = min(
+                int(
+                    row.get(
+                        "global_play_count",
+                        0,
+                    )
+                ),
+                500,
+            ) * 0.45
+
+            total = (
+                float(
+                    row.get(
+                        "match_score",
+                        0,
+                    )
+                )
+                + personalized
+                + artist_affinity
+                + popularity
+                + freshness
+            )
+
+            return (
+                -total,
+                str(
+                    row.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold(),
+                str(
+                    row.get(
+                        "title",
+                        "",
+                    )
+                ).casefold(),
+            )
+
+        ranked = sorted(
+            rows,
+            key=genre_rank,
+        )
+
+        diversified: list[dict] = []
+        pending = list(
+            ranked,
+        )
+
+        while pending:
+            if (
+                len(
+                    diversified,
+                )
+                < 2
+            ):
+                diversified.append(
+                    pending.pop(
+                        0,
+                    )
+                )
+                continue
+
+            last_two_artists = {
+                str(
+                    item.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold()
+                for item
+                in diversified[
+                    -2:
+                ]
+            }
+
+            next_index = next(
+                (
+                    index
+                    for (
+                        index,
+                        item,
+                    )
+                    in enumerate(
+                        pending,
+                    )
+                    if str(
+                        item.get(
+                            "artist",
+                            "",
+                        )
+                    ).casefold()
+                    not in last_two_artists
+                ),
+                0,
+            )
+
+            diversified.append(
+                pending.pop(
+                    next_index,
+                )
+            )
+
+        return diversified
 
     return sorted_rows[:TRACK_RESULT_LIMIT]
 
@@ -1120,6 +1491,16 @@ def _serialize_tracks(
             title=(row["track"].title),
             artist=(row["track"].artist),
             album=(row["track"].album),
+            genre=getattr(
+                row["track"],
+                "genre",
+                None,
+            ),
+            release_year=getattr(
+                row["track"],
+                "release_year",
+                None,
+            ),
             duration_seconds=(row["track"].duration_seconds),
             audio_url=(_track_audio_url(row["track"])),
             artwork_url=(_track_artwork_url(row["track"])),

@@ -48,6 +48,9 @@ import {
 import Avatar from
   "../profile/Avatar.jsx";
 
+import ArtistProfilePage from
+  "./ArtistProfilePage.jsx";
+
 import Icon from
   "../ui/Icon.jsx";
 
@@ -75,11 +78,26 @@ import useCollectionActionMenu from
 import useResultsSortMenu from
   "../../hooks/useResultsSortMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 import {
   getPlaylist,
   savePlaylist,
   unsavePlaylist,
 } from "../../playlistApi.js";
+
+import {
+  filterPlaylistTracks,
+} from "../../playlistTrackSearch.js";
+
+import {
+  looksLikeSmartPlaylistQuery,
+} from "../../smartPlaylistQuery.js";
+
+import {
+  downloadPlaylistByIdForOffline,
+} from "../../playlistOfflineAction.js";
 
 
 const EMPTY_RESULTS = {
@@ -140,19 +158,19 @@ function memberFor(value) {
     return `${Math.max(
       days,
       1,
-    )}d on HyperSync`;
+    )}d on HyperSynced`;
   }
 
   if (days < 365) {
     return `${Math.max(
       1,
       Math.floor(days / 30),
-    )}mo on HyperSync`;
+    )}mo on HyperSynced`;
   }
 
   return `${Math.floor(
     days / 365,
-  )}y on HyperSync`;
+  )}y on HyperSynced`;
 }
 
 
@@ -277,6 +295,8 @@ function SearchPage({
   onOpenPlaylist,
   onOpenAuth,
   currentUser,
+  initialArtistName = "",
+  onInitialArtistHandled,
   resetToken = 0,
   activePlaylistDownloads = [],
 }) {
@@ -305,6 +325,16 @@ function SearchPage({
   openedPlaylist,
   setOpenedPlaylist,
 ] = useState(null);
+
+  const [
+    openedArtistName,
+    setOpenedArtistName,
+  ] = useState("");
+
+const [
+  playlistSearchQuery,
+  setPlaylistSearchQuery,
+] = useState("");
 
 const [
   playlistOpeningId,
@@ -497,6 +527,14 @@ useEffect(() => {
     null,
   );
 
+  setOpenedArtistName(
+    "",
+  );
+
+  setPlaylistSearchQuery(
+    "",
+  );
+
   setPlaylistError(
     "",
   );
@@ -508,6 +546,26 @@ useEffect(() => {
   });
 }, [
   resetToken,
+]);
+
+
+useEffect(() => {
+  if (!initialArtistName) {
+    return;
+  }
+
+  setOpenedPlaylist(
+    null,
+  );
+
+  setOpenedArtistName(
+    initialArtistName,
+  );
+
+  onInitialArtistHandled?.();
+}, [
+  initialArtistName,
+  onInitialArtistHandled,
 ]);
 
   const [
@@ -572,6 +630,71 @@ useEffect(() => {
 
   const searchInputRef =
   useRef(null);
+
+  const searchLoadKeyRef =
+    useRef("");
+
+  const [
+    quietSearchVersion,
+    setQuietSearchVersion,
+  ] = useState(0);
+
+
+  useQuietRefresh(
+    () => {
+      setQuietSearchVersion(
+        (current) =>
+          current + 1,
+      );
+    },
+    {
+      enabled:
+        Boolean(
+          preferenceReady &&
+          normalizedQuery,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
+
+
+  useQuietRefresh(
+    async () => {
+      const playlistId =
+        openedPlaylist?.id;
+
+      if (!playlistId) {
+        return;
+      }
+
+      try {
+        const refreshed =
+          await getPlaylist(
+            playlistId,
+          );
+
+        await reconcileDownloadedPlaylistMembership(
+          refreshed,
+          offlineOwnerKey,
+        );
+
+        setOpenedPlaylist(
+          refreshed,
+        );
+      } catch {
+        // Keep the open playlist visible.
+      }
+    },
+    {
+      enabled:
+        Boolean(
+          openedPlaylist?.id,
+        ),
+      intervalMs:
+        20_000,
+    },
+  );
 
 
   /*
@@ -681,6 +804,9 @@ useEffect(() => {
     }
 
     if (!normalizedQuery) {
+      searchLoadKeyRef.current =
+        "";
+
       setResults(
         EMPTY_RESULTS,
       );
@@ -695,11 +821,28 @@ useEffect(() => {
       return undefined;
     }
 
+    const searchKey =
+      [
+        normalizedQuery,
+        sortMode,
+        offlineOwnerKey ??
+          "",
+      ].join(
+        "\u0000",
+      );
+
+    const quietRefresh =
+      searchLoadKeyRef.current ===
+        searchKey &&
+      quietSearchVersion > 0;
+
     const controller =
       new AbortController();
 
-    setLoading(true);
-    setSearchError("");
+    if (!quietRefresh) {
+      setLoading(true);
+      setSearchError("");
+    }
 
     const setLocalResults =
       (localTracks) => {
@@ -718,9 +861,14 @@ useEffect(() => {
             localTracks,
         });
 
-        setSelectedTrackIndex(
-          -1,
-        );
+        if (!quietRefresh) {
+          setSelectedTrackIndex(
+            -1,
+          );
+        }
+
+        searchLoadKeyRef.current =
+          searchKey;
       };
 
     const timer =
@@ -827,9 +975,14 @@ useEffect(() => {
                 data?.playlists || [],
             });
 
-            setSelectedTrackIndex(
-              -1,
-            );
+            if (!quietRefresh) {
+              setSelectedTrackIndex(
+                -1,
+              );
+            }
+
+            searchLoadKeyRef.current =
+              searchKey;
 
             setSearchError(
               "",
@@ -839,6 +992,10 @@ useEffect(() => {
               error?.name ===
               "AbortError"
             ) {
+              return;
+            }
+
+            if (quietRefresh) {
               return;
             }
 
@@ -883,7 +1040,8 @@ useEffect(() => {
           } finally {
             if (
               !controller.signal
-                .aborted
+                .aborted &&
+              !quietRefresh
             ) {
               setLoading(false);
             }
@@ -904,6 +1062,7 @@ useEffect(() => {
     normalizedQuery,
     offlineOwnerKey,
     preferenceReady,
+    quietSearchVersion,
     sortMode,
   ]);
 
@@ -926,6 +1085,28 @@ useEffect(() => {
       [results.counts],
     );
 
+  const filteredOpenedPlaylistTracks =
+    useMemo(
+      () =>
+        filterPlaylistTracks(
+          openedPlaylist?.tracks ??
+            [],
+          playlistSearchQuery,
+        ),
+      [
+        openedPlaylist?.tracks,
+        playlistSearchQuery,
+      ],
+    );
+
+  useEffect(() => {
+    setPlaylistSearchQuery(
+      "",
+    );
+  }, [
+    openedPlaylist?.id,
+  ]);
+
     function runQuickCommand(
   command,
 ) {
@@ -941,15 +1122,6 @@ useEffect(() => {
     command.query,
   );
 
-  if (command.focus) {
-    window.requestAnimationFrame(
-      () => {
-        searchInputRef
-          .current
-          ?.focus();
-      },
-    );
-  }
 }
 
   /*
@@ -1000,6 +1172,18 @@ useEffect(() => {
       album:
         track.album ??
         "",
+
+      genre:
+        track.genre ??
+        "",
+
+      releaseYear:
+        track.release_year ??
+        null,
+
+      durationSeconds:
+        track.duration_seconds ??
+        null,
     }),
   );
 
@@ -1097,6 +1281,29 @@ useEffect(() => {
             0,
           ),
       );
+
+      return;
+    }
+
+    if (
+      event.key ===
+        "Enter"
+      && selectedTrackIndex
+        < 0
+      && looksLikeSmartPlaylistQuery(
+        normalizedQuery,
+      )
+    ) {
+      event.preventDefault();
+
+      event.currentTarget
+        .blur();
+
+      if (trackCount > 0) {
+        playTrack(
+          0,
+        );
+      }
 
       return;
     }
@@ -1351,6 +1558,10 @@ useEffect(() => {
 
 
 function closeSearchPlaylist() {
+  setPlaylistSearchQuery(
+    "",
+  );
+
   setOpenedPlaylist(
     null,
   );
@@ -1370,10 +1581,17 @@ function closeSearchPlaylist() {
 
 function playOpenedPlaylist(
   startIndex = 0,
+  tracksOverride = null,
 ) {
   const tracks =
-    openedPlaylist?.tracks ??
-    [];
+    Array.isArray(
+      tracksOverride,
+    )
+      ? tracksOverride
+      : (
+          openedPlaylist?.tracks ??
+          []
+        );
 
   if (!tracks.length) {
     return;
@@ -1414,6 +1632,15 @@ function playOpenedPlaylist(
         album:
           track.album ??
           "",
+
+        genre:
+          track.genre ??
+          "",
+
+        releaseYear:
+          track.release_year ??
+          track.releaseYear ??
+          null,
       }),
     );
 
@@ -1425,6 +1652,53 @@ function playOpenedPlaylist(
     .catch(
       () => {},
     );
+}
+
+
+async function playSearchCollection(
+  query,
+) {
+  const normalized =
+    String(
+      query ??
+      "",
+    ).trim();
+
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    const data =
+      await searchHypersync(
+        normalized,
+        sortMode,
+      );
+
+    const tracks =
+      Array.isArray(
+        data?.tracks,
+      )
+        ? data.tracks
+        : [];
+
+    if (!tracks.length) {
+      throw new Error(
+        "No playable tracks found.",
+      );
+    }
+
+    playOpenedPlaylist(
+      0,
+      tracks,
+    );
+  } catch (requestError) {
+    setSearchError(
+      requestError instanceof Error
+        ? requestError.message
+        : "Unable to play this collection.",
+    );
+  }
 }
 
 
@@ -1788,7 +2062,24 @@ async function downloadOpenedPlaylist() {
                   artist.name,
                 subtitle:
                   "Artist",
+                artwork_url:
+                  artist.artwork_url ??
+                  null,
                 actions: [
+                  {
+                    id:
+                      "play",
+                    label:
+                      "Play artist",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          `songs by ${artist.name}`,
+                        );
+                      },
+                  },
                   {
                     id:
                       "open",
@@ -1798,16 +2089,16 @@ async function downloadOpenedPlaylist() {
                       "music",
                     onSelect:
                       () => {
-                        onQueryChange(
-                          `songs by ${artist.name}`,
+                        setOpenedArtistName(
+                          artist.name,
                         );
                       },
                   },
                 ],
               })}
               onClick={() => {
-                onQueryChange(
-                  `songs by ${artist.name}`,
+                setOpenedArtistName(
+                  artist.name,
                 );
               }}
             >
@@ -1900,7 +2191,24 @@ async function downloadOpenedPlaylist() {
                   collaboration.name,
                 subtitle:
                   "Collaboration",
+                artwork_url:
+                  collaboration.artwork_url ??
+                  null,
                 actions: [
+                  {
+                    id:
+                      "play",
+                    label:
+                      "Play collaboration",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          `songs by ${collaboration.name}`,
+                        );
+                      },
+                  },
                   {
                     id:
                       "open",
@@ -1910,16 +2218,16 @@ async function downloadOpenedPlaylist() {
                       "music",
                     onSelect:
                       () => {
-                        onQueryChange(
-                          `songs by ${collaboration.name}`,
+                        setOpenedArtistName(
+                          collaboration.name,
                         );
                       },
                   },
                 ],
               })}
               onClick={() => {
-                onQueryChange(
-                  `songs by ${collaboration.name}`,
+                setOpenedArtistName(
+                  collaboration.name,
                 );
               }}
             >
@@ -2014,7 +2322,29 @@ async function downloadOpenedPlaylist() {
                 subtitle:
                   album.artist ||
                   "Album",
+                artwork_url:
+                  album.artwork_url ??
+                  null,
                 actions: [
+                  {
+                    id:
+                      "play",
+                    label:
+                      "Play album",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          [
+                            album.title,
+                            album.artist,
+                          ]
+                            .filter(Boolean)
+                            .join(" "),
+                        );
+                      },
+                  },
                   {
                     id:
                       "open",
@@ -2088,6 +2418,28 @@ async function downloadOpenedPlaylist() {
       </SearchEntityPanel>
 
     ) : null;
+
+
+  if (openedArtistName) {
+    return (
+      <ArtistProfilePage
+        artistName={
+          openedArtistName
+        }
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={
+          onOpenAuth
+        }
+        onBack={() => {
+          setOpenedArtistName(
+            "",
+          );
+        }}
+      />
+    );
+  }
 
 
   return (
@@ -2166,7 +2518,7 @@ async function downloadOpenedPlaylist() {
   activeFilter === "people" &&
   !normalizedQuery
     ? "Search people by name or @username..."
-    : "Search songs, artists, albums, or people..."
+    : "Search songs, artists, genres, or type a vibe..."
 }
       autoComplete="off"
       spellCheck="false"
@@ -2220,10 +2572,20 @@ async function downloadOpenedPlaylist() {
 
 
     <span className="hs-search-status-chip">
-      {normalizedQuery &&
-      results.processing_ms
-        ? `${results.processing_ms}ms`
-        : "SMART MATCHING"}
+      {looksLikeSmartPlaylistQuery(
+        normalizedQuery,
+      )
+        ? (
+            displayResults.tracks.length
+              ? "GENERATED PLAYLIST READY"
+              : loading
+                ? "BUILDING GENERATED PLAYLIST"
+                : "NO MATCHING MUSIC YET"
+          )
+        : normalizedQuery &&
+            results.processing_ms
+          ? `${results.processing_ms}ms`
+          : "SMART MATCHING"}
     </span>
 
   </div>
@@ -2294,7 +2656,7 @@ async function downloadOpenedPlaylist() {
         <small>
           {
             openedPlaylist.owner_username ||
-            "HyperSync"
+            "HyperSynced"
           }
           {" • "}
           {
@@ -2448,19 +2810,121 @@ async function downloadOpenedPlaylist() {
         </div>
 
         <strong>
-          {
-            openedPlaylist.tracks
-              ?.length ??
-            0
-          }
+          {playlistSearchQuery.trim()
+            ? (
+                filteredOpenedPlaylistTracks.length +
+                " / " +
+                (
+                  openedPlaylist.tracks
+                    ?.length ??
+                  0
+                )
+              )
+            : (
+                openedPlaylist.tracks
+                  ?.length ??
+                0
+              )}
         </strong>
 
       </div>
 
+      {(openedPlaylist.tracks?.length ??
+      0) > 0 ? (
+        <div className="hs-playlist-track-search">
+          <label>
+            <Icon
+              name="search"
+              size={15}
+            />
 
+            <input
+              type="search"
+              value={
+                playlistSearchQuery
+              }
+              placeholder="Search in playlist"
+              aria-label={
+                `Search in ${openedPlaylist.title}`
+              }
+              onChange={(
+                event,
+              ) => {
+                setPlaylistSearchQuery(
+                  event.target.value,
+                );
+              }}
+            />
+          </label>
+
+          <div className="hs-playlist-track-search__meta">
+            <span>
+              {playlistSearchQuery.trim()
+                ? (
+                    filteredOpenedPlaylistTracks.length +
+                    " of " +
+                    (
+                      openedPlaylist.tracks
+                        ?.length ??
+                      0
+                    ) +
+                    " tracks"
+                  )
+                : (
+                    (
+                      openedPlaylist.tracks
+                        ?.length ??
+                      0
+                    ) +
+                    (
+                      openedPlaylist.tracks?.length ===
+                        1
+                        ? " track"
+                        : " tracks"
+                    )
+                  )}
+            </span>
+
+            {playlistSearchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlaylistSearchQuery(
+                    "",
+                  );
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+
+      {filteredOpenedPlaylistTracks.length ===
+      0 &&
+      playlistSearchQuery.trim() ? (
+        <div className="hs-search-message hs-playlist-search-empty">
+          <Icon
+            name="search"
+            size={22}
+          />
+
+          <div>
+            <strong>
+              No matches in this playlist
+            </strong>
+
+            <p>
+              Try a song title, artist, or album.
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="hs-search-track-list">
 
-        {openedPlaylist.tracks?.map(
+        {filteredOpenedPlaylistTracks.map(
           (
             track,
             trackIndex,
@@ -2504,6 +2968,7 @@ async function downloadOpenedPlaylist() {
                 onClick={() => {
                   playOpenedPlaylist(
                     trackIndex,
+                    filteredOpenedPlaylistTracks,
                   );
                 }}
                 onKeyDown={(
@@ -2519,6 +2984,7 @@ async function downloadOpenedPlaylist() {
 
                     playOpenedPlaylist(
                       trackIndex,
+                      filteredOpenedPlaylistTracks,
                     );
                   }
                 }}
@@ -2704,6 +3170,7 @@ async function downloadOpenedPlaylist() {
         )}
 
       </div>
+      )}
 
     </section>
 
@@ -2797,7 +3264,258 @@ async function downloadOpenedPlaylist() {
           ) : null}
 
 
-                    {showPlaylists &&
+                    {looksLikeSmartPlaylistQuery(
+            normalizedQuery,
+          ) ? (
+            <section className="hs-search-generated-playlist">
+
+              <div className="hs-search-generated-playlist__hero">
+
+                <div className="hs-search-generated-playlist__art">
+                  <PlaylistArtwork
+                    tracks={
+                      displayResults.tracks
+                    }
+                    fallbackSize={34}
+                  />
+                </div>
+
+                <div className="hs-search-generated-playlist__copy">
+
+                  <span>
+                    GENERATED PLAYLIST
+                  </span>
+
+                  <h3>
+                    {normalizedQuery}
+                  </h3>
+
+                  <p>
+                    HyperSynced ranked the best matching music for this vibe or genre.
+                  </p>
+
+                  <small>
+                    {displayResults.tracks.length}
+                    {" "}
+                    {displayResults.tracks.length === 1
+                      ? "song"
+                      : "songs"}
+                  </small>
+
+                  <div className="hs-search-generated-playlist__actions">
+                    <button
+                      type="button"
+                      disabled={
+                        displayResults.tracks.length === 0
+                      }
+                      onClick={() => {
+                        playTrack(
+                          0,
+                        );
+                      }}
+                    >
+                      <Icon
+                        name="play"
+                        size={15}
+                      />
+
+                      Play generated playlist
+                    </button>
+                  </div>
+
+                </div>
+
+              </div>
+
+              {displayResults.tracks.length ? (
+                <div className="hs-search-track-list hs-search-generated-playlist__tracks">
+
+                  {displayResults.tracks.map(
+                    (
+                      track,
+                      trackIndex,
+                    ) => {
+                      const artworkUrl =
+                        resolveArtworkUrl(
+                          track.artwork_url,
+                        );
+
+                      const isCurrentTrack =
+                        currentTrackId !== null &&
+                        String(
+                          track.id,
+                        ) ===
+                          currentTrackId;
+
+                      return (
+                        <div
+                          key={
+                            track.id
+                          }
+                          role="button"
+                          tabIndex={0}
+                          {...trackActionMenu.getTriggerProps(
+                            track,
+                          )}
+                          className={[
+                            "hs-search-track",
+                            "hs-search-generated-track",
+                            selectedTrackIndex ===
+                              trackIndex
+                              ? "is-selected"
+                              : "",
+                            isCurrentTrack
+                              ? "is-current-track"
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          onMouseEnter={() => {
+                            setSelectedTrackIndex(
+                              trackIndex,
+                            );
+                          }}
+                          onMouseLeave={() => {
+                            setSelectedTrackIndex(
+                              -1,
+                            );
+                          }}
+                          onClick={() => {
+                            playTrack(
+                              trackIndex,
+                            );
+                          }}
+                          onKeyDown={(
+                            event,
+                          ) => {
+                            if (
+                              event.key ===
+                                "Enter"
+                              || event.key ===
+                                " "
+                            ) {
+                              event.preventDefault();
+
+                              playTrack(
+                                trackIndex,
+                              );
+                            }
+                          }}
+                        >
+
+                          <span className="hs-search-track__rank">
+                            {String(
+                              trackIndex + 1,
+                            ).padStart(
+                              2,
+                              "0",
+                            )}
+                          </span>
+
+                          <span className="hs-search-track__art">
+                            {artworkUrl ? (
+                              <img
+                                src={
+                                  artworkUrl
+                                }
+                                alt=""
+                                loading={
+                                  trackIndex < 6
+                                    ? "eager"
+                                    : "lazy"
+                                }
+                              />
+                            ) : (
+                              <Icon
+                                name="music"
+                                size={20}
+                              />
+                            )}
+
+                            <i aria-hidden="true">
+                              <Icon
+                                name="play"
+                                size={15}
+                              />
+                            </i>
+                          </span>
+
+                          <span className="hs-search-track__copy">
+                            <strong>
+                              {track.title}
+                            </strong>
+
+                            <small>
+                              {track.artist}
+
+                              {track.album
+                                ? ` • ${track.album}`
+                                : ""}
+                            </small>
+                          </span>
+
+                          <span className="hs-search-track__signals">
+                            <em>
+                              {track.genre ||
+                                "VIBE MATCH"}
+                            </em>
+
+                            <small>
+                              {track.release_year
+                                ? `${track.release_year} • `
+                                : ""}
+                              {track.match_label ||
+                                "SMART MATCH"}
+                            </small>
+                          </span>
+
+                          <span className="hs-search-track__duration">
+                            {formatDuration(
+                              track.duration_seconds,
+                            )}
+                          </span>
+
+                          <span className="hs-search-track__play">
+                            <Icon
+                              name={
+                                isCurrentTrack
+                                  ? "pause"
+                                  : "play"
+                              }
+                              size={16}
+                            />
+                          </span>
+
+                        </div>
+                      );
+                    },
+                  )}
+
+                </div>
+              ) : !loading ? (
+                <div className="hs-search-message">
+                  <Icon
+                    name="music"
+                    size={22}
+                  />
+
+                  <div>
+                    <strong>
+                      No matching music yet
+                    </strong>
+
+                    <p>
+                      Try a broader vibe or genre, or add more tagged music to the catalog.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+            </section>
+          ) : null}
+
+
+          {showPlaylists &&
           results.playlists?.length > 0 ? (
 
             <section className="hs-search-section">
@@ -2874,7 +3592,45 @@ async function downloadOpenedPlaylist() {
                           subtitle:
                             playlist.owner_username ||
                             "Playlist",
+                          artwork_url:
+                            playlist.artwork_url ??
+                            null,
+                          shareKey:
+                            String(
+                              playlist.id,
+                            ),
                           actions: [
+                            {
+                              id:
+                                "play",
+                              label:
+                                "Play playlist",
+                              icon:
+                                "play",
+                              onSelect:
+                                async () => {
+                                  try {
+                                    const fullPlaylist =
+                                      await getPlaylist(
+                                        playlist.id,
+                                      );
+
+                                    playOpenedPlaylist(
+                                      0,
+                                      fullPlaylist.tracks ??
+                                        [],
+                                    );
+                                  } catch (
+                                    requestError
+                                  ) {
+                                    setPlaylistError(
+                                      requestError instanceof Error
+                                        ? requestError.message
+                                        : "Unable to play playlist.",
+                                    );
+                                  }
+                                },
+                            },
                             {
                               id:
                                 "open",
@@ -2887,6 +3643,58 @@ async function downloadOpenedPlaylist() {
                                   void openSearchPlaylist(
                                     playlist.id,
                                   );
+                                },
+                            },
+                            {
+                              id:
+                                "download",
+                              label:
+                                rowDownload?.status ===
+                                  "downloaded"
+                                  ? "Downloaded for offline"
+                                  : rowDownload?.status ===
+                                      "downloading"
+                                    ? (
+                                        "Downloading " +
+                                        rowDownloadPercent +
+                                        "%"
+                                      )
+                                    : "Download playlist",
+                              icon:
+                                rowDownload?.status ===
+                                  "downloaded"
+                                  ? "check"
+                                  : "download",
+                              disabled:
+                                rowDownload?.status ===
+                                  "downloaded" ||
+                                rowDownload?.status ===
+                                  "downloading",
+                              onSelect:
+                                async () => {
+                                  if (!isRegistered) {
+                                    onOpenAuth?.();
+                                    return;
+                                  }
+
+                                  try {
+                                    await downloadPlaylistByIdForOffline(
+                                      playlist.id,
+                                      currentUser,
+                                      {
+                                        ensureSaved:
+                                          true,
+                                      },
+                                    );
+                                  } catch (
+                                    requestError
+                                  ) {
+                                    setPlaylistError(
+                                      requestError instanceof Error
+                                        ? requestError.message
+                                        : "Unable to download playlist.",
+                                    );
+                                  }
                                 },
                             },
                           ],
@@ -3026,6 +3834,9 @@ async function downloadOpenedPlaylist() {
 
 
           {showTracks &&
+!looksLikeSmartPlaylistQuery(
+  normalizedQuery,
+) &&
 displayResults.tracks.length > 0 ? (
 
             <section className="hs-search-section">
@@ -3424,7 +4235,7 @@ displayResults.tracks.length > 0 ? (
           </h3>
 
           <p>
-            Try typing a song title, artist, album, or username. HyperSync will prioritize the strongest music matches first.
+            Try typing a song title, artist, album, or username. HyperSynced will prioritize the strongest music matches first.
           </p>
 
           <div className="hs-search-quick-commands">

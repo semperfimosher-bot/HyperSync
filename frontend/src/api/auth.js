@@ -269,14 +269,28 @@ if (
 
     return user;
 
-  } catch {
+  } catch (error) {
     /*
-     * A temporary refresh, network,
-     * deployment, or server error must not
-     * turn into an automatic browser logout.
-     * Explicit logout remains responsible
-     * for clearing the remembered session.
+     * A rejected refresh means the server
+     * session is definitively dead. Do not
+     * present the cached profile as a live,
+     * authenticated account for this page
+     * load.
+     *
+     * Temporary refresh, network, deployment,
+     * or rate-limit failures may still use
+     * cached profile data so offline/temporary
+     * disruption does not destroy the UI.
      */
+    if (
+      error?.status ===
+        401 ||
+      error?.status ===
+        403
+    ) {
+      return null;
+    }
+
     if (cachedProfile) {
       return buildRestoredUser(
         cachedProfile,

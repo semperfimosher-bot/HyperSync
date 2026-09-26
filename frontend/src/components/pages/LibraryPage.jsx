@@ -59,9 +59,20 @@ import useCollectionActionMenu from
 import useResultsSortMenu from
   "../../hooks/useResultsSortMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 import {
   sortResultItems,
 } from "../../sortResults.js";
+
+import {
+  filterPlaylistTracks,
+} from "../../playlistTrackSearch.js";
+
+import {
+  downloadPlaylistByIdForOffline,
+} from "../../playlistOfflineAction.js";
 
 import {
   getDownloadedPlaylists,
@@ -207,6 +218,8 @@ function LibraryPage({
   onOpenAuth,
   initialPlaylistId = null,
   onInitialPlaylistHandled,
+  initialSharedMusicTarget = null,
+  onInitialSharedMusicHandled,
   resetToken = 0,
   activePlaylistDownloads = [],
 }) {
@@ -309,6 +322,11 @@ const [
   setSelectedLibraryEntity,
 ] = useState(null);
 
+const [
+  focusedLibraryTrack,
+  setFocusedLibraryTrack,
+] = useState(null);
+
   const [
     selectedPlaylist,
     setSelectedPlaylist,
@@ -316,12 +334,25 @@ const [
     null,
   );
 
+  const [
+    playlistSearchQuery,
+    setPlaylistSearchQuery,
+  ] = useState("");
+
   useEffect(() => {
   setSelectedPlaylist(
     null,
   );
 
+  setPlaylistSearchQuery(
+    "",
+  );
+
   setSelectedLibraryEntity(
+    null,
+  );
+
+  setFocusedLibraryTrack(
     null,
   );
 
@@ -732,7 +763,9 @@ const [
 
   const loadLibrary =
   useCallback(
-    async () => {
+    async ({
+      quiet = false,
+    } = {}) => {
       if (!isRegistered) {
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
@@ -803,11 +836,16 @@ const [
       }
 
 
-      if (!cached) {
+      if (
+        !cached &&
+        !quiet
+      ) {
         setLoading(true);
       }
 
-      setError("");
+      if (!quiet) {
+        setError("");
+      }
 
       try {
         const [
@@ -898,7 +936,7 @@ const [
           );
 
           setError("");
-        } else {
+        } else if (!quiet) {
           setError(
             requestError instanceof Error
               ? requestError.message
@@ -906,7 +944,9 @@ const [
           );
         }
       } finally {
-        setLoading(false);
+        if (!quiet) {
+          setLoading(false);
+        }
       }
     },
     [
@@ -920,6 +960,76 @@ const [
   }, [
     loadLibrary,
   ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadLibrary({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        isRegistered,
+      intervalMs:
+        30_000,
+    },
+  );
+
+
+  useQuietRefresh(
+    async () => {
+      const playlistId =
+        selectedPlaylist?.id;
+
+      if (!playlistId) {
+        return;
+      }
+
+      try {
+        const refreshed =
+          await getPlaylist(
+            playlistId,
+          );
+
+        await reconcileDownloadedPlaylistMembership(
+          refreshed,
+          offlineOwnerKey,
+        );
+
+        setSelectedPlaylist(
+          refreshed,
+        );
+
+        setCachedPlaylist(
+          libraryCacheKey,
+          refreshed,
+        );
+      } catch (requestError) {
+        if (
+          requestError?.status ===
+            404
+        ) {
+          setSelectedPlaylist(
+            null,
+          );
+
+          void loadLibrary({
+            quiet:
+              true,
+          });
+        }
+      }
+    },
+    {
+      enabled:
+        Boolean(
+          selectedPlaylist?.id,
+        ),
+      intervalMs:
+        20_000,
+    },
+  );
 
 
   useEffect(() => {
@@ -941,6 +1051,72 @@ const [
     };
   }, [
     loadLibrary,
+  ]);
+
+
+  useEffect(() => {
+    if (
+      !initialSharedMusicTarget
+    ) {
+      return;
+    }
+
+    setSelectedPlaylist(
+      null,
+    );
+
+    setPlaylistSearchQuery(
+      "",
+    );
+
+    if (
+      initialSharedMusicTarget.kind ===
+        "track" &&
+      initialSharedMusicTarget.track
+    ) {
+      setActiveTab(
+        "Songs",
+      );
+
+      setSelectedLibraryEntity(
+        null,
+      );
+
+      setFocusedLibraryTrack(
+        initialSharedMusicTarget.track,
+      );
+    } else if (
+      (
+        initialSharedMusicTarget.kind ===
+          "artist" ||
+        initialSharedMusicTarget.kind ===
+          "album"
+      ) &&
+      initialSharedMusicTarget.key
+    ) {
+      setActiveTab(
+        initialSharedMusicTarget.kind ===
+          "artist"
+          ? "Artists"
+          : "Albums",
+      );
+
+      setFocusedLibraryTrack(
+        null,
+      );
+
+      setSelectedLibraryEntity({
+        kind:
+          initialSharedMusicTarget.kind,
+        key:
+          initialSharedMusicTarget.key,
+      });
+    }
+
+    onInitialSharedMusicHandled?.();
+  }, [
+    initialSharedMusicTarget,
+    onInitialSharedMusicHandled,
   ]);
 
 
@@ -2023,6 +2199,15 @@ if (offline) {
           album:
             track.album ??
             "",
+
+          genre:
+            track.genre ??
+            "",
+
+          releaseYear:
+            track.release_year ??
+            track.releaseYear ??
+            null,
         }),
       );
 
@@ -2089,6 +2274,15 @@ if (offline) {
           album:
             track.album ??
             "",
+
+          genre:
+            track.genre ??
+            "",
+
+          releaseYear:
+            track.release_year ??
+            track.releaseYear ??
+            null,
         }),
       );
 
@@ -2438,6 +2632,13 @@ if (offline) {
       ],
     );
 
+  const visibleSongTracks =
+    focusedLibraryTrack
+      ? [
+          focusedLibraryTrack,
+        ]
+      : sortedDownloadedTracks;
+
   const sortedVisiblePlaylists =
     useMemo(
       () =>
@@ -2477,6 +2678,27 @@ if (offline) {
         sortMode,
       ],
     );
+
+  const filteredSelectedPlaylistTracks =
+    useMemo(
+      () =>
+        filterPlaylistTracks(
+          sortedSelectedPlaylistTracks,
+          playlistSearchQuery,
+        ),
+      [
+        sortedSelectedPlaylistTracks,
+        playlistSearchQuery,
+      ],
+    );
+
+  useEffect(() => {
+    setPlaylistSearchQuery(
+      "",
+    );
+  }, [
+    selectedPlaylist?.id,
+  ]);
 
   if (
     !isRegistered &&
@@ -2635,6 +2857,10 @@ if (offline) {
             type="button"
             className="hs-search-playlist-back"
             onClick={() => {
+              setPlaylistSearchQuery(
+                "",
+              );
+
               setSelectedPlaylist(
                 null,
               );
@@ -2872,10 +3098,80 @@ if (offline) {
             </div>
 
             <strong>
-              {selectedPlaylist.tracks.length}
+              {playlistSearchQuery.trim()
+                ? (
+                    filteredSelectedPlaylistTracks.length +
+                    " / " +
+                    selectedPlaylist.tracks.length
+                  )
+                : selectedPlaylist.tracks.length}
             </strong>
 
           </div>
+
+          {selectedPlaylist.tracks.length >
+          0 ? (
+            <div className="hs-playlist-track-search">
+              <label>
+                <Icon
+                  name="search"
+                  size={15}
+                />
+
+                <input
+                  type="search"
+                  value={
+                    playlistSearchQuery
+                  }
+                  placeholder="Search in playlist"
+                  aria-label={
+                    `Search in ${selectedPlaylist.title}`
+                  }
+                  onChange={(
+                    event,
+                  ) => {
+                    setPlaylistSearchQuery(
+                      event.target.value,
+                    );
+                  }}
+                />
+              </label>
+
+              <div className="hs-playlist-track-search__meta">
+                <span>
+                  {playlistSearchQuery.trim()
+                    ? (
+                        filteredSelectedPlaylistTracks.length +
+                        " of " +
+                        selectedPlaylist.tracks.length +
+                        " tracks"
+                      )
+                    : (
+                        selectedPlaylist.tracks.length +
+                        (
+                          selectedPlaylist.tracks.length ===
+                            1
+                            ? " track"
+                            : " tracks"
+                        )
+                      )}
+                </span>
+
+                {playlistSearchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlaylistSearchQuery(
+                        "",
+                      );
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
 
           {selectedPlaylist.tracks.length ===
@@ -2901,11 +3197,33 @@ if (offline) {
 
             </div>
 
+          ) : filteredSelectedPlaylistTracks.length ===
+          0 ? (
+
+            <div className="hs-library-empty hs-playlist-search-empty">
+
+              <Icon
+                name="search"
+                size={22}
+              />
+
+              <div>
+                <strong>
+                  No matches in this playlist
+                </strong>
+
+                <p>
+                  Try a song title, artist, or album.
+                </p>
+              </div>
+
+            </div>
+
           ) : (
 
             <div className="hs-search-track-list">
 
-              {sortedSelectedPlaylistTracks.map(
+              {filteredSelectedPlaylistTracks.map(
                 (
                   track,
                   trackIndex,
@@ -2990,7 +3308,7 @@ if (offline) {
                       onClick={() => {
                         playPlaylist(
                           trackIndex,
-                          sortedSelectedPlaylistTracks,
+                          filteredSelectedPlaylistTracks,
                         );
                       }}
                       onKeyDown={(
@@ -3006,7 +3324,7 @@ if (offline) {
 
                           playPlaylist(
                             trackIndex,
-                            sortedSelectedPlaylistTracks,
+                            filteredSelectedPlaylistTracks,
                           );
                         }
                       }}
@@ -3387,6 +3705,10 @@ if (offline) {
                 setSelectedLibraryEntity(
                   null,
                 );
+
+                setFocusedLibraryTrack(
+                  null,
+                );
               }}
             >
 
@@ -3473,21 +3795,25 @@ if (offline) {
 
           <div>
             <span>
-              OFFLINE CONTENT
+              {focusedLibraryTrack
+                ? "LIBRARY ITEM"
+                : "OFFLINE CONTENT"}
             </span>
 
             <h3>
-              Downloaded songs
+              {focusedLibraryTrack
+                ? "Shared song"
+                : "Downloaded songs"}
             </h3>
           </div>
 
           <strong>
-            {downloadedTracks.length}
+            {visibleSongTracks.length}
           </strong>
 
         </div>
 
-        {downloadedTracks.length === 0 ? (
+        {visibleSongTracks.length === 0 ? (
 
           <div className="hs-library-empty">
 
@@ -3513,7 +3839,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {sortedDownloadedTracks.map(
+            {visibleSongTracks.map(
               (
                 track,
                 index,
@@ -3552,6 +3878,14 @@ if (offline) {
                           null,
                         mediaVersion:
                           track.media_version ??
+                          null,
+
+                        genre:
+                          track.genre ??
+                          "",
+
+                        releaseYear:
+                          track.release_year ??
                           null,
                       },
                     ).catch(
@@ -3647,12 +3981,18 @@ if (offline) {
 
                     <span className="hs-search-track__signals">
                       <em>
-                        DOWNLOADED
+                        {focusedLibraryTrack
+                          ? "IN LIBRARY"
+                          : "DOWNLOADED"}
                       </em>
 
                       <small>
                         {track.album ||
-                          "Offline"}
+                          (
+                            focusedLibraryTrack
+                              ? "Library"
+                              : "Offline"
+                          )}
                       </small>
                     </span>
 
@@ -3663,11 +4003,37 @@ if (offline) {
                     </span>
 
                     <span className="hs-search-track__play">
-                      <button
-                        type="button"
-                        className="hs-search-track__download is-downloaded hs-download-remove-trigger"
-                        disabled={
-                          removingDownloadedTrackKey ===
+                      {!focusedLibraryTrack ? (
+                        <button
+                          type="button"
+                          className="hs-search-track__download is-downloaded hs-download-remove-trigger"
+                          disabled={
+                            removingDownloadedTrackKey ===
+                            (
+                              String(
+                                track.id,
+                              ) +
+                              ":" +
+                              String(
+                                track.media_version ??
+                                "",
+                              )
+                            )
+                          }
+                          title="Remove from downloads"
+                          aria-label={`Remove ${track.title} from downloads`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+
+                            setRemoveDownloadedSongTarget(
+                              track,
+                            );
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          {removingDownloadedTrackKey ===
                           (
                             String(
                               track.id,
@@ -3677,40 +4043,16 @@ if (offline) {
                               track.media_version ??
                               "",
                             )
-                          )
-                        }
-                        title="Remove from downloads"
-                        aria-label={`Remove ${track.title} from downloads`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-
-                          setRemoveDownloadedSongTarget(
-                            track,
-                          );
-                        }}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                        }}
-                      >
-                        {removingDownloadedTrackKey ===
-                        (
-                          String(
-                            track.id,
-                          ) +
-                          ":" +
-                          String(
-                            track.media_version ??
-                            "",
-                          )
-                        ) ? (
-                          <span className="library-spinner" />
-                        ) : (
-                          <Icon
-                            name="check"
-                            size={15}
-                          />
-                        )}
-                      </button>
+                          ) ? (
+                            <span className="library-spinner" />
+                          ) : (
+                            <Icon
+                              name="check"
+                              size={15}
+                            />
+                          )}
+                        </button>
+                      ) : null}
                     </span>
 
                   </div>
@@ -3908,6 +4250,9 @@ if (offline) {
                               entity.artist ||
                               "Album"
                             ),
+                      artwork_url:
+                        artwork ??
+                        null,
                       actions: [
                         {
                           id:
@@ -4147,7 +4492,45 @@ if (offline) {
                         playlist.owner_username ||
                         currentUser?.username ||
                         "Playlist",
+                      artwork_url:
+                        playlist.artwork_url ??
+                        null,
+                      shareKey:
+                        String(
+                          playlist.id,
+                        ),
                       actions: [
+                        {
+                          id:
+                            "play",
+                          label:
+                            "Play playlist",
+                          icon:
+                            "play",
+                          onSelect:
+                            async () => {
+                              try {
+                                const fullPlaylist =
+                                  await getPlaylist(
+                                    playlist.id,
+                                  );
+
+                                playLibraryTrackCollection(
+                                  fullPlaylist.tracks ??
+                                    [],
+                                  0,
+                                );
+                              } catch (
+                                requestError
+                              ) {
+                                setError(
+                                  requestError instanceof Error
+                                    ? requestError.message
+                                    : "Unable to play playlist.",
+                                );
+                              }
+                            },
+                        },
                         {
                           id:
                             "open",
@@ -4160,6 +4543,49 @@ if (offline) {
                               void openPlaylist(
                                 playlist.id,
                               );
+                            },
+                        },
+                        {
+                          id:
+                            "download",
+                          label:
+                            rowDownload?.status ===
+                              "downloaded"
+                              ? "Downloaded for offline"
+                              : rowDownload?.status ===
+                                  "downloading"
+                                ? (
+                                    "Downloading " +
+                                    rowDownloadPercent +
+                                    "%"
+                                  )
+                                : "Download playlist",
+                          icon:
+                            rowDownload?.status ===
+                              "downloaded"
+                              ? "check"
+                              : "download",
+                          disabled:
+                            rowDownload?.status ===
+                              "downloaded" ||
+                            rowDownload?.status ===
+                              "downloading",
+                          onSelect:
+                            async () => {
+                              try {
+                                await downloadPlaylistByIdForOffline(
+                                  playlist.id,
+                                  currentUser,
+                                );
+                              } catch (
+                                requestError
+                              ) {
+                                setError(
+                                  requestError instanceof Error
+                                    ? requestError.message
+                                    : "Unable to download playlist.",
+                                );
+                              }
                             },
                         },
                       ],
@@ -4505,7 +4931,6 @@ if (offline) {
 
               <input
                 type="text"
-                autoFocus
                 maxLength={120}
                 placeholder="Playlist name"
                 value={

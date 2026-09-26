@@ -1,5 +1,7 @@
 import {
+  memo,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -34,6 +36,44 @@ import TrackActionMenu from
 
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
+
+
+function formatQueueDuration(
+  seconds,
+) {
+  const value =
+    Number(
+      seconds,
+    );
+
+  if (
+    !Number.isFinite(
+      value,
+    )
+    || value <= 0
+  ) {
+    return "";
+  }
+
+  const minutes =
+    Math.floor(
+      value / 60,
+    );
+
+  const remainder =
+    Math.floor(
+      value % 60,
+    )
+      .toString()
+      .padStart(
+        2,
+        "0",
+      );
+
+  return (
+    `${minutes}:${remainder}`
+  );
+}
 
 
 function DesktopRightRail({
@@ -93,10 +133,17 @@ function DesktopRightRail({
     );
 
   const upcomingQueue =
-  getUpcomingQueueEntries(
-    state.queue,
-    state.queueIndex,
-  );
+    useMemo(
+      () =>
+        getUpcomingQueueEntries(
+          state.queue,
+          state.queueIndex,
+        ),
+      [
+        state.queue,
+        state.queueIndex,
+      ],
+    );
 
   const selectTab = (
     tab,
@@ -176,8 +223,13 @@ function DesktopRightRail({
           }
         >
           <strong>
-            {state.artist
-              || "Unknown artist"}
+            {[
+              state.artist
+                || "Unknown artist",
+              state.album,
+            ]
+              .filter(Boolean)
+              .join(" • ")}
           </strong>
         </div>
       )}
@@ -318,6 +370,12 @@ function DesktopRightRail({
                 album:
                   track.meta?.album ??
                   "",
+                genre:
+                  track.meta?.genre ??
+                  "",
+                release_year:
+                  track.meta?.releaseYear ??
+                  null,
                 audio_url:
                   track.meta?.audioUrl ??
                   null,
@@ -393,6 +451,10 @@ function DesktopRightRail({
                       "Unknown artist",
                     track.meta?.album ||
                       "",
+                    formatQueueDuration(
+                      track.meta
+                        ?.durationSeconds,
+                    ),
                   ]
                     .filter(Boolean)
                     .join(" • ")}
@@ -451,4 +513,6 @@ function DesktopRightRail({
 }
 
 
-export default DesktopRightRail;
+export default memo(
+  DesktopRightRail,
+);

@@ -81,3 +81,39 @@ test(
     );
   },
 );
+
+
+test(
+  "right rail updates when album metadata changes",
+  () => {
+    const queue = [];
+
+    const first =
+      selectRightRailPlayerState({
+        src: "audio",
+        title: "Song",
+        artist: "Artist",
+        album: "Album One",
+        queue,
+        queueIndex: 0,
+      });
+
+    const second =
+      selectRightRailPlayerState({
+        src: "audio",
+        title: "Song",
+        artist: "Artist",
+        album: "Album Two",
+        queue,
+        queueIndex: 0,
+      });
+
+    assert.equal(
+      isSameRightRailPlayerState(
+        first,
+        second,
+      ),
+      false,
+    );
+  },
+);

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    frontend_public_url: str = "http://localhost:5173"
     api_docs_enabled: bool = False
 
     database_url: str = ""
@@ -78,6 +79,22 @@ class Settings(BaseSettings):
     auth_admin_register_rate_window_seconds: int = 900
     auth_refresh_rate_limit: int = 120
     auth_refresh_rate_window_seconds: int = 300
+
+    auth_password_recovery_rate_limit: int = 5
+    auth_password_recovery_ip_rate_limit: int = 20
+    auth_password_recovery_rate_window_seconds: int = 900
+    password_recovery_ttl_minutes: int = 15
+    password_recovery_max_attempts: int = 5
+    password_recovery_secret: str = ""
+
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "HyperSync"
+    smtp_starttls: bool = True
+    smtp_use_ssl: bool = False
 
     message_send_rate_limit: int = 60
     message_send_rate_window_seconds: int = 60
@@ -123,6 +140,26 @@ class Settings(BaseSettings):
     lrclib_base_url: str = "https://lrclib.net"
     lrclib_client_name: str = "HyperSync/0.1.0 (https://hypersynced.app)"
     lrclib_not_found_retry_hours: int = 24
+
+    musicbrainz_base_url: str = "https://musicbrainz.org"
+    musicbrainz_user_agent: str = (
+        "HyperSynced/0.1.0 (https://hypersynced.app)"
+    )
+    musicbrainz_timeout_seconds: float = 8.0
+    musicbrainz_min_interval_seconds: float = 1.1
+    musicbrainz_cache_hours: int = 24
+
+    apple_search_base_url: str = "https://itunes.apple.com"
+    apple_search_country: str = "US"
+    apple_search_timeout_seconds: float = 8.0
+    apple_search_min_interval_seconds: float = 3.1
+    apple_search_cache_hours: int = 24
+
+    lastfm_base_url: str = "https://ws.audioscrobbler.com"
+    lastfm_api_key: str = ""
+    lastfm_timeout_seconds: float = 8.0
+    lastfm_min_interval_seconds: float = 0.25
+    lastfm_cache_hours: int = 24
 
     client_cache_hours: int = 24
 

@@ -758,7 +758,9 @@
   }
 
   .player-like,
-  .mobile-player-control {
+  .mobile-player-actions,
+  .mobile-player-control,
+  .mobile-player-device-control {
     display: none;
   }
 
@@ -1024,9 +1026,27 @@
     gap: 10px;
   }
 
+  .desktop-player-device-center,
   .desktop-player-notification-center {
     position: relative;
     flex: 0 0 auto;
+  }
+
+  .desktop-player-device-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .playback-devices-popover {
+    position: fixed;
+    right: 18px;
+    bottom: 78px;
+    left: auto;
+    width: min(
+      360px,
+      calc(100vw - 42px)
+    );
+    padding: 0;
   }
 
   .desktop-player-notification-button {

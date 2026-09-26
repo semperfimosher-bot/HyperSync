@@ -1785,6 +1785,75 @@ button.hs-profile-stat:hover,
 }
 
 
+.hs-account-actions
+> .hs-playback-device-control,
+.hs-playback-device-panel {
+  display: none;
+}
+
+
+@media (max-width: 699px) {
+  .hs-account-actions
+  > .hs-playback-device-control {
+    display: grid;
+
+    border-color:
+      rgba(53, 198, 255, 0.22);
+
+    color:
+      #55dfff;
+
+    background:
+      linear-gradient(
+        135deg,
+        rgba(0, 127, 190, 0.13),
+        rgba(5, 27, 38, 0.62)
+      );
+  }
+
+
+  .hs-account-actions
+  > .hs-playback-device-control.is-remote {
+    border-color:
+      rgba(27, 217, 255, 0.48);
+
+    background:
+      linear-gradient(
+        135deg,
+        rgba(0, 157, 222, 0.2),
+        rgba(5, 27, 38, 0.7)
+      );
+
+    box-shadow:
+      0 0 18px
+      rgba(0, 174, 255, 0.08);
+  }
+
+
+  .hs-playback-device-panel {
+    display: grid;
+
+    margin:
+      -1px
+      0
+      2px;
+
+    overflow: hidden;
+
+    border-radius: 11px;
+  }
+
+
+  .hs-playback-device-panel
+  .playback-devices-panel {
+    max-height:
+      min(58vh, 430px);
+
+    border-radius: 11px;
+  }
+}
+
+
 /* =========================================================
    MODALS
    ========================================================= */
@@ -3050,5 +3119,181 @@ button.hs-profile-stat:hover,
 @media (min-width: 980px) {
   .hs-install-app-control {
     display: none !important;
+  }
+}
+
+
+/* =========================================================
+   ARTIST PROFILE — PROFILE-STYLE ALIGNMENT
+   ========================================================= */
+
+.hs-artist-profile-page {
+  --hs-panel:
+    rgba(5, 14, 23, 0.94);
+
+  --hs-panel-raised:
+    rgba(8, 22, 34, 0.96);
+
+  --hs-border:
+    rgba(80, 207, 255, 0.16);
+
+  --hs-border-hover:
+    rgba(86, 221, 255, 0.58);
+
+  --hs-blue:
+    #54ddff;
+
+  --hs-blue-strong:
+    #139eff;
+
+  --hs-text:
+    #edfaff;
+
+  --hs-muted:
+    #718c9e;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero {
+  align-items: stretch;
+  min-height: 280px;
+  padding: 18px;
+  border-radius: 12px;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__art {
+  width: auto;
+  height: auto;
+  min-height: 244px;
+  padding: 22px;
+  border-radius: 10px;
+  overflow: visible;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__art > img {
+  width: 150px;
+  height: 150px;
+  border:
+    1px solid
+    rgba(78, 219, 255, 0.4);
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow:
+    inset 0 0 25px
+    rgba(18, 187, 255, 0.13),
+    0 0 26px
+    rgba(15, 171, 255, 0.12);
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: 22px 26px;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__copy h1 {
+  margin:
+    10px 0 0;
+  color: #dcdcdf;
+  font-size: 40px;
+  font-weight: 950;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__copy > p {
+  max-width: 650px;
+  margin:
+    11px 0;
+  color: #a2b8c5;
+  font-size: inherit;
+  line-height: 1.58;
+}
+
+.hs-artist-profile-page
+.hs-artist-hero__actions {
+  margin-top: 8px;
+}
+
+.hs-artist-profile-page
+.hs-artist-follow {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.025em;
+}
+
+.hs-artist-profile-page
+.hs-artist-stats
+> .hs-profile-stat {
+  gap: 7px;
+  min-height: 116px;
+  padding: 17px;
+  border:
+    1px solid
+    var(--hs-border);
+  border-radius: 10px;
+}
+
+.hs-artist-profile-page
+.hs-artist-stats
+> .hs-profile-stat:last-child {
+  border-right:
+    1px solid
+    var(--hs-border);
+}
+
+.hs-artist-profile-page
+.hs-artist-library-track-row.is-current-track {
+  border-color:
+    rgba(84, 221, 255, 0.46);
+  background:
+    linear-gradient(
+      90deg,
+      rgba(16, 132, 178, 0.18),
+      rgba(7, 25, 36, 0.92)
+    );
+  box-shadow:
+    inset 3px 0
+    #54ddff;
+}
+
+@media (max-width: 699px) {
+  .hs-artist-profile-page
+  .hs-artist-hero {
+    grid-template-columns:
+      1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .hs-artist-profile-page
+  .hs-artist-hero__art {
+    min-height: 176px;
+    padding: 15px;
+  }
+
+  .hs-artist-profile-page
+  .hs-artist-hero__art > img {
+    width: 132px;
+    height: 132px;
+  }
+
+  .hs-artist-profile-page
+  .hs-artist-hero__copy {
+    padding: 18px;
+  }
+
+  .hs-artist-profile-page
+  .hs-artist-hero__copy h1 {
+    font-size: 34px;
   }
 }

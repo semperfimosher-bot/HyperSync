@@ -36,6 +36,12 @@ function buildPreparationPayload(
       String(
         item.genre ?? "",
       ).trim(),
+    release_year:
+      Number.isInteger(
+        item.releaseYear,
+      )
+        ? item.releaseYear
+        : null,
     estimated_bitrate_kbps:
       Number.isFinite(
         item.bitrateKbps,
@@ -254,6 +260,19 @@ async function finalizeDirectUpload(
     ).trim(),
   );
 
+  if (
+    Number.isInteger(
+      item.releaseYear,
+    )
+  ) {
+    formData.append(
+      "release_year",
+      String(
+        item.releaseYear,
+      ),
+    );
+  }
+
   formData.append(
     "duration_seconds",
     String(
@@ -347,6 +366,24 @@ function sendUpload({
     formData.append("title", item.title.trim());
     formData.append("artist", item.artist.trim());
     formData.append("album", item.album.trim());
+    formData.append(
+      "genre",
+      String(
+        item.genre ?? "",
+      ).trim(),
+    );
+    if (
+      Number.isInteger(
+        item.releaseYear,
+      )
+    ) {
+      formData.append(
+        "release_year",
+        String(
+          item.releaseYear,
+        ),
+      );
+    }
     formData.append(
       "duration_seconds",
       String(item.duration || 0),
@@ -486,6 +523,25 @@ formData.append(
     xhr.send(formData);
   });
 }
+
+export async function enrichUploadedTrackMetadata(
+  trackId,
+) {
+  return apiRequest(
+    "/admin/tracks/"
+      + encodeURIComponent(
+          trackId,
+        )
+      + "/enrich-metadata",
+    {
+      method:
+        "POST",
+      cache:
+        "no-store",
+    },
+  );
+}
+
 
 export async function uploadTrack(
   item,

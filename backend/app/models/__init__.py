@@ -1,6 +1,9 @@
 from .account import (
     AccountType,
     ListeningEvent,
+    PlaybackCommand,
+    PlaybackDevice,
+    PasswordRecovery,
     User,
     UserAppState,
     UserFollow,
@@ -8,12 +11,17 @@ from .account import (
     UserRole,
     UserSession,
 )
+from .artist import (
+    ArtistFollow,
+    ArtistProfile,
+)
 from .base import Base
 from .media import (
     Track,
     TrackLyrics,
 )
 from .messaging import (
+    AdminNotification,
     Message,
     PushSubscription,
 )
@@ -27,11 +35,17 @@ from .system import SystemResetState
 __all__ = [
     "AccountType",
     "Base",
+    "ArtistFollow",
+    "ArtistProfile",
     "Track",
     "TrackLyrics",
+    "AdminNotification",
     "Message",
     "PushSubscription",
     "ListeningEvent",
+    "PlaybackCommand",
+    "PlaybackDevice",
+    "PasswordRecovery",
     "User",
     "UserAppState",
     "UserFollow",

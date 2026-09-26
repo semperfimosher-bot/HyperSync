@@ -7,6 +7,7 @@ from backend.app.services.autoplay import (
     CONTEXT_TRACK_LIMIT,
     RECENT_SESSION_LIMIT,
     _build_context_affinity,
+    _genre_family,
     _recent_session_weight,
 )
 
@@ -179,3 +180,35 @@ def test_recent_session_signal_stops_after_twelve_songs() -> None:
     assert _recent_session_weight(0) == 1.0
     assert _recent_session_weight(11) > 0
     assert _recent_session_weight(12) == 0.0
+
+
+def test_genre_family_keeps_country_away_from_rap() -> None:
+    assert (
+        _genre_family(
+            "Country",
+        )
+        == "country"
+    )
+
+    assert (
+        _genre_family(
+            "Americana / Country",
+        )
+        == "country"
+    )
+
+    assert (
+        _genre_family(
+            "Hip-Hop/Rap",
+        )
+        == "hip-hop"
+    )
+
+    assert (
+        _genre_family(
+            "Country",
+        )
+        != _genre_family(
+            "Hip-Hop/Rap",
+        )
+    )

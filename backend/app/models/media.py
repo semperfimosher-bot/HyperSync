@@ -45,9 +45,15 @@ class Track(
     )
 
     genre: Mapped[str | None] = mapped_column(
-    String(120),
-    nullable=True,
-    index=True,
+        String(120),
+        nullable=True,
+        index=True,
+    )
+
+    release_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
     )
 
     b2_object_key: Mapped[str] = mapped_column(

@@ -15,12 +15,181 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
+from .services.admin_notifications import (
+    record_admin_activity,
+)
 from .services.message_retention import (
     cleanup_expired_messages,
+)
+from .security.tokens import (
+    InvalidAccessTokenError,
+    decode_access_token,
 )
 
 DATABASE_KEEPALIVE_SECONDS = 240.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+
+_ACTIVITY_EXCLUDED_PREFIXES = (
+    "/api/users/me/listening",
+    "/api/users/me/app-state",
+    "/api/users/me/playback-state",
+    "/api/users/me/playback-devices",
+    "/api/messages/push/",
+    "/api/messages/admin-notifications/",
+    "/api/messages/notifications/",
+    "/api/messages/messages/",
+    "/api/recommendations/autoplay",
+    "/api/admin/tracks/upload/prepare",
+    "/api/admin/tracks/upload/cancel",
+    "/api/auth/refresh",
+)
+
+_ACTIVITY_EXCLUDED_PATHS = {
+    "/api/auth/register",
+}
+
+
+def _activity_description(
+    method: str,
+    path: str,
+) -> tuple[str, str] | None:
+    if (
+        method not in {
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+        }
+        or (
+            method == "POST"
+            and path.startswith(
+                "/api/messages/conversations/"
+            )
+        )
+        or (
+            method in {
+                "POST",
+                "DELETE",
+            }
+            and path.startswith(
+                "/api/playlists/liked/tracks/"
+            )
+        )
+        or (
+            method in {
+                "POST",
+                "DELETE",
+            }
+            and path.startswith(
+                "/api/playlists/"
+            )
+            and "/tracks" in path
+        )
+        or path in _ACTIVITY_EXCLUDED_PATHS
+        or any(
+            path.startswith(prefix)
+            for prefix
+            in _ACTIVITY_EXCLUDED_PREFIXES
+        )
+    ):
+        return None
+
+    if path.startswith(
+        "/api/auth/",
+    ):
+        if path.endswith(
+            "/login",
+        ):
+            return (
+                "auth",
+                "User signed in",
+            )
+
+        if "password-recovery" in path:
+            return (
+                "auth",
+                "Password recovery activity",
+            )
+
+        return (
+            "auth",
+            "Account session activity",
+        )
+
+    if path.startswith(
+        "/api/messages/",
+    ):
+        return (
+            "message",
+            "Message activity",
+        )
+
+    if path.startswith(
+        "/api/playlists",
+    ):
+        return (
+            "playlist",
+            "Playlist or library activity",
+        )
+
+    if path.startswith(
+        "/api/users/",
+    ):
+        return (
+            "profile",
+            "User profile or social activity",
+        )
+
+    if path.startswith(
+        "/api/admin/",
+    ):
+        return (
+            "admin",
+            "Administrator action",
+        )
+
+    if path.startswith(
+        "/api/bot/",
+    ):
+        return (
+            "bot",
+            "Bot control activity",
+        )
+
+    return (
+        "activity",
+        "HyperSync activity",
+    )
+
+
+def _request_actor_user_id(
+    request: Request,
+):
+    authorization = (
+        request.headers.get(
+            "authorization",
+            "",
+        )
+        .strip()
+    )
+
+    if not authorization.lower().startswith(
+        "bearer ",
+    ):
+        return None
+
+    token = authorization[7:].strip()
+
+    if not token:
+        return None
+
+    try:
+        return decode_access_token(
+            token,
+        ).user_id
+    except InvalidAccessTokenError:
+        return None
+
 
 
 async def keep_database_warm() -> None:
@@ -113,6 +282,46 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+@app.middleware("http")
+async def admin_activity_notifications(
+    request: Request,
+    call_next,
+):
+    response = await call_next(
+        request,
+    )
+
+    description = _activity_description(
+        request.method.upper(),
+        request.url.path,
+    )
+
+    if (
+        description is not None
+        and 200
+        <= response.status_code
+        < 400
+    ):
+        kind, title = description
+
+        await record_admin_activity(
+            kind=kind,
+            title=title,
+            body=(
+                request.method.upper()
+                + " "
+                + request.url.path
+            ),
+            actor_user_id=(
+                _request_actor_user_id(
+                    request,
+                )
+            ),
+        )
+
+    return response
+
 
 
 @app.middleware("http")

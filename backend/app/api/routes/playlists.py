@@ -39,7 +39,11 @@ from .catalog import (
     _track_media_version,
 )
 
+from ...services.admin_notifications import (
+    record_admin_activity,
+)
 from ...services.generated_playlists import (
+    ensure_smart_playlist,
     refresh_generated_playlist_if_stale,
 )
 
@@ -54,6 +58,15 @@ PlaylistVisibility = Literal[
     "unlisted",
     "public",
 ]
+
+
+class GeneratedPlaylistCreateRequest(
+    BaseModel,
+):
+    query: str = Field(
+        min_length=1,
+        max_length=200,
+    )
 
 
 class PlaylistCreateRequest(
@@ -115,6 +128,8 @@ class PlaylistTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -142,6 +157,8 @@ class LibraryTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -197,6 +214,9 @@ class PlaylistSummaryResponse(
     is_saved: bool = False
 
     is_liked_songs: bool = False
+
+    generated_kind: str | None = None
+    generated_query: str | None = None
 
     created_at: datetime
 
@@ -302,7 +322,7 @@ async def playlist_owner_username(
     playlist: Playlist,
 ) -> str:
     if playlist.owner_id is None:
-        return "HyperSync"
+        return "HyperSynced"
 
     owner = await session.get(
         User,
@@ -496,6 +516,12 @@ async def serialize_playlist_summary(
         is_owner=is_owner,
         is_saved=is_saved,
         is_liked_songs=is_liked_songs,
+        generated_kind=(
+            playlist.generated_kind
+        ),
+        generated_query=(
+            playlist.generated_query
+        ),
         created_at=(playlist.created_at),
         updated_at=(playlist.updated_at),
     )
@@ -512,6 +538,16 @@ def serialize_playlist_track(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+        release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
         duration_seconds=(track.duration_seconds),
         audio_url=(
             _track_audio_url(
@@ -660,13 +696,21 @@ async def get_my_playlists(
 
     playlists = list(result.scalars().all())
 
+    refreshed_playlists = [
+        await refresh_generated_playlist_if_stale(
+            session,
+            playlist,
+        )
+        for playlist in playlists
+    ]
+
     return [
         await serialize_playlist_summary(
             session,
             playlist,
             user,
         )
-        for playlist in playlists
+        for playlist in refreshed_playlists
     ]
 
 
@@ -811,6 +855,16 @@ async def get_library_tracks(
             title=track.title,
             artist=track.artist,
             album=track.album,
+            genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+            release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
             duration_seconds=(
                 track.duration_seconds
             ),
@@ -963,7 +1017,7 @@ async def get_liked_playlist(
             owner_id=user.id,
             title="Liked Songs",
             description=(
-                "Songs you like on HyperSync."
+                "Songs you like on HyperSynced."
             ),
             visibility="private",
             generated_key=liked_key,
@@ -976,6 +1030,53 @@ async def get_liked_playlist(
         await session.flush()
 
     return playlist
+
+
+@router.post(
+    "/generated",
+    response_model=(
+        PlaylistDetailResponse
+    ),
+    status_code=(
+        status.HTTP_201_CREATED
+    ),
+)
+async def create_generated_playlist(
+    payload: GeneratedPlaylistCreateRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> PlaylistDetailResponse:
+    require_registered_user(
+        user,
+    )
+
+    query = " ".join(
+        payload.query.split()
+    )
+
+    playlist = (
+        await ensure_smart_playlist(
+            session,
+            user.id,
+            query,
+        )
+    )
+
+    if playlist is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Playlist description is required."
+            ),
+        )
+
+    return await serialize_playlist_detail(
+        session,
+        playlist,
+        user,
+    )
 
 
 @router.get(
@@ -1109,6 +1210,25 @@ async def like_track(
 
         await session.commit()
 
+        await record_admin_activity(
+            kind="track",
+            title="Song liked",
+            body=(
+                "@"
+                + str(
+                    user.username
+                    or "unknown",
+                )
+                + ' liked "'
+                + track.title
+                + '" by '
+                + track.artist
+                + "."
+            ),
+            actor_user_id=user.id,
+            actor_username=user.username,
+        )
+
     return LikedTrackStateResponse(
         liked=True,
         playlist_id=playlist.id,
@@ -1157,6 +1277,16 @@ async def unlike_track(
         .first()
     )
 
+    track = (
+        await session.get(
+            Track,
+            track_id,
+        )
+        if playlist_track
+        is not None
+        else None
+    )
+
     if playlist_track is not None:
         await session.delete(
             playlist_track,
@@ -1170,6 +1300,26 @@ async def unlike_track(
         )
 
         await session.commit()
+
+        if track is not None:
+            await record_admin_activity(
+                kind="track",
+                title="Song unliked",
+                body=(
+                    "@"
+                    + str(
+                        user.username
+                        or "unknown",
+                    )
+                    + ' removed "'
+                    + track.title
+                    + '" by '
+                    + track.artist
+                    + " from Liked Songs."
+                ),
+                actor_user_id=user.id,
+                actor_username=user.username,
+            )
 
     return LikedTrackStateResponse(
         liked=False,
@@ -1358,7 +1508,7 @@ async def add_track_to_playlist(
         user,
     )
 
-    await require_playlist_owner(
+    playlist = await require_playlist_owner(
         session,
         playlist_id,
         user,
@@ -1405,6 +1555,27 @@ async def add_track_to_playlist(
         playlist_track,
     )
 
+    await record_admin_activity(
+        kind="track",
+        title="Song added to playlist",
+        body=(
+            "@"
+            + str(
+                user.username
+                or "unknown",
+            )
+            + ' added "'
+            + track.title
+            + '" by '
+            + track.artist
+            + ' to playlist "'
+            + playlist.title
+            + '".'
+        ),
+        actor_user_id=user.id,
+        actor_username=user.username,
+    )
+
     return serialize_playlist_track(
         playlist_track,
         track,
@@ -1424,7 +1595,7 @@ async def remove_track_from_playlist(
         user,
     )
 
-    await require_playlist_owner(
+    playlist = await require_playlist_owner(
         session,
         playlist_id,
         user,
@@ -1441,6 +1612,11 @@ async def remove_track_from_playlist(
             detail=("Playlist track not found."),
         )
 
+    track = await session.get(
+        Track,
+        playlist_track.track_id,
+    )
+
     await session.delete(
         playlist_track,
     )
@@ -1453,6 +1629,28 @@ async def remove_track_from_playlist(
     )
 
     await session.commit()
+
+    if track is not None:
+        await record_admin_activity(
+            kind="track",
+            title="Song removed from playlist",
+            body=(
+                "@"
+                + str(
+                    user.username
+                    or "unknown",
+                )
+                + ' removed "'
+                + track.title
+                + '" by '
+                + track.artist
+                + ' from playlist "'
+                + playlist.title
+                + '".'
+            ),
+            actor_user_id=user.id,
+            actor_username=user.username,
+        )
 
     return {
         "status": "removed",

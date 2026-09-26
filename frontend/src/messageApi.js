@@ -25,6 +25,7 @@ export async function getConversation(
 export async function sendMessage(
   username,
   body,
+  sharedMusic = null,
 ) {
   return apiRequest(
     "/messages/conversations/" +
@@ -36,8 +37,27 @@ export async function sendMessage(
         "POST",
       body:
         JSON.stringify({
-          body,
+          body:
+            body ?? "",
+          shared_music:
+            sharedMusic,
         }),
+    },
+  );
+}
+
+
+export async function deleteMessage(
+  messageId,
+) {
+  return apiRequest(
+    "/messages/messages/" +
+      encodeURIComponent(
+        messageId,
+      ),
+    {
+      method:
+        "DELETE",
     },
   );
 }
@@ -46,6 +66,40 @@ export async function sendMessage(
 export async function getMessageNotifications() {
   return apiRequest(
     "/messages/notifications",
+  );
+}
+
+
+export async function markMessageNotificationRead(
+  messageId,
+) {
+  return apiRequest(
+    "/messages/notifications/messages/" +
+      encodeURIComponent(
+        messageId,
+      ) +
+      "/read",
+    {
+      method:
+        "POST",
+    },
+  );
+}
+
+
+export async function markAdminNotificationRead(
+  notificationId,
+) {
+  return apiRequest(
+    "/messages/admin-notifications/" +
+      encodeURIComponent(
+        notificationId,
+      ) +
+      "/read",
+    {
+      method:
+        "POST",
+    },
   );
 }
 
