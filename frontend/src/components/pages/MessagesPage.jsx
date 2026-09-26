@@ -58,10 +58,92 @@ function formatMessageTime(
 }
 
 
+function sharedMusicLabel(
+  kind,
+) {
+  if (
+    kind === "track"
+  ) {
+    return "SONG";
+  }
+
+  if (
+    kind === "album"
+  ) {
+    return "ALBUM";
+  }
+
+  if (
+    kind === "artist"
+  ) {
+    return "ARTIST";
+  }
+
+  return "PLAYLIST";
+}
+
+
+function SharedMusicCard({
+  item,
+}) {
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <div className="hs-shared-music-card">
+      <span className="hs-shared-music-card__art">
+        {item.artwork_url ? (
+          <img
+            src={
+              item.artwork_url
+            }
+            alt=""
+          />
+        ) : (
+          <Icon
+            name={
+              item.kind ===
+                "playlist"
+                ? "playlist"
+                : item.kind ===
+                    "album"
+                  ? "disc"
+                  : "music"
+            }
+            size={22}
+          />
+        )}
+      </span>
+
+      <span className="hs-shared-music-card__copy">
+        <small>
+          {sharedMusicLabel(
+            item.kind,
+          )}
+        </small>
+
+        <strong>
+          {item.title}
+        </strong>
+
+        {item.subtitle ? (
+          <em>
+            {item.subtitle}
+          </em>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+
 export default function MessagesPage({
   currentUser,
   initialUsername = "",
   onInitialUsernameHandled,
+  sharedMusicToSend = null,
+  onSharedMusicHandled,
   onUnreadChange,
   onOpenProfile,
   onBackToSearch,
@@ -418,6 +500,73 @@ export default function MessagesPage({
   ]);
 
 
+  const openRecipient =
+    useCallback(
+      async (
+        username,
+      ) => {
+        if (
+          !sharedMusicToSend
+        ) {
+          await openConversation(
+            username,
+          );
+
+          return;
+        }
+
+        if (sending) {
+          return;
+        }
+
+        setSending(
+          true,
+        );
+
+        setError(
+          "",
+        );
+
+        try {
+          await sendMessage(
+            username,
+            "",
+            sharedMusicToSend,
+          );
+
+          onSharedMusicHandled?.();
+
+          await openConversation(
+            username,
+          );
+
+          await loadConversations();
+
+          onUnreadChange?.();
+        } catch (requestError) {
+          setError(
+            requestError
+              instanceof Error
+              ? requestError.message
+              : "Unable to share music.",
+          );
+        } finally {
+          setSending(
+            false,
+          );
+        }
+      },
+      [
+        loadConversations,
+        onSharedMusicHandled,
+        onUnreadChange,
+        openConversation,
+        sending,
+        sharedMusicToSend,
+      ],
+    );
+
+
   async function submitMessage(
     event,
   ) {
@@ -616,9 +765,19 @@ export default function MessagesPage({
                             : "hs-message-bubble"
                         }
                       >
-                        <p>
-                          {message.body}
-                        </p>
+                        {message.shared_music ? (
+                          <SharedMusicCard
+                            item={
+                              message.shared_music
+                            }
+                          />
+                        ) : null}
+
+                        {message.body ? (
+                          <p>
+                            {message.body}
+                          </p>
+                        ) : null}
 
                         <small>
                           {formatMessageTime(
@@ -719,6 +878,35 @@ export default function MessagesPage({
 
   return (
     <div className="page-stack hs-search-page hs-messages-page">
+      {sharedMusicToSend ? (
+        <section className="hs-message-share-picker">
+          <div>
+            <span>
+              SHARE IN CHAT
+            </span>
+
+            <strong>
+              Choose who to send this to
+            </strong>
+          </div>
+
+          <SharedMusicCard
+            item={
+              sharedMusicToSend
+            }
+          />
+
+          <button
+            type="button"
+            onClick={() => {
+              onSharedMusicHandled?.();
+            }}
+          >
+            Cancel
+          </button>
+        </section>
+      ) : null}
+
       <section className="hs-search-console hs-messages-console">
         <div
           className="hs-search-console__grid"
@@ -774,7 +962,11 @@ export default function MessagesPage({
             value={searchQuery}
             autoComplete="off"
             spellCheck="false"
-            placeholder="Search people by name or @username..."
+            placeholder={
+              sharedMusicToSend
+                ? "Search people to share with..."
+                : "Search people by name or @username..."
+            }
             onChange={(
               event,
             ) => {
@@ -861,7 +1053,7 @@ export default function MessagesPage({
                     person.username
                   }
                   onClick={() => {
-                    void openConversation(
+                    void openRecipient(
                       person.username,
                     );
                   }}
@@ -887,7 +1079,9 @@ export default function MessagesPage({
                     </small>
 
                     <p>
-                      Open a private conversation
+                      {sharedMusicToSend
+                        ? "Send shared music"
+                        : "Open a private conversation"}
                     </p>
                   </div>
 
@@ -955,7 +1149,7 @@ export default function MessagesPage({
                     item.username
                   }
                   onClick={() => {
-                    void openConversation(
+                    void openRecipient(
                       item.username,
                     );
                   }}
