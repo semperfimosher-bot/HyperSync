@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    frontend_public_url: str = "http://localhost:5173"
     api_docs_enabled: bool = False
 
     database_url: str = ""
@@ -78,6 +79,22 @@ class Settings(BaseSettings):
     auth_admin_register_rate_window_seconds: int = 900
     auth_refresh_rate_limit: int = 120
     auth_refresh_rate_window_seconds: int = 300
+
+    auth_password_recovery_rate_limit: int = 5
+    auth_password_recovery_ip_rate_limit: int = 20
+    auth_password_recovery_rate_window_seconds: int = 900
+    password_recovery_ttl_minutes: int = 15
+    password_recovery_max_attempts: int = 5
+    password_recovery_secret: str = ""
+
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "HyperSync"
+    smtp_starttls: bool = True
+    smtp_use_ssl: bool = False
 
     message_send_rate_limit: int = 60
     message_send_rate_window_seconds: int = 60
