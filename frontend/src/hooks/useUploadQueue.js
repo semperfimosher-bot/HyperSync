@@ -4,7 +4,10 @@ import {
   useState,
 } from "react";
 
-import { uploadTrack } from "../api/uploads.js";
+import {
+  enrichUploadedTrackMetadata,
+  uploadTrack,
+} from "../api/uploads.js";
 
 import {
   applyManualMetadataEdit,
@@ -224,6 +227,56 @@ export default function useUploadQueue({
           progress: 100,
           response,
         });
+
+        if (
+          response?.track_id
+          && (
+            !response?.genre
+            || !response?.release_year
+          )
+        ) {
+          void enrichUploadedTrackMetadata(
+            response.track_id,
+          )
+            .then(
+              (
+                enrichment,
+              ) => {
+                if (!enrichment) {
+                  return;
+                }
+
+                updateItem(
+                  id,
+                  {
+                    response: {
+                      ...response,
+                      genre:
+                        enrichment.genre
+                        ?? response.genre,
+                      release_year:
+                        enrichment.release_year
+                        ?? response.release_year,
+                      metadata_source:
+                        enrichment.source
+                        ?? null,
+                      metadata_confidence:
+                        enrichment.confidence
+                        ?? null,
+                    },
+                  },
+                );
+              },
+            )
+            .catch(
+              () => {
+                /*
+                 * External metadata is best-effort.
+                 * Upload success never depends on it.
+                 */
+              },
+            );
+        }
       } catch (error) {
         if (error?.name === "AbortError") {
           updateItem(id, {
