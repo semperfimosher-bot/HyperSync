@@ -25,7 +25,7 @@ from pydantic import (
     BaseModel,
     Field,
 )
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -708,6 +708,74 @@ def playback_device_is_online(
     )
 
 
+async def prune_offline_playback_devices(
+    session: DatabaseSession,
+    user: User,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    cutoff = (
+        reference -
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+    stale_result = await session.execute(
+        select(
+            PlaybackDevice.device_id,
+        ).where(
+            PlaybackDevice.user_id
+            == user.id,
+            PlaybackDevice.last_seen_at
+            < cutoff,
+        )
+    )
+
+    stale_device_ids = [
+        str(
+            device_id,
+        )
+        for device_id in
+        stale_result.scalars().all()
+    ]
+
+    if not stale_device_ids:
+        return []
+
+    await session.execute(
+        delete(
+            PlaybackCommand,
+        ).where(
+            PlaybackCommand.user_id
+            == user.id,
+            PlaybackCommand.target_device_id.in_(
+                stale_device_ids,
+            ),
+        )
+    )
+
+    await session.execute(
+        delete(
+            PlaybackDevice,
+        ).where(
+            PlaybackDevice.user_id
+            == user.id,
+            PlaybackDevice.device_id.in_(
+                stale_device_ids,
+            ),
+        )
+    )
+
+    return stale_device_ids
+
+
 async def list_playback_devices(
     session: DatabaseSession,
     user: User,
@@ -732,6 +800,11 @@ async def list_playback_devices(
         .where(
             PlaybackDevice.user_id
             == user.id,
+            PlaybackDevice.last_seen_at
+            >= (
+                reference -
+                PLAYBACK_DEVICE_ONLINE_TTL
+            ),
         )
         .order_by(
             PlaybackDevice.last_seen_at.desc(),
@@ -1896,6 +1969,12 @@ async def poll_my_playback_device(
         )
         device.last_seen_at = now
 
+    await prune_offline_playback_devices(
+        session,
+        user,
+        now=now,
+    )
+
     commands_result = (
         await session.execute(
             select(
@@ -2015,12 +2094,29 @@ async def send_playback_device_command(
         target.last_seen_at,
         now=now,
     ):
+        await session.execute(
+            delete(
+                PlaybackCommand,
+            ).where(
+                PlaybackCommand.user_id
+                == user.id,
+                PlaybackCommand.target_device_id
+                == target_device_id,
+            )
+        )
+
+        await session.delete(
+            target,
+        )
+
+        await session.commit()
+
         raise HTTPException(
             status_code=(
-                status.HTTP_409_CONFLICT
+                status.HTTP_404_NOT_FOUND
             ),
             detail=(
-                "That playback device is offline."
+                "Playback device not found."
             ),
         )
 
