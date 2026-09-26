@@ -8162,6 +8162,14 @@ const clearPlaylistToOpen =
   onAuthenticated={
     handleAuthenticated
   }
+  onPasswordReset={() => {
+    setCurrentUser(null);
+    setPushEnabled(false);
+    setMessageNotifications({
+      unread_count: 0,
+      notifications: [],
+    });
+  }}
 />
     </div>
   );
