@@ -28,6 +28,9 @@ import useTrackActionMenu from
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 
 function memberFor(value) {
   if (!value) {
@@ -152,38 +155,71 @@ export default function ProfilePage({
 
 
   const loadProfile =
-    useCallback(async () => {
-      if (!currentUser) {
-        setProfile(null);
-        setLoading(false);
-        return;
-      }
+    useCallback(
+      async ({
+        quiet = false,
+      } = {}) => {
+        if (!currentUser) {
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
 
-      setLoading(true);
-      setError("");
+        if (!quiet) {
+          setLoading(true);
+          setError("");
+        }
 
-      try {
-        const data =
-          await getMyProfile();
+        try {
+          const data =
+            await getMyProfile();
 
-        setProfile(data);
+          setProfile(data);
+          setError("");
 
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load profile.",
-        );
+        } catch (loadError) {
+          if (!quiet) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unable to load profile.",
+            );
+          }
 
-      } finally {
-        setLoading(false);
-      }
-    }, [currentUser]);
+        } finally {
+          if (!quiet) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        currentUser,
+      ],
+    );
 
 
   useEffect(() => {
     void loadProfile();
-  }, [loadProfile]);
+  }, [
+    loadProfile,
+  ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadProfile({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        Boolean(
+          currentUser,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   if (!currentUser) {
