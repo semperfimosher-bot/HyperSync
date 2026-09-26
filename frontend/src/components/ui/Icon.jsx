@@ -362,6 +362,42 @@ downloaded: (
       </>
     ),
 
+    devices: (
+      <>
+        <rect
+          x="3"
+          y="5"
+          width="14"
+          height="11"
+          rx="2"
+        />
+
+        <path d="M7 20h12" />
+        <path d="M10 16v4" />
+        <rect
+          x="17"
+          y="8"
+          width="4"
+          height="8"
+          rx="1"
+        />
+      </>
+    ),
+
+    phone: (
+      <>
+        <rect
+          x="7"
+          y="2.5"
+          width="10"
+          height="19"
+          rx="2"
+        />
+
+        <path d="M11 18.5h2" />
+      </>
+    ),
+
     shield: (
       <>
         <path
