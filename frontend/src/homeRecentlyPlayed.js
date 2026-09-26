@@ -1,9 +1,16 @@
 export function getHomeRecentlyPlayed(
   profile,
+  limit = 12,
 ) {
-  return Array.isArray(
-    profile?.recently_played,
-  )
-    ? profile.recently_played
-    : [];
+  const tracks =
+    Array.isArray(
+      profile?.recently_played,
+    )
+      ? profile.recently_played
+      : [];
+
+  return tracks.slice(
+    0,
+    limit,
+  );
 }
