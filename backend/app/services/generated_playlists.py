@@ -369,6 +369,28 @@ def smart_playlist_kind(
     )
 
 
+def smart_query_has_semantic_signal(
+    query: str,
+) -> bool:
+    normalized = _normalized_query(
+        query,
+    )
+
+    if not normalized:
+        return False
+
+    if _is_direct_genre_query(
+        normalized,
+    ):
+        return True
+
+    return any(
+        word in VIBE_FAMILIES
+        for word
+        in normalized.split()
+    )
+
+
 def smart_cache_key(
     user_id: UUID,
     query: str,
