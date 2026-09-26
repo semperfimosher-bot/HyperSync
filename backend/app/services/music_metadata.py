@@ -127,6 +127,8 @@ _lastfm_lookup_cache: dict[
         ExternalTrackMetadata | None,
     ],
 ] = {}
+_lastfm_request_lock = asyncio.Lock()
+_lastfm_last_request_at = 0.0
 
 _apple_request_lock = asyncio.Lock()
 _apple_last_request_at = 0.0
@@ -1569,6 +1571,38 @@ def _lastfm_track_match(
     return 0.91
 
 
+async def _lastfm_throttle() -> None:
+    global _lastfm_last_request_at
+
+    settings = get_settings()
+
+    interval = max(
+        float(
+            settings
+            .lastfm_min_interval_seconds
+        ),
+        0.0,
+    )
+
+    async with _lastfm_request_lock:
+        delay = (
+            interval
+            - (
+                time.monotonic()
+                - _lastfm_last_request_at
+            )
+        )
+
+        if delay > 0:
+            await asyncio.sleep(
+                delay,
+            )
+
+        _lastfm_last_request_at = (
+            time.monotonic()
+        )
+
+
 async def _lastfm_get_json(
     client: httpx.AsyncClient,
     *,
@@ -1577,7 +1611,11 @@ async def _lastfm_get_json(
         str,
         object,
     ],
+    throttle: bool = True,
 ) -> dict[str, object]:
+    if throttle:
+        await _lastfm_throttle()
+
     response = await client.get(
         "/2.0/",
         params={
@@ -1717,6 +1755,7 @@ async def lookup_lastfm_track_metadata(
                     "autocorrect":
                         1,
                 },
+                throttle=owns_client,
             )
         )
 
