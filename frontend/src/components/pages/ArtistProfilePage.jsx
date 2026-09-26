@@ -706,8 +706,14 @@ export default function ArtistProfilePage({
                       {track.title}
                     </strong>
                     <small>
-                      {track.album ||
-                        profile.name}
+                      {[
+                        track.genre,
+                        track.release_year,
+                        track.album ||
+                          profile.name,
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
                     </small>
                   </span>
 
