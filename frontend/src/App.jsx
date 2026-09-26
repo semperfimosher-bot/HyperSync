@@ -3215,7 +3215,7 @@ function MainPage({
 
               <p>
                 This area is available
-                only to HyperSync
+                only to HyperSynced
                 administrators.
               </p>
             </section>
