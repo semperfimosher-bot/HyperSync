@@ -1575,13 +1575,16 @@ async def upload_track(
     artist: Annotated[str, Form(...)],
     album: Annotated[str, Form(...)],
     duration_seconds: Annotated[int, Form(...)],
-    genre: Annotated[str, Form()] = "",
     user: AdminUser,
     session: DatabaseSession,
     title_edited: Annotated[bool, Form()] = False,
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,
     duration_edited: Annotated[bool, Form()] = False,
+    genre: Annotated[
+        str,
+        Form(),
+    ] = "",
     release_year: Annotated[
         int | None,
         Form(),
