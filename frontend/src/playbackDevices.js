@@ -1,6 +1,19 @@
-import {
-  apiRequest,
-} from "./api/client.js";
+async function requestApi(
+  path,
+  options,
+) {
+  const {
+    apiRequest,
+  } =
+    await import(
+      "./api/client.js"
+    );
+
+  return apiRequest(
+    path,
+    options,
+  );
+}
 
 
 function browserName(
@@ -185,7 +198,7 @@ export async function pollPlaybackDevice({
   name,
   deviceType,
 }) {
-  return apiRequest(
+  return requestApi(
     "/users/me/playback-devices/poll",
     {
       method:
@@ -221,7 +234,7 @@ export async function sendPlaybackDeviceCommand({
       ),
     );
 
-  return apiRequest(
+  return requestApi(
     "/users/me/playback-devices/" +
       target +
       "/commands",
