@@ -340,14 +340,30 @@ export async function apiRequest(
   if (
     !token &&
     !authEndpoint &&
-    requiresAuthentication &&
-    hasStoredSession()
+    requiresAuthentication
   ) {
-    const auth =
-      await refreshAccessToken();
+    if (
+      hasStoredSession()
+    ) {
+      const auth =
+        await refreshAccessToken();
 
-    token =
-      auth.access_token;
+      token =
+        auth.access_token;
+    } else {
+      const error =
+        new Error(
+          "Authentication required.",
+        );
+
+      error.status =
+        401;
+
+      error.detail =
+        "Authentication required.";
+
+      throw error;
+    }
   }
 
   const isFormData =
