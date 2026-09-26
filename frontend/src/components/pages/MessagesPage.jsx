@@ -89,6 +89,7 @@ function sharedMusicLabel(
 
 function SharedMusicCard({
   item,
+  onOpen = null,
 }) {
   if (!item) {
     return null;
@@ -99,8 +100,8 @@ function SharedMusicCard({
       item.artwork_url,
     );
 
-  return (
-    <div className="hs-shared-music-card">
+  const content = (
+    <>
       <span className="hs-shared-music-card__art">
         {artwork ? (
           <img
@@ -142,6 +143,29 @@ function SharedMusicCard({
           </em>
         ) : null}
       </span>
+    </>
+  );
+
+  if (
+    typeof onOpen ===
+      "function"
+  ) {
+    return (
+      <button
+        type="button"
+        className="hs-shared-music-card is-clickable"
+        onClick={
+          onOpen
+        }
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="hs-shared-music-card">
+      {content}
     </div>
   );
 }
@@ -153,6 +177,7 @@ export default function MessagesPage({
   onInitialUsernameHandled,
   sharedMusicToSend = null,
   onSharedMusicHandled,
+  onOpenSharedMusic,
   onUnreadChange,
   onOpenProfile,
   onBackToSearch,
@@ -514,64 +539,12 @@ export default function MessagesPage({
       async (
         username,
       ) => {
-        if (
-          !sharedMusicToSend
-        ) {
-          await openConversation(
-            username,
-          );
-
-          return;
-        }
-
-        if (sending) {
-          return;
-        }
-
-        setSending(
-          true,
+        await openConversation(
+          username,
         );
-
-        setError(
-          "",
-        );
-
-        try {
-          await sendMessage(
-            username,
-            "",
-            sharedMusicToSend,
-          );
-
-          onSharedMusicHandled?.();
-
-          await openConversation(
-            username,
-          );
-
-          await loadConversations();
-
-          onUnreadChange?.();
-        } catch (requestError) {
-          setError(
-            requestError
-              instanceof Error
-              ? requestError.message
-              : "Unable to share music.",
-          );
-        } finally {
-          setSending(
-            false,
-          );
-        }
       },
       [
-        loadConversations,
-        onSharedMusicHandled,
-        onUnreadChange,
         openConversation,
-        sending,
-        sharedMusicToSend,
       ],
     );
 
@@ -585,7 +558,10 @@ export default function MessagesPage({
       draft.trim();
 
     if (
-      !body ||
+      (
+        !body &&
+        !sharedMusicToSend
+      ) ||
       !selectedUsername ||
       sending
     ) {
@@ -605,6 +581,7 @@ export default function MessagesPage({
         await sendMessage(
           selectedUsername,
           body,
+          sharedMusicToSend,
         );
 
       setConversation(
@@ -627,6 +604,12 @@ export default function MessagesPage({
       setDraft(
         "",
       );
+
+      if (
+        sharedMusicToSend
+      ) {
+        onSharedMusicHandled?.();
+      }
 
       await loadConversations();
 
@@ -779,6 +762,11 @@ export default function MessagesPage({
                             item={
                               message.shared_music
                             }
+                            onOpen={() => {
+                              onOpenSharedMusic?.(
+                                message.shared_music,
+                              );
+                            }}
                           />
                         ) : null}
 
@@ -826,6 +814,30 @@ export default function MessagesPage({
                   submitMessage
                 }
               >
+                {sharedMusicToSend ? (
+                  <div className="hs-message-composer-share">
+                    <SharedMusicCard
+                      item={
+                        sharedMusicToSend
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      aria-label="Remove shared music"
+                      title="Remove shared music"
+                      onClick={() => {
+                        onSharedMusicHandled?.();
+                      }}
+                    >
+                      <Icon
+                        name="close"
+                        size={14}
+                      />
+                    </button>
+                  </div>
+                ) : null}
+
                 <textarea
                   value={draft}
                   rows={2}
@@ -864,7 +876,10 @@ export default function MessagesPage({
                   type="submit"
                   disabled={
                     sending ||
-                    !draft.trim()
+                    (
+                      !draft.trim() &&
+                      !sharedMusicToSend
+                    )
                   }
                 >
                   <Icon
