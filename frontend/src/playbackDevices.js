@@ -1,14 +1,3 @@
-import {
-  API_BASE,
-  refreshAccessToken,
-} from "./api/client.js";
-
-import {
-  getAccessToken,
-  hasStoredSession,
-} from "./api/storage.js";
-
-
 async function requestApi(
   path,
   options,
@@ -132,10 +121,12 @@ function platformName(
 }
 
 
-function playbackLiveUrl() {
+function playbackLiveUrl(
+  apiBase,
+) {
   const base =
     new URL(
-      API_BASE,
+      apiBase,
       globalThis.location
         ?.origin ??
         "http://localhost",
@@ -173,25 +164,49 @@ function playbackLiveUrl() {
 }
 
 
-async function playbackAccessToken() {
+async function playbackConnectionAuth() {
+  const [
+    client,
+    storage,
+  ] =
+    await Promise.all([
+      import(
+        "./api/client.js"
+      ),
+      import(
+        "./api/storage.js"
+      ),
+    ]);
+
   const existing =
-    getAccessToken();
+    storage.getAccessToken();
 
   if (existing) {
-    return existing;
+    return {
+      accessToken:
+        existing,
+      apiBase:
+        client.API_BASE,
+    };
   }
 
-  if (!hasStoredSession()) {
+  if (
+    !storage.hasStoredSession()
+  ) {
     return null;
   }
 
   const auth =
-    await refreshAccessToken();
+    await client
+      .refreshAccessToken();
 
-  return (
-    auth?.access_token ??
-    null
-  );
+  return {
+    accessToken:
+      auth?.access_token ??
+      null,
+    apiBase:
+      client.API_BASE,
+  };
 }
 
 
@@ -348,16 +363,20 @@ export async function connectPlaybackDeviceLive({
     return null;
   }
 
-  const accessToken =
-    await playbackAccessToken();
+  const auth =
+    await playbackConnectionAuth();
 
-  if (!accessToken) {
+  if (
+    !auth?.accessToken
+  ) {
     return null;
   }
 
   const socket =
     new WebSocket(
-      playbackLiveUrl(),
+      playbackLiveUrl(
+        auth.apiBase,
+      ),
     );
 
   let heartbeatTimer =
@@ -389,7 +408,7 @@ export async function connectPlaybackDeviceLive({
           type:
             "authenticate",
           access_token:
-            accessToken,
+            auth.accessToken,
           device_id:
             deviceId,
           name,
