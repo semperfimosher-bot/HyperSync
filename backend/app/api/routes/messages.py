@@ -139,7 +139,10 @@ class MessageNotification(BaseModel):
     sender_username: str
     sender_display_name: str
     sender_avatar_url: str | None = None
+    recipient_username: str
     preview: str
+    body: str
+    shared_music: SharedMusicItem | None = None
     created_at: datetime
 
 
@@ -765,10 +768,20 @@ async def message_notifications(
                 sender_avatar_url=(
                     summary.avatar_url
                 ),
+                recipient_username=(
+                    user.username
+                    or ""
+                ),
                 preview=(
                     _message_preview(
                         message,
                     )[:120]
+                ),
+                body=message.body,
+                shared_music=(
+                    _shared_music_response(
+                        message,
+                    )
                 ),
                 created_at=message.created_at,
             )
@@ -853,6 +866,43 @@ async def message_notifications(
         ),
         notifications=notifications[:20],
     )
+
+
+@router.post(
+    "/notifications/messages/{message_id}/read",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def read_message_notification(
+    message_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    result = await session.execute(
+        select(
+            Message,
+        ).where(
+            Message.id
+            == message_id,
+            Message.recipient_id
+            == user.id,
+        )
+    )
+
+    message = result.scalar_one_or_none()
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Message notification not found."
+            ),
+        )
+
+    if message.viewed_at is None:
+        message.viewed_at = datetime.now(
+            UTC,
+        )
+        await session.commit()
 
 
 @router.post(
