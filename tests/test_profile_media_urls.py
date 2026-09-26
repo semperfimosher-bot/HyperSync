@@ -218,6 +218,7 @@ async def test_profile_dashboard_populates_media_cache_metadata() -> None:
 
     class FakeSession:
         def __init__(self) -> None:
+            self.statements = []
             self.results = iter(
                 [
                     FakeResult(scalar=0),
@@ -242,6 +243,10 @@ async def test_profile_dashboard_populates_media_cache_metadata() -> None:
             self,
             _statement,
         ):
+            self.statements.append(
+                _statement,
+            )
+
             return next(
                 self.results,
             )
@@ -264,15 +269,23 @@ async def test_profile_dashboard_populates_media_cache_metadata() -> None:
         ),
     )
 
+    fake_session = FakeSession()
+
     session = cast(
         AsyncSession,
-        FakeSession(),
+        fake_session,
     )
 
     dashboard = await users_route.build_dashboard(
         session,
         user,
     )
+
+    recent_query = str(
+        fake_session.statements[5],
+    ).upper()
+
+    assert "LIMIT" not in recent_query
 
     assert (
         len(
