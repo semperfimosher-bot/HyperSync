@@ -919,3 +919,101 @@ async def test_direct_genre_candidate_query_has_no_limit():
         "Country",
         "Americana",
     ]
+
+
+
+def test_direct_genre_matching_ignores_literal_title_words() -> None:
+    actual_country = SimpleNamespace(
+        id=uuid4(),
+        title="Something Else",
+        artist="Actual Country Artist",
+        album="Actual Album",
+        genre="Country",
+        created_at=datetime(
+            2026,
+            1,
+            1,
+            tzinfo=UTC,
+        ),
+    )
+
+    fake_country_word = SimpleNamespace(
+        id=uuid4(),
+        title="Country Money",
+        artist="Rap Artist",
+        album="Country Named Album",
+        genre="Hip-Hop/Rap",
+        created_at=datetime(
+            2026,
+            1,
+            2,
+            tzinfo=UTC,
+        ),
+    )
+
+    assert (
+        search_route.smart_track_score(
+            actual_country,
+            "country",
+        )
+        > 0
+    )
+
+    assert (
+        search_route.smart_track_score(
+            fake_country_word,
+            "country",
+        )
+        == 0
+    )
+
+
+def test_direct_genre_prefers_exact_over_related_family() -> None:
+    exact = SimpleNamespace(
+        title="Exact",
+        artist="Artist",
+        album=None,
+        genre="Country",
+    )
+
+    subgenre = SimpleNamespace(
+        title="Subgenre",
+        artist="Artist",
+        album=None,
+        genre="Country Pop",
+    )
+
+    related = SimpleNamespace(
+        title="Related",
+        artist="Artist",
+        album=None,
+        genre="Americana",
+    )
+
+    exact_score = (
+        search_route.smart_track_score(
+            exact,
+            "country",
+        )
+    )
+
+    subgenre_score = (
+        search_route.smart_track_score(
+            subgenre,
+            "country",
+        )
+    )
+
+    related_score = (
+        search_route.smart_track_score(
+            related,
+            "country",
+        )
+    )
+
+    assert (
+        exact_score
+        > subgenre_score
+        > related_score
+        > 0
+    )
