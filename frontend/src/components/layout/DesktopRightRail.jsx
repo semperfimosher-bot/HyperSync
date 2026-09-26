@@ -185,8 +185,13 @@ function DesktopRightRail({
           }
         >
           <strong>
-            {state.artist
-              || "Unknown artist"}
+            {[
+              state.artist
+                || "Unknown artist",
+              state.album,
+            ]
+              .filter(Boolean)
+              .join(" • ")}
           </strong>
         </div>
       )}
