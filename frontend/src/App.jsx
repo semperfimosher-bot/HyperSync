@@ -3433,6 +3433,21 @@ function MainPage({
           onInstallApp={
             onInstallApp
           }
+          playbackDevices={
+            playbackDevices
+          }
+          currentPlaybackDeviceId={
+            playbackDeviceIdRef.current
+          }
+          controlledPlaybackDeviceId={
+            controlledPlaybackDeviceId
+          }
+          onSelectPlaybackDevice={
+            setControlledPlaybackDeviceId
+          }
+          onPlaybackDeviceCommand={
+            sendAccountPlaybackCommand
+          }
         />
       );
     }
@@ -4627,39 +4642,6 @@ function PlayerBar({
           />
         </button>
 
-        {currentUser?.account_type ===
-        "registered" ? (
-          <button
-            type="button"
-            className={[
-              "mobile-player-device-control",
-              controllingRemote
-                ? "is-remote"
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-label="Choose playback device"
-            aria-expanded={
-              devicesOpen
-            }
-            onClick={() => {
-              setDevicesOpen(
-                (open) =>
-                  !open,
-              );
-
-              setNotificationsOpen(
-                false,
-              );
-            }}
-          >
-            <Icon
-              name="devices"
-              size={17}
-            />
-          </button>
-        ) : null}
       </div>
 
       {devicesOpen &&
