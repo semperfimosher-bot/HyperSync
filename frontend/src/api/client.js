@@ -1,4 +1,5 @@
 import {
+  clearAuthSession,
   getAccessToken,
   hasStoredSession,
   saveAuthSession,
@@ -257,6 +258,26 @@ export async function refreshAccessToken() {
 
       error.detail =
         errorData?.detail;
+
+      if (
+        response.status ===
+          401 ||
+        response.status ===
+          403
+      ) {
+        /*
+         * The server has definitively rejected
+         * the refresh session. Remove the stale
+         * remembered browser session so future
+         * reloads do not repeat this failed
+         * refresh forever.
+         *
+         * Temporary failures (429, 5xx, network)
+         * continue to preserve the remembered
+         * session.
+         */
+        clearAuthSession();
+      }
 
       rememberRefreshFailure(
         error,
