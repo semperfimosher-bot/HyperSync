@@ -2,7 +2,8 @@
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$StopOnly
 )
 
 Set-StrictMode -Version Latest
@@ -241,6 +242,11 @@ if ([string]::IsNullOrWhiteSpace($currentPowerShell)) {
 }
 
 Stop-HyperSyncDevProcesses
+
+if ($StopOnly) {
+    Write-Host "Old HyperSync local servers are stopped." -ForegroundColor Green
+    return
+}
 
 if ($BackendPort -gt 0) {
     if (Test-PortInUse -Port $BackendPort) {

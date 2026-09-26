@@ -4,7 +4,8 @@ param(
     [int]$BackendPort = 0,
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
-    [switch]$SkipMigrations
+    [switch]$SkipMigrations,
+    [switch]$AfterGitUpdate
 )
 
 Set-StrictMode -Version Latest
@@ -231,7 +232,8 @@ if ($null -eq $gitCommand) {
 
 $script:GitPath = $gitCommand.Source
 
-Push-Location $RepoRoot
+if (-not $AfterGitUpdate) {
+    Push-Location $RepoRoot
 
 try {
     $unmergedFiles = @(
@@ -319,9 +321,50 @@ try {
         Write-Host "Local checkout updated successfully." -ForegroundColor Green
     }
 }
-finally {
-    Pop-Location
+    finally {
+        Pop-Location
+    }
+
+    if ($beforeCommit -ne $afterCommit) {
+        Write-Host ""
+        Write-Host "Reloading the freshly updated local helper..." -ForegroundColor Yellow
+
+        $nextParameters = @{
+            FrontendPort = $FrontendPort
+            BackendPort = $BackendPort
+            NoBrowser = $NoBrowser
+            SkipDependencies = $SkipDependencies
+            SkipMigrations = $SkipMigrations
+            AfterGitUpdate = $true
+        }
+
+        & $PSCommandPath @nextParameters
+        return
+    }
 }
+else {
+    Push-Location $RepoRoot
+
+    try {
+        $commitLabel = Get-GitOutput -Arguments @(
+            "log",
+            "-1",
+            "--oneline"
+        )
+
+        Write-Host ""
+        Write-Host ("Using freshly updated commit: " + $commitLabel) -ForegroundColor Cyan
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+if (-not (Test-Path -LiteralPath $RebootScript)) {
+    throw "reboot-local.ps1 was not found."
+}
+
+& $RebootScript -StopOnly
 
 Ensure-PythonEnvironment
 
@@ -336,10 +379,6 @@ if (-not $SkipMigrations) {
 
 if (Test-Path -LiteralPath $InstallGoScript) {
     & $InstallGoScript -Quiet
-}
-
-if (-not (Test-Path -LiteralPath $RebootScript)) {
-    throw "reboot-local.ps1 was not found."
 }
 
 $rebootParameters = @{
