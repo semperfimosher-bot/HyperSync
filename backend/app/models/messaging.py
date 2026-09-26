@@ -102,6 +102,59 @@ class Message(
     )
 
 
+class AdminNotification(
+    UUIDPrimaryKeyMixin,
+    TimestampMixin,
+    Base,
+):
+    __tablename__ = "admin_notifications"
+
+    __table_args__ = (
+        Index(
+            "ix_admin_notifications_recipient_viewed_created",
+            "recipient_id",
+            "viewed_at",
+            "created_at",
+        ),
+    )
+
+    recipient_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    kind: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+    )
+
+    body: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    actor_username: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    viewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=True,
+    )
+
+
 class PushSubscription(
     UUIDPrimaryKeyMixin,
     TimestampMixin,
