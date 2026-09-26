@@ -92,6 +92,246 @@ NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
 SMART_VIBE_CANDIDATE_LIMIT = 500
 
+_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
+    (
+        r"\s+"
+        r"(?:&|\band\b|\bx\b|\bwith\b|"
+        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
+        r"\s+"
+    ),
+    flags=re.IGNORECASE,
+)
+
+
+def _artist_field_credits(
+    artist: str | None,
+) -> tuple[str, ...]:
+    if not artist:
+        return ()
+
+    raw = artist.strip()
+
+    if not raw:
+        return ()
+
+    credits = [
+        raw,
+        *(
+            part.strip()
+            for part in (
+                _ARTIST_CREDIT_SPLIT_PATTERN
+                .split(
+                    raw,
+                )
+            )
+            if part.strip()
+        ),
+    ]
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    for credit in credits:
+        normalized = normalize_text(
+            credit,
+        )
+
+        if (
+            not normalized
+            or normalized in seen
+        ):
+            continue
+
+        seen.add(
+            normalized,
+        )
+
+        found.append(
+            credit,
+        )
+
+    return tuple(
+        found,
+    )
+
+
+def _track_credits_artist(
+    track: Track,
+    artist_name: str,
+) -> bool:
+    target = normalize_text(
+        artist_name,
+    )
+
+    if not target:
+        return False
+
+    primary_credits = (
+        _artist_field_credits(
+            track.artist,
+        )
+    )
+
+    if any(
+        normalize_text(
+            credit,
+        )
+        == target
+        for credit in primary_credits
+    ):
+        return True
+
+    return any(
+        normalize_text(
+            credit,
+        )
+        == target
+        for credit in (
+            extract_featured_artists(
+                track.title,
+            )
+        )
+    )
+
+
+async def _resolve_exact_artist_name(
+    session: AsyncSession,
+    parsed: ParsedSearch,
+) -> str | None:
+    term = parsed.term.strip()
+
+    if not term:
+        return None
+
+    pattern = (
+        "%"
+        + term
+        + "%"
+    )
+
+    result = await session.execute(
+        select(
+            Track.artist,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            Track.artist.ilike(
+                pattern,
+            ),
+        )
+        .distinct()
+        .limit(
+            100,
+        )
+    )
+
+    target = normalize_text(
+        term,
+    )
+
+    for artist_value in result.scalars().all():
+        for credit in (
+            _artist_field_credits(
+                artist_value,
+            )
+        ):
+            if (
+                normalize_text(
+                    credit,
+                )
+                == target
+            ):
+                return credit
+
+    featured_result = await session.execute(
+        select(
+            Track.title,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            Track.title.ilike(
+                pattern,
+            ),
+        )
+        .limit(
+            200,
+        )
+    )
+
+    for title in featured_result.scalars().all():
+        for credit in (
+            extract_featured_artists(
+                title,
+            )
+        ):
+            if (
+                normalize_text(
+                    credit,
+                )
+                == target
+            ):
+                return credit
+
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
+        return term
+
+    return None
+
+
+async def _load_artist_catalog_candidates(
+    session: AsyncSession,
+    artist_name: str,
+) -> list[Track]:
+    pattern = (
+        "%"
+        + artist_name
+        + "%"
+    )
+
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            or_(
+                Track.artist.ilike(
+                    pattern,
+                ),
+                Track.title.ilike(
+                    pattern,
+                ),
+            ),
+        )
+        .order_by(
+            Track.artist.asc(),
+            Track.title.asc(),
+        )
+    )
+
+    matches = [
+        track
+        for track in result.scalars().all()
+        if _track_credits_artist(
+            track,
+            artist_name,
+        )
+    ]
+
+    return matches[
+        :TRACK_CANDIDATE_LIMIT
+    ]
+
+
 class SearchPlaylistResult(
     BaseModel,
 ):
@@ -496,6 +736,24 @@ async def _load_track_candidates(
     if not term:
         return []
 
+    exact_artist_name = (
+        await _resolve_exact_artist_name(
+            session,
+            parsed,
+        )
+    )
+
+    if exact_artist_name:
+        artist_candidates = (
+            await _load_artist_catalog_candidates(
+                session,
+                exact_artist_name,
+            )
+        )
+
+        if artist_candidates:
+            return artist_candidates
+
     if is_direct_genre_query(
         parsed.raw,
     ):
@@ -855,6 +1113,38 @@ def _match_for_track(
                 label="GENRE MATCH",
                 field="genre",
             )
+
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
+        best_artist_match = score_artist(
+            track.artist,
+            parsed,
+        )
+
+        for featured_artist in (
+            extract_featured_artists(
+                track.title,
+            )
+        ):
+            featured_match = score_artist(
+                featured_artist,
+                parsed,
+            )
+
+            if (
+                featured_match.tier,
+                featured_match.score,
+            ) > (
+                best_artist_match.tier,
+                best_artist_match.score,
+            ):
+                best_artist_match = (
+                    featured_match
+                )
+
+        return best_artist_match
 
     direct_match = score_track(
         track.title,

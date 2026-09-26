@@ -1021,3 +1021,116 @@ def test_direct_genre_prefers_exact_over_related_family() -> None:
         > related_score
         > 0
     )
+
+
+
+def test_track_credits_artist_includes_primary_and_featured_appearances() -> None:
+    primary = SimpleNamespace(
+        title="Primary Song",
+        artist="Justin Bieber",
+    )
+
+    featured = SimpleNamespace(
+        title="Collab Song (feat. Justin Bieber)",
+        artist="Post Malone",
+    )
+
+    unrelated_title_mention = SimpleNamespace(
+        title="Justin Bieber Tribute",
+        artist="Other Artist",
+    )
+
+    assert search_route._track_credits_artist(
+        primary,
+        "Justin Bieber",
+    )
+
+    assert search_route._track_credits_artist(
+        featured,
+        "Justin Bieber",
+    )
+
+    assert not search_route._track_credits_artist(
+        unrelated_title_mention,
+        "Justin Bieber",
+    )
+
+
+@pytest.mark.asyncio
+async def test_artist_catalog_candidates_include_all_primary_and_featured_tracks() -> None:
+    artist_name = "Justin Bieber"
+
+    tracks = [
+        SimpleNamespace(
+            id=uuid4(),
+            title="Ghost",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Deja Vu (feat. Justin Bieber)",
+            artist="Post Malone",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Another Song (ft. Justin Bieber)",
+            artist="Different Artist",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Justin Bieber Tribute",
+            artist="Unrelated Artist",
+        ),
+    ]
+
+    class FakeScalars:
+        def all(self):
+            return tracks
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            execute=AsyncMock(
+                return_value=FakeResult(),
+            ),
+        ),
+    )
+
+    results = await search_route._load_artist_catalog_candidates(
+        session,
+        artist_name,
+    )
+
+    assert [
+        track.title
+        for track in results
+    ] == [
+        "Ghost",
+        "Deja Vu (feat. Justin Bieber)",
+        "Another Song (ft. Justin Bieber)",
+    ]
+
+
+def test_songs_by_artist_scores_featured_tracks_as_artist_matches() -> None:
+    parsed = parse_search_query(
+        "songs by Justin Bieber",
+    )
+
+    featured_track = SimpleNamespace(
+        title="Deja Vu (feat. Justin Bieber)",
+        artist="Post Malone",
+        album="Stoney",
+        genre="Pop",
+    )
+
+    match = search_route._match_for_track(
+        featured_track,
+        parsed,
+    )
+
+    assert match.score > 0
+    assert match.field == "artist"
