@@ -34,6 +34,9 @@ from ...models.messaging import (
     PushSubscription,
 )
 from ...security.rate_limit import enforce_rate_limit
+from ...services.admin_notifications import (
+    record_admin_activity,
+)
 from ...services.message_retention import (
     MESSAGE_RETENTION_AFTER_VIEW,
     delete_expired_messages,
@@ -687,6 +690,49 @@ async def send_message(
             user.username
             or "HyperSync user",
         )
+
+    message_details = (
+        "@"
+        + str(
+            user.username
+            or "unknown",
+        )
+        + " sent a message to @"
+        + str(
+            target.username
+            or "unknown",
+        )
+        + "."
+    )
+
+    if body:
+        message_details += (
+            "\n\nMessage:\n"
+            + body
+        )
+
+    if shared_music is not None:
+        message_details += (
+            "\n\nShared "
+            + shared_music.kind
+            + ': "'
+            + shared_music.title
+            + '"'
+        )
+
+        if shared_music.subtitle:
+            message_details += (
+                " — "
+                + shared_music.subtitle
+            )
+
+    await record_admin_activity(
+        kind="message",
+        title="New user message",
+        body=message_details,
+        actor_user_id=user.id,
+        actor_username=user.username,
+    )
 
     return _message_response(
         message,
