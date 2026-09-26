@@ -96,8 +96,17 @@ import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
 
 import {
   deleteCatalogTrack,
+  deleteCatalogTracks,
   useCatalogTracks,
 } from "./catalogStore.js";
+
+import {
+  addTrackGroupSelection,
+  getTrackGroupSelectionState,
+  pruneTrackSelection,
+  toggleTrackGroupSelection,
+  toggleTrackSelection,
+} from "./catalogSelection.js";
 
 import {
   cleanupLegacyUnscopedDownloads,
@@ -600,6 +609,32 @@ function AdminBotPage() {
     setFolderValue,
   ] = useState(null);
 
+  const [
+    selectedTrackIds,
+    setSelectedTrackIds,
+  ] = useState(
+    () =>
+      new Set(),
+  );
+
+  const [
+    bulkDeleteBusy,
+    setBulkDeleteBusy,
+  ] = useState(false);
+
+
+  useEffect(() => {
+    setSelectedTrackIds(
+      (current) =>
+        pruneTrackSelection(
+          current,
+          tracks,
+        ),
+    );
+  }, [
+    tracks,
+  ]);
+
 
   const normalizedSearch =
     searchQuery
@@ -797,6 +832,122 @@ function AdminBotPage() {
     );
 
 
+  const visibleTrackIds =
+    (
+      normalizedSearch
+        ? searchResults
+        : folderValue
+          ? folderTracks
+          : []
+    ).map(
+      (track) =>
+        String(
+          track.id,
+        ),
+    );
+
+  const selectedTrackCount =
+    selectedTrackIds.size;
+
+
+  const deleteSelectedTracks =
+    async () => {
+      if (
+        bulkDeleteBusy ||
+        selectedTrackCount ===
+          0
+      ) {
+        return;
+      }
+
+      const requestedTrackIds =
+        Array.from(
+          selectedTrackIds,
+        );
+
+      setBulkDeleteBusy(
+        true,
+      );
+
+      setMessage("");
+
+      try {
+        const result =
+          await deleteCatalogTracks(
+            requestedTrackIds,
+          );
+
+        const deletedTrackIds =
+          new Set(
+            (
+              Array.isArray(
+                result?.deleted_track_ids,
+              )
+                ? result.deleted_track_ids
+                : []
+            ).map(
+              (trackId) =>
+                String(
+                  trackId,
+                ),
+            ),
+          );
+
+        setSelectedTrackIds(
+          (current) =>
+            new Set(
+              Array.from(
+                current,
+              ).filter(
+                (trackId) =>
+                  !deletedTrackIds.has(
+                    String(
+                      trackId,
+                    ),
+                  ),
+              ),
+            ),
+        );
+
+        const failed =
+          Array.isArray(
+            result?.failed,
+          )
+            ? result.failed
+            : [];
+
+        if (
+          failed.length >
+          0
+        ) {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} songs; ${failed.length} could not be deleted.`,
+          );
+        } else {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} selected songs.`,
+          );
+
+          setSelectedTrackIds(
+            new Set(),
+          );
+        }
+
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete selected tracks.",
+        );
+
+      } finally {
+        setBulkDeleteBusy(
+          false,
+        );
+      }
+    };
+
+
   const deleteTrack =
     async (
       track,
@@ -806,6 +957,23 @@ function AdminBotPage() {
       try {
         await deleteCatalogTrack(
           track.id,
+        );
+
+        setSelectedTrackIds(
+          (current) => {
+            const next =
+              new Set(
+                current,
+              );
+
+            next.delete(
+              String(
+                track.id,
+              ),
+            );
+
+            return next;
+          },
         );
 
         setMessage(
@@ -824,10 +992,44 @@ function AdminBotPage() {
   const renderFile =
     (
       track,
-    ) => (
+    ) => {
+      const trackId =
+        String(
+          track.id,
+        );
+
+      const selected =
+        selectedTrackIds.has(
+          trackId,
+        );
+
+      return (
       <div
-        className="admin-explorer-file"
+        className={
+          selected
+            ? "admin-explorer-file is-selected"
+            : "admin-explorer-file"
+        }
         key={track.id}
+        onContextMenu={(
+          event,
+        ) => {
+          event.preventDefault();
+
+          if (
+            bulkDeleteBusy
+          ) {
+            return;
+          }
+
+          setSelectedTrackIds(
+            (current) =>
+              toggleTrackSelection(
+                current,
+                trackId,
+              ),
+          );
+        }}
       >
         <TrackArtwork
           src={track.artwork_url}
@@ -875,7 +1077,8 @@ function AdminBotPage() {
           Delete
         </button>
       </div>
-    );
+      );
+    };
 
 
   let explorerBody = null;
@@ -1002,16 +1205,88 @@ function AdminBotPage() {
     explorerBody = (
       <div className="admin-explorer-folder-list">
         {folders.map(
-          (folder) => (
+          (folder) => {
+            const folderTrackIds =
+              folder.tracks.map(
+                (track) =>
+                  String(
+                    track.id,
+                  ),
+              );
+
+            const selectionState =
+              getTrackGroupSelectionState(
+                selectedTrackIds,
+                folderTrackIds,
+              );
+
+            const artistSelectable =
+              category ===
+              "artists";
+
+            const folderClassName =
+              [
+                "admin-explorer-folder",
+                "admin-explorer-folder--row",
+                selectionState.allSelected
+                  ? "is-selected"
+                  : "",
+                selectionState.partiallySelected
+                  ? "is-partial"
+                  : "",
+                artistSelectable
+                  ? "is-multiselectable"
+                  : "",
+              ]
+                .filter(
+                  Boolean,
+                )
+                .join(
+                  " ",
+                );
+
+            return (
             <button
               type="button"
-              className="admin-explorer-folder admin-explorer-folder--row"
+              className={
+                folderClassName
+              }
               key={folder.key}
               onClick={() => {
                 setFolderValue(
                   folder.value,
                 );
               }}
+              onContextMenu={(
+                event,
+              ) => {
+                if (
+                  !artistSelectable
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+
+                if (
+                  bulkDeleteBusy
+                ) {
+                  return;
+                }
+
+                setSelectedTrackIds(
+                  (current) =>
+                    toggleTrackGroupSelection(
+                      current,
+                      folderTrackIds,
+                    ),
+                );
+              }}
+              title={
+                artistSelectable
+                  ? "Right-click to select every song by this artist"
+                  : undefined
+              }
             >
               <span className="admin-explorer-folder__icon">
                 <Icon
@@ -1032,6 +1307,16 @@ function AdminBotPage() {
                 <small>
                   {folder.tracks.length}
                   {" files"}
+
+                  {artistSelectable &&
+                  selectionState.selectedCount >
+                    0
+                    ? (
+                        " • " +
+                        selectionState.selectedCount +
+                        " selected"
+                      )
+                    : ""}
                 </small>
               </span>
 
@@ -1040,7 +1325,8 @@ function AdminBotPage() {
                 size={15}
               />
             </button>
-          ),
+            );
+          },
         )}
       </div>
     );
@@ -1242,6 +1528,88 @@ function AdminBotPage() {
                   : tracks.length}
             {" items"}
           </strong>
+        </div>
+
+        <div
+          className={
+            selectedTrackCount >
+              0
+              ? "admin-explorer-selection-bar is-active"
+              : "admin-explorer-selection-bar"
+          }
+        >
+          <span>
+            {selectedTrackCount >
+            0
+              ? (
+                  selectedTrackCount +
+                  " songs selected"
+                )
+              : "Right-click songs or artist folders to select multiple items while you scroll."}
+          </span>
+
+          {selectedTrackCount >
+          0 ? (
+            <div className="admin-explorer-selection-bar__actions">
+              {visibleTrackIds.length >
+              0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    bulkDeleteBusy
+                  }
+                  onClick={() => {
+                    setSelectedTrackIds(
+                      (current) =>
+                        addTrackGroupSelection(
+                          current,
+                          visibleTrackIds,
+                        ),
+                    );
+                  }}
+                >
+                  Select all shown
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  setSelectedTrackIds(
+                    new Set(),
+                  );
+                }}
+              >
+                Clear
+              </button>
+
+              <button
+                type="button"
+                className="danger-button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  void deleteSelectedTracks();
+                }}
+              >
+                {bulkDeleteBusy
+                  ? (
+                      "Deleting " +
+                      selectedTrackCount +
+                      "..."
+                    )
+                  : (
+                      "Delete selected (" +
+                      selectedTrackCount +
+                      ")"
+                    )}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {explorerBody}
