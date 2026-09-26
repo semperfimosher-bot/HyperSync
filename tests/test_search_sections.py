@@ -644,7 +644,10 @@ async def test_recent_track_rows_return_full_history_newest_first(
             album="Album",
             created_at=base_time,
         )
-        for index in range(45)
+        for index in range(
+            search_route.HISTORY_COMMAND_LIMIT
+            + 25
+        )
     ]
 
     user_history = {
@@ -709,7 +712,10 @@ async def test_recent_track_rows_return_full_history_newest_first(
         "smart",
     )
 
-    assert len(rows) == 45
+    assert len(rows) == (
+        search_route.HISTORY_COMMAND_LIMIT
+        + 25
+    )
 
     assert [
         row["track"].id
