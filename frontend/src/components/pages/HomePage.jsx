@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useState,
 } from "react";
@@ -25,6 +26,9 @@ import TrackActionMenu from
 
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
+
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
 
 import {
   getMyProfile,
@@ -143,146 +147,159 @@ const [
   setRecentError,
 ] = useState("");
 
-useEffect(() => {
-  let cancelled =
-    false;
-
-  async function loadDownloadedFallback() {
-    try {
-      return (
-        await getDownloadedTracks()
-      ).slice(
-        0,
-        12,
-      );
-    } catch {
-      return [];
-    }
-  }
-
-  async function loadRecentlyPlayed() {
-    if (!currentUser) {
-      setRecentlyPlayed(
-        [],
-      );
-
-      setRecentLoading(
-        false,
-      );
-
-      setRecentError(
-        "",
-      );
-
-      return;
-    }
-
-    setRecentLoading(
-      true,
-    );
-
-    setRecentError(
-      "",
-    );
-
-    const offline =
-      typeof navigator !==
-        "undefined" &&
-      navigator.onLine ===
-        false;
-
-    if (offline) {
-      const localTracks =
-        await loadDownloadedFallback();
-
-      if (cancelled) {
-        return;
+const loadDownloadedFallback =
+  useCallback(
+    async () => {
+      try {
+        return (
+          await getDownloadedTracks()
+        ).slice(
+          0,
+          12,
+        );
+      } catch {
+        return [];
       }
+    },
+    [],
+  );
 
-      setRecentlyPlayed(
-        localTracks,
-      );
 
-      setRecentError(
-        localTracks.length > 0
-          ? ""
-          : "No downloaded tracks are available offline yet.",
-      );
-
-      setRecentLoading(
-        false,
-      );
-
-      return;
-    }
-
-    try {
-      const profile =
-        await getMyProfile();
-
-      if (cancelled) {
-        return;
-      }
-
-      setRecentlyPlayed(
-        getHomeRecentlyPlayed(
-          profile,
-        ),
-      );
-
-      setRecentError(
-        "",
-      );
-    } catch (error) {
-      if (cancelled) {
-        return;
-      }
-
-      const localTracks =
-        await loadDownloadedFallback();
-
-      if (cancelled) {
-        return;
-      }
-
-      if (
-        localTracks.length > 0
-      ) {
+const loadRecentlyPlayed =
+  useCallback(
+    async ({
+      quiet = false,
+    } = {}) => {
+      if (!currentUser) {
         setRecentlyPlayed(
-          localTracks,
+          [],
+        );
+
+        setRecentLoading(
+          false,
         );
 
         setRecentError(
           "",
         );
-      } else {
-        setRecentlyPlayed(
-          [],
+
+        return;
+      }
+
+      if (!quiet) {
+        setRecentLoading(
+          true,
         );
 
         setRecentError(
-          error instanceof Error
-            ? error.message
-            : "Unable to load recently played.",
+          "",
         );
       }
-    } finally {
-      if (!cancelled) {
-        setRecentLoading(
-          false,
-        );
-      }
-    }
-  }
 
+      const offline =
+        typeof navigator !==
+          "undefined" &&
+        navigator.onLine ===
+          false;
+
+      if (offline) {
+        const localTracks =
+          await loadDownloadedFallback();
+
+        setRecentlyPlayed(
+          localTracks,
+        );
+
+        if (!quiet) {
+          setRecentError(
+            localTracks.length > 0
+              ? ""
+              : "No downloaded tracks are available offline yet.",
+          );
+
+          setRecentLoading(
+            false,
+          );
+        }
+
+        return;
+      }
+
+      try {
+        const profile =
+          await getMyProfile();
+
+        setRecentlyPlayed(
+          getHomeRecentlyPlayed(
+            profile,
+          ),
+        );
+
+        setRecentError(
+          "",
+        );
+      } catch (error) {
+        const localTracks =
+          await loadDownloadedFallback();
+
+        if (
+          localTracks.length > 0
+        ) {
+          setRecentlyPlayed(
+            localTracks,
+          );
+
+          setRecentError(
+            "",
+          );
+        } else if (!quiet) {
+          setRecentlyPlayed(
+            [],
+          );
+
+          setRecentError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load recently played.",
+          );
+        }
+      } finally {
+        if (!quiet) {
+          setRecentLoading(
+            false,
+          );
+        }
+      }
+    },
+    [
+      currentUser,
+      loadDownloadedFallback,
+    ],
+  );
+
+
+useEffect(() => {
   void loadRecentlyPlayed();
+}, [
+  loadRecentlyPlayed,
+]);
 
-  return () => {
-    cancelled =
-      true;
-  };
-}, [currentUser]);
 
+useQuietRefresh(
+  () =>
+    loadRecentlyPlayed({
+      quiet:
+        true,
+    }),
+  {
+    enabled:
+      Boolean(
+        currentUser,
+      ),
+    intervalMs:
+      30_000,
+  },
+);
 
   const playTrack = async (
     trackId,
