@@ -151,6 +151,17 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
         assert response.followers_count == 0
         assert response.is_following is False
         assert len(
+            response.tracks,
+        ) == 2
+        assert [
+            track.title
+            for track
+            in response.tracks
+        ] == [
+            "New Single",
+            "First Song",
+        ]
+        assert len(
             response.popular_tracks,
         ) == 2
         assert (
