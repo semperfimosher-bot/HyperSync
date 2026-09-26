@@ -48,6 +48,7 @@ from ...services.b2 import (
 )
 from ...services.generated_playlists import (
     ensure_artist_playlist,
+    refresh_smart_playlists_for_track,
 )
 from ..dependencies import AdminUser, DatabaseSession
 
@@ -1526,6 +1527,11 @@ async def finalize_direct_track_upload(
                 session,
                 track.artist,
             )
+
+            await refresh_smart_playlists_for_track(
+                session,
+                track,
+            )
         except Exception:
             await session.rollback()
 
@@ -1922,6 +1928,11 @@ async def upload_track(
             await ensure_artist_playlist(
                 session,
                 track.artist,
+            )
+
+            await refresh_smart_playlists_for_track(
+                session,
+                track,
             )
         except Exception:
             await session.rollback()
