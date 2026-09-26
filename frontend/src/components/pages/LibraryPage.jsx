@@ -68,6 +68,10 @@ import {
 } from "../../playlistTrackSearch.js";
 
 import {
+  downloadPlaylistByIdForOffline,
+} from "../../playlistOfflineAction.js";
+
+import {
   getDownloadedPlaylists,
   getDownloadedTracks,
   getOfflineOwnerKey,
@@ -4036,6 +4040,9 @@ if (offline) {
                               entity.artist ||
                               "Album"
                             ),
+                      artwork_url:
+                        artwork ??
+                        null,
                       actions: [
                         {
                           id:
@@ -4275,7 +4282,45 @@ if (offline) {
                         playlist.owner_username ||
                         currentUser?.username ||
                         "Playlist",
+                      artwork_url:
+                        playlist.artwork_url ??
+                        null,
+                      shareKey:
+                        String(
+                          playlist.id,
+                        ),
                       actions: [
+                        {
+                          id:
+                            "play",
+                          label:
+                            "Play playlist",
+                          icon:
+                            "play",
+                          onSelect:
+                            async () => {
+                              try {
+                                const fullPlaylist =
+                                  await getPlaylist(
+                                    playlist.id,
+                                  );
+
+                                playLibraryTrackCollection(
+                                  fullPlaylist.tracks ??
+                                    [],
+                                  0,
+                                );
+                              } catch (
+                                requestError
+                              ) {
+                                setError(
+                                  requestError instanceof Error
+                                    ? requestError.message
+                                    : "Unable to play playlist.",
+                                );
+                              }
+                            },
+                        },
                         {
                           id:
                             "open",
@@ -4288,6 +4333,49 @@ if (offline) {
                               void openPlaylist(
                                 playlist.id,
                               );
+                            },
+                        },
+                        {
+                          id:
+                            "download",
+                          label:
+                            rowDownload?.status ===
+                              "downloaded"
+                              ? "Downloaded for offline"
+                              : rowDownload?.status ===
+                                  "downloading"
+                                ? (
+                                    "Downloading " +
+                                    rowDownloadPercent +
+                                    "%"
+                                  )
+                                : "Download playlist",
+                          icon:
+                            rowDownload?.status ===
+                              "downloaded"
+                              ? "check"
+                              : "download",
+                          disabled:
+                            rowDownload?.status ===
+                              "downloaded" ||
+                            rowDownload?.status ===
+                              "downloading",
+                          onSelect:
+                            async () => {
+                              try {
+                                await downloadPlaylistByIdForOffline(
+                                  playlist.id,
+                                  currentUser,
+                                );
+                              } catch (
+                                requestError
+                              ) {
+                                setError(
+                                  requestError instanceof Error
+                                    ? requestError.message
+                                    : "Unable to download playlist.",
+                                );
+                              }
                             },
                         },
                       ],
