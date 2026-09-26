@@ -28,6 +28,11 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
+import {
+  requestMusicShare,
+  trackShareItem,
+} from "../../musicShare.js";
+
 
 function playerTrack(
   track,
@@ -843,6 +848,37 @@ export default function TrackActionMenu({
                 name="chevron"
                 size={13}
               />
+            </button>
+
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                if (!isRegistered) {
+                  requireAccount();
+                  return;
+                }
+
+                requestMusicShare(
+                  trackShareItem(
+                    track,
+                  ),
+                );
+
+                onClose();
+              }}
+            >
+              <span className="track-action-icon">
+                <Icon
+                  name="mail"
+                  size={15}
+                />
+              </span>
+
+              <span>
+                Share in chat
+              </span>
             </button>
 
 
