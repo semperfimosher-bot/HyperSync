@@ -47,6 +47,22 @@ export async function sendMessage(
 }
 
 
+export async function deleteMessage(
+  messageId,
+) {
+  return apiRequest(
+    "/messages/messages/" +
+      encodeURIComponent(
+        messageId,
+      ),
+    {
+      method:
+        "DELETE",
+    },
+  );
+}
+
+
 export async function getMessageNotifications() {
   return apiRequest(
     "/messages/notifications",
