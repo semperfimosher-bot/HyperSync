@@ -122,6 +122,15 @@ function PlaybackDevicesPanel({
                       onSelectDevice?.(
                         device.device_id,
                       );
+
+                      if (
+                        device.is_online &&
+                        !device.is_active
+                      ) {
+                        onTransferToDevice?.(
+                          device.device_id,
+                        );
+                      }
                     }}
                   >
                     <Icon

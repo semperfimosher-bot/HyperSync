@@ -1114,3 +1114,303 @@ async def test_play_track_command_switches_remote_song_and_playback_owner() -> N
         ] == [
             "play_track",
         ]
+
+
+
+@pytest.mark.asyncio
+async def test_old_device_cannot_reclaim_playback_after_transfer() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"playback-owner-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Owner Lock Song",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/playback-owner-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=240,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        for (
+            device_id,
+            device_type,
+        ) in (
+            (
+                "computer",
+                "desktop",
+            ),
+            (
+                "phone",
+                "mobile",
+            ),
+        ):
+            poll = await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        device_id,
+                    "name":
+                        device_id.title(),
+                    "device_type":
+                        device_type,
+                },
+            )
+
+            assert poll.status_code == 200, poll.text
+
+        initial = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    12,
+                "paused":
+                    False,
+                "device_id":
+                    "computer",
+            },
+        )
+
+        assert initial.status_code == 200, initial.text
+
+        transfer = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "transfer",
+            },
+        )
+
+        assert transfer.status_code == 201, transfer.text
+
+        stale_write = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    20,
+                "paused":
+                    True,
+                "device_id":
+                    "computer",
+            },
+        )
+
+        assert stale_write.status_code == 200, stale_write.text
+
+        state = stale_write.json()
+
+        assert state["device_id"] == "phone"
+        assert state["paused"] is False
+
+
+@pytest.mark.asyncio
+async def test_remote_play_pause_and_seek_update_shared_state_immediately() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"playback-command-state-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Realtime Control Song",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/playback-command-state-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=300,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        for (
+            device_id,
+            device_type,
+        ) in (
+            (
+                "computer",
+                "desktop",
+            ),
+            (
+                "phone",
+                "mobile",
+            ),
+        ):
+            poll = await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        device_id,
+                    "name":
+                        device_id.title(),
+                    "device_type":
+                        device_type,
+                },
+            )
+
+            assert poll.status_code == 200, poll.text
+
+        initial = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    10,
+                "paused":
+                    False,
+                "device_id":
+                    "phone",
+            },
+        )
+
+        assert initial.status_code == 200, initial.text
+
+        pause = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "pause",
+            },
+        )
+
+        assert pause.status_code == 201, pause.text
+
+        paused_state = await client.get(
+            "/api/users/me/playback-state",
+            headers=headers,
+        )
+
+        assert paused_state.status_code == 200, paused_state.text
+        assert paused_state.json()["paused"] is True
+        assert paused_state.json()["device_id"] == "phone"
+
+        seek = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "seek",
+                "value":
+                    83.5,
+            },
+        )
+
+        assert seek.status_code == 201, seek.text
+
+        seek_state = await client.get(
+            "/api/users/me/playback-state",
+            headers=headers,
+        )
+
+        assert seek_state.status_code == 200, seek_state.text
+        assert seek_state.json()["position_seconds"] == pytest.approx(
+            83.5,
+            abs=0.25,
+        )
+
+        play = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "play",
+            },
+        )
+
+        assert play.status_code == 201, play.text
+
+        playing_state = await client.get(
+            "/api/users/me/playback-state",
+            headers=headers,
+        )
+
+        assert playing_state.status_code == 200, playing_state.text
+        assert playing_state.json()["paused"] is False
+        assert playing_state.json()["device_id"] == "phone"

@@ -3729,7 +3729,7 @@ function PlayerBar({
             Date.now(),
           );
         },
-        500,
+        100,
       );
 
     return () => {
@@ -4085,7 +4085,7 @@ function PlayerBar({
               value,
             );
           },
-          180,
+          40,
         );
     };
 
@@ -5425,6 +5425,9 @@ export default function App() {
   const controlledPlaybackDeviceIdRef =
     useRef(null);
 
+  const playbackLiveConnectionRef =
+    useRef(null);
+
   const playbackSeenCommandIdsRef =
     useRef(
       new Set(),
@@ -5558,27 +5561,235 @@ export default function App() {
             );
           }
 
-          const response =
-            await sendPlaybackDeviceCommand({
+          /*
+           * Update the controller immediately.
+           * The realtime command follows in the
+           * same tick, while the authoritative
+           * server/target state catches up.
+           */
+          controlledPlaybackDeviceIdRef
+            .current =
+              targetId;
+
+          setControlledPlaybackDeviceId(
+            targetId,
+          );
+
+          let optimisticSnapshot =
+            snapshot;
+
+          if (snapshot) {
+            const nowIso =
+              new Date()
+                .toISOString();
+
+            const position =
+              accountPlaybackPosition(
+                snapshot,
+              );
+
+            if (
+              action ===
+                "play"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                paused:
+                  false,
+                position_seconds:
+                  position,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "pause"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                paused:
+                  true,
+                position_seconds:
+                  position,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "seek" &&
+              Number.isFinite(
+                Number(
+                  value,
+                ),
+              )
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                position_seconds:
+                  Math.max(
+                    Number(
+                      value,
+                    ),
+                    0,
+                  ),
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "transfer"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                position_seconds:
+                  position,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "play_track" &&
+              options?.trackId
+            ) {
+              const meta =
+                options?.trackMeta ??
+                {};
+
+              optimisticSnapshot = {
+                ...snapshot,
+                track: {
+                  id:
+                    String(
+                      options.trackId,
+                    ),
+                  title:
+                    meta.title ??
+                    "",
+                  artist:
+                    meta.artist ??
+                    "",
+                  album:
+                    meta.album ??
+                    null,
+                  duration_seconds:
+                    meta.durationSeconds ??
+                    meta.duration_seconds ??
+                    null,
+                  audio_url:
+                    meta.audioUrl ??
+                    meta.audio_url ??
+                    null,
+                  artwork_url:
+                    meta.artworkUrl ??
+                    meta.artwork_url ??
+                    null,
+                  mime_type:
+                    meta.mimeType ??
+                    meta.mime_type ??
+                    null,
+                  file_size:
+                    meta.fileSize ??
+                    meta.file_size ??
+                    null,
+                  media_version:
+                    meta.mediaVersion ??
+                    meta.media_version ??
+                    null,
+                  artwork_version:
+                    meta.artworkVersion ??
+                    meta.artwork_version ??
+                    null,
+                },
+                paused:
+                  false,
+                position_seconds:
+                  0,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            }
+          }
+
+          if (
+            optimisticSnapshot !==
+              snapshot
+          ) {
+            accountPlaybackSnapshotRef
+              .current =
+                optimisticSnapshot;
+
+            setAccountPlaybackSnapshot(
+              optimisticSnapshot,
+            );
+          }
+
+          const liveConnection =
+            playbackLiveConnectionRef
+              .current;
+
+          const realtimeRequest =
+            liveConnection?.sendCommand?.({
               targetDeviceId:
                 targetId,
-              sourceDeviceId:
-                currentDeviceId,
               action,
               value,
               trackId:
                 options?.trackId ??
                 null,
-            });
+            }) ??
+            null;
+
+          let usedRealtime =
+            Boolean(
+              realtimeRequest,
+            );
+
+          let response =
+            null;
+
+          if (realtimeRequest) {
+            const ack =
+              await realtimeRequest;
+
+            response =
+              ack?.command ??
+              null;
+          } else {
+            response =
+              await sendPlaybackDeviceCommand({
+                targetDeviceId:
+                  targetId,
+                sourceDeviceId:
+                  currentDeviceId,
+                action,
+                value,
+                trackId:
+                  options?.trackId ??
+                  null,
+              });
+
+            usedRealtime =
+              false;
+          }
 
           /*
-           * The server changes ownership and
-           * pushes a pause to the old speaker
-           * before this browser starts audio.
-           * A tiny network hop is preferable
-           * to even a brief two-device overlap.
+           * If the realtime channel is down
+           * and control is transferred back
+           * to this browser, apply the handoff
+           * locally after the HTTP fallback.
            */
           if (
+            !usedRealtime &&
             targetId ===
               currentDeviceId &&
             action ===
@@ -5602,16 +5813,20 @@ export default function App() {
             );
           }
 
-          controlledPlaybackDeviceIdRef
-            .current =
-              targetId;
-
-          setControlledPlaybackDeviceId(
-            targetId,
-          );
-
           return true;
         } catch {
+          if (
+            snapshot
+          ) {
+            accountPlaybackSnapshotRef
+              .current =
+                snapshot;
+
+            setAccountPlaybackSnapshot(
+              snapshot,
+            );
+          }
+
           if (
             targetId ===
               currentDeviceId &&
@@ -5724,6 +5939,9 @@ export default function App() {
               null,
               {
                 trackId,
+                trackMeta:
+                  payload?.meta ??
+                  null,
               },
             );
           }
@@ -6251,6 +6469,12 @@ export default function App() {
       controlledPlaybackDeviceIdRef.current =
         null;
 
+      playbackLiveConnectionRef.current
+        ?.close?.();
+
+      playbackLiveConnectionRef.current =
+        null;
+
       playbackSeenCommandIdsRef.current
         .clear();
 
@@ -6351,6 +6575,41 @@ export default function App() {
            * local Audio element changed state.
            */
           return null;
+        }
+
+        const liveConnection =
+          playbackLiveConnectionRef
+            .current;
+
+        const sentRealtime =
+          liveConnection
+            ?.sendPlaybackState?.({
+              trackId:
+                state?.trackId ??
+                null,
+              positionSeconds:
+                Math.max(
+                  Number(
+                    state?.currentTime ??
+                    0,
+                  ) || 0,
+                  0,
+                ),
+              paused:
+                state?.trackId
+                  ? Boolean(
+                      state.paused,
+                    )
+                  : true,
+            }) ??
+          false;
+
+        if (sentRealtime) {
+          markPublished(
+            state,
+          );
+
+          return state;
         }
 
         if (
@@ -6960,6 +7219,9 @@ export default function App() {
                   liveConnection =
                     null;
 
+                  playbackLiveConnectionRef.current =
+                    null;
+
                   if (!cancelled) {
                     void pollDevice();
                     scheduleLiveReconnect();
@@ -6975,6 +7237,9 @@ export default function App() {
           }
 
           liveConnection =
+            connection;
+
+          playbackLiveConnectionRef.current =
             connection;
 
           if (!connection) {
@@ -7111,6 +7376,9 @@ export default function App() {
       liveConnection?.close?.();
 
       liveConnection =
+        null;
+
+      playbackLiveConnectionRef.current =
         null;
 
       playbackPendingWriteRef.current =

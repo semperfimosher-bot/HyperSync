@@ -385,6 +385,68 @@ export async function connectPlaybackDeviceLive({
   let closed =
     false;
 
+  let ready =
+    false;
+
+  const pendingRequests =
+    new Map();
+
+  const rejectPendingRequests =
+    (
+      message =
+        "Realtime playback connection closed.",
+    ) => {
+      for (
+        const pending
+        of pendingRequests.values()
+      ) {
+        globalThis.clearTimeout(
+          pending.timer,
+        );
+
+        pending.reject(
+          new Error(
+            message,
+          ),
+        );
+      }
+
+      pendingRequests.clear();
+    };
+
+  const createRequestId =
+    () => {
+      try {
+        if (
+          typeof globalThis.crypto
+            ?.randomUUID ===
+            "function"
+        ) {
+          return globalThis.crypto
+            .randomUUID();
+        }
+      } catch {
+        // Fall through to timestamp id.
+      }
+
+      return (
+        Date.now().toString(36) +
+        "-" +
+        Math.random()
+          .toString(36)
+          .slice(2)
+      );
+    };
+
+  const isReady =
+    () =>
+      (
+        !closed &&
+        ready &&
+        socket.readyState ===
+          globalThis.WebSocket.OPEN
+      );
+
   const stopHeartbeat =
     () => {
       if (
@@ -449,6 +511,63 @@ export async function connectPlaybackDeviceLive({
             ),
           );
 
+        if (
+          payload?.type ===
+            "ready"
+        ) {
+          ready =
+            true;
+        }
+
+        const requestId =
+          String(
+            payload?.request_id ??
+              "",
+          );
+
+        if (
+          requestId &&
+          (
+            payload?.type ===
+              "command_ack" ||
+            payload?.type ===
+              "command_error"
+          )
+        ) {
+          const pending =
+            pendingRequests.get(
+              requestId,
+            );
+
+          if (pending) {
+            pendingRequests.delete(
+              requestId,
+            );
+
+            globalThis.clearTimeout(
+              pending.timer,
+            );
+
+            if (
+              payload.type ===
+                "command_error"
+            ) {
+              pending.reject(
+                new Error(
+                  String(
+                    payload.detail ??
+                      "Realtime playback command failed.",
+                  ),
+                ),
+              );
+            } else {
+              pending.resolve(
+                payload,
+              );
+            }
+          }
+        }
+
         onEvent?.(
           payload,
         );
@@ -468,7 +587,12 @@ export async function connectPlaybackDeviceLive({
       closed =
         true;
 
+      ready =
+        false;
+
       stopHeartbeat();
+
+      rejectPendingRequests();
 
       onClose?.(
         event,
@@ -488,6 +612,124 @@ export async function connectPlaybackDeviceLive({
   );
 
   return {
+    isReady,
+
+    sendCommand({
+      targetDeviceId,
+      action,
+      value = null,
+      trackId = null,
+    }) {
+      if (!isReady()) {
+        return null;
+      }
+
+      const requestId =
+        createRequestId();
+
+      const promise =
+        new Promise(
+          (
+            resolve,
+            reject,
+          ) => {
+            const timer =
+              globalThis.setTimeout(
+                () => {
+                  pendingRequests.delete(
+                    requestId,
+                  );
+
+                  reject(
+                    new Error(
+                      "Realtime playback command timed out.",
+                    ),
+                  );
+                },
+                4000,
+              );
+
+            pendingRequests.set(
+              requestId,
+              {
+                resolve,
+                reject,
+                timer,
+              },
+            );
+          },
+        );
+
+      try {
+        socket.send(
+          JSON.stringify({
+            type:
+              "command",
+            request_id:
+              requestId,
+            target_device_id:
+              targetDeviceId,
+            action,
+            value,
+            track_id:
+              trackId,
+          }),
+        );
+      } catch (error) {
+        const pending =
+          pendingRequests.get(
+            requestId,
+          );
+
+        if (pending) {
+          pendingRequests.delete(
+            requestId,
+          );
+
+          globalThis.clearTimeout(
+            pending.timer,
+          );
+
+          pending.reject(
+            error,
+          );
+        }
+      }
+
+      return promise;
+    },
+
+    sendPlaybackState({
+      trackId,
+      positionSeconds,
+      paused,
+    }) {
+      if (!isReady()) {
+        return false;
+      }
+
+      try {
+        socket.send(
+          JSON.stringify({
+            type:
+              "playback_state",
+            track_id:
+              trackId,
+            position_seconds:
+              positionSeconds,
+            paused:
+              Boolean(
+                paused,
+              ),
+          }),
+        );
+
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
     close() {
       if (closed) {
         return;
@@ -496,7 +738,12 @@ export async function connectPlaybackDeviceLive({
       closed =
         true;
 
+      ready =
+        false;
+
       stopHeartbeat();
+
+      rejectPendingRequests();
 
       try {
         socket.close(
