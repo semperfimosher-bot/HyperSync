@@ -85,6 +85,27 @@ export function searchPlaylists(
 }
 
 
+export function generateSmartPlaylist(
+  query,
+) {
+  return apiRequest(
+    "/playlists/generated",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          query:
+            String(
+              query ?? "",
+            ).trim(),
+        }),
+    },
+  );
+}
+
+
 export function createPlaylist({
   title,
   description = null,
