@@ -32,45 +32,108 @@ function createStorage(
     removeItem(key) {
       values.delete(key);
     },
+
+    clear() {
+      values.clear();
+    },
   };
+}
+
+
+const sharedLocalStorage =
+  createStorage();
+
+const sharedSessionStorage =
+  createStorage();
+
+
+function resetStorage(
+  localValues = {},
+  sessionValues = {},
+) {
+  sharedLocalStorage.clear();
+  sharedSessionStorage.clear();
+
+  Object.entries(
+    localValues,
+  ).forEach(
+    ([key, value]) => {
+      sharedLocalStorage.setItem(
+        key,
+        value,
+      );
+    },
+  );
+
+  Object.entries(
+    sessionValues,
+  ).forEach(
+    ([key, value]) => {
+      sharedSessionStorage.setItem(
+        key,
+        value,
+      );
+    },
+  );
+
+  globalThis.localStorage =
+    sharedLocalStorage;
+
+  globalThis.sessionStorage =
+    sharedSessionStorage;
 }
 
 
 test(
   "rejected refresh clears the stale remembered browser session",
   async () => {
-    globalThis.localStorage =
-      createStorage({
-        hypersync_session_active:
-          "true",
-        hypersync_remember_me:
-          "true",
-        hypersync_user_profile:
-          JSON.stringify({
-            id: "user-1",
-            username: "listener",
-          }),
-      });
-
-    globalThis.sessionStorage =
-      createStorage();
+    resetStorage({
+      hypersync_session_active:
+        "true",
+      hypersync_remember_me:
+        "true",
+      hypersync_user_profile:
+        JSON.stringify({
+          id:
+            "user-1",
+          username:
+            "listener",
+        }),
+    });
 
     const originalFetch =
       globalThis.fetch;
 
+    const calls = [];
+
     globalThis.fetch =
-      async () => ({
-        ok:
-          false,
-        status:
-          401,
-        async json() {
-          return {
-            detail:
-              "Refresh session is no longer active.",
-          };
-        },
-      });
+      async (
+        url,
+      ) => {
+        calls.push(
+          String(
+            url,
+          ),
+        );
+
+        return {
+          ok:
+            false,
+          status:
+            401,
+          headers: {
+            get() {
+              return null;
+            },
+          },
+          async json() {
+            return {
+              detail:
+                "Refresh session is no longer active.",
+            };
+          },
+        };
+      };
 
     try {
       const client =
@@ -97,6 +160,22 @@ test(
         ),
         null,
       );
+
+      const callCountAfterRefresh =
+        calls.length;
+
+      await assert.rejects(
+        () =>
+          client.apiRequest(
+            "/users/me/playback-state",
+          ),
+        /Authentication required/,
+      );
+
+      assert.equal(
+        calls.length,
+        callCountAfterRefresh,
+      );
     } finally {
       globalThis.fetch =
         originalFetch;
@@ -108,23 +187,19 @@ test(
 test(
   "429 refresh cooldown suppresses repeated protected requests",
   async () => {
-    globalThis.localStorage =
-      createStorage({
-        hypersync_session_active:
-          "true",
-        hypersync_remember_me:
-          "true",
-        hypersync_user_profile:
-          JSON.stringify({
-            id:
-              "user-1",
-            username:
-              "listener",
-          }),
-      });
-
-    globalThis.sessionStorage =
-      createStorage();
+    resetStorage({
+      hypersync_session_active:
+        "true",
+      hypersync_remember_me:
+        "true",
+      hypersync_user_profile:
+        JSON.stringify({
+          id:
+            "user-1",
+          username:
+            "listener",
+        }),
+    });
 
     const originalFetch =
       globalThis.fetch;
