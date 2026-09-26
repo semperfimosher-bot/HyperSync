@@ -370,6 +370,12 @@ function DesktopRightRail({
                 album:
                   track.meta?.album ??
                   "",
+                genre:
+                  track.meta?.genre ??
+                  "",
+                release_year:
+                  track.meta?.releaseYear ??
+                  null,
                 audio_url:
                   track.meta?.audioUrl ??
                   null,
