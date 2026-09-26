@@ -519,8 +519,16 @@ def serialize_playlist_track(
         title=track.title,
         artist=track.artist,
         album=track.album,
-        genre=track.genre,
-        release_year=track.release_year,
+        genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+        release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
         duration_seconds=(track.duration_seconds),
         audio_url=(
             _track_audio_url(
@@ -820,8 +828,16 @@ async def get_library_tracks(
             title=track.title,
             artist=track.artist,
             album=track.album,
-            genre=track.genre,
-            release_year=track.release_year,
+            genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+            release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
             duration_seconds=(
                 track.duration_seconds
             ),
