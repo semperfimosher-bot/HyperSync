@@ -6458,6 +6458,13 @@ export default function App() {
 
     const shouldPublish =
       (state) => {
+        if (
+          state?.phase ===
+            "loading"
+        ) {
+          return false;
+        }
+
         const previous =
           playbackLastPublishedRef
             .current;
@@ -6550,70 +6557,24 @@ export default function App() {
             return;
           }
 
-          const desiredTrackId =
-            snapshot?.track?.id
-              ? String(
-                  snapshot.track.id,
-                )
-              : null;
-
-          const localState =
-            player.getState();
-
-          const alreadyPlayingDesiredTrack =
-            Boolean(
-              desiredTrackId &&
-              String(
-                localState?.trackId ??
-                "",
-              ) ===
-                desiredTrackId &&
-              !snapshot?.paused &&
-              !localState?.paused
-            );
-
-          if (
-            alreadyPlayingDesiredTrack
-          ) {
-            markPublished(
-              localState,
-            );
-
-            return;
-          }
-
-          await player.runWithLocalPlaybackControl(
-            async () => {
-              if (
-                snapshot?.track?.id
-              ) {
-                await player
-                  .restoreAccountPlayback(
-                    snapshot.track,
-                    accountPlaybackPosition(
-                      snapshot,
-                    ),
-                  );
-
-                if (
-                  snapshot.paused
-                ) {
-                  player.pausePlayback();
-                } else if (
-                  player.getState()
-                    ?.paused
-                ) {
-                  await player.togglePlay();
-                }
-              } else {
-                player.stopTrack();
-              }
-            },
-          );
-
+          /*
+           * Never restore an account-state
+           * broadcast back into the browser
+           * that already owns playback.
+           *
+           * The active player is the source
+           * of that state. Re-loading it here
+           * can interrupt its in-flight
+           * play() while advancing tracks.
+           * Remote transfer/play-track
+           * commands still restore through
+           * applyPendingCommands below.
+           */
           markPublished(
             player.getState(),
           );
+
+          return;
         } finally {
           playbackApplyingRemoteRef.current =
             false;
@@ -6989,6 +6950,8 @@ export default function App() {
                 (event) => {
                   void handleLiveEvent(
                     event,
+                  ).catch(
+                    () => {},
                   );
                 },
 

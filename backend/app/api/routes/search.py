@@ -109,7 +109,9 @@ def _artist_field_credits(
     if not artist:
         return ()
 
-    raw = artist.strip()
+    raw = str(
+        artist,
+    ).strip()
 
     if not raw:
         return ()
@@ -194,93 +196,56 @@ def _track_credits_artist(
     )
 
 
-async def _resolve_exact_artist_name(
-    session: AsyncSession,
-    parsed: ParsedSearch,
+def _exact_artist_credit_in_tracks(
+    tracks: list[Track],
+    artist_name: str,
 ) -> str | None:
-    term = parsed.term.strip()
+    target = normalize_text(
+        artist_name,
+    )
 
-    if not term:
+    if not target:
         return None
 
-    pattern = (
-        "%"
-        + term
-        + "%"
-    )
+    prefix_matches: dict[
+        str,
+        str,
+    ] = {}
 
-    result = await session.execute(
-        select(
-            Track.artist,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.artist.ilike(
-                pattern,
-            ),
-        )
-        .distinct()
-        .limit(
-            100,
-        )
-    )
-
-    target = normalize_text(
-        term,
-    )
-
-    for artist_value in result.scalars().all():
+    for track in tracks:
         for credit in (
-            _artist_field_credits(
-                artist_value,
-            )
-        ):
-            if (
-                normalize_text(
-                    credit,
+            *(
+                _artist_field_credits(
+                    track.artist,
                 )
-                == target
-            ):
+            ),
+            *(
+                extract_featured_artists(
+                    track.title,
+                )
+            ),
+        ):
+            normalized = normalize_text(
+                credit,
+            )
+
+            if normalized == target:
                 return credit
 
-    featured_result = await session.execute(
-        select(
-            Track.title,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.title.ilike(
-                pattern,
-            ),
-        )
-        .limit(
-            200,
-        )
-    )
-
-    for title in featured_result.scalars().all():
-        for credit in (
-            extract_featured_artists(
-                title,
-            )
-        ):
-            if (
-                normalize_text(
+            if normalized.startswith(
+                target,
+            ):
+                prefix_matches.setdefault(
+                    normalized,
                     credit,
                 )
-                == target
-            ):
-                return credit
 
-    if (
-        parsed.field_hint
-        == "artist"
-    ):
-        return term
+    if len(prefix_matches) == 1:
+        return next(
+            iter(
+                prefix_matches.values(),
+            )
+        )
 
     return None
 
@@ -736,23 +701,16 @@ async def _load_track_candidates(
     if not term:
         return []
 
-    exact_artist_name = (
-        await _resolve_exact_artist_name(
-            session,
-            parsed,
-        )
-    )
-
-    if exact_artist_name:
-        artist_candidates = (
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
+        return (
             await _load_artist_catalog_candidates(
                 session,
-                exact_artist_name,
+                term,
             )
         )
-
-        if artist_candidates:
-            return artist_candidates
 
     if is_direct_genre_query(
         parsed.raw,
@@ -886,6 +844,24 @@ async def _load_track_candidates(
         )
 
         if direct:
+            exact_artist_name = (
+                _exact_artist_credit_in_tracks(
+                    direct,
+                    term,
+                )
+            )
+
+            if exact_artist_name:
+                expanded = (
+                    await _load_artist_catalog_candidates(
+                        session,
+                        exact_artist_name,
+                    )
+                )
+
+                if expanded:
+                    return expanded
+
             return direct
 
     if not used_postgresql_similarity:
@@ -922,6 +898,24 @@ async def _load_track_candidates(
         )
 
         if direct:
+            exact_artist_name = (
+                _exact_artist_credit_in_tracks(
+                    direct,
+                    term,
+                )
+            )
+
+            if exact_artist_name:
+                expanded = (
+                    await _load_artist_catalog_candidates(
+                        session,
+                        exact_artist_name,
+                    )
+                )
+
+                if expanded:
+                    return expanded
+
             return direct
 
     if not smart_query_has_semantic_signal(

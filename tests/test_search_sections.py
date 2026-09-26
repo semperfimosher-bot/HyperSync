@@ -1134,3 +1134,44 @@ def test_songs_by_artist_scores_featured_tracks_as_artist_matches() -> None:
 
     assert match.score > 0
     assert match.field == "artist"
+
+
+
+def test_artist_credit_resolution_expands_unique_prefix_but_not_ambiguous_prefix() -> None:
+    unique_tracks = [
+        SimpleNamespace(
+            title="Ghost",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            title="Deja Vu (feat. Justin Bieber)",
+            artist="Post Malone",
+        ),
+    ]
+
+    assert (
+        search_route._exact_artist_credit_in_tracks(
+            unique_tracks,
+            "Justin",
+        )
+        == "Justin Bieber"
+    )
+
+    ambiguous_tracks = [
+        SimpleNamespace(
+            title="One",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            title="Two",
+            artist="Justin Timberlake",
+        ),
+    ]
+
+    assert (
+        search_route._exact_artist_credit_in_tracks(
+            ambiguous_tracks,
+            "Justin",
+        )
+        is None
+    )

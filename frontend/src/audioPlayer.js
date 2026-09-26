@@ -116,10 +116,10 @@ let recentTrackIds =
   [];
 
 const AUTOPLAY_REFILL_THRESHOLD =
-  2;
+  4;
 
 const AUTOPLAY_BATCH_SIZE =
-  8;
+  12;
 
 const AUTOPLAY_CONTEXT_SIZE =
   12;
@@ -128,6 +128,9 @@ let queueRevision =
   0;
 
 let autoplayFill =
+  null;
+
+let nextTrackTransitionPromise =
   null;
 
 let playbackPhase =
@@ -896,6 +899,37 @@ async function ensureAutoplayQueue({
   return requestPromise;
 }
 
+function isExpectedPlayInterruption(
+  error,
+) {
+  if (!error) {
+    return false;
+  }
+
+  if (
+    error.name ===
+      "AbortError"
+  ) {
+    return true;
+  }
+
+  const message =
+    String(
+      error.message ??
+        error,
+    ).toLowerCase();
+
+  return (
+    message.includes(
+      "play() request was interrupted",
+    ) ||
+    message.includes(
+      "interrupted by a new load request",
+    )
+  );
+}
+
+
 function setPlaybackPhase(
   phase,
   error = null,
@@ -1157,74 +1191,117 @@ export function getState() {
 
 
 async function playNextQueueTrack() {
-  let nextIndex =
-    getNextQueueIndex(
-      currentQueue,
-      currentQueueIndex,
-    );
-
-
-  /*
-   * Safety net.
-   *
-   * Normally recommendations are already
-   * waiting before the final song ends.
-   * If they are not, fetch them now.
-   */
   if (
-    nextIndex === -1
+    nextTrackTransitionPromise
   ) {
-    await ensureAutoplayQueue({
-      force:
-        true,
-    });
+    return nextTrackTransitionPromise;
+  }
 
-    nextIndex =
-      getNextQueueIndex(
-        currentQueue,
-        currentQueueIndex,
+  let transitionPromise;
+
+  transitionPromise =
+    (async () => {
+      let nextIndex =
+        getNextQueueIndex(
+          currentQueue,
+          currentQueueIndex,
+        );
+
+
+      /*
+       * Autoplay is normally filled while
+       * the current song is still playing.
+       * This forced refill is only the
+       * final safety net for a brand-new
+       * single-track playback context.
+       */
+      if (
+        nextIndex === -1
+      ) {
+        await ensureAutoplayQueue({
+          force:
+            true,
+        });
+
+        nextIndex =
+          getNextQueueIndex(
+            currentQueue,
+            currentQueueIndex,
+          );
+      }
+
+
+      if (
+        nextIndex === -1
+      ) {
+        notify();
+
+        return false;
+      }
+
+
+      currentQueueIndex =
+        nextIndex;
+
+
+      const nextTrack =
+        currentQueue[
+          nextIndex
+        ];
+
+
+      try {
+        const state =
+          await playTrackInternal(
+            nextTrack.id,
+            nextTrack.meta,
+            true,
+          );
+
+        /*
+         * Keep several songs ready ahead of
+         * the active one. That makes the
+         * natural ended -> next transition
+         * immediate regardless of which page
+         * originally started playback.
+         */
+        void ensureAutoplayQueue()
+          .catch(
+            () => {},
+          );
+
+        return Boolean(
+          state,
+        );
+
+      } catch (error) {
+        if (
+          !isExpectedPlayInterruption(
+            error,
+          )
+        ) {
+          notify();
+        }
+
+        return false;
+      }
+    })()
+      .finally(
+        () => {
+          if (
+            nextTrackTransitionPromise ===
+              transitionPromise
+          ) {
+            nextTrackTransitionPromise =
+              null;
+          }
+        },
       );
-  }
 
+  nextTrackTransitionPromise =
+    transitionPromise;
 
-  if (
-    nextIndex === -1
-  ) {
-    notify();
-
-    return;
-  }
-
-
-  currentQueueIndex =
-    nextIndex;
-
-
-  const nextTrack =
-    currentQueue[
-      nextIndex
-    ];
-
-
-  try {
-    await playTrackInternal(
-      nextTrack.id,
-      nextTrack.meta,
-      true,
-    );
-
-
-    /*
-     * Refill BEFORE we hit the end.
-     */
-    void ensureAutoplayQueue()
-      .catch(
-        () => {},
-      );
-
-  } catch {
-    notify();
-  }
+  return transitionPromise;
 }
 
 
@@ -1406,7 +1483,10 @@ function attachEvents() {
         : getSafeCurrentTime(),
     );
 
-    void playNextQueueTrack();
+    void playNextQueueTrack()
+      .catch(
+        () => {},
+      );
   },
 );
 }
@@ -2127,6 +2207,9 @@ async function playTrackInternal(
     if (
       !isPlaybackSessionCurrent(
         session,
+      ) ||
+      isExpectedPlayInterruption(
+        error,
       )
     ) {
       return null;
@@ -2725,6 +2808,9 @@ export async function playUrl(
     if (
       !isPlaybackSessionCurrent(
         session,
+      ) ||
+      isExpectedPlayInterruption(
+        error,
       )
     ) {
       return null;
@@ -2790,7 +2876,19 @@ export async function togglePlay() {
 
     notify();
 
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (error) {
+      if (
+        !isExpectedPlayInterruption(
+          error,
+        )
+      ) {
+        throw error;
+      }
+
+      return getState();
+    }
 
   } else {
     audio.pause();
