@@ -153,6 +153,9 @@ const loadDownloadedFallback =
       try {
         return (
           await getDownloadedTracks()
+        ).slice(
+          0,
+          12,
         );
       } catch {
         return [];
