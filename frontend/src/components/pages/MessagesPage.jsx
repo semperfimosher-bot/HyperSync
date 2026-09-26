@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import {
+  deleteMessage,
   getConversation,
   getConversations,
   sendMessage,
@@ -235,6 +236,11 @@ export default function MessagesPage({
     sending,
     setSending,
   ] = useState(false);
+
+  const [
+    deletingMessageId,
+    setDeletingMessageId,
+  ] = useState("");
 
   const [
     error,
@@ -606,6 +612,81 @@ export default function MessagesPage({
     );
 
 
+  async function removeSentMessage(
+    message,
+  ) {
+    if (
+      !message?.mine
+      || !message?.id
+      || deletingMessageId
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Permanently delete this message? It will be removed for both people and cannot be restored.",
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingMessageId(
+      String(
+        message.id,
+      ),
+    );
+
+    setError(
+      "",
+    );
+
+    try {
+      await deleteMessage(
+        message.id,
+      );
+
+      setConversation(
+        (current) =>
+          current
+            ? {
+                ...current,
+                messages:
+                  (
+                    current.messages
+                    ?? []
+                  ).filter(
+                    (item) =>
+                      String(
+                        item.id,
+                      ) !==
+                      String(
+                        message.id,
+                      ),
+                  ),
+              }
+            : current,
+      );
+
+      await loadConversations();
+
+      onUnreadChange?.();
+    } catch (requestError) {
+      setError(
+        requestError
+          instanceof Error
+          ? requestError.message
+          : "Unable to delete message.",
+      );
+    } finally {
+      setDeletingMessageId(
+        "",
+      );
+    }
+  }
+
+
   async function submitMessage(
     event,
   ) {
@@ -833,11 +914,37 @@ export default function MessagesPage({
                           </p>
                         ) : null}
 
-                        <small>
-                          {formatMessageTime(
-                            message.created_at,
-                          )}
-                        </small>
+                        <div className="hs-message-bubble__meta">
+                          <small>
+                            {formatMessageTime(
+                              message.created_at,
+                            )}
+                          </small>
+
+                          {message.mine ? (
+                            <button
+                              type="button"
+                              disabled={
+                                deletingMessageId ===
+                                String(
+                                  message.id,
+                                )
+                              }
+                              onClick={() => {
+                                void removeSentMessage(
+                                  message,
+                                );
+                              }}
+                            >
+                              {deletingMessageId ===
+                              String(
+                                message.id,
+                              )
+                                ? "Deleting..."
+                                : "Delete"}
+                            </button>
+                          ) : null}
+                        </div>
                       </article>
                     ),
                   )
