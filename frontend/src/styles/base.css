@@ -9545,3 +9545,20 @@ button.hs-shared-music-card:active {
       );
   }
 }
+
+
+.hs-artist-song-count {
+  align-self: center;
+  color: #718c99;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.hs-artist-library-track-list
+.hs-search-track__signals small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
