@@ -92,6 +92,10 @@ import {
 } from "../../playlistTrackSearch.js";
 
 import {
+  looksLikeSmartPlaylistQuery,
+} from "../../smartPlaylistQuery.js";
+
+import {
   downloadPlaylistByIdForOffline,
 } from "../../playlistOfflineAction.js";
 
@@ -289,6 +293,7 @@ function SearchPage({
   onOpenProfile,
   onMessageUser,
   onOpenPlaylist,
+  onGenerateSmartPlaylist,
   onOpenAuth,
   currentUser,
   initialArtistName = "",
@@ -623,6 +628,11 @@ useEffect(() => {
     searchError,
     setSearchError,
   ] = useState("");
+
+  const [
+    smartPlaylistBusy,
+    setSmartPlaylistBusy,
+  ] = useState(false);
 
   const searchInputRef =
   useRef(null);
@@ -1236,6 +1246,43 @@ useEffect(() => {
   }
 }
 
+  async function createLivePlaylist() {
+    if (
+      !normalizedQuery
+      || smartPlaylistBusy
+      || !looksLikeSmartPlaylistQuery(
+        normalizedQuery,
+      )
+    ) {
+      return;
+    }
+
+    setSmartPlaylistBusy(
+      true,
+    );
+
+    setSearchError(
+      "",
+    );
+
+    try {
+      await onGenerateSmartPlaylist?.(
+        normalizedQuery,
+      );
+    } catch (error) {
+      setSearchError(
+        error instanceof Error
+          ? error.message
+          : "Unable to build that live playlist.",
+      );
+    } finally {
+      setSmartPlaylistBusy(
+        false,
+      );
+    }
+  }
+
+
   function handleSearchKeyDown(
     event,
   ) {
@@ -1274,6 +1321,25 @@ useEffect(() => {
             0,
           ),
       );
+
+      return;
+    }
+
+    if (
+      event.key ===
+        "Enter"
+      && selectedTrackIndex
+        < 0
+      && looksLikeSmartPlaylistQuery(
+        normalizedQuery,
+      )
+    ) {
+      event.preventDefault();
+
+      event.currentTarget
+        .blur();
+
+      void createLivePlaylist();
 
       return;
     }
@@ -2488,7 +2554,7 @@ async function downloadOpenedPlaylist() {
   activeFilter === "people" &&
   !normalizedQuery
     ? "Search people by name or @username..."
-    : "Search songs, artists, albums, or people..."
+    : "Search songs, artists, genres, or type a vibe..."
 }
       autoComplete="off"
       spellCheck="false"
@@ -2542,10 +2608,16 @@ async function downloadOpenedPlaylist() {
 
 
     <span className="hs-search-status-chip">
-      {normalizedQuery &&
-      results.processing_ms
-        ? `${results.processing_ms}ms`
-        : "SMART MATCHING"}
+      {smartPlaylistBusy
+        ? "BUILDING LIVE PLAYLIST"
+        : looksLikeSmartPlaylistQuery(
+            normalizedQuery,
+          )
+          ? "ENTER → LIVE PLAYLIST"
+          : normalizedQuery &&
+              results.processing_ms
+            ? `${results.processing_ms}ms`
+            : "SMART MATCHING"}
     </span>
 
   </div>
