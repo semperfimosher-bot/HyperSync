@@ -118,6 +118,8 @@ class PlaylistTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -145,6 +147,8 @@ class LibraryTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -515,6 +519,8 @@ def serialize_playlist_track(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=track.genre,
+        release_year=track.release_year,
         duration_seconds=(track.duration_seconds),
         audio_url=(
             _track_audio_url(
@@ -814,6 +820,8 @@ async def get_library_tracks(
             title=track.title,
             artist=track.artist,
             album=track.album,
+            genre=track.genre,
+            release_year=track.release_year,
             duration_seconds=(
                 track.duration_seconds
             ),
