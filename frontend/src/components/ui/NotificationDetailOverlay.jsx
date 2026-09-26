@@ -295,7 +295,11 @@ export default function NotificationDetailOverlay({
           ) : null}
 
           <div className="notification-detail-grid__wide notification-detail-meta">
-            <span>ID</span>
+            <span>
+              {adminActivity
+                ? "Notification ID"
+                : "Message ID"}
+            </span>
             <code>
               {detailId}
             </code>
