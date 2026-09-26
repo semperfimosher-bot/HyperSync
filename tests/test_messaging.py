@@ -205,3 +205,85 @@ def test_viewed_message_expiry_is_exactly_seven_days() -> None:
             days=7,
         )
     )
+
+
+def test_shared_music_message_builds_card_and_preview() -> None:
+    now = datetime.now(
+        UTC,
+    )
+
+    sender = User(
+        id=uuid4(),
+        account_type=(
+            AccountType.REGISTERED
+        ),
+        email="share-sender@example.test",
+        username="share-sender",
+        username_normalized="share-sender",
+        password_hash="hash",
+    )
+
+    recipient = User(
+        id=uuid4(),
+        account_type=(
+            AccountType.REGISTERED
+        ),
+        email="share-recipient@example.test",
+        username="share-recipient",
+        username_normalized="share-recipient",
+        password_hash="hash",
+    )
+
+    message = Message(
+        id=uuid4(),
+        sender_id=sender.id,
+        recipient_id=recipient.id,
+        body="",
+        shared_kind="playlist",
+        shared_key="playlist-123",
+        shared_title="Night Drive",
+        shared_subtitle="HyperSynced",
+        shared_artwork_url="/art.jpg",
+        viewed_at=None,
+    )
+
+    message.created_at = now
+
+    response = (
+        message_routes._message_response(
+            message,
+            recipient,
+            sender,
+            recipient,
+        )
+    )
+
+    assert response.body == ""
+    assert response.shared_music is not None
+    assert (
+        response.shared_music.kind
+        == "playlist"
+    )
+    assert (
+        response.shared_music.key
+        == "playlist-123"
+    )
+    assert (
+        response.shared_music.title
+        == "Night Drive"
+    )
+    assert (
+        response.shared_music.subtitle
+        == "HyperSynced"
+    )
+    assert (
+        response.shared_music.artwork_url
+        == "/art.jpg"
+    )
+
+    assert (
+        message_routes._message_preview(
+            message,
+        )
+        == "Shared a playlist: Night Drive"
+    )
