@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
@@ -142,7 +143,7 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
             listener,
         )
 
-        assert response.name == "example artist"
+        assert response.name == "Example Artist"
         assert response.track_count == 2
         assert response.album_count == 2
         assert response.total_plays == 3
@@ -189,7 +190,13 @@ async def test_existing_catalog_artist_is_created_lazily() -> None:
             Base.metadata.create_all,
             tables=[
                 Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
                     Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    ListeningEvent.__tablename__
                 ],
                 Base.metadata.tables[
                     ArtistProfile.__tablename__
@@ -230,9 +237,7 @@ async def test_existing_catalog_artist_is_created_lazily() -> None:
 
         profile_count = (
             await session.execute(
-                __import__(
-                    "sqlalchemy",
-                ).select(
+                select(
                     ArtistProfile,
                 )
             )
