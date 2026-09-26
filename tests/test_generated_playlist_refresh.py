@@ -518,3 +518,87 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
             first_country.id,
             second_country.id,
         }
+
+
+
+@pytest.mark.asyncio
+async def test_smart_playlist_can_start_empty_and_fill_later() -> None:
+    run_id = uuid4().hex[:8]
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        user = User(
+            id=uuid4(),
+            username=f"empty-smart-{run_id}",
+            username_normalized=f"empty-smart-{run_id}",
+            email=f"empty-smart-{run_id}@example.com",
+            password_hash="test-password-hash",
+            account_type="registered",
+            is_active=True,
+        )
+
+        session.add(user)
+        await session.commit()
+
+        playlist = await ensure_smart_playlist(
+            session,
+            user.id,
+            "country",
+        )
+
+        assert playlist is not None
+        assert playlist.generated_query == "country"
+        assert playlist.generated_kind == "genre"
+
+        initial_count = (
+            await session.execute(
+                select(
+                    func.count(
+                        PlaylistTrack.id,
+                    )
+                ).where(
+                    PlaylistTrack.playlist_id
+                    == playlist.id,
+                )
+            )
+        ).scalar_one()
+
+        assert initial_count == 0
+
+        track = Track(
+            id=uuid4(),
+            title="Future Country Song",
+            artist=f"Future Country {run_id}",
+            album="Future",
+            genre="Country",
+            b2_object_key=f"audio/{run_id}-future-country.mp3",
+            mime_type="audio/mpeg",
+            file_size=1000,
+            duration_seconds=180,
+            is_published=True,
+        )
+
+        session.add(track)
+        await session.commit()
+
+        refreshed_count = await refresh_smart_playlists_for_track(
+            session,
+            track,
+        )
+
+        assert refreshed_count == 1
+
+        final_count = (
+            await session.execute(
+                select(
+                    func.count(
+                        PlaylistTrack.id,
+                    )
+                ).where(
+                    PlaylistTrack.playlist_id
+                    == playlist.id,
+                )
+            )
+        ).scalar_one()
+
+        assert final_count == 1
