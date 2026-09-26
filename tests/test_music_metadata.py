@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from backend.app.services.music_metadata import (
+    lookup_apple_track_metadata,
     lookup_external_track_metadata,
     lookup_lastfm_track_metadata,
 )
@@ -375,6 +376,147 @@ async def test_lastfm_lookup_rejects_wrong_artist_or_duration() -> None:
                 client=client,
                 api_key="test-key",
             )
+        )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_apple_lookup_returns_genre_and_release_year() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.url.path == "/search"
+        assert request.url.params.get("media") == "music"
+        assert request.url.params.get("entity") == "song"
+
+        return httpx.Response(
+            200,
+            json={
+                "resultCount": 2,
+                "results": [
+                    {
+                        "wrapperType":
+                            "track",
+                        "kind":
+                            "song",
+                        "trackId":
+                            12345,
+                        "trackName":
+                            "Example Song",
+                        "artistName":
+                            "Example Artist",
+                        "collectionName":
+                            "Example Album",
+                        "trackTimeMillis":
+                            183000,
+                        "primaryGenreName":
+                            "Country",
+                        "releaseDate":
+                            "2023-06-02T12:00:00Z",
+                    },
+                    {
+                        "wrapperType":
+                            "track",
+                        "kind":
+                            "song",
+                        "trackId":
+                            99999,
+                        "trackName":
+                            "Example Song",
+                        "artistName":
+                            "Wrong Artist",
+                        "trackTimeMillis":
+                            183000,
+                        "primaryGenreName":
+                            "Pop",
+                        "releaseDate":
+                            "2021-01-01T12:00:00Z",
+                    },
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(
+        base_url="https://itunes.test",
+        transport=httpx.MockTransport(
+            handler,
+        ),
+    ) as client:
+        result = await lookup_apple_track_metadata(
+            title="Example Song",
+            artist="Example Artist",
+            duration_seconds=182,
+            client=client,
+            throttle=False,
+        )
+
+    assert result is not None
+    assert result["source"] == "apple"
+    assert result["recording_id"] == "12345"
+    assert result["genre"] == "Country"
+    assert result["release_year"] == 2023
+    assert result["confidence"] >= 0.96
+
+
+@pytest.mark.asyncio
+async def test_apple_lookup_rejects_wrong_duration_or_weak_artist_match() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "resultCount": 2,
+                "results": [
+                    {
+                        "kind":
+                            "song",
+                        "trackId":
+                            1,
+                        "trackName":
+                            "Same Song",
+                        "artistName":
+                            "Same Artist",
+                        "trackTimeMillis":
+                            320000,
+                        "primaryGenreName":
+                            "Country",
+                        "releaseDate":
+                            "2024-01-01T00:00:00Z",
+                    },
+                    {
+                        "kind":
+                            "song",
+                        "trackId":
+                            2,
+                        "trackName":
+                            "Same Song",
+                        "artistName":
+                            "Different Performer",
+                        "trackTimeMillis":
+                            180000,
+                        "primaryGenreName":
+                            "Pop",
+                        "releaseDate":
+                            "2024-01-01T00:00:00Z",
+                    },
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(
+        base_url="https://itunes.test",
+        transport=httpx.MockTransport(
+            handler,
+        ),
+    ) as client:
+        result = await lookup_apple_track_metadata(
+            title="Same Song",
+            artist="Same Artist",
+            duration_seconds=180,
+            client=client,
+            throttle=False,
         )
 
     assert result is None
