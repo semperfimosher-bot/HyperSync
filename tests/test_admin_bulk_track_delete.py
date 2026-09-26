@@ -4,11 +4,20 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from backend.app.database import get_session_factory
+from backend.app.database import get_engine, get_session_factory
 from backend.app.main import app
+from backend.app.models import Base
 from backend.app.models.account import User, UserRole
 from backend.app.models.media import Track
 from backend.app.security.passwords import hash_password
+
+
+@pytest.fixture(autouse=True)
+async def bulk_delete_database_schema() -> None:
+    async with get_engine().begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+        )
 
 
 @pytest.mark.asyncio
