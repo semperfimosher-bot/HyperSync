@@ -17,6 +17,7 @@ from .media import (
     TrackLyrics,
 )
 from .messaging import (
+    AdminNotification,
     Message,
     PushSubscription,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "Base",
     "Track",
     "TrackLyrics",
+    "AdminNotification",
     "Message",
     "PushSubscription",
     "ListeningEvent",
