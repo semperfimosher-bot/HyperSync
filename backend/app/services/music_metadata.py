@@ -115,6 +115,14 @@ _artist_genre_cache: dict[
     ],
 ] = {}
 
+_lastfm_lookup_cache: dict[
+    str,
+    tuple[
+        float,
+        ExternalTrackMetadata | None,
+    ],
+] = {}
+
 
 def _normalize(
     value: object,
@@ -672,7 +680,7 @@ async def _artist_genre(
     return genre
 
 
-async def lookup_external_track_metadata(
+async def _lookup_musicbrainz_track_metadata(
     *,
     title: str,
     artist: str,
@@ -952,6 +960,640 @@ async def lookup_external_track_metadata(
     finally:
         if owns_client:
             await client.aclose()
+
+
+
+def _lastfm_genre(
+    value: object,
+) -> str | None:
+    if not isinstance(
+        value,
+        dict,
+    ):
+        return None
+
+    raw_tags = value.get(
+        "tag",
+    )
+
+    if isinstance(
+        raw_tags,
+        dict,
+    ):
+        raw_tags = [
+            raw_tags,
+        ]
+
+    if not isinstance(
+        raw_tags,
+        list,
+    ):
+        return None
+
+    for item in raw_tags:
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        raw_name = item.get(
+            "name",
+        )
+
+        if not isinstance(
+            raw_name,
+            str,
+        ):
+            continue
+
+        canonical = _GENRE_ALIASES.get(
+            _normalize(
+                raw_name,
+            )
+        )
+
+        if canonical:
+            return canonical
+
+    return None
+
+
+def _lastfm_track_match(
+    track: dict[str, object],
+    *,
+    title: str,
+    artist: str,
+    duration_seconds: int | None,
+) -> float | None:
+    returned_title = _normalize(
+        track.get(
+            "name",
+        )
+    )
+
+    raw_artist = track.get(
+        "artist",
+    )
+
+    if isinstance(
+        raw_artist,
+        dict,
+    ):
+        returned_artist = _normalize(
+            raw_artist.get(
+                "name",
+            )
+        )
+    else:
+        returned_artist = _normalize(
+            raw_artist,
+        )
+
+    if (
+        returned_title
+        != _normalize(
+            title,
+        )
+        or returned_artist
+        != _normalize(
+            artist,
+        )
+    ):
+        return None
+
+    returned_duration = (
+        _duration_seconds(
+            track.get(
+                "duration",
+            )
+        )
+    )
+
+    if (
+        duration_seconds
+        and returned_duration
+    ):
+        delta = abs(
+            returned_duration
+            - float(
+                duration_seconds,
+            )
+        )
+
+        if delta > 10.0:
+            return None
+
+        return (
+            0.97
+            if delta <= 4.0
+            else 0.94
+        )
+
+    return 0.91
+
+
+async def _lastfm_get_json(
+    client: httpx.AsyncClient,
+    *,
+    method: str,
+    params: dict[
+        str,
+        object,
+    ],
+) -> dict[str, object]:
+    response = await client.get(
+        "/2.0/",
+        params={
+            "method":
+                method,
+            "format":
+                "json",
+            **params,
+        },
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        raise ValueError(
+            "Last.fm returned invalid data.",
+        )
+
+    if payload.get(
+        "error",
+    ) is not None:
+        raise ValueError(
+            str(
+                payload.get(
+                    "message",
+                    "Last.fm lookup failed.",
+                )
+            )
+        )
+
+    return payload
+
+
+async def lookup_lastfm_track_metadata(
+    *,
+    title: str,
+    artist: str,
+    duration_seconds: int | None,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> ExternalTrackMetadata | None:
+    settings = get_settings()
+
+    resolved_api_key = (
+        str(
+            api_key
+            if api_key is not None
+            else settings.lastfm_api_key
+        )
+        .strip()
+    )
+
+    if not resolved_api_key:
+        return None
+
+    cache_key = (
+        _normalize(
+            artist,
+        )
+        + "\x1f"
+        + _normalize(
+            title,
+        )
+        + "\x1f"
+        + str(
+            int(
+                duration_seconds
+                or 0
+            )
+        )
+    )
+
+    now = time.monotonic()
+
+    if client is None:
+        cached = (
+            _lastfm_lookup_cache.get(
+                cache_key,
+            )
+        )
+
+        if (
+            cached is not None
+            and now - cached[0]
+            < (
+                settings
+                .lastfm_cache_hours
+                * 60
+                * 60
+            )
+        ):
+            return cached[1]
+
+    owns_client = (
+        client is None
+    )
+
+    if client is None:
+        client = httpx.AsyncClient(
+            base_url=(
+                settings
+                .lastfm_base_url
+                .rstrip(
+                    "/",
+                )
+            ),
+            headers={
+                "User-Agent":
+                    settings
+                    .musicbrainz_user_agent,
+                "Accept":
+                    "application/json",
+            },
+            timeout=float(
+                settings
+                .lastfm_timeout_seconds
+            ),
+        )
+
+    try:
+        track_payload = (
+            await _lastfm_get_json(
+                client,
+                method="track.getInfo",
+                params={
+                    "api_key":
+                        resolved_api_key,
+                    "artist":
+                        artist,
+                    "track":
+                        title,
+                    "autocorrect":
+                        1,
+                },
+            )
+        )
+
+        raw_track = (
+            track_payload.get(
+                "track",
+            )
+        )
+
+        if not isinstance(
+            raw_track,
+            dict,
+        ):
+            result = None
+
+        else:
+            confidence = (
+                _lastfm_track_match(
+                    raw_track,
+                    title=title,
+                    artist=artist,
+                    duration_seconds=(
+                        duration_seconds
+                    ),
+                )
+            )
+
+            if confidence is None:
+                result = None
+
+            else:
+                raw_mbid = (
+                    raw_track.get(
+                        "mbid",
+                    )
+                )
+
+                recording_id = (
+                    raw_mbid
+                    if isinstance(
+                        raw_mbid,
+                        str,
+                    )
+                    and raw_mbid.strip()
+                    else None
+                )
+
+                genre = _lastfm_genre(
+                    raw_track.get(
+                        "toptags",
+                    )
+                )
+
+                if genre is None:
+                    try:
+                        tags_payload = (
+                            await _lastfm_get_json(
+                                client,
+                                method=(
+                                    "track.getTopTags"
+                                ),
+                                params={
+                                    "api_key":
+                                        resolved_api_key,
+                                    "artist":
+                                        artist,
+                                    "track":
+                                        title,
+                                    "autocorrect":
+                                        1,
+                                },
+                            )
+                        )
+
+                        genre = (
+                            _lastfm_genre(
+                                tags_payload.get(
+                                    "toptags",
+                                )
+                            )
+                        )
+
+                    except (
+                        httpx.HTTPError,
+                        ValueError,
+                    ):
+                        genre = None
+
+                release_year = None
+
+                raw_album = (
+                    raw_track.get(
+                        "album",
+                    )
+                )
+
+                album_title = None
+
+                if isinstance(
+                    raw_album,
+                    dict,
+                ):
+                    raw_title = (
+                        raw_album.get(
+                            "title",
+                        )
+                    )
+
+                    if isinstance(
+                        raw_title,
+                        str,
+                    ):
+                        album_title = (
+                            raw_title.strip()
+                            or None
+                        )
+
+                if album_title:
+                    try:
+                        album_payload = (
+                            await _lastfm_get_json(
+                                client,
+                                method="album.getInfo",
+                                params={
+                                    "api_key":
+                                        resolved_api_key,
+                                    "artist":
+                                        artist,
+                                    "album":
+                                        album_title,
+                                    "autocorrect":
+                                        1,
+                                },
+                            )
+                        )
+
+                        raw_album_info = (
+                            album_payload.get(
+                                "album",
+                            )
+                        )
+
+                        if isinstance(
+                            raw_album_info,
+                            dict,
+                        ):
+                            release_year = _year(
+                                raw_album_info.get(
+                                    "releasedate",
+                                )
+                            )
+
+                            if genre is None:
+                                genre = (
+                                    _lastfm_genre(
+                                        raw_album_info.get(
+                                            "tags",
+                                        )
+                                        or raw_album_info.get(
+                                            "toptags",
+                                        )
+                                    )
+                                )
+
+                    except (
+                        httpx.HTTPError,
+                        ValueError,
+                    ):
+                        release_year = None
+
+                result = {
+                    "source":
+                        "lastfm",
+                    "recording_id":
+                        recording_id,
+                    "genre":
+                        genre,
+                    "release_year":
+                        release_year,
+                    "confidence":
+                        confidence,
+                }
+
+        if owns_client:
+            _lastfm_lookup_cache[
+                cache_key
+            ] = (
+                now,
+                result,
+            )
+
+        return result
+
+    except (
+        httpx.HTTPError,
+        ValueError,
+    ):
+        return None
+
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
+def _merge_external_metadata(
+    primary: ExternalTrackMetadata | None,
+    fallback: ExternalTrackMetadata | None,
+) -> ExternalTrackMetadata | None:
+    if primary is None:
+        return fallback
+
+    if fallback is None:
+        return primary
+
+    genre = (
+        primary[
+            "genre"
+        ]
+        or fallback[
+            "genre"
+        ]
+    )
+
+    release_year = (
+        primary[
+            "release_year"
+        ]
+        if primary[
+            "release_year"
+        ]
+        is not None
+        else fallback[
+            "release_year"
+        ]
+    )
+
+    source = (
+        primary[
+            "source"
+        ]
+    )
+
+    if (
+        (
+            not primary[
+                "genre"
+            ]
+            and fallback[
+                "genre"
+            ]
+        )
+        or (
+            primary[
+                "release_year"
+            ]
+            is None
+            and fallback[
+                "release_year"
+            ]
+            is not None
+        )
+    ):
+        source = (
+            primary[
+                "source"
+            ]
+            + "+"
+            + fallback[
+                "source"
+            ]
+        )
+
+    return {
+        "source":
+            source,
+        "recording_id":
+            (
+                primary[
+                    "recording_id"
+                ]
+                or fallback[
+                    "recording_id"
+                ]
+            ),
+        "genre":
+            genre,
+        "release_year":
+            release_year,
+        "confidence":
+            max(
+                primary[
+                    "confidence"
+                ],
+                fallback[
+                    "confidence"
+                ],
+            ),
+    }
+
+
+async def lookup_external_track_metadata(
+    *,
+    title: str,
+    artist: str,
+    duration_seconds: int | None,
+    client: httpx.AsyncClient | None = None,
+    throttle: bool = True,
+) -> ExternalTrackMetadata | None:
+    musicbrainz = (
+        await _lookup_musicbrainz_track_metadata(
+            title=title,
+            artist=artist,
+            duration_seconds=(
+                duration_seconds
+            ),
+            client=client,
+            throttle=throttle,
+        )
+    )
+
+    # Explicit client injection is used by
+    # MusicBrainz unit tests. Keep those
+    # deterministic and isolated from the
+    # configured fallback provider.
+    if client is not None:
+        return musicbrainz
+
+    if (
+        musicbrainz is not None
+        and musicbrainz[
+            "genre"
+        ]
+        and musicbrainz[
+            "release_year"
+        ]
+        is not None
+    ):
+        return musicbrainz
+
+    lastfm = (
+        await lookup_lastfm_track_metadata(
+            title=title,
+            artist=artist,
+            duration_seconds=(
+                duration_seconds
+            ),
+        )
+    )
+
+    return _merge_external_metadata(
+        musicbrainz,
+        lastfm,
+    )
 
 
 async def enrich_track_metadata(
