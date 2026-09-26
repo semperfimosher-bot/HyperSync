@@ -32,6 +32,12 @@ import useCollectionActionMenu from
 import useQuietRefresh from
   "../../hooks/useQuietRefresh.js";
 
+import useOnlineStatus from
+  "../../hooks/useOnlineStatus.js";
+
+import OfflineNotice from
+  "../ui/OfflineNotice.jsx";
+
 
 function memberFor(value) {
   if (!value) {
@@ -83,6 +89,9 @@ export default function PublicProfilePage({
   onOpenProfile,
   onSearchArtist,
 }) {
+  const online =
+    useOnlineStatus();
+
   const trackActionMenu =
     useTrackActionMenu();
 
@@ -111,6 +120,12 @@ export default function PublicProfilePage({
         quiet = false,
       } = {}) => {
         if (!username) {
+          return;
+        }
+
+        if (!online) {
+          setLoading(false);
+          setError("");
           return;
         }
 
@@ -145,6 +160,7 @@ export default function PublicProfilePage({
       },
       [
         username,
+        online,
       ],
     );
 
@@ -165,7 +181,8 @@ export default function PublicProfilePage({
     {
       enabled:
         Boolean(
-          username,
+          username
+          && online,
         ),
       intervalMs:
         30_000,
@@ -215,6 +232,28 @@ export default function PublicProfilePage({
     } finally {
       setActing(false);
     }
+  }
+
+
+  if (
+    !online &&
+    !profile
+  ) {
+    return (
+      <div className="hs-profile-page">
+      {!online ? (
+        <OfflineNotice
+          compact
+          title="You’re offline"
+          description="Go back online to refresh this profile and its listening activity."
+        />
+      ) : null}
+        <OfflineNotice
+          title="Go back online to see this profile"
+          description="Public profiles, follow state, and listening activity sync from HyperSync."
+        />
+      </div>
+    );
   }
 
 
