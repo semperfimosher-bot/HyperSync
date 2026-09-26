@@ -69,7 +69,7 @@ def _send_one(
                     "type":
                         "message",
                     "title":
-                        "New HyperSync message",
+                        "New HyperSynced message",
                     "body":
                         (
                             "New message from @"
