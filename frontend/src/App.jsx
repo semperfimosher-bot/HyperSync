@@ -68,6 +68,9 @@ import useTrackActionMenu from
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
 import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.jsx";
 
+import PlaybackDevicesPanel from
+  "./components/player/PlaybackDevicesPanel.jsx";
+
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
 import MobileHeader from "./components/layout/MobileHeader.jsx";
@@ -4697,6 +4700,89 @@ export default function App() {
 
   const playbackPendingWriteRef =
     useRef(null);
+
+
+  const sendAccountPlaybackCommand =
+    useCallback(
+      async (
+        targetDeviceId,
+        action,
+        value = null,
+      ) => {
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          return false;
+        }
+
+        const targetId =
+          String(
+            targetDeviceId ??
+            "",
+          ).trim();
+
+        if (!targetId) {
+          return false;
+        }
+
+        const currentDeviceId =
+          playbackDeviceIdRef.current;
+
+        try {
+          if (
+            targetId ===
+            currentDeviceId
+          ) {
+            const result =
+              await applyPlaybackRemoteCommand(
+                {
+                  action,
+                  value,
+                },
+                {
+                  player,
+                  snapshot:
+                    accountPlaybackSnapshot,
+                  snapshotPosition:
+                    accountPlaybackPosition,
+                },
+              );
+
+            if (result) {
+              setControlledPlaybackDeviceId(
+                currentDeviceId,
+              );
+            }
+
+            return Boolean(
+              result,
+            );
+          }
+
+          await sendPlaybackDeviceCommand({
+            targetDeviceId:
+              targetId,
+            sourceDeviceId:
+              currentDeviceId,
+            action,
+            value,
+          });
+
+          setControlledPlaybackDeviceId(
+            targetId,
+          );
+
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      [
+        accountPlaybackSnapshot,
+        currentUser?.account_type,
+      ],
+    );
 
 
   useEffect(() => {
