@@ -65,9 +65,6 @@ async def ensure_artist_profile(
     )
 
     if profile is not None:
-        if profile.name != clean_name:
-            profile.name = clean_name
-
         return profile
 
     profile = ArtistProfile(
