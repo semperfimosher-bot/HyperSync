@@ -7571,10 +7571,6 @@ const clearPlaylistToOpen =
             );
 
           if (target) {
-            setSharedMusicToSend(
-              null,
-            );
-
             if (
               target.kind ===
                 "playlist"
