@@ -6357,6 +6357,160 @@ button:disabled {
   background: rgba(0, 134, 194, 0.035);
 }
 
+.admin-explorer-file.is-selected,
+.admin-explorer-folder.is-selected {
+  border-color:
+    rgba(77, 227, 255, 0.72);
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(0, 145, 210, 0.16),
+      rgba(17, 91, 126, 0.08)
+    );
+
+  box-shadow:
+    inset 3px 0
+      rgba(77, 227, 255, 0.95),
+    0 0 0 1px
+      rgba(77, 227, 255, 0.06);
+}
+
+.admin-explorer-folder.is-partial {
+  border-color:
+    rgba(77, 227, 255, 0.34);
+
+  background:
+    rgba(0, 134, 194, 0.07);
+
+  box-shadow:
+    inset 2px 0
+      rgba(77, 227, 255, 0.52);
+}
+
+.admin-explorer-folder.is-multiselectable {
+  cursor: pointer;
+}
+
+.admin-explorer-selection-bar {
+  position: sticky;
+  z-index: 8;
+  top: 8px;
+
+  display: flex;
+
+  min-height: 42px;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 10px;
+
+  margin:
+    0
+    0
+    10px;
+
+  padding:
+    8px
+    10px;
+
+  border:
+    1px dashed
+    rgba(79, 174, 211, 0.15);
+
+  border-radius: 9px;
+
+  color:
+    rgba(107, 142, 159, 0.88);
+
+  background:
+    rgba(3, 13, 20, 0.92);
+
+  font-size: 7px;
+
+  backdrop-filter:
+    blur(16px);
+}
+
+.admin-explorer-selection-bar.is-active {
+  border-style: solid;
+
+  border-color:
+    rgba(77, 227, 255, 0.28);
+
+  color:
+    rgba(201, 240, 250, 0.95);
+
+  background:
+    rgba(4, 20, 29, 0.96);
+
+  box-shadow:
+    0 8px 24px
+      rgba(0, 0, 0, 0.22);
+}
+
+.admin-explorer-selection-bar__actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  align-items: center;
+
+  gap: 6px;
+}
+
+.admin-explorer-selection-bar__actions
+button {
+  min-height: 30px;
+
+  padding:
+    0
+    9px;
+
+  border:
+    1px solid
+    rgba(72, 164, 202, 0.18);
+
+  border-radius: 7px;
+
+  color:
+    rgba(157, 202, 220, 0.95);
+
+  background:
+    rgba(7, 30, 41, 0.92);
+
+  font-size: 6.5px;
+
+  font-weight: 800;
+}
+
+.admin-explorer-selection-bar__actions
+button:hover:not(:disabled) {
+  border-color:
+    rgba(77, 227, 255, 0.42);
+
+  color:
+    #dffbff;
+}
+
+.admin-explorer-selection-bar__actions
+button:disabled {
+  opacity: 0.5;
+}
+
+.admin-explorer-selection-bar__actions
+.danger-button {
+  border-color:
+    rgba(255, 79, 112, 0.34);
+
+  color:
+    #ffb6c4;
+
+  background:
+    rgba(137, 28, 52, 0.16);
+}
+
 .admin-explorer-file .track-artwork-shell {
   width: 42px;
   height: 42px;
@@ -6430,6 +6584,18 @@ button:disabled {
   .admin-explorer-file .danger-button {
     grid-column: 2 / -1;
     justify-self: start;
+  }
+
+  .admin-explorer-selection-bar {
+    position: static;
+
+    align-items: flex-start;
+
+    flex-direction: column;
+  }
+
+  .admin-explorer-selection-bar__actions {
+    width: 100%;
   }
 }
 
