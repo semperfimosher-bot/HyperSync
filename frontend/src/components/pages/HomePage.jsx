@@ -349,6 +349,14 @@ useQuietRefresh(
     mediaVersion:
       track?.media_version ??
       null,
+
+    genre:
+      track?.genre ??
+      "",
+
+    releaseYear:
+      track?.release_year ??
+      null,
   },
 );
         } catch (error) {
