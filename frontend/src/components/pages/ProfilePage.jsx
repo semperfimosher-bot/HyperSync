@@ -16,6 +16,9 @@ import SocialModal from "../profile/SocialModal.jsx";
 import Icon from "../ui/Icon.jsx";
 import TrackArtwork from "../ui/TrackArtwork.jsx";
 
+import PlaybackDevicesPanel from
+  "../player/PlaybackDevicesPanel.jsx";
+
 import TrackActionMenu from
   "../music/TrackActionMenu.jsx";
 
@@ -126,6 +129,11 @@ export default function ProfilePage({
   onProfileUpdated,
   installState,
   onInstallApp,
+  playbackDevices = [],
+  currentPlaybackDeviceId,
+  controlledPlaybackDeviceId,
+  onSelectPlaybackDevice,
+  onPlaybackDeviceCommand,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -146,6 +154,11 @@ export default function ProfilePage({
 
   const [editing, setEditing] =
     useState(false);
+
+  const [
+    devicesOpen,
+    setDevicesOpen,
+  ] = useState(false);
 
   const [socialMode, setSocialMode] =
     useState("");
@@ -667,6 +680,116 @@ export default function ProfilePage({
         </header>
 
         <div className="hs-account-actions">
+          {currentUser?.account_type ===
+          "registered" ? (
+            <>
+              <button
+                type="button"
+                className={[
+                  "hs-playback-device-control",
+                  controlledPlaybackDeviceId &&
+                  controlledPlaybackDeviceId !==
+                    currentPlaybackDeviceId
+                    ? "is-remote"
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-expanded={
+                  devicesOpen
+                }
+                onClick={() => {
+                  setDevicesOpen(
+                    (open) =>
+                      !open,
+                  );
+                }}
+              >
+                <Icon
+                  name="devices"
+                  size={18}
+                />
+
+                <span>
+                  <strong>
+                    Playback Devices
+                  </strong>
+
+                  <small>
+                    {(() => {
+                      const selected =
+                        playbackDevices.find(
+                          (device) =>
+                            device.device_id ===
+                            controlledPlaybackDeviceId,
+                        );
+
+                      if (
+                        selected?.name
+                      ) {
+                        return (
+                          "Controlling " +
+                          selected.name
+                        );
+                      }
+
+                      const onlineCount =
+                        playbackDevices.filter(
+                          (device) =>
+                            device.is_online,
+                        ).length;
+
+                      return (
+                        onlineCount +
+                        (
+                          onlineCount === 1
+                            ? " device online"
+                            : " devices online"
+                        )
+                      );
+                    })()}
+                  </small>
+                </span>
+
+                <Icon
+                  name="chevron"
+                  size={15}
+                />
+              </button>
+
+              {devicesOpen ? (
+                <div className="hs-playback-device-panel">
+                  <PlaybackDevicesPanel
+                    devices={
+                      playbackDevices
+                    }
+                    currentDeviceId={
+                      currentPlaybackDeviceId
+                    }
+                    controlledDeviceId={
+                      controlledPlaybackDeviceId
+                    }
+                    onSelectDevice={(
+                      deviceId,
+                    ) => {
+                      onSelectPlaybackDevice?.(
+                        deviceId,
+                      );
+                    }}
+                    onTransferToDevice={(
+                      deviceId,
+                    ) => {
+                      void onPlaybackDeviceCommand?.(
+                        deviceId,
+                        "transfer",
+                      );
+                    }}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
           <button
             type="button"
             className="hs-install-app-control"
