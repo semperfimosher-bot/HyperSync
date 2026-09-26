@@ -120,7 +120,7 @@ export default function AdminUploadsPage() {
       try {
         const result =
           await apiRequest(
-            "/admin/tracks/backfill-metadata?limit=500",
+            "/admin/tracks/backfill-metadata?limit=500&external_limit=12",
             {
               method:
                 "POST",
@@ -151,6 +151,15 @@ export default function AdminUploadsPage() {
           + String(
               result?.year_updated ?? 0,
             )
+          + " • external "
+          + String(
+              result?.external_matched ?? 0,
+            )
+          + "/"
+          + String(
+              result?.external_checked ?? 0,
+            )
+          + " matched"
           + (
               Array.isArray(
                 result?.failed,
@@ -385,7 +394,7 @@ export default function AdminUploadsPage() {
               }}
             >
               {metadataBackfillBusy
-                ? "Reading metadata..."
+                ? "Reading tags + catalog..."
                 : "Backfill Genre & Year"}
             </button>
 
