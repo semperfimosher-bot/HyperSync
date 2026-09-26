@@ -285,7 +285,7 @@ async def test_profile_dashboard_populates_media_cache_metadata() -> None:
         fake_session.statements[5],
     ).upper()
 
-    assert "LIMIT" not in recent_query
+    assert "LIMIT" in recent_query
 
     assert (
         len(
