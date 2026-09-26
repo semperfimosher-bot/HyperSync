@@ -184,16 +184,28 @@ async def send_password_recovery_email(
       <div style="font-size:30px;letter-spacing:8px;font-weight:700;padding:14px 18px;background:#071018;border:1px solid #274657;border-radius:10px;text-align:center;user-select:all">{otp_code}</div>
       <p>This code expires in {expires_minutes} minutes.</p>
       <p>Use the button below to open HyperSync with the code already filled in.</p>
-      <p>
-        <a href="{safe_use_code_url}" style="display:inline-block;padding:12px 18px;background:#0aa9ef;color:white;text-decoration:none;border-radius:10px;font-weight:700">
-          USE RECOVERY CODE
-        </a>
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:18px 0">
+        <tr>
+          <td bgcolor="#0aa9ef" style="border-radius:10px">
+            <a href="{safe_use_code_url}" style="display:inline-block;padding:13px 20px;font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px">
+              USE RECOVERY CODE
+            </a>
+          </td>
+        </tr>
+      </table>
+      <p style="font-size:13px;color:#9ab0bc">
+        If the button does not appear, open this link:<br>
+        <a href="{safe_use_code_url}" style="color:#66d2ff;word-break:break-all">{safe_use_code_url}</a>
       </p>
-      <p>
-        <a href="{safe_reset_url}" style="display:inline-block;padding:12px 18px;background:#183647;color:#eaf7ff;text-decoration:none;border-radius:10px">
-          Reset password
-        </a>
-      </p>
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:18px 0">
+        <tr>
+          <td bgcolor="#183647" style="border-radius:10px">
+            <a href="{safe_reset_url}" style="display:inline-block;padding:12px 18px;font-family:Arial,sans-serif;font-size:14px;color:#eaf7ff;text-decoration:none;border-radius:10px">
+              Reset password
+            </a>
+          </td>
+        </tr>
+      </table>
       <p style="color:#9ab0bc;font-size:13px">If you did not request account recovery, you can ignore this email.</p>
     </div>
   </body>
