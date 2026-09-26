@@ -154,19 +154,19 @@ function memberFor(value) {
     return `${Math.max(
       days,
       1,
-    )}d on HyperSync`;
+    )}d on HyperSynced`;
   }
 
   if (days < 365) {
     return `${Math.max(
       1,
       Math.floor(days / 30),
-    )}mo on HyperSync`;
+    )}mo on HyperSynced`;
   }
 
   return `${Math.floor(
     days / 365,
-  )}y on HyperSync`;
+  )}y on HyperSynced`;
 }
 
 
@@ -2607,7 +2607,7 @@ async function downloadOpenedPlaylist() {
         <small>
           {
             openedPlaylist.owner_username ||
-            "HyperSync"
+            "HyperSynced"
           }
           {" • "}
           {
@@ -3930,7 +3930,7 @@ displayResults.tracks.length > 0 ? (
           </h3>
 
           <p>
-            Try typing a song title, artist, album, or username. HyperSync will prioritize the strongest music matches first.
+            Try typing a song title, artist, album, or username. HyperSynced will prioritize the strongest music matches first.
           </p>
 
           <div className="hs-search-quick-commands">
