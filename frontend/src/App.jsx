@@ -7915,6 +7915,24 @@ const clearPlaylistToOpen =
         onInstallApp={
           handleInstallApp
         }
+        playbackDevices={
+          playbackDevices
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
+        }
+        controlledPlaybackDeviceId={
+          controlledPlaybackDeviceId
+        }
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        onSelectPlaybackDevice={
+          setControlledPlaybackDeviceId
+        }
+        onPlaybackDeviceCommand={
+          sendAccountPlaybackCommand
+        }
       />
 
       <MobileBottomNav
