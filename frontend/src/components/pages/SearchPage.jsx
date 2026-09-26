@@ -1128,15 +1128,6 @@ useEffect(() => {
     command.query,
   );
 
-  if (command.focus) {
-    window.requestAnimationFrame(
-      () => {
-        searchInputRef
-          .current
-          ?.focus();
-      },
-    );
-  }
 }
 
   /*
