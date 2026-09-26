@@ -4,6 +4,7 @@ import mimetypes
 from datetime import (
     UTC,
     datetime,
+    timedelta,
 )
 from typing import (
     Annotated,
@@ -32,6 +33,8 @@ from ...database import get_session_factory
 from ...models.account import (
     AccountType,
     ListeningEvent,
+    PlaybackCommand,
+    PlaybackDevice,
     User,
     UserAppState,
     UserFollow,
@@ -62,6 +65,15 @@ router = APIRouter(
     prefix="/users",
     tags=["users"],
 )
+
+
+PLAYBACK_DEVICE_ONLINE_TTL = timedelta(
+    seconds=90,
+)
+
+PLAYBACK_DEVICE_LIST_LIMIT = 20
+
+PLAYBACK_COMMAND_BATCH_LIMIT = 32
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -194,6 +206,102 @@ class PlaybackStateUpdateRequest(
         min_length=1,
         max_length=64,
     )
+
+
+PlaybackDeviceKind = Literal[
+    "desktop",
+    "mobile",
+    "tablet",
+    "browser",
+]
+
+
+class PlaybackDevicePollRequest(
+    BaseModel,
+):
+    device_id: str = Field(
+        min_length=1,
+        max_length=64,
+    )
+
+    name: str = Field(
+        min_length=1,
+        max_length=120,
+    )
+
+    device_type: PlaybackDeviceKind = (
+        "browser"
+    )
+
+
+class PlaybackDeviceResponse(
+    BaseModel,
+):
+    device_id: str
+
+    name: str
+
+    device_type: PlaybackDeviceKind
+
+    is_online: bool
+
+    is_active: bool
+
+    last_seen_at: datetime
+
+
+PlaybackRemoteAction = Literal[
+    "play",
+    "pause",
+    "next",
+    "previous",
+    "seek",
+    "volume",
+    "transfer",
+]
+
+
+class PlaybackRemoteCommandRequest(
+    BaseModel,
+):
+    source_device_id: str = Field(
+        min_length=1,
+        max_length=64,
+    )
+
+    action: PlaybackRemoteAction
+
+    value: float | None = None
+
+
+class PlaybackRemoteCommandResponse(
+    BaseModel,
+):
+    id: UUID
+
+    source_device_id: str
+
+    target_device_id: str
+
+    action: PlaybackRemoteAction
+
+    value: float | None = None
+
+    created_at: datetime
+
+
+class PlaybackDevicePollResponse(
+    BaseModel,
+):
+    devices: list[
+        PlaybackDeviceResponse
+    ]
+
+    commands: list[
+        PlaybackRemoteCommandResponse
+    ]
+
+    playback_state: PlaybackStateResponse
 
 
 class ListeningOutcomeRequest(
@@ -568,6 +676,110 @@ async def build_playback_state(
             state.playback_updated_at
         ),
     )
+
+
+def playback_device_is_online(
+    last_seen_at: datetime,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    normalized_last_seen = (
+        last_seen_at
+        if last_seen_at.tzinfo
+        is not None
+        else last_seen_at.replace(
+            tzinfo=UTC,
+        )
+    )
+
+    return (
+        reference -
+        normalized_last_seen
+        <=
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+
+async def list_playback_devices(
+    session: DatabaseSession,
+    user: User,
+    *,
+    active_device_id: str | None,
+    now: datetime | None = None,
+) -> list[
+    PlaybackDeviceResponse
+]:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    result = await session.execute(
+        select(
+            PlaybackDevice,
+        )
+        .where(
+            PlaybackDevice.user_id
+            == user.id,
+        )
+        .order_by(
+            PlaybackDevice.last_seen_at.desc(),
+        )
+        .limit(
+            PLAYBACK_DEVICE_LIST_LIMIT,
+        )
+    )
+
+    devices = list(
+        result.scalars().all()
+    )
+
+    return [
+        PlaybackDeviceResponse(
+            device_id=(
+                device.device_id
+            ),
+            name=device.name,
+            device_type=cast(
+                PlaybackDeviceKind,
+                device.device_type
+                if device.device_type in {
+                    "desktop",
+                    "mobile",
+                    "tablet",
+                    "browser",
+                }
+                else "browser",
+            ),
+            is_online=(
+                playback_device_is_online(
+                    device.last_seen_at,
+                    now=reference,
+                )
+            ),
+            is_active=(
+                active_device_id
+                is not None
+                and device.device_id
+                == active_device_id
+            ),
+            last_seen_at=(
+                device.last_seen_at
+            ),
+        )
+        for device in devices
+    ]
 
 
 async def accepted_followers_count(
@@ -1632,6 +1844,262 @@ async def update_my_playback_state(
     return await build_playback_state(
         session,
         user,
+    )
+
+
+@router.post(
+    "/me/playback-devices/poll",
+    response_model=PlaybackDevicePollResponse,
+)
+async def poll_my_playback_device(
+    payload: PlaybackDevicePollRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    require_registered_playback_user(
+        user,
+    )
+
+    now = datetime.now(
+        UTC,
+    )
+
+    device = await session.get(
+        PlaybackDevice,
+        (
+            user.id,
+            payload.device_id,
+        ),
+    )
+
+    if device is None:
+        device = PlaybackDevice(
+            user_id=user.id,
+            device_id=(
+                payload.device_id
+            ),
+            name=payload.name,
+            device_type=(
+                payload.device_type
+            ),
+            last_seen_at=now,
+        )
+
+        session.add(
+            device,
+        )
+
+    else:
+        device.name = payload.name
+        device.device_type = (
+            payload.device_type
+        )
+        device.last_seen_at = now
+
+    commands_result = (
+        await session.execute(
+            select(
+                PlaybackCommand,
+            )
+            .where(
+                PlaybackCommand.user_id
+                == user.id,
+                PlaybackCommand.target_device_id
+                == payload.device_id,
+                PlaybackCommand.consumed_at.is_(
+                    None,
+                ),
+            )
+            .order_by(
+                PlaybackCommand.created_at.asc(),
+            )
+            .limit(
+                PLAYBACK_COMMAND_BATCH_LIMIT,
+            )
+        )
+    )
+
+    commands = list(
+        commands_result.scalars().all()
+    )
+
+    for command in commands:
+        command.consumed_at = now
+
+    await session.commit()
+
+    playback_state = (
+        await build_playback_state(
+            session,
+            user,
+        )
+    )
+
+    devices = (
+        await list_playback_devices(
+            session,
+            user,
+            active_device_id=(
+                playback_state.device_id
+            ),
+            now=now,
+        )
+    )
+
+    return PlaybackDevicePollResponse(
+        devices=devices,
+        commands=[
+            PlaybackRemoteCommandResponse(
+                id=command.id,
+                source_device_id=(
+                    command.source_device_id
+                ),
+                target_device_id=(
+                    command.target_device_id
+                ),
+                action=cast(
+                    PlaybackRemoteAction,
+                    command.action,
+                ),
+                value=command.value,
+                created_at=(
+                    command.created_at
+                ),
+            )
+            for command in commands
+        ],
+        playback_state=(
+            playback_state
+        ),
+    )
+
+
+@router.post(
+    "/me/playback-devices/{target_device_id}/commands",
+    response_model=PlaybackRemoteCommandResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_playback_device_command(
+    target_device_id: str,
+    payload: PlaybackRemoteCommandRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    require_registered_playback_user(
+        user,
+    )
+
+    target = await session.get(
+        PlaybackDevice,
+        (
+            user.id,
+            target_device_id,
+        ),
+    )
+
+    if target is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail=(
+                "Playback device not found."
+            ),
+        )
+
+    now = datetime.now(
+        UTC,
+    )
+
+    if not playback_device_is_online(
+        target.last_seen_at,
+        now=now,
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "That playback device is offline."
+            ),
+        )
+
+    value = payload.value
+
+    if payload.action == "seek":
+        if (
+            value is None
+            or value < 0
+            or value > 86_400
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Seek commands require a "
+                    "position between 0 and "
+                    "86400 seconds."
+                ),
+            )
+
+    elif payload.action == "volume":
+        if (
+            value is None
+            or value < 0
+            or value > 1
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Volume commands require "
+                    "a value between 0 and 1."
+                ),
+            )
+
+    else:
+        value = None
+
+    command = PlaybackCommand(
+        user_id=user.id,
+        target_device_id=(
+            target_device_id
+        ),
+        source_device_id=(
+            payload.source_device_id
+        ),
+        action=payload.action,
+        value=value,
+    )
+
+    session.add(
+        command,
+    )
+
+    await session.commit()
+
+    await session.refresh(
+        command,
+    )
+
+    return PlaybackRemoteCommandResponse(
+        id=command.id,
+        source_device_id=(
+            command.source_device_id
+        ),
+        target_device_id=(
+            command.target_device_id
+        ),
+        action=cast(
+            PlaybackRemoteAction,
+            command.action,
+        ),
+        value=command.value,
+        created_at=(
+            command.created_at
+        ),
     )
 
 
