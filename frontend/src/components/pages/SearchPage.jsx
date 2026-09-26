@@ -81,6 +81,10 @@ import {
   unsavePlaylist,
 } from "../../playlistApi.js";
 
+import {
+  filterPlaylistTracks,
+} from "../../playlistTrackSearch.js";
+
 
 const EMPTY_RESULTS = {
   query: "",
@@ -307,6 +311,11 @@ function SearchPage({
 ] = useState(null);
 
 const [
+  playlistSearchQuery,
+  setPlaylistSearchQuery,
+] = useState("");
+
+const [
   playlistOpeningId,
   setPlaylistOpeningId,
 ] = useState(null);
@@ -495,6 +504,10 @@ useEffect(() => {
 useEffect(() => {
   setOpenedPlaylist(
     null,
+  );
+
+  setPlaylistSearchQuery(
+    "",
   );
 
   setPlaylistError(
@@ -926,6 +939,28 @@ useEffect(() => {
       [results.counts],
     );
 
+  const filteredOpenedPlaylistTracks =
+    useMemo(
+      () =>
+        filterPlaylistTracks(
+          openedPlaylist?.tracks ??
+            [],
+          playlistSearchQuery,
+        ),
+      [
+        openedPlaylist?.tracks,
+        playlistSearchQuery,
+      ],
+    );
+
+  useEffect(() => {
+    setPlaylistSearchQuery(
+      "",
+    );
+  }, [
+    openedPlaylist?.id,
+  ]);
+
     function runQuickCommand(
   command,
 ) {
@@ -1351,6 +1386,10 @@ useEffect(() => {
 
 
 function closeSearchPlaylist() {
+  setPlaylistSearchQuery(
+    "",
+  );
+
   setOpenedPlaylist(
     null,
   );
@@ -1370,10 +1409,17 @@ function closeSearchPlaylist() {
 
 function playOpenedPlaylist(
   startIndex = 0,
+  tracksOverride = null,
 ) {
   const tracks =
-    openedPlaylist?.tracks ??
-    [];
+    Array.isArray(
+      tracksOverride,
+    )
+      ? tracksOverride
+      : (
+          openedPlaylist?.tracks ??
+          []
+        );
 
   if (!tracks.length) {
     return;
@@ -2448,19 +2494,119 @@ async function downloadOpenedPlaylist() {
         </div>
 
         <strong>
-          {
-            openedPlaylist.tracks
-              ?.length ??
-            0
-          }
+          {playlistSearchQuery.trim()
+            ? (
+                filteredOpenedPlaylistTracks.length +
+                " / " +
+                (
+                  openedPlaylist.tracks
+                    ?.length ??
+                  0
+                )
+              )
+            : (
+                openedPlaylist.tracks
+                  ?.length ??
+                0
+              )}
         </strong>
 
       </div>
 
+      {(openedPlaylist.tracks?.length ??
+      0) > 0 ? (
+        <div className="hs-playlist-track-search">
+          <label>
+            <Icon
+              name="search"
+              size={15}
+            />
 
+            <input
+              type="search"
+              value={
+                playlistSearchQuery
+              }
+              placeholder="Search in playlist"
+              aria-label={
+                `Search in ${openedPlaylist.title}`
+              }
+              onChange={(
+                event,
+              ) => {
+                setPlaylistSearchQuery(
+                  event.target.value,
+                );
+              }}
+            />
+          </label>
+
+          <span>
+            {playlistSearchQuery.trim()
+              ? (
+                  filteredOpenedPlaylistTracks.length +
+                  " of " +
+                  (
+                    openedPlaylist.tracks
+                      ?.length ??
+                    0
+                  ) +
+                  " tracks"
+                )
+              : (
+                  (
+                    openedPlaylist.tracks
+                      ?.length ??
+                    0
+                  ) +
+                  (
+                    openedPlaylist.tracks?.length ===
+                      1
+                      ? " track"
+                      : " tracks"
+                  )
+                )}
+          </span>
+
+          {playlistSearchQuery ? (
+            <button
+              type="button"
+              onClick={() => {
+                setPlaylistSearchQuery(
+                  "",
+                );
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+
+      {filteredOpenedPlaylistTracks.length ===
+      0 &&
+      playlistSearchQuery.trim() ? (
+        <div className="hs-search-message hs-playlist-search-empty">
+          <Icon
+            name="search"
+            size={22}
+          />
+
+          <div>
+            <strong>
+              No matches in this playlist
+            </strong>
+
+            <p>
+              Try a song title, artist, or album.
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="hs-search-track-list">
 
-        {openedPlaylist.tracks?.map(
+        {filteredOpenedPlaylistTracks.map(
           (
             track,
             trackIndex,
@@ -2504,6 +2650,7 @@ async function downloadOpenedPlaylist() {
                 onClick={() => {
                   playOpenedPlaylist(
                     trackIndex,
+                    filteredOpenedPlaylistTracks,
                   );
                 }}
                 onKeyDown={(
@@ -2519,6 +2666,7 @@ async function downloadOpenedPlaylist() {
 
                     playOpenedPlaylist(
                       trackIndex,
+                      filteredOpenedPlaylistTracks,
                     );
                   }
                 }}
@@ -2704,6 +2852,7 @@ async function downloadOpenedPlaylist() {
         )}
 
       </div>
+      )}
 
     </section>
 
