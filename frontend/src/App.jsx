@@ -68,6 +68,9 @@ import useTrackActionMenu from
 import PlaylistUpdateNotice from "./components/ui/PlaylistUpdateNotice.jsx";
 import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.jsx";
 
+import NotificationDetailOverlay from
+  "./components/ui/NotificationDetailOverlay.jsx";
+
 import PlaybackDevicesPanel from
   "./components/player/PlaybackDevicesPanel.jsx";
 
@@ -143,6 +146,7 @@ import {
 import {
   getMessageNotifications,
   markAdminNotificationRead,
+  markMessageNotificationRead,
 } from "./messageApi.js";
 
 import {
@@ -3598,7 +3602,7 @@ function PlayerBar({
   onOpenAuth,
   messageNotifications,
   onOpenMessage,
-  onReadAdminNotification,
+  onOpenNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -4573,20 +4577,17 @@ function PlayerBar({
                 data={
                   messageNotifications
                 }
-                onOpenMessage={(
-                  username,
+                onOpenNotification={(
+                  notification,
                 ) => {
                   setNotificationsOpen(
                     false,
                   );
 
-                  onOpenMessage?.(
-                    username,
+                  onOpenNotification?.(
+                    notification,
                   );
                 }}
-                onReadAdminNotification={
-                  onReadAdminNotification
-                }
                 onEnablePush={
                   onEnablePush
                 }
@@ -5243,6 +5244,11 @@ export default function App() {
     notifications:
       [],
   });
+
+  const [
+    notificationDetail,
+    setNotificationDetail,
+  ] = useState(null);
 
   const [
     pushBusy,
@@ -7163,22 +7169,44 @@ const checkDownloadedGeneratedPlaylistUpdates =
   );
 
 
-  const readAdminNotification =
+  const openNotificationDetail =
     useCallback(
-      async (
-        notificationId,
+      (
+        notification,
       ) => {
-        if (!notificationId) {
+        if (!notification) {
           return;
         }
 
-        try {
-          await markAdminNotificationRead(
-            notificationId,
-          );
-        } finally {
-          await refreshMessageNotifications();
-        }
+        setNotificationDetail(
+          notification,
+        );
+
+        void (
+          async () => {
+            try {
+              if (
+                notification.type ===
+                "admin_activity"
+              ) {
+                await markAdminNotificationRead(
+                  notification
+                    .notification_id,
+                );
+              } else {
+                await markMessageNotificationRead(
+                  notification
+                    .message_id,
+                );
+              }
+            } catch {
+              // The detail overlay can still show the
+              // locally received notification payload.
+            } finally {
+              await refreshMessageNotifications();
+            }
+          }
+        )();
       },
       [
         refreshMessageNotifications,
@@ -7232,6 +7260,7 @@ const persistAppView =
   setCurrentUser(null);
   setPlaylistUpdates([]);
   setMessageToOpen("");
+  setNotificationDetail(null);
   setMessageNotifications({
     unread_count:
       0,
@@ -8148,8 +8177,8 @@ const clearPlaylistToOpen =
     onOpenMessage={
       openMessageUser
     }
-    onReadAdminNotification={
-      readAdminNotification
+    onOpenNotification={
+      openNotificationDetail
     }
     onEnablePush={() => {
       void handleEnablePush();
@@ -8300,8 +8329,8 @@ const clearPlaylistToOpen =
         onOpenMessage={
           openMessageUser
         }
-        onReadAdminNotification={
-          readAdminNotification
+        onOpenNotification={
+          openNotificationDetail
         }
         onEnablePush={() => {
           void handleEnablePush();
@@ -8396,6 +8425,23 @@ const clearPlaylistToOpen =
       "",
     );
   }}
+/>
+
+<NotificationDetailOverlay
+  notification={
+    notificationDetail
+  }
+  onClose={() => {
+    setNotificationDetail(
+      null,
+    );
+  }}
+  onOpenMessage={
+    openMessageUser
+  }
+  onOpenSharedMusic={
+    openSharedMusicFromMessage
+  }
 />
 
 <AuthOverlay
