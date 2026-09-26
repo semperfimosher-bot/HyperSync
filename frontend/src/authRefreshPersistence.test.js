@@ -37,7 +37,7 @@ function createStorage(
 
 
 test(
-  "failed refresh does not erase the remembered browser session",
+  "rejected refresh clears the stale remembered browser session",
   async () => {
     globalThis.localStorage =
       createStorage({
@@ -88,10 +88,10 @@ test(
         localStorage.getItem(
           "hypersync_session_active",
         ),
-        "true",
+        null,
       );
 
-      assert.notEqual(
+      assert.equal(
         localStorage.getItem(
           "hypersync_user_profile",
         ),
@@ -200,6 +200,20 @@ test(
       assert.equal(
         client.isAuthRefreshCoolingDown(),
         true,
+      );
+
+      assert.equal(
+        localStorage.getItem(
+          "hypersync_session_active",
+        ),
+        "true",
+      );
+
+      assert.notEqual(
+        localStorage.getItem(
+          "hypersync_user_profile",
+        ),
+        null,
       );
     } finally {
       globalThis.fetch =
