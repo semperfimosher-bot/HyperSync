@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import (
@@ -51,11 +52,45 @@ router = APIRouter(
     tags=["messages"],
 )
 
+SharedMusicKind = Literal[
+    "track",
+    "album",
+    "artist",
+    "playlist",
+]
+
+
+class SharedMusicItem(BaseModel):
+    kind: SharedMusicKind
+
+    key: str = Field(
+        min_length=1,
+        max_length=512,
+    )
+
+    title: str = Field(
+        min_length=1,
+        max_length=300,
+    )
+
+    subtitle: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+
+    artwork_url: str | None = Field(
+        default=None,
+        max_length=4096,
+    )
+
+
 class MessageCreateRequest(BaseModel):
     body: str = Field(
-        min_length=1,
+        default="",
         max_length=2000,
     )
+
+    shared_music: SharedMusicItem | None = None
 
 
 class MessageResponse(BaseModel):
@@ -67,6 +102,8 @@ class MessageResponse(BaseModel):
     viewed_at: datetime | None
     expires_at: datetime | None
     mine: bool
+
+    shared_music: SharedMusicItem | None = None
 
 
 class MessageUserResponse(BaseModel):
@@ -155,6 +192,73 @@ def _avatar_url(
     )
 
 
+def _message_preview(
+    message: Message,
+) -> str:
+    body = (
+        message.body or ""
+    ).strip()
+
+    if body:
+        return body
+
+    if (
+        message.shared_kind
+        and message.shared_title
+    ):
+        labels = {
+            "track": "song",
+            "album": "album",
+            "artist": "artist",
+            "playlist": "playlist",
+        }
+
+        label = labels.get(
+            message.shared_kind,
+            "music",
+        )
+
+        return (
+            "Shared a "
+            + label
+            + ": "
+            + message.shared_title
+        )
+
+    return "Shared music"
+
+
+def _shared_music_response(
+    message: Message,
+) -> SharedMusicItem | None:
+    if (
+        not message.shared_kind
+        or not message.shared_key
+        or not message.shared_title
+    ):
+        return None
+
+    if message.shared_kind not in {
+        "track",
+        "album",
+        "artist",
+        "playlist",
+    }:
+        return None
+
+    return SharedMusicItem(
+        kind=message.shared_kind,
+        key=message.shared_key,
+        title=message.shared_title,
+        subtitle=(
+            message.shared_subtitle
+        ),
+        artwork_url=(
+            message.shared_artwork_url
+        ),
+    )
+
+
 def _message_user(
     user: User,
 ) -> MessageUserResponse:
@@ -191,6 +295,11 @@ def _message_response(
         viewed_at=message.viewed_at,
         expires_at=expires_at,
         mine=message.sender_id == viewer.id,
+        shared_music=(
+            _shared_music_response(
+                message,
+            )
+        ),
     )
 
 
@@ -336,7 +445,11 @@ async def list_conversations(
                 username=summary.username,
                 display_name=summary.display_name,
                 avatar_url=summary.avatar_url,
-                latest_body=message.body,
+                latest_body=(
+                    _message_preview(
+                        message,
+                    )
+                ),
                 latest_at=message.created_at,
                 unread_count=unread_by_user.get(
                     other_id,
@@ -481,16 +594,50 @@ async def send_message(
 
     body = payload.body.strip()
 
-    if not body:
+    shared_music = (
+        payload.shared_music
+    )
+
+    if (
+        not body
+        and shared_music is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Message cannot be empty.",
+            detail=(
+                "Message cannot be empty."
+            ),
         )
 
     message = Message(
         sender_id=user.id,
         recipient_id=target.id,
         body=body,
+        shared_kind=(
+            shared_music.kind
+            if shared_music
+            else None
+        ),
+        shared_key=(
+            shared_music.key
+            if shared_music
+            else None
+        ),
+        shared_title=(
+            shared_music.title
+            if shared_music
+            else None
+        ),
+        shared_subtitle=(
+            shared_music.subtitle
+            if shared_music
+            else None
+        ),
+        shared_artwork_url=(
+            shared_music.artwork_url
+            if shared_music
+            else None
+        ),
     )
 
     session.add(message)
@@ -602,7 +749,11 @@ async def message_notifications(
                 sender_avatar_url=(
                     summary.avatar_url
                 ),
-                preview=message.body[:120],
+                preview=(
+                    _message_preview(
+                        message,
+                    )[:120]
+                ),
                 created_at=message.created_at,
             )
         )
