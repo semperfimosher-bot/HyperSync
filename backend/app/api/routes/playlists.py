@@ -43,6 +43,7 @@ from ...services.admin_notifications import (
     record_admin_activity,
 )
 from ...services.generated_playlists import (
+    ensure_smart_playlist,
     refresh_generated_playlist_if_stale,
 )
 
@@ -57,6 +58,15 @@ PlaylistVisibility = Literal[
     "unlisted",
     "public",
 ]
+
+
+class GeneratedPlaylistCreateRequest(
+    BaseModel,
+):
+    query: str = Field(
+        min_length=1,
+        max_length=200,
+    )
 
 
 class PlaylistCreateRequest(
@@ -204,6 +214,9 @@ class PlaylistSummaryResponse(
     is_saved: bool = False
 
     is_liked_songs: bool = False
+
+    generated_kind: str | None = None
+    generated_query: str | None = None
 
     created_at: datetime
 
@@ -503,6 +516,12 @@ async def serialize_playlist_summary(
         is_owner=is_owner,
         is_saved=is_saved,
         is_liked_songs=is_liked_songs,
+        generated_kind=(
+            playlist.generated_kind
+        ),
+        generated_query=(
+            playlist.generated_query
+        ),
         created_at=(playlist.created_at),
         updated_at=(playlist.updated_at),
     )
@@ -677,13 +696,21 @@ async def get_my_playlists(
 
     playlists = list(result.scalars().all())
 
+    refreshed_playlists = [
+        await refresh_generated_playlist_if_stale(
+            session,
+            playlist,
+        )
+        for playlist in playlists
+    ]
+
     return [
         await serialize_playlist_summary(
             session,
             playlist,
             user,
         )
-        for playlist in playlists
+        for playlist in refreshed_playlists
     ]
 
 
@@ -1003,6 +1030,54 @@ async def get_liked_playlist(
         await session.flush()
 
     return playlist
+
+
+@router.post(
+    "/generated",
+    response_model=(
+        PlaylistDetailResponse
+    ),
+    status_code=(
+        status.HTTP_201_CREATED
+    ),
+)
+async def create_generated_playlist(
+    payload: GeneratedPlaylistCreateRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> PlaylistDetailResponse:
+    require_registered_user(
+        user,
+    )
+
+    query = " ".join(
+        payload.query.split()
+    )
+
+    playlist = (
+        await ensure_smart_playlist(
+            session,
+            user.id,
+            query,
+        )
+    )
+
+    if playlist is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail=(
+                "No published music matches "
+                "that playlist description yet."
+            ),
+        )
+
+    return await serialize_playlist_detail(
+        session,
+        playlist,
+        user,
+    )
 
 
 @router.get(
