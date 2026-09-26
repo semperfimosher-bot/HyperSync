@@ -6979,6 +6979,7 @@ button > span:nth-child(2) {
 
 .hs-shared-music-card {
   display: grid;
+  width: 100%;
   min-width: 0;
   grid-template-columns:
     46px
@@ -7050,6 +7051,71 @@ button > span:nth-child(2) {
   color: #6e8d99;
   font-size: 7px;
   font-style: normal;
+}
+
+button.hs-shared-music-card {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+button.hs-shared-music-card:hover,
+button.hs-shared-music-card:focus-visible {
+  border-color:
+    rgba(77, 227, 255, 0.42);
+  background:
+    rgba(5, 31, 42, 0.88);
+  outline: none;
+}
+
+button.hs-shared-music-card:active {
+  transform:
+    translateY(1px);
+}
+
+.hs-message-composer-share {
+  display: grid;
+  grid-column:
+    1 / -1;
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto;
+  align-items: center;
+  gap: 7px;
+  padding:
+    0
+    0
+    2px;
+}
+
+.hs-message-composer-share >
+.hs-shared-music-card {
+  max-width: 420px;
+}
+
+.hs-message-composer-share > button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border:
+    1px solid
+    rgba(89, 159, 184, 0.16);
+  border-radius: 8px;
+  color: #7399a7;
+  background:
+    rgba(6, 24, 33, 0.82);
+}
+
+.hs-message-composer-share > button:hover {
+  border-color:
+    rgba(77, 227, 255, 0.36);
+  color: #d8f7fc;
 }
 
 .hs-messages-console__copy {
