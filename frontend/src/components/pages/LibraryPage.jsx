@@ -4931,7 +4931,6 @@ if (offline) {
 
               <input
                 type="text"
-                autoFocus
                 maxLength={120}
                 placeholder="Playlist name"
                 value={
