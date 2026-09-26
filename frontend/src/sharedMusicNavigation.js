@@ -209,15 +209,10 @@ export function sharedMusicSearchQuery(
     item.kind ===
       "track"
   ) {
-    return [
-      item.title,
-      item.subtitle,
-    ]
-      .filter(Boolean)
-      .join(
-        " ",
-      )
-      .trim();
+    return String(
+      item.title ??
+      "",
+    ).trim();
   }
 
   if (
