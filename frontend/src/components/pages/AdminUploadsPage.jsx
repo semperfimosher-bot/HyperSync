@@ -146,7 +146,7 @@ export default function AdminUploadsPage() {
             <p className="admin-command-console__copy">
               Stage tracks, inspect metadata,
               watch upload progress, and publish
-              directly into the HyperSync catalog.
+              directly into the HyperSynced catalog.
             </p>
           </div>
         </div>
