@@ -15,6 +15,10 @@ import {
   searchUsers,
 } from "../../profileApi.js";
 
+import {
+  resolveArtworkUrl,
+} from "../../artworkUrl.js";
+
 import Avatar from
   "../profile/Avatar.jsx";
 
@@ -90,13 +94,18 @@ function SharedMusicCard({
     return null;
   }
 
+  const artwork =
+    resolveArtworkUrl(
+      item.artwork_url,
+    );
+
   return (
     <div className="hs-shared-music-card">
       <span className="hs-shared-music-card__art">
-        {item.artwork_url ? (
+        {artwork ? (
           <img
             src={
-              item.artwork_url
+              artwork
             }
             alt=""
           />
