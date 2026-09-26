@@ -41,6 +41,7 @@ from ...models.playlist import (
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
+    smart_query_has_semantic_signal,
     smart_track_score,
 )
 from ...services.search import (
@@ -617,6 +618,35 @@ async def _load_track_candidates(
     if direct:
         return direct
 
+    if not smart_query_has_semantic_signal(
+        parsed.raw,
+    ):
+        if len(term) < 3 or _is_postgresql(
+            session,
+        ):
+            return []
+
+        fuzzy_result = await session.execute(
+            select(
+                Track,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+            .order_by(
+                Track.created_at.desc(),
+            )
+            .limit(
+                TRACK_CANDIDATE_LIMIT,
+            )
+        )
+
+        return list(
+            fuzzy_result.scalars().all()
+        )
+
     smart_result = await session.execute(
         select(
             Track,
@@ -661,29 +691,7 @@ async def _load_track_candidates(
             :TRACK_CANDIDATE_LIMIT
         ]
 
-    if len(term) < 3 or _is_postgresql(
-        session,
-    ):
-        return []
-
-    fuzzy_result = await session.execute(
-        select(
-            Track,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            )
-        )
-        .order_by(
-            Track.created_at.desc(),
-        )
-        .limit(
-            TRACK_CANDIDATE_LIMIT,
-        )
-    )
-
-    return list(fuzzy_result.scalars().all())
+    return []
 
 
 async def _global_play_counts(
