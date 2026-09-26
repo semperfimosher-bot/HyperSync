@@ -1,5 +1,7 @@
 import {
+  memo,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -93,10 +95,17 @@ function DesktopRightRail({
     );
 
   const upcomingQueue =
-  getUpcomingQueueEntries(
-    state.queue,
-    state.queueIndex,
-  );
+    useMemo(
+      () =>
+        getUpcomingQueueEntries(
+          state.queue,
+          state.queueIndex,
+        ),
+      [
+        state.queue,
+        state.queueIndex,
+      ],
+    );
 
   const selectTab = (
     tab,
@@ -451,4 +460,6 @@ function DesktopRightRail({
 }
 
 
-export default DesktopRightRail;
+export default memo(
+  DesktopRightRail,
+);
