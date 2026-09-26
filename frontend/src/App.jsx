@@ -77,6 +77,7 @@ import MobilePlayerDetails from
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
 import PasswordRecoveryOverlay, {
+  readPasswordRecoveryLinkFromLocation,
   readPasswordResetTokenFromLocation,
 } from "./components/auth/PasswordRecoveryOverlay.jsx";
 
@@ -5264,9 +5265,18 @@ export default function App() {
     recoveryOpen,
     setRecoveryOpen,
   ] = useState(
-    () => Boolean(
-      readPasswordResetTokenFromLocation(),
-    ),
+    () => {
+      const recoveryLink =
+        readPasswordRecoveryLinkFromLocation();
+
+      return Boolean(
+        readPasswordResetTokenFromLocation() ||
+        (
+          recoveryLink.identifier &&
+          recoveryLink.code
+        ),
+      );
+    },
   );
 
   const [
@@ -5276,11 +5286,20 @@ export default function App() {
 
   const [authOpen, setAuthOpen] =
     useState(
-      () => (
-        !readPasswordResetTokenFromLocation() &&
-        !shouldRestoreSession() &&
-        !readCachedUserProfile()
-      ),
+      () => {
+        const recoveryLink =
+          readPasswordRecoveryLinkFromLocation();
+
+        return (
+          !readPasswordResetTokenFromLocation() &&
+          !(
+            recoveryLink.identifier &&
+            recoveryLink.code
+          ) &&
+          !shouldRestoreSession() &&
+          !readCachedUserProfile()
+        );
+      },
     );
 
   const [authMode, setAuthMode] =
