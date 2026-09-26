@@ -1760,7 +1760,7 @@ function AdminDashboardPage({
 
       const confirmed =
         window.confirm(
-          "This permanently deletes ALL HyperSync database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
+          "This permanently deletes ALL HyperSynced database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
         );
 
       if (!confirmed) {
@@ -3328,7 +3328,7 @@ function MainPage({
 
               <p>
                 Private messages are available
-                to registered HyperSync accounts.
+                to registered HyperSynced accounts.
               </p>
 
               <button
@@ -4892,14 +4892,14 @@ function AuthOverlay({
         <div className="auth-heading">
           <h2 id="auth-title">
             {isCreate
-              ? "Create your HyperSync account"
+              ? "Create your HyperSynced account"
               : "Welcome to HyperSynced"}
           </h2>
 
           <p>
             {isCreate
               ? (
-                "Create a HyperSync account to save " +
+                "Create a HyperSynced account to save " +
                 "your library and sync across devices."
               )
               : (
@@ -7325,7 +7325,7 @@ const persistAppView =
       ? "Profile"
       : PAGE_TITLES[
           activePage
-        ] ?? "HyperSync";
+        ] ?? "HyperSynced";
 
   const appClassName = useMemo(
     () => (
