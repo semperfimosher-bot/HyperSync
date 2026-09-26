@@ -39,6 +39,9 @@ from .catalog import (
     _track_media_version,
 )
 
+from ...services.admin_notifications import (
+    record_admin_activity,
+)
 from ...services.generated_playlists import (
     refresh_generated_playlist_if_stale,
 )
@@ -1109,6 +1112,25 @@ async def like_track(
 
         await session.commit()
 
+        await record_admin_activity(
+            kind="track",
+            title="Song liked",
+            body=(
+                "@"
+                + str(
+                    user.username
+                    or "unknown",
+                )
+                + ' liked "'
+                + track.title
+                + '" by '
+                + track.artist
+                + "."
+            ),
+            actor_user_id=user.id,
+            actor_username=user.username,
+        )
+
     return LikedTrackStateResponse(
         liked=True,
         playlist_id=playlist.id,
@@ -1157,6 +1179,16 @@ async def unlike_track(
         .first()
     )
 
+    track = (
+        await session.get(
+            Track,
+            track_id,
+        )
+        if playlist_track
+        is not None
+        else None
+    )
+
     if playlist_track is not None:
         await session.delete(
             playlist_track,
@@ -1170,6 +1202,26 @@ async def unlike_track(
         )
 
         await session.commit()
+
+        if track is not None:
+            await record_admin_activity(
+                kind="track",
+                title="Song unliked",
+                body=(
+                    "@"
+                    + str(
+                        user.username
+                        or "unknown",
+                    )
+                    + ' removed "'
+                    + track.title
+                    + '" by '
+                    + track.artist
+                    + " from Liked Songs."
+                ),
+                actor_user_id=user.id,
+                actor_username=user.username,
+            )
 
     return LikedTrackStateResponse(
         liked=False,
@@ -1358,7 +1410,7 @@ async def add_track_to_playlist(
         user,
     )
 
-    await require_playlist_owner(
+    playlist = await require_playlist_owner(
         session,
         playlist_id,
         user,
@@ -1405,6 +1457,27 @@ async def add_track_to_playlist(
         playlist_track,
     )
 
+    await record_admin_activity(
+        kind="track",
+        title="Song added to playlist",
+        body=(
+            "@"
+            + str(
+                user.username
+                or "unknown",
+            )
+            + ' added "'
+            + track.title
+            + '" by '
+            + track.artist
+            + ' to playlist "'
+            + playlist.title
+            + '".'
+        ),
+        actor_user_id=user.id,
+        actor_username=user.username,
+    )
+
     return serialize_playlist_track(
         playlist_track,
         track,
@@ -1424,7 +1497,7 @@ async def remove_track_from_playlist(
         user,
     )
 
-    await require_playlist_owner(
+    playlist = await require_playlist_owner(
         session,
         playlist_id,
         user,
@@ -1441,6 +1514,11 @@ async def remove_track_from_playlist(
             detail=("Playlist track not found."),
         )
 
+    track = await session.get(
+        Track,
+        playlist_track.track_id,
+    )
+
     await session.delete(
         playlist_track,
     )
@@ -1453,6 +1531,28 @@ async def remove_track_from_playlist(
     )
 
     await session.commit()
+
+    if track is not None:
+        await record_admin_activity(
+            kind="track",
+            title="Song removed from playlist",
+            body=(
+                "@"
+                + str(
+                    user.username
+                    or "unknown",
+                )
+                + ' removed "'
+                + track.title
+                + '" by '
+                + track.artist
+                + ' from playlist "'
+                + playlist.title
+                + '".'
+            ),
+            actor_user_id=user.id,
+            actor_username=user.username,
+        )
 
     return {
         "status": "removed",
