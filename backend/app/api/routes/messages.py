@@ -309,6 +309,62 @@ def _admin_message_details(
     )
 
 
+def _legacy_admin_message_details(
+    *,
+    sender_username: str,
+    recipient_username: str,
+    body: str,
+    shared_kind: str | None = None,
+    shared_title: str | None = None,
+    shared_subtitle: str | None = None,
+) -> str:
+    """
+    Reconstruct the pre-hardening notification body only so deleting an
+    old message can remove legacy admin copies that were stored without a
+    source_message_id. New notifications never use this content.
+    """
+
+    details = (
+        "@"
+        + (
+            sender_username
+            or "unknown"
+        )
+        + " sent a message to @"
+        + (
+            recipient_username
+            or "unknown"
+        )
+        + "."
+    )
+
+    if body:
+        details += (
+            "\n\nMessage:\n"
+            + body
+        )
+
+    if (
+        shared_kind
+        and shared_title
+    ):
+        details += (
+            "\n\nShared "
+            + shared_kind
+            + ': "'
+            + shared_title
+            + '"'
+        )
+
+        if shared_subtitle:
+            details += (
+                " — "
+                + shared_subtitle
+            )
+
+    return details
+
+
 def _message_user(
     user: User,
 ) -> MessageUserResponse:
@@ -786,7 +842,7 @@ async def delete_sent_message(
     )
 
     legacy_details = (
-        _admin_message_details(
+        _legacy_admin_message_details(
             sender_username=(
                 user.username
                 or ""
