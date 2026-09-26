@@ -73,6 +73,10 @@ import PlaybackDevicesPanel from
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
+import PasswordRecoveryOverlay, {
+  readPasswordResetTokenFromLocation,
+} from "./components/auth/PasswordRecoveryOverlay.jsx";
+
 import MobileHeader from "./components/layout/MobileHeader.jsx";
 
 import DesktopSidebar from "./components/layout/DesktopSidebar.jsx";
@@ -4530,6 +4534,7 @@ function AuthOverlay({
   onClose,
   onGuest,
   onAuthenticated,
+  onForgotPassword,
 }) {
   const [showPassword, setShowPassword] =
     useState(false);
@@ -4722,7 +4727,7 @@ function AuthOverlay({
               type="text"
               name="username"
               autoComplete="username"
-              placeholder="Username"
+              placeholder="Username or email"
               required
             />
           </label>
@@ -4901,10 +4906,8 @@ function AuthOverlay({
               <button
                 type="button"
                 onClick={() => {
-                  setMessage(
-                    "Password recovery is not " +
-                    "implemented yet.",
-                  );
+                  setMessage("");
+                  onForgotPassword?.();
                 }}
               >
                 Forgot password?
@@ -5077,9 +5080,19 @@ export default function App() {
     setInstallHelpMode,
   ] = useState("");
 
+  const [
+    recoveryOpen,
+    setRecoveryOpen,
+  ] = useState(
+    () => Boolean(
+      readPasswordResetTokenFromLocation(),
+    ),
+  );
+
   const [authOpen, setAuthOpen] =
     useState(
       () => (
+        !readPasswordResetTokenFromLocation() &&
         !shouldRestoreSession() &&
         !readCachedUserProfile()
       ),
@@ -8126,9 +8139,29 @@ const clearPlaylistToOpen =
   onAuthenticated={
     handleAuthenticated
   }
+  onForgotPassword={() => {
+    setAuthOpen(false);
+    setRecoveryOpen(true);
+  }}
   onGuest={() => {
     setAuthOpen(false);
   }}
+/>
+
+<PasswordRecoveryOverlay
+  open={
+    recoveryOpen
+  }
+  onClose={() => {
+    setRecoveryOpen(false);
+  }}
+  onBackToSignIn={() => {
+    setRecoveryOpen(false);
+    openAuth("signin");
+  }}
+  onAuthenticated={
+    handleAuthenticated
+  }
 />
     </div>
   );
