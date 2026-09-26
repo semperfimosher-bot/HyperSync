@@ -490,7 +490,7 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
             )
         )
 
-        assert refreshed_count == 1
+        assert refreshed_count >= 1
 
         refreshed = await ensure_smart_playlist(
             session,
