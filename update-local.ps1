@@ -1,369 +1,351 @@
-$ErrorActionPreference = "Stop"
-
-$Repo = "C:\Users\TrojanIV\Desktop\HyperSync"
-$Branch = "feature/offline-pwa-downloads"
-
-$PreferredFrontendPort = 4153
-$PreferredBackendPort = 8000
-
-Write-Host ""
-Write-Host "=== HyperSync Local Update + Reboot ===" -ForegroundColor Cyan
-
-
-# ------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------
-
-function Test-PortInUse {
-    param(
-        [int]$Port
-    )
-
-    $connection = Get-NetTCPConnection `
-        -LocalPort $Port `
-        -State Listen `
-        -ErrorAction SilentlyContinue
-
-    return $null -ne $connection
-}
-
-
-function Get-FreePort {
-    param(
-        [int[]]$Ports
-    )
-
-    foreach ($port in $Ports) {
-        if (-not (Test-PortInUse -Port $port)) {
-            return $port
-        }
-    }
-
-    throw "Could not find a free HyperSync development port."
-}
-
-
-function Stop-HyperSyncProcesses {
-    Write-Host ""
-    Write-Host "Stopping old HyperSync servers..." -ForegroundColor Yellow
-
-    $processes = Get-CimInstance Win32_Process `
-        -ErrorAction SilentlyContinue |
-        Where-Object {
-            $commandLine = [string]$_.CommandLine
-
-            if ([string]::IsNullOrWhiteSpace($commandLine)) {
-                return $false
-            }
-
-            $isHyperSync =
-                $commandLine.IndexOf(
-                    $Repo,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                ) -ge 0
-
-            $isDevServer =
-                $commandLine -match "vite" -or
-                $commandLine -match "npm(\.cmd)?\s+run\s+dev" -or
-                $commandLine -match "uvicorn\s+backend\.app\.main:app"
-
-            return $isHyperSync -and $isDevServer
-        }
-
-    foreach ($process in $processes) {
-        try {
-            Write-Host "Stopping PID $($process.ProcessId)" `
-                -ForegroundColor DarkGray
-
-            Stop-Process `
-                -Id $process.ProcessId `
-                -Force `
-                -ErrorAction Stop
-        }
-        catch {
-            Write-Warning (
-                "Could not stop PID " +
-                $process.ProcessId
-            )
-        }
-    }
-
-    Start-Sleep -Milliseconds 750
-}
-
-
-# ------------------------------------------------------------
-# Go to repo
-# ------------------------------------------------------------
-
-Set-Location $Repo
-
-
-# ------------------------------------------------------------
-# Refuse to update if a merge conflict is unresolved
-# ------------------------------------------------------------
-
-$unmergedFiles = @(
-    git diff `
-        --name-only `
-        --diff-filter=U
+[CmdletBinding()]
+param(
+    [int]$FrontendPort = 0,
+    [int]$BackendPort = 0,
+    [switch]$NoBrowser,
+    [switch]$SkipDependencies,
+    [switch]$SkipMigrations
 )
 
-if ($unmergedFiles.Count -gt 0) {
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
+$Branch = "feature/offline-pwa-downloads"
+$FrontendRoot = Join-Path $RepoRoot "frontend"
+$VenvRoot = Join-Path $RepoRoot ".venv"
+$PythonPath = Join-Path $VenvRoot "Scripts\python.exe"
+$BackendRequirements = Join-Path $RepoRoot "requirements.backend.txt"
+$PackageJson = Join-Path $FrontendRoot "package.json"
+$PackageLock = Join-Path $FrontendRoot "package-lock.json"
+$RebootScript = Join-Path $RepoRoot "reboot-local.ps1"
+$InstallGoScript = Join-Path $RepoRoot "install-go.ps1"
+
+function Invoke-CheckedCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FailureMessage
+    )
+
+    & $FilePath @Arguments
+
+    if ($LASTEXITCODE -ne 0) {
+        throw $FailureMessage
+    }
+}
+
+function Get-GitOutput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $output = & $script:GitPath @Arguments
+
+    if ($LASTEXITCODE -ne 0) {
+        throw (
+            "Git command failed: git " +
+            ($Arguments -join " ")
+        )
+    }
+
+    return (
+        @($output) -join [Environment]::NewLine
+    ).Trim()
+}
+
+function Ensure-PythonEnvironment {
+    if (Test-Path -LiteralPath $PythonPath) {
+        return
+    }
+
     Write-Host ""
-    Write-Host "Git has unresolved merge conflicts:" `
-        -ForegroundColor Red
+    Write-Host "Creating HyperSync Python virtual environment..." -ForegroundColor Yellow
 
-    foreach ($file in $unmergedFiles) {
-        Write-Host "  $file" -ForegroundColor Red
+    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+
+    if ($null -ne $pyLauncher) {
+        Invoke-CheckedCommand -FilePath $pyLauncher.Source -Arguments @(
+            "-3",
+            "-m",
+            "venv",
+            $VenvRoot
+        ) -FailureMessage "Could not create .venv with the Python launcher."
+    }
+    else {
+        $pythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
+
+        if ($null -eq $pythonCommand) {
+            $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+        }
+
+        if ($null -eq $pythonCommand) {
+            throw "Python was not found. Install Python 3, then run go again."
+        }
+
+        Invoke-CheckedCommand -FilePath $pythonCommand.Source -Arguments @(
+            "-m",
+            "venv",
+            $VenvRoot
+        ) -FailureMessage "Could not create .venv."
     }
 
-    throw "Resolve the merge conflict before running update-local.ps1."
+    if (-not (Test-Path -LiteralPath $PythonPath)) {
+        throw "Python virtual environment creation did not produce .venv\Scripts\python.exe."
+    }
 }
 
+function Update-BackendDependencies {
+    if (-not (Test-Path -LiteralPath $BackendRequirements)) {
+        throw "requirements.backend.txt was not found."
+    }
 
-# ------------------------------------------------------------
-# Update feature branch
-# ------------------------------------------------------------
+    Write-Host ""
+    Write-Host "Checking backend dependencies..." -ForegroundColor Yellow
 
-Write-Host ""
-Write-Host "Updating Git branch..." -ForegroundColor Yellow
-
-git fetch origin
-
-git switch $Branch
-
-git pull `
-    --rebase `
-    --autostash `
-    origin `
-    $Branch
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Git update failed."
+    Invoke-CheckedCommand -FilePath $PythonPath -Arguments @(
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--requirement",
+        $BackendRequirements
+    ) -FailureMessage "Backend dependency installation failed."
 }
 
+function Update-FrontendDependencies {
+    if (
+        -not (Test-Path -LiteralPath $PackageJson) -or
+        -not (Test-Path -LiteralPath $PackageLock)
+    ) {
+        throw "frontend/package.json or frontend/package-lock.json was not found."
+    }
 
-Write-Host ""
-Write-Host "Current commit:" -ForegroundColor Cyan
+    $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
 
-git log -1 --oneline
+    if ($null -eq $npmCommand) {
+        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+    }
 
+    if ($null -eq $npmCommand) {
+        throw "npm was not found in PATH."
+    }
 
-# ------------------------------------------------------------
-# Update frontend dependencies
-# ------------------------------------------------------------
+    Write-Host ""
+    Write-Host "Checking frontend dependencies..." -ForegroundColor Yellow
 
-Write-Host ""
-Write-Host "Checking frontend dependencies..." -ForegroundColor Yellow
+    Push-Location $FrontendRoot
 
-Set-Location "$Repo\frontend"
-
-npm install
-
-if ($LASTEXITCODE -ne 0) {
-    throw "npm install failed."
-}
-
-
-# ------------------------------------------------------------
-# Stop previous HyperSync dev servers
-# ------------------------------------------------------------
-
-Set-Location $Repo
-
-Stop-HyperSyncProcesses
-
-
-# ------------------------------------------------------------
-# Pick clean ports
-# ------------------------------------------------------------
-
-$FrontendPort = Get-FreePort `
-    -Ports @(
-        $PreferredFrontendPort
-        4154
-        4155
-        4156
-        4157
-        4158
-        4159
-        4160
-        5173
-        5174
-        5175
-    )
-
-
-$BackendPort = Get-FreePort `
-    -Ports @(
-        $PreferredBackendPort
-        8001
-        8002
-        8003
-        8004
-        8005
-    )
-
-
-$FrontendUrl = "http://localhost:$FrontendPort"
-$BackendUrl = "http://127.0.0.1:$BackendPort"
-
-
-# ------------------------------------------------------------
-# Start backend
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "Starting backend..." -ForegroundColor Green
-Write-Host $BackendUrl -ForegroundColor DarkCyan
-
-$BackendCommand = @"
-Set-Location '$Repo'
-& '$Repo\.venv\Scripts\python.exe' -m uvicorn backend.app.main:app --host 127.0.0.1 --port $BackendPort --reload
-"@
-
-Start-Process powershell.exe `
-    -WorkingDirectory $Repo `
-    -ArgumentList @(
-        "-NoLogo"
-        "-NoExit"
-        "-ExecutionPolicy"
-        "Bypass"
-        "-Command"
-        $BackendCommand
-    )
-
-
-# ------------------------------------------------------------
-# Wait until backend is actually ready
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "Waiting for backend..." -ForegroundColor Yellow
-
-$BackendReady = $false
-
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
     try {
-        $response = Invoke-WebRequest `
-            -Uri "$BackendUrl/" `
-            -UseBasicParsing `
-            -TimeoutSec 1
+        $nodeModules = Join-Path $FrontendRoot "node_modules"
 
-        if ($response.StatusCode -eq 200) {
-            $BackendReady = $true
-            break
+        if (Test-Path -LiteralPath $nodeModules) {
+            Invoke-CheckedCommand -FilePath $npmCommand.Source -Arguments @(
+                "install",
+                "--no-audit",
+                "--no-fund"
+            ) -FailureMessage "npm install failed."
+        }
+        else {
+            Invoke-CheckedCommand -FilePath $npmCommand.Source -Arguments @(
+                "ci",
+                "--no-audit",
+                "--no-fund"
+            ) -FailureMessage "npm ci failed."
         }
     }
-    catch {
-        # Backend is still starting.
+    finally {
+        Pop-Location
+    }
+}
+
+function Update-DatabaseSchema {
+    $databaseKind = (
+        & $PythonPath -c (
+            "from backend.app.config import get_settings; " +
+            "u=get_settings().sqlalchemy_migration_url; " +
+            "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
+        )
+    ).Trim()
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect local database configuration."
     }
 
-    Start-Sleep -Milliseconds 500
-}
+    if ($databaseKind -eq "remote") {
+        Write-Host ""
+        Write-Host "Applying database migrations..." -ForegroundColor Yellow
 
-if (-not $BackendReady) {
-    throw (
-        "Backend did not become ready at " +
-        $BackendUrl +
-        ". Check the backend PowerShell window."
-    )
-}
+        Push-Location $RepoRoot
 
-Write-Host "Backend is ready." -ForegroundColor Green
-
-
-# ------------------------------------------------------------
-# Start frontend only AFTER backend is ready
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "Starting frontend..." -ForegroundColor Green
-Write-Host $FrontendUrl -ForegroundColor Green
-
-$FrontendCommand = @"
-`$env:HYPERSYNC_DEV_HOST = 'localhost'
-`$env:HYPERSYNC_DEV_PORT = '$FrontendPort'
-`$env:HYPERSYNC_BACKEND_PORT = '$BackendPort'
-
-Set-Location '$Repo\frontend'
-
-npm run dev
-"@
-
-Start-Process powershell.exe `
-    -WorkingDirectory "$Repo\frontend" `
-    -ArgumentList @(
-        "-NoLogo"
-        "-NoExit"
-        "-ExecutionPolicy"
-        "Bypass"
-        "-Command"
-        $FrontendCommand
-    )
-
-
-# ------------------------------------------------------------
-# Wait until frontend is ready
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "Waiting for frontend..." -ForegroundColor Yellow
-
-$FrontendReady = $false
-
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
-    try {
-        $response = Invoke-WebRequest `
-            -Uri $FrontendUrl `
-            -UseBasicParsing `
-            -TimeoutSec 1
-
-        if ($response.StatusCode -eq 200) {
-            $FrontendReady = $true
-            break
+        try {
+            Invoke-CheckedCommand -FilePath $PythonPath -Arguments @(
+                "-m",
+                "alembic",
+                "upgrade",
+                "head"
+            ) -FailureMessage "Database migration failed."
         }
-    }
-    catch {
-        # Frontend is still starting.
+        finally {
+            Pop-Location
+        }
+
+        Write-Host "Database is at the latest migration." -ForegroundColor Green
+        return
     }
 
-    Start-Sleep -Milliseconds 500
+    if ($databaseKind -eq "sqlite") {
+        Write-Host "SQLite local database detected; startup will ensure current local tables exist." -ForegroundColor DarkGray
+        return
+    }
+
+    Write-Host "No DATABASE_URL configured; HyperSync will use its local SQLite fallback." -ForegroundColor DarkGray
 }
 
-if (-not $FrontendReady) {
+Write-Host ""
+Write-Host "=== HyperSync Update + Clean Reboot ===" -ForegroundColor Cyan
+
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git"))) {
     throw (
-        "Frontend did not become ready at " +
-        $FrontendUrl +
-        ". Check the frontend PowerShell window."
+        "This script must live in the HyperSync Git repository root. " +
+        "Expected .git under " +
+        $RepoRoot
     )
 }
 
-Write-Host "Frontend is ready." -ForegroundColor Green
+$gitCommand = Get-Command git.exe -ErrorAction SilentlyContinue
 
+if ($null -eq $gitCommand) {
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+}
 
-# ------------------------------------------------------------
-# Open browser
-# ------------------------------------------------------------
+if ($null -eq $gitCommand) {
+    throw "Git was not found in PATH."
+}
 
-Write-Host ""
-Write-Host "Opening HyperSync..." -ForegroundColor Green
+$script:GitPath = $gitCommand.Source
 
-Start-Process $FrontendUrl
+Push-Location $RepoRoot
 
+try {
+    $unmergedFiles = @(
+        & $script:GitPath diff --name-only --diff-filter=U
+    )
 
-# ------------------------------------------------------------
-# Done
-# ------------------------------------------------------------
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect the Git working tree."
+    }
 
-Set-Location $Repo
+    if ($unmergedFiles.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Git has unresolved merge conflicts:" -ForegroundColor Red
 
-Write-Host ""
-Write-Host "===================================" -ForegroundColor Green
-Write-Host " HyperSync updated and restarted" -ForegroundColor Green
-Write-Host " Branch:   $Branch" -ForegroundColor Green
-Write-Host " Backend:  $BackendUrl" -ForegroundColor Green
-Write-Host " Frontend: $FrontendUrl" -ForegroundColor Green
-Write-Host "===================================" -ForegroundColor Green
-Write-Host ""
+        foreach ($file in $unmergedFiles) {
+            Write-Host ("  " + $file) -ForegroundColor Red
+        }
+
+        throw "Resolve the merge conflict before running go."
+    }
+
+    $beforeCommit = Get-GitOutput -Arguments @(
+        "rev-parse",
+        "HEAD"
+    )
+
+    Write-Host ""
+    Write-Host ("Fetching latest " + $Branch + "...") -ForegroundColor Yellow
+
+    Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
+        "fetch",
+        "--prune",
+        "origin",
+        $Branch
+    ) -FailureMessage "Git fetch failed."
+
+    & $script:GitPath show-ref --verify --quiet ("refs/heads/" + $Branch)
+    $localBranchExists = ($LASTEXITCODE -eq 0)
+
+    if ($localBranchExists) {
+        Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
+            "switch",
+            $Branch
+        ) -FailureMessage ("Could not switch to " + $Branch + ".")
+    }
+    else {
+        Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
+            "switch",
+            "--track",
+            "-c",
+            $Branch,
+            ("origin/" + $Branch)
+        ) -FailureMessage ("Could not create local tracking branch " + $Branch + ".")
+    }
+
+    Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
+        "pull",
+        "--rebase",
+        "--autostash",
+        "origin",
+        $Branch
+    ) -FailureMessage (
+        "Git update failed. Your local changes were not discarded. " +
+        "Resolve any reported Git issue, then run go again."
+    )
+
+    $afterCommit = Get-GitOutput -Arguments @(
+        "rev-parse",
+        "HEAD"
+    )
+
+    $commitLabel = Get-GitOutput -Arguments @(
+        "log",
+        "-1",
+        "--oneline"
+    )
+
+    Write-Host ""
+    Write-Host ("Current commit: " + $commitLabel) -ForegroundColor Cyan
+
+    if ($beforeCommit -eq $afterCommit) {
+        Write-Host "Already on the latest branch commit." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "Local checkout updated successfully." -ForegroundColor Green
+    }
+}
+finally {
+    Pop-Location
+}
+
+Ensure-PythonEnvironment
+
+if (-not $SkipDependencies) {
+    Update-BackendDependencies
+    Update-FrontendDependencies
+}
+
+if (-not $SkipMigrations) {
+    Update-DatabaseSchema
+}
+
+if (Test-Path -LiteralPath $InstallGoScript) {
+    & $InstallGoScript -Quiet
+}
+
+if (-not (Test-Path -LiteralPath $RebootScript)) {
+    throw "reboot-local.ps1 was not found."
+}
+
+$rebootParameters = @{
+    FrontendPort = $FrontendPort
+    BackendPort = $BackendPort
+    NoBrowser = $NoBrowser
+}
+
+& $RebootScript @rebootParameters

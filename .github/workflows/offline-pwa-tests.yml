@@ -59,6 +59,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
+      - name: Validate local PowerShell helpers
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @(
+            "go.ps1",
+            "install-go.ps1",
+            "update-local.ps1",
+            "reboot-local.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error (
+                $path + ": " +
+                (($errors | ForEach-Object Message) -join "; ")
+              )
+            }
+          }
+
+          if ($failed) {
+            exit 1
+          }
+
       - name: Install backend test dependencies
         run: python -m pip install -r requirements.dev.txt
 

@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
@@ -7,7 +8,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = $PSScriptRoot
+$RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $PythonPath = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $PackageJson = Join-Path $FrontendRoot "package.json"
@@ -27,11 +28,7 @@ function Test-PortInUse {
         [int]$Port
     )
 
-    $listener = Get-NetTCPConnection `
-        -State Listen `
-        -LocalPort $Port `
-        -ErrorAction SilentlyContinue
-
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
     return $null -ne $listener
 }
 
@@ -50,89 +47,161 @@ function Get-FirstFreePort {
     throw "HyperSync could not find a free local development port."
 }
 
-function Stop-HyperSyncDevProcesses {
-    $processes = Get-CimInstance Win32_Process `
-        -ErrorAction SilentlyContinue |
-        Where-Object {
-            $commandLine = [string]$_.CommandLine
+function Test-HyperSyncDevCommandLine {
+    param(
+        [string]$CommandLine
+    )
 
-            if ([string]::IsNullOrWhiteSpace($commandLine)) {
-                return $false
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+        return $false
+    }
+
+    $belongsToRepo =
+        $CommandLine.IndexOf(
+            $RepoRoot,
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -ge 0
+
+    if (-not $belongsToRepo) {
+        return $false
+    }
+
+    return (
+        $CommandLine -match "HYPERSYNC_LOCAL_SERVER" -or
+        $CommandLine -match "vite(\.js)?" -or
+        $CommandLine -match "uvicorn\s+backend\.app\.main:app" -or
+        $CommandLine -match "npm(\.cmd)?\s+run\s+dev"
+    )
+}
+
+function Get-HyperSyncProcessTreeIds {
+    $allProcesses = @(
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+    )
+
+    $rootIds = @(
+        $allProcesses |
+            Where-Object {
+                Test-HyperSyncDevCommandLine -CommandLine ([string]$_.CommandLine)
+            } |
+            ForEach-Object {
+                [int]$_.ProcessId
             }
+    )
 
-            $belongsToRepo =
-                $commandLine.IndexOf(
-                    $RepoRoot,
-                    [System.StringComparison]::OrdinalIgnoreCase
-                ) -ge 0
+    if ($rootIds.Count -eq 0) {
+        return @()
+    }
 
-            $looksLikeDevServer =
-                $commandLine -match "vite(\.js)?" -or
-                $commandLine -match "uvicorn\s+backend\.app\.main:app" -or
-                $commandLine -match "npm(\.cmd)?\s+run\s+dev"
+    $selected = [System.Collections.Generic.HashSet[int]]::new()
 
-            return $belongsToRepo -and $looksLikeDevServer
-        }
+    foreach ($rootId in $rootIds) {
+        [void]$selected.Add($rootId)
+    }
 
-    foreach ($process in $processes) {
-        try {
-            Stop-Process `
-                -Id $process.ProcessId `
-                -Force `
-                -ErrorAction Stop
+    $changed = $true
 
-            Write-Host (
-                "Stopped old HyperSync dev process PID " +
-                $process.ProcessId
-            ) -ForegroundColor DarkGray
-        }
-        catch {
-            Write-Warning (
-                "Could not stop old HyperSync process PID " +
-                $process.ProcessId +
-                ": " +
-                $_.Exception.Message
-            )
+    while ($changed) {
+        $changed = $false
+
+        foreach ($process in $allProcesses) {
+            $parentId = [int]$process.ParentProcessId
+            $processId = [int]$process.ProcessId
+
+            if (
+                $selected.Contains($parentId) -and
+                -not $selected.Contains($processId)
+            ) {
+                [void]$selected.Add($processId)
+                $changed = $true
+            }
         }
     }
 
-    if ($processes) {
-        Start-Sleep -Milliseconds 600
+    return @($selected | ForEach-Object { $_ })
+}
+
+function Stop-HyperSyncDevProcesses {
+    Write-Host ""
+    Write-Host "Stopping old HyperSync local servers..." -ForegroundColor Yellow
+
+    for ($pass = 0; $pass -lt 3; $pass += 1) {
+        $processIds = @(
+            Get-HyperSyncProcessTreeIds
+        )
+
+        if ($processIds.Count -eq 0) {
+            if ($pass -eq 0) {
+                Write-Host "No old HyperSync dev processes found." -ForegroundColor DarkGray
+            }
+
+            return
+        }
+
+        foreach ($processId in ($processIds | Sort-Object -Descending)) {
+            if ($processId -eq $PID) {
+                continue
+            }
+
+            try {
+                Stop-Process -Id $processId -Force -ErrorAction Stop
+
+                Write-Host (
+                    "Stopped PID " +
+                    $processId
+                ) -ForegroundColor DarkGray
+            }
+            catch {
+                if (
+                    Get-Process -Id $processId -ErrorAction SilentlyContinue
+                ) {
+                    Write-Warning (
+                        "Could not stop HyperSync PID " +
+                        $processId +
+                        ": " +
+                        $_.Exception.Message
+                    )
+                }
+            }
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    $remaining = @(
+        Get-HyperSyncProcessTreeIds
+    )
+
+    if ($remaining.Count -gt 0) {
+        throw (
+            "HyperSync could not stop all old local server processes. " +
+            "Remaining PIDs: " +
+            ($remaining -join ", ")
+        )
     }
 }
 
-function Wait-ForTcpPort {
+function Wait-ForHttp {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$HostName,
-
-        [Parameter(Mandatory = $true)]
-        [int]$Port,
+        [string]$Url,
 
         [int]$Attempts = 120
     )
 
     for ($attempt = 0; $attempt -lt $Attempts; $attempt += 1) {
-        $client = $null
-
         try {
-            $client = [System.Net.Sockets.TcpClient]::new()
-            $connectTask = $client.ConnectAsync($HostName, $Port)
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1
 
             if (
-                $connectTask.Wait(250) -and
-                $client.Connected
+                $response.StatusCode -ge 200 -and
+                $response.StatusCode -lt 500
             ) {
                 return $true
             }
         }
         catch {
             # The server is still starting.
-        }
-        finally {
-            if ($null -ne $client) {
-                $client.Dispose()
-            }
         }
 
         Start-Sleep -Milliseconds 250
@@ -145,7 +214,7 @@ if (-not (Test-Path -LiteralPath $PythonPath)) {
     throw (
         "HyperSync virtual environment was not found at " +
         $PythonPath +
-        ". Create .venv before running this script."
+        ". Run update-local.ps1 or go so dependencies can be prepared."
     )
 }
 
@@ -163,6 +232,14 @@ if ($null -eq $npmCommand) {
     throw "npm was not found in PATH."
 }
 
+$currentPowerShell = (
+    Get-Process -Id $PID -ErrorAction SilentlyContinue
+).Path
+
+if ([string]::IsNullOrWhiteSpace($currentPowerShell)) {
+    $currentPowerShell = "powershell.exe"
+}
+
 Stop-HyperSyncDevProcesses
 
 if ($BackendPort -gt 0) {
@@ -170,13 +247,12 @@ if ($BackendPort -gt 0) {
         throw (
             "Requested backend port " +
             $BackendPort +
-            " is already in use."
+            " is already in use by a non-HyperSync process."
         )
     }
 }
 else {
-    $BackendPort = Get-FirstFreePort `
-        -Candidates (8000..8020)
+    $BackendPort = Get-FirstFreePort -Candidates (8000..8020)
 }
 
 if ($FrontendPort -gt 0) {
@@ -184,137 +260,120 @@ if ($FrontendPort -gt 0) {
         throw (
             "Requested frontend port " +
             $FrontendPort +
-            " is already in use."
+            " is already in use by a non-HyperSync process."
         )
     }
 }
 else {
-    # 4153 is HyperSync's clean local-dev origin.
-    # 5173 remains a fallback for compatibility.
     $frontendCandidates = @(
         4153
         5173
     ) + (4154..4199) + (5174..5199)
 
-    $FrontendPort = Get-FirstFreePort `
-        -Candidates $frontendCandidates
+    $FrontendPort = Get-FirstFreePort -Candidates $frontendCandidates
 }
+
+$FrontendUrl = "http://localhost:$FrontendPort"
+$BackendUrl = "http://127.0.0.1:$BackendPort"
 
 $repoLiteral = ConvertTo-PowerShellLiteral $RepoRoot
 $frontendLiteral = ConvertTo-PowerShellLiteral $FrontendRoot
 $pythonLiteral = ConvertTo-PowerShellLiteral $PythonPath
 $npmLiteral = ConvertTo-PowerShellLiteral $npmCommand.Source
 
-$backendCommand = (
-    "Set-Location -LiteralPath " +
-    $repoLiteral +
-    "; & " +
-    $pythonLiteral +
-    " -m uvicorn backend.app.main:app" +
-    " --host 127.0.0.1" +
-    " --port " +
-    $BackendPort +
-    " --reload"
+$backendCommandTemplate = @'
+$env:HYPERSYNC_LOCAL_SERVER = 'backend'
+$env:ENVIRONMENT = 'development'
+$env:BACKEND_HOST = '127.0.0.1'
+$env:BACKEND_PORT = '{2}'
+$env:FRONTEND_PUBLIC_URL = '{3}'
+$env:FRONTEND_ORIGINS = '{3},http://127.0.0.1:{4}'
+Set-Location -LiteralPath {0}
+& {1} -m uvicorn backend.app.main:app --host 127.0.0.1 --port {2} --reload
+'@
+
+$backendCommand = $backendCommandTemplate -f @(
+    $repoLiteral,
+    $pythonLiteral,
+    $BackendPort,
+    $FrontendUrl,
+    $FrontendPort
 )
 
-$frontendCommand = (
-    "`$env:HYPERSYNC_DEV_HOST = 'localhost'; " +
-    "`$env:HYPERSYNC_DEV_PORT = '" +
-    $FrontendPort +
-    "'; " +
-    "`$env:HYPERSYNC_BACKEND_PORT = '" +
-    $BackendPort +
-    "'; " +
-    "Set-Location -LiteralPath " +
-    $frontendLiteral +
-    "; & " +
-    $npmLiteral +
-    " run dev"
+$frontendCommandTemplate = @'
+$env:HYPERSYNC_LOCAL_SERVER = 'frontend'
+$env:HYPERSYNC_DEV_HOST = 'localhost'
+$env:HYPERSYNC_DEV_PORT = '{2}'
+$env:HYPERSYNC_BACKEND_PORT = '{3}'
+Set-Location -LiteralPath {0}
+& {1} run dev
+'@
+
+$frontendCommand = $frontendCommandTemplate -f @(
+    $frontendLiteral,
+    $npmLiteral,
+    $FrontendPort,
+    $BackendPort
 )
 
 Write-Host ""
 Write-Host "Starting HyperSync local development..." -ForegroundColor Cyan
-Write-Host (
-    "Backend:  http://127.0.0.1:" +
-    $BackendPort
-) -ForegroundColor DarkCyan
-Write-Host (
-    "Frontend: http://localhost:" +
-    $FrontendPort
-) -ForegroundColor Green
+Write-Host ("Backend:  " + $BackendUrl) -ForegroundColor DarkCyan
+Write-Host ("Frontend: " + $FrontendUrl) -ForegroundColor Green
 Write-Host ""
 
-$backendProcess = Start-Process `
-    -FilePath "powershell.exe" `
-    -WorkingDirectory $RepoRoot `
-    -ArgumentList @(
-        "-NoLogo",
-        "-NoExit",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        $backendCommand
-    ) `
-    -PassThru
+$backendProcess = Start-Process -FilePath $currentPowerShell -WorkingDirectory $RepoRoot -ArgumentList @(
+    "-NoLogo",
+    "-NoExit",
+    "-Command",
+    $backendCommand
+) -PassThru
 
-$frontendProcess = Start-Process `
-    -FilePath "powershell.exe" `
-    -WorkingDirectory $FrontendRoot `
-    -ArgumentList @(
-        "-NoLogo",
-        "-NoExit",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        $frontendCommand
-    ) `
-    -PassThru
+Write-Host "Waiting for backend..." -ForegroundColor Yellow
 
-$backendReady = Wait-ForTcpPort `
-    -HostName "127.0.0.1" `
-    -Port $BackendPort
-
-$frontendReady = Wait-ForTcpPort `
-    -HostName "localhost" `
-    -Port $FrontendPort
+$backendReady = Wait-ForHttp -Url ($BackendUrl + "/")
 
 if (-not $backendReady) {
-    Write-Warning (
-        "Backend did not become reachable. " +
-        "Check the HyperSync backend window."
+    throw (
+        "Backend did not become ready at " +
+        $BackendUrl +
+        ". Check the HyperSync backend terminal."
     )
 }
+
+Write-Host "Backend is ready." -ForegroundColor Green
+
+$frontendProcess = Start-Process -FilePath $currentPowerShell -WorkingDirectory $FrontendRoot -ArgumentList @(
+    "-NoLogo",
+    "-NoExit",
+    "-Command",
+    $frontendCommand
+) -PassThru
+
+Write-Host "Waiting for frontend..." -ForegroundColor Yellow
+
+$frontendReady = Wait-ForHttp -Url ($FrontendUrl + "/")
 
 if (-not $frontendReady) {
-    Write-Warning (
-        "Frontend did not become reachable. " +
-        "Check the HyperSync frontend window."
+    throw (
+        "Frontend did not become ready at " +
+        $FrontendUrl +
+        ". Check the HyperSync frontend terminal."
     )
 }
 
-if ($frontendReady) {
-    $frontendUrl =
-        "http://localhost:" +
-        $FrontendPort +
-        "/"
+Write-Host "Frontend is ready." -ForegroundColor Green
 
-    Write-Host ""
-    Write-Host (
-        "HyperSync frontend ready: " +
-        $frontendUrl
-    ) -ForegroundColor Green
-
-    if (-not $NoBrowser) {
-        Start-Process $frontendUrl
-    }
+if (-not $NoBrowser) {
+    Start-Process ($FrontendUrl + "/")
 }
 
 Write-Host ""
-Write-Host (
-    "Backend PID: " +
-    $backendProcess.Id
-) -ForegroundColor DarkGray
-Write-Host (
-    "Frontend terminal PID: " +
-    $frontendProcess.Id
-) -ForegroundColor DarkGray
+Write-Host "===================================" -ForegroundColor Green
+Write-Host " HyperSync local servers restarted" -ForegroundColor Green
+Write-Host (" Backend:  " + $BackendUrl) -ForegroundColor Green
+Write-Host (" Frontend: " + $FrontendUrl) -ForegroundColor Green
+Write-Host (" Backend terminal PID: " + $backendProcess.Id) -ForegroundColor DarkGray
+Write-Host (" Frontend terminal PID: " + $frontendProcess.Id) -ForegroundColor DarkGray
+Write-Host "===================================" -ForegroundColor Green
+Write-Host ""
