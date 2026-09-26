@@ -24,7 +24,10 @@ function isAuthEndpoint(
   return (
     path === "/auth/login" ||
     path === "/auth/register" ||
-    path === "/auth/refresh"
+    path === "/auth/refresh" ||
+    path.startsWith(
+      "/auth/password-recovery/",
+    )
   );
 }
 
@@ -453,7 +456,9 @@ export async function apiRequest(
 
   if (
     path === "/auth/login" ||
-    path === "/auth/register"
+    path === "/auth/register" ||
+    path ===
+      "/auth/password-recovery/verify-otp"
   ) {
     clearRefreshFailure();
   }
