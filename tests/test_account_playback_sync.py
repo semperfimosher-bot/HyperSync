@@ -178,3 +178,325 @@ async def test_playback_state_syncs_across_devices() -> None:
         assert takeover_payload["paused"] is True
 
         assert takeover_payload["device_id"] == "device-two"
+
+
+@pytest.mark.asyncio
+async def test_same_account_devices_can_control_active_playback() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-control-{run_id}"
+
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Remote Control Song",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/device-control-{run_id}.mp3"
+                ),
+                artwork_object_key=(
+                    f"artwork/device-control-{run_id}.jpg"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=240,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        first_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "device-one",
+                "name":
+                    "Chrome on Desktop",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert (
+            first_poll.status_code
+            == 200
+        ), first_poll.text
+
+        second_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "device-two",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert (
+            second_poll.status_code
+            == 200
+        ), second_poll.text
+
+        second_payload = (
+            second_poll.json()
+        )
+
+        assert {
+            device["device_id"]
+            for device in
+            second_payload["devices"]
+        } == {
+            "device-one",
+            "device-two",
+        }
+
+        playback = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+                "position_seconds":
+                    25,
+                "paused":
+                    False,
+                "device_id":
+                    "device-one",
+            },
+        )
+
+        assert (
+            playback.status_code
+            == 200
+        ), playback.text
+
+        command = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "device-one/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "device-two",
+                "action":
+                    "pause",
+            },
+        )
+
+        assert (
+            command.status_code
+            == 201
+        ), command.text
+
+        poll_with_command = (
+            await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        "device-one",
+                    "name":
+                        "Chrome on Desktop",
+                    "device_type":
+                        "desktop",
+                },
+            )
+        )
+
+        assert (
+            poll_with_command.status_code
+            == 200
+        ), poll_with_command.text
+
+        payload = (
+            poll_with_command.json()
+        )
+
+        assert len(
+            payload["commands"]
+        ) == 1
+
+        delivered = (
+            payload["commands"][0]
+        )
+
+        assert (
+            delivered["action"]
+            == "pause"
+        )
+
+        assert (
+            delivered["source_device_id"]
+            == "device-two"
+        )
+
+        assert (
+            delivered["target_device_id"]
+            == "device-one"
+        )
+
+        active_devices = [
+            device["device_id"]
+            for device in
+            payload["devices"]
+            if device["is_active"]
+        ]
+
+        assert active_devices == [
+            "device-one",
+        ]
+
+        second_delivery = (
+            await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        "device-one",
+                    "name":
+                        "Chrome on Desktop",
+                    "device_type":
+                        "desktop",
+                },
+            )
+        )
+
+        assert (
+            second_delivery.status_code
+            == 200
+        ), second_delivery.text
+
+        assert (
+            second_delivery.json()[
+                "commands"
+            ]
+            == []
+        )
+
+        bad_seek = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "device-one/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "device-two",
+                "action":
+                    "seek",
+                "value":
+                    -1,
+            },
+        )
+
+        assert (
+            bad_seek.status_code
+            == 400
+        ), bad_seek.text
+
+
+@pytest.mark.asyncio
+async def test_playback_devices_are_account_scoped() -> None:
+    run_id = uuid4().hex[:8]
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        first_token = (
+            await register_and_login(
+                client,
+                f"device-owner-{run_id}",
+            )
+        )
+
+        second_token = (
+            await register_and_login(
+                client,
+                f"device-other-{run_id}",
+            )
+        )
+
+        first_headers = {
+            "Authorization":
+                f"Bearer {first_token}",
+        }
+
+        second_headers = {
+            "Authorization":
+                f"Bearer {second_token}",
+        }
+
+        registered = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=first_headers,
+            json={
+                "device_id":
+                    "private-device",
+                "name":
+                    "Owner Device",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert (
+            registered.status_code
+            == 200
+        ), registered.text
+
+        cross_account = (
+            await client.post(
+                (
+                    "/api/users/me/playback-devices/"
+                    "private-device/commands"
+                ),
+                headers=second_headers,
+                json={
+                    "source_device_id":
+                        "other-device",
+                    "action":
+                        "pause",
+                },
+            )
+        )
+
+        assert (
+            cross_account.status_code
+            == 404
+        ), cross_account.text
