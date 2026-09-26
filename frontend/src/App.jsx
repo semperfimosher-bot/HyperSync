@@ -144,10 +144,23 @@ import {
   subscribePwaInstall,
 } from "./pwaInstall.js";
 
+import {
+  getPlaybackDeviceDescriptor,
+  pollPlaybackDevice,
+  sendPlaybackDeviceCommand,
+} from "./playbackDevices.js";
+
+import {
+  applyPlaybackRemoteCommand,
+} from "./playbackRemoteCommands.js";
+
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
   3000;
+
+const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
+  1500;
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
   15000;
@@ -4636,9 +4649,29 @@ export default function App() {
     setActivePlaylistDownloads,
   ] = useState([]);
 
+  const [
+    playbackDevices,
+    setPlaybackDevices,
+  ] = useState([]);
+
+  const [
+    accountPlaybackSnapshot,
+    setAccountPlaybackSnapshot,
+  ] = useState(null);
+
+  const [
+    controlledPlaybackDeviceId,
+    setControlledPlaybackDeviceId,
+  ] = useState(null);
+
   const playbackDeviceIdRef =
     useRef(
       getAccountPlaybackDeviceId(),
+    );
+
+  const playbackDeviceDescriptorRef =
+    useRef(
+      getPlaybackDeviceDescriptor(),
     );
 
   const playbackApplyingRemoteRef =
