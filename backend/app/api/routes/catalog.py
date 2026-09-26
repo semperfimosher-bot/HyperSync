@@ -57,6 +57,7 @@ class TrackResponse(BaseModel):
     artist: str
     album: str | None
     genre: str | None = None
+    release_year: int | None = None
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
@@ -206,6 +207,7 @@ async def list_tracks(
                 artist=track.artist,
                 album=track.album,
                 genre=track.genre,
+                release_year=track.release_year,
                 duration_seconds=(track.duration_seconds),
                 mime_type=(track.mime_type),
                 file_size=(track.file_size),
@@ -267,6 +269,7 @@ async def get_track(
         artist=track.artist,
         album=track.album,
         genre=track.genre,
+        release_year=track.release_year,
         duration_seconds=(track.duration_seconds),
         mime_type=(track.mime_type),
         file_size=(track.file_size),
