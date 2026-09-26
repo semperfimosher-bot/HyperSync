@@ -149,6 +149,11 @@ class Settings(BaseSettings):
     musicbrainz_min_interval_seconds: float = 1.1
     musicbrainz_cache_hours: int = 24
 
+    lastfm_base_url: str = "https://ws.audioscrobbler.com"
+    lastfm_api_key: str = ""
+    lastfm_timeout_seconds: float = 8.0
+    lastfm_cache_hours: int = 24
+
     client_cache_hours: int = 24
 
     model_config = SettingsConfigDict(
