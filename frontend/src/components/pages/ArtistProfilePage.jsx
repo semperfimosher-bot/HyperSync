@@ -577,43 +577,67 @@ export default function ArtistProfilePage({
       </section>
 
       <section className="hs-profile-stats hs-artist-stats">
-        <div>
+        <div className="hs-profile-stat">
+          <Icon
+            name="headphones"
+            size={19}
+          />
+
           <strong>
             {statValue(
               profile.monthly_listeners,
             )}
           </strong>
+
           <span>
             Monthly listeners
           </span>
         </div>
 
-        <div>
+        <div className="hs-profile-stat">
+          <Icon
+            name="people"
+            size={19}
+          />
+
           <strong>
             {statValue(
               profile.followers_count,
             )}
           </strong>
+
           <span>
             Followers
           </span>
         </div>
 
-        <div>
+        <div className="hs-profile-stat">
+          <Icon
+            name="play"
+            size={19}
+          />
+
           <strong>
             {statValue(
               profile.total_plays,
             )}
           </strong>
+
           <span>
             Total plays
           </span>
         </div>
 
-        <div>
+        <div className="hs-profile-stat">
+          <Icon
+            name="music"
+            size={19}
+          />
+
           <strong>
             {profile.track_count}
           </strong>
+
           <span>
             Songs
           </span>
