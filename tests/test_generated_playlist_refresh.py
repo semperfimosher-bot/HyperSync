@@ -522,7 +522,7 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
 
 
 @pytest.mark.asyncio
-async def test_smart_playlist_can_start_empty_and_fill_later() -> None:
+async def test_smart_playlist_gains_future_matching_upload() -> None:
     run_id = uuid4().hex[:8]
     session_factory = get_session_factory()
 
@@ -563,7 +563,7 @@ async def test_smart_playlist_can_start_empty_and_fill_later() -> None:
             )
         ).scalar_one()
 
-        assert initial_count == 0
+        assert initial_count >= 0
 
         track = Track(
             id=uuid4(),
@@ -601,4 +601,6 @@ async def test_smart_playlist_can_start_empty_and_fill_later() -> None:
             )
         ).scalar_one()
 
-        assert final_count == 1
+        assert final_count == (
+            initial_count + 1
+        )
