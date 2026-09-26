@@ -147,6 +147,15 @@ class AdminNotification(
         nullable=True,
     )
 
+    source_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "messages.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
     viewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(
             timezone=True,
