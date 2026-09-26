@@ -303,6 +303,151 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
 
 
 @pytest.mark.asyncio
+async def test_only_sender_can_hard_delete_message_and_admin_copy() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
+                    Message.__tablename__
+                ],
+                Base.metadata.tables[
+                    AdminNotification.__tablename__
+                ],
+            ],
+        )
+
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        sender = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email="delete-sender@example.test",
+            username="delete-sender",
+            username_normalized="delete-sender",
+            password_hash="hash",
+        )
+
+        recipient = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email="delete-recipient@example.test",
+            username="delete-recipient",
+            username_normalized="delete-recipient",
+            password_hash="hash",
+        )
+
+        admin = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email="delete-admin@example.test",
+            username="delete-admin",
+            username_normalized="delete-admin",
+            password_hash="hash",
+            role=UserRole.ADMIN,
+        )
+
+        session.add_all(
+            [
+                sender,
+                recipient,
+                admin,
+            ]
+        )
+
+        await session.flush()
+
+        message = Message(
+            sender_id=sender.id,
+            recipient_id=recipient.id,
+            body="Delete me permanently.",
+        )
+
+        session.add(
+            message,
+        )
+
+        await session.flush()
+
+        admin_copy = AdminNotification(
+            recipient_id=admin.id,
+            kind="message",
+            title="New user message",
+            body=(
+                "@delete-sender sent a message "
+                "to @delete-recipient.\n\n"
+                "Message:\nDelete me permanently."
+            ),
+            actor_username="delete-sender",
+            source_message_id=message.id,
+        )
+
+        session.add(
+            admin_copy,
+        )
+
+        await session.commit()
+
+        with pytest.raises(
+            Exception,
+        ) as exc_info:
+            await message_routes.delete_sent_message(
+                message.id,
+                recipient,
+                session,
+            )
+
+        assert getattr(
+            exc_info.value,
+            "status_code",
+            None,
+        ) == 404
+
+        assert (
+            await session.get(
+                Message,
+                message.id,
+            )
+        ) is not None
+
+        await message_routes.delete_sent_message(
+            message.id,
+            sender,
+            session,
+        )
+
+        assert (
+            await session.get(
+                Message,
+                message.id,
+            )
+        ) is None
+
+        assert (
+            await session.get(
+                AdminNotification,
+                admin_copy.id,
+            )
+        ) is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_messages_expire_only_one_week_after_viewing() -> None:
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
