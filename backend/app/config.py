@@ -141,6 +141,14 @@ class Settings(BaseSettings):
     lrclib_client_name: str = "HyperSync/0.1.0 (https://hypersynced.app)"
     lrclib_not_found_retry_hours: int = 24
 
+    musicbrainz_base_url: str = "https://musicbrainz.org"
+    musicbrainz_user_agent: str = (
+        "HyperSynced/0.1.0 (https://hypersynced.app)"
+    )
+    musicbrainz_timeout_seconds: float = 8.0
+    musicbrainz_min_interval_seconds: float = 1.1
+    musicbrainz_cache_hours: int = 24
+
     client_cache_hours: int = 24
 
     model_config = SettingsConfigDict(
