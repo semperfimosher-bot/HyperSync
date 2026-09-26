@@ -1065,11 +1065,10 @@ async def create_generated_playlist(
     if playlist is None:
         raise HTTPException(
             status_code=(
-                status.HTTP_404_NOT_FOUND
+                status.HTTP_400_BAD_REQUEST
             ),
             detail=(
-                "No published music matches "
-                "that playlist description yet."
+                "Playlist description is required."
             ),
         )
 
