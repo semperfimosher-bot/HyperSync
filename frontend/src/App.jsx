@@ -7152,9 +7152,9 @@ const clearPlaylistToOpen =
         currentUser={
           currentUser
         }
-        onOpenAuth={() => {
-          openAuth("signin");
-        }}
+        onOpenAuth={
+          openSignIn
+        }
       />
 
       <PlayerBar
