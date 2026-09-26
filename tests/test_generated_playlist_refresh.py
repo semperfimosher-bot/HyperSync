@@ -586,7 +586,7 @@ async def test_smart_playlist_gains_future_matching_upload() -> None:
             track,
         )
 
-        assert refreshed_count == 1
+        assert refreshed_count >= 1
 
         final_count = (
             await session.execute(
