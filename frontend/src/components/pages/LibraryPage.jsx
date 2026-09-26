@@ -64,6 +64,10 @@ import {
 } from "../../sortResults.js";
 
 import {
+  filterPlaylistTracks,
+} from "../../playlistTrackSearch.js";
+
+import {
   getDownloadedPlaylists,
   getDownloadedTracks,
   getOfflineOwnerKey,
@@ -316,9 +320,18 @@ const [
     null,
   );
 
+  const [
+    playlistSearchQuery,
+    setPlaylistSearchQuery,
+  ] = useState("");
+
   useEffect(() => {
   setSelectedPlaylist(
     null,
+  );
+
+  setPlaylistSearchQuery(
+    "",
   );
 
   setSelectedLibraryEntity(
@@ -2478,6 +2491,27 @@ if (offline) {
       ],
     );
 
+  const filteredSelectedPlaylistTracks =
+    useMemo(
+      () =>
+        filterPlaylistTracks(
+          sortedSelectedPlaylistTracks,
+          playlistSearchQuery,
+        ),
+      [
+        sortedSelectedPlaylistTracks,
+        playlistSearchQuery,
+      ],
+    );
+
+  useEffect(() => {
+    setPlaylistSearchQuery(
+      "",
+    );
+  }, [
+    selectedPlaylist?.id,
+  ]);
+
   if (
     !isRegistered &&
     downloadedPlaylists.length ===
@@ -2635,6 +2669,10 @@ if (offline) {
             type="button"
             className="hs-search-playlist-back"
             onClick={() => {
+              setPlaylistSearchQuery(
+                "",
+              );
+
               setSelectedPlaylist(
                 null,
               );
@@ -2872,10 +2910,78 @@ if (offline) {
             </div>
 
             <strong>
-              {selectedPlaylist.tracks.length}
+              {playlistSearchQuery.trim()
+                ? (
+                    filteredSelectedPlaylistTracks.length +
+                    " / " +
+                    selectedPlaylist.tracks.length
+                  )
+                : selectedPlaylist.tracks.length}
             </strong>
 
           </div>
+
+          {selectedPlaylist.tracks.length >
+          0 ? (
+            <div className="hs-playlist-track-search">
+              <label>
+                <Icon
+                  name="search"
+                  size={15}
+                />
+
+                <input
+                  type="search"
+                  value={
+                    playlistSearchQuery
+                  }
+                  placeholder="Search in playlist"
+                  aria-label={
+                    `Search in ${selectedPlaylist.title}`
+                  }
+                  onChange={(
+                    event,
+                  ) => {
+                    setPlaylistSearchQuery(
+                      event.target.value,
+                    );
+                  }}
+                />
+              </label>
+
+              <span>
+                {playlistSearchQuery.trim()
+                  ? (
+                      filteredSelectedPlaylistTracks.length +
+                      " of " +
+                      selectedPlaylist.tracks.length +
+                      " tracks"
+                    )
+                  : (
+                      selectedPlaylist.tracks.length +
+                      (
+                        selectedPlaylist.tracks.length ===
+                          1
+                          ? " track"
+                          : " tracks"
+                      )
+                    )}
+              </span>
+
+              {playlistSearchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlaylistSearchQuery(
+                      "",
+                    );
+                  }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
 
           {selectedPlaylist.tracks.length ===
@@ -2901,11 +3007,33 @@ if (offline) {
 
             </div>
 
+          ) : filteredSelectedPlaylistTracks.length ===
+          0 ? (
+
+            <div className="hs-library-empty hs-playlist-search-empty">
+
+              <Icon
+                name="search"
+                size={22}
+              />
+
+              <div>
+                <strong>
+                  No matches in this playlist
+                </strong>
+
+                <p>
+                  Try a song title, artist, or album.
+                </p>
+              </div>
+
+            </div>
+
           ) : (
 
             <div className="hs-search-track-list">
 
-              {sortedSelectedPlaylistTracks.map(
+              {filteredSelectedPlaylistTracks.map(
                 (
                   track,
                   trackIndex,
@@ -2990,7 +3118,7 @@ if (offline) {
                       onClick={() => {
                         playPlaylist(
                           trackIndex,
-                          sortedSelectedPlaylistTracks,
+                          filteredSelectedPlaylistTracks,
                         );
                       }}
                       onKeyDown={(
@@ -3006,7 +3134,7 @@ if (offline) {
 
                           playPlaylist(
                             trackIndex,
-                            sortedSelectedPlaylistTracks,
+                            filteredSelectedPlaylistTracks,
                           );
                         }
                       }}
