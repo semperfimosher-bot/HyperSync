@@ -769,10 +769,9 @@ export default function ArtistProfilePage({
                   ) ===
                     currentTrackId;
 
-                const releaseDate =
-                  formatReleaseDate(
-                    track.released_at,
-                  );
+                const releaseYear =
+                  track.release_year ??
+                  null;
 
                 const playTrack =
                   () => {
@@ -873,19 +872,22 @@ export default function ArtistProfilePage({
 
                     <span className="hs-search-track__signals">
                       <em>
-                        {track.album ||
-                          "Single"}
+                        {track.genre ||
+                          "Unknown genre"}
                       </em>
 
                       <small>
+                        {track.album ||
+                          "Single"}
+                        {releaseYear
+                          ? ` • ${releaseYear}`
+                          : ""}
+                        {" • "}
                         {statValue(
                           track.global_play_count,
                         )}
                         {" "}
                         plays
-                        {releaseDate
-                          ? ` • ${releaseDate}`
-                          : ""}
                       </small>
                     </span>
 
@@ -975,8 +977,14 @@ export default function ArtistProfilePage({
                     {track.title}
                   </strong>
                   <span>
-                    {track.album ||
-                      "Single"}
+                    {[
+                      track.genre,
+                      track.release_year,
+                      track.album ||
+                        "Single",
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </span>
                 </button>
               ),
