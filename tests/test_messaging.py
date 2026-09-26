@@ -20,6 +20,7 @@ from backend.app.api.routes import (
 from backend.app.models.account import (
     AccountType,
     User,
+    UserProfile,
     UserRole,
 )
 from backend.app.models.base import Base
@@ -150,6 +151,153 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
 
         assert cleared_feed.unread_count == 0
         assert cleared_feed.notifications == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_message_notification_includes_full_details_and_can_be_read() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
+                    UserProfile.__tablename__
+                ],
+                Base.metadata.tables[
+                    Message.__tablename__
+                ],
+                Base.metadata.tables[
+                    AdminNotification.__tablename__
+                ],
+            ],
+        )
+
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        sender = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email="detail-sender@example.test",
+            username="detail-sender",
+            username_normalized="detail-sender",
+            password_hash="hash",
+        )
+
+        recipient = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email="detail-recipient@example.test",
+            username="detail-recipient",
+            username_normalized="detail-recipient",
+            password_hash="hash",
+        )
+
+        session.add_all(
+            [
+                sender,
+                recipient,
+            ]
+        )
+
+        await session.flush()
+
+        session.add_all(
+            [
+                UserProfile(
+                    user_id=sender.id,
+                    display_name="Detail Sender",
+                ),
+                UserProfile(
+                    user_id=recipient.id,
+                    display_name="Detail Recipient",
+                ),
+            ]
+        )
+
+        message = Message(
+            sender_id=sender.id,
+            recipient_id=recipient.id,
+            body=(
+                "This is the full notification "
+                "message body, not a preview."
+            ),
+            shared_kind="track",
+            shared_key="track-123",
+            shared_title="Notification Song",
+            shared_subtitle="Notification Artist",
+            shared_artwork_url="/art.jpg",
+            viewed_at=None,
+        )
+
+        session.add(
+            message,
+        )
+
+        await session.commit()
+
+        feed = (
+            await message_routes.message_notifications(
+                recipient,
+                session,
+            )
+        )
+
+        assert feed.unread_count == 1
+        assert len(
+            feed.notifications,
+        ) == 1
+
+        notification = (
+            feed.notifications[0]
+        )
+
+        assert notification.type == "message"
+        assert (
+            notification.body
+            == message.body
+        )
+        assert (
+            notification.recipient_username
+            == "detail-recipient"
+        )
+        assert (
+            notification.shared_music
+            is not None
+        )
+        assert (
+            notification.shared_music.title
+            == "Notification Song"
+        )
+
+        await message_routes.read_message_notification(
+            message.id,
+            recipient,
+            session,
+        )
+
+        cleared = (
+            await message_routes.message_notifications(
+                recipient,
+                session,
+            )
+        )
+
+        assert cleared.unread_count == 0
+        assert cleared.notifications == []
 
     await engine.dispose()
 
