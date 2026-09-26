@@ -152,7 +152,7 @@ test(
         subtitle:
           "Nova • Roads",
       }),
-      "Midnight Nova • Roads",
+      "Midnight",
     );
 
     assert.equal(
