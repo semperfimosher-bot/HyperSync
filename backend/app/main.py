@@ -36,6 +36,7 @@ _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/playback-devices",
     "/api/messages/push/",
     "/api/messages/admin-notifications/",
+    "/api/messages/notifications/",
     "/api/recommendations/autoplay",
     "/api/admin/tracks/upload/prepare",
     "/api/admin/tracks/upload/cancel",
