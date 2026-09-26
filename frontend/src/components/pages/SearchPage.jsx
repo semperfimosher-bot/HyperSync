@@ -1478,6 +1478,53 @@ function playOpenedPlaylist(
 }
 
 
+async function playSearchCollection(
+  query,
+) {
+  const normalized =
+    String(
+      query ??
+      "",
+    ).trim();
+
+  if (!normalized) {
+    return;
+  }
+
+  try {
+    const data =
+      await searchHypersync(
+        normalized,
+        sortMode,
+      );
+
+    const tracks =
+      Array.isArray(
+        data?.tracks,
+      )
+        ? data.tracks
+        : [];
+
+    if (!tracks.length) {
+      throw new Error(
+        "No playable tracks found.",
+      );
+    }
+
+    playOpenedPlaylist(
+      0,
+      tracks,
+    );
+  } catch (requestError) {
+    setSearchError(
+      requestError instanceof Error
+        ? requestError.message
+        : "Unable to play this collection.",
+    );
+  }
+}
+
+
 async function toggleOpenedPlaylistSaved() {
   if (
     !openedPlaylist ||
@@ -1844,6 +1891,20 @@ async function downloadOpenedPlaylist() {
                 actions: [
                   {
                     id:
+                      "play",
+                    label:
+                      "Play artist",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          `songs by ${artist.name}`,
+                        );
+                      },
+                  },
+                  {
+                    id:
                       "open",
                     label:
                       "Open artist",
@@ -1957,6 +2018,20 @@ async function downloadOpenedPlaylist() {
                   collaboration.artwork_url ??
                   null,
                 actions: [
+                  {
+                    id:
+                      "play",
+                    label:
+                      "Play collaboration",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          `songs by ${collaboration.name}`,
+                        );
+                      },
+                  },
                   {
                     id:
                       "open",
@@ -2074,6 +2149,25 @@ async function downloadOpenedPlaylist() {
                   album.artwork_url ??
                   null,
                 actions: [
+                  {
+                    id:
+                      "play",
+                    label:
+                      "Play album",
+                    icon:
+                      "play",
+                    onSelect:
+                      () => {
+                        void playSearchCollection(
+                          [
+                            album.title,
+                            album.artist,
+                          ]
+                            .filter(Boolean)
+                            .join(" "),
+                        );
+                      },
+                  },
                   {
                     id:
                       "open",
