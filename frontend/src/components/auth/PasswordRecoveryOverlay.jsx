@@ -149,12 +149,17 @@ export default function PasswordRecoveryOverlay({
   );
 
   const [
-    identifier,
-    setIdentifier,
+    recoveryIdentifier,
+    setRecoveryIdentifier,
   ] = useState(
     () =>
       recoveryLink.identifier,
   );
+
+  const [
+    identifier,
+    setIdentifier,
+  ] = useState("");
 
   const [
     otp,
@@ -211,8 +216,11 @@ export default function PasswordRecoveryOverlay({
       linkedRecovery.identifier &&
       linkedRecovery.code
     ) {
-      setIdentifier(
+      setRecoveryIdentifier(
         linkedRecovery.identifier,
+      );
+      setIdentifier(
+        "",
       );
       setOtp(
         linkedRecovery.code,
@@ -256,6 +264,7 @@ export default function PasswordRecoveryOverlay({
     clearPasswordResetUrl();
     setResetToken("");
     setResetComplete(false);
+    setRecoveryIdentifier("");
     setIdentifier("");
     setOtp("");
     setStep("request");
@@ -268,6 +277,7 @@ export default function PasswordRecoveryOverlay({
     clearPasswordResetUrl();
     setResetToken("");
     setResetComplete(false);
+    setRecoveryIdentifier("");
     setIdentifier("");
     setOtp("");
     setStep("request");
@@ -309,8 +319,11 @@ export default function PasswordRecoveryOverlay({
           },
         );
 
-      setIdentifier(
+      setRecoveryIdentifier(
         normalized,
+      );
+      setIdentifier(
+        "",
       );
       setOtp(
         "",
@@ -354,7 +367,7 @@ export default function PasswordRecoveryOverlay({
             body: JSON.stringify(
               {
                 identifier:
-                  identifier.trim(),
+                  recoveryIdentifier.trim(),
                 otp:
                   normalizedOtp,
               },
@@ -383,6 +396,9 @@ export default function PasswordRecoveryOverlay({
       );
       onClose?.();
 
+      setRecoveryIdentifier("");
+      setIdentifier("");
+      setOtp("");
       setStep("request");
       setMessage("");
     } catch (error) {
@@ -634,6 +650,7 @@ export default function PasswordRecoveryOverlay({
         ) : isOtp ? (
           <form
             className="auth-form"
+            autoComplete="off"
             onSubmit={
               verifyOtp
             }
@@ -648,7 +665,7 @@ export default function PasswordRecoveryOverlay({
                 type="text"
                 name="otp"
                 value={
-                  otp
+                  otp ?? ""
                 }
                 onChange={(
                   event,
@@ -695,6 +712,12 @@ export default function PasswordRecoveryOverlay({
                   busy
                 }
                 onClick={() => {
+                  setRecoveryIdentifier(
+                    "",
+                  );
+                  setIdentifier(
+                    "",
+                  );
                   setOtp(
                     "",
                   );
@@ -722,6 +745,7 @@ export default function PasswordRecoveryOverlay({
         ) : (
           <form
             className="auth-form"
+            autoComplete="off"
             onSubmit={
               requestRecovery
             }
@@ -735,7 +759,7 @@ export default function PasswordRecoveryOverlay({
                 key="recovery-identifier"
                 type="text"
                 value={
-                  identifier
+                  identifier ?? ""
                 }
                 onChange={(
                   event,
@@ -744,7 +768,8 @@ export default function PasswordRecoveryOverlay({
                     event.target.value,
                   );
                 }}
-                autoComplete="username"
+                name="recovery_identifier"
+                autoComplete="off"
                 placeholder="Username or email"
                 maxLength={320}
                 required
