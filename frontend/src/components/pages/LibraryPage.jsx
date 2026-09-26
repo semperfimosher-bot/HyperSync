@@ -3119,37 +3119,39 @@ if (offline) {
                 />
               </label>
 
-              <span>
-                {playlistSearchQuery.trim()
-                  ? (
-                      filteredSelectedPlaylistTracks.length +
-                      " of " +
-                      selectedPlaylist.tracks.length +
-                      " tracks"
-                    )
-                  : (
-                      selectedPlaylist.tracks.length +
-                      (
-                        selectedPlaylist.tracks.length ===
-                          1
-                          ? " track"
-                          : " tracks"
+              <div className="hs-playlist-track-search__meta">
+                <span>
+                  {playlistSearchQuery.trim()
+                    ? (
+                        filteredSelectedPlaylistTracks.length +
+                        " of " +
+                        selectedPlaylist.tracks.length +
+                        " tracks"
                       )
-                    )}
-              </span>
+                    : (
+                        selectedPlaylist.tracks.length +
+                        (
+                          selectedPlaylist.tracks.length ===
+                            1
+                            ? " track"
+                            : " tracks"
+                        )
+                      )}
+                </span>
 
-              {playlistSearchQuery ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPlaylistSearchQuery(
-                      "",
-                    );
-                  }}
-                >
-                  Clear
-                </button>
-              ) : null}
+                {playlistSearchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlaylistSearchQuery(
+                        "",
+                      );
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
