@@ -1575,6 +1575,7 @@ async def upload_track(
     artist: Annotated[str, Form(...)],
     album: Annotated[str, Form(...)],
     duration_seconds: Annotated[int, Form(...)],
+    genre: Annotated[str, Form()] = "",
     user: AdminUser,
     session: DatabaseSession,
     title_edited: Annotated[bool, Form()] = False,
@@ -1826,13 +1827,16 @@ async def upload_track(
             title=(resolved_metadata["title"]),
             artist=(resolved_metadata["artist"]),
             album=(resolved_metadata["album"]),
-            genre=(resolved_metadata["genre"]),
+            genre=(
+                genre.strip()
+                or resolved_metadata["genre"]
+            ),
             release_year=(
                 _valid_release_year(
-                    resolved_metadata.get(
+                    release_year
+                    or resolved_metadata.get(
                         "release_year",
-                    )
-                    or release_year,
+                    ),
                 )
             ),
             b2_object_key=(object_key),
