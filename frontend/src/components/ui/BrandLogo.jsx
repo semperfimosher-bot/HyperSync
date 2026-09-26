@@ -7,13 +7,13 @@ function BrandLogo({
       className={
         `brand ${compact ? "brand--compact" : ""}`
       }
-      aria-label="HyperSync"
+      aria-label="HyperSynced"
     >
       <svg
         className="brand__symbol"
         viewBox="0 0 76 88"
         role="img"
-        aria-label="HyperSync logo"
+        aria-label="HyperSynced logo"
       >
         <defs>
           <linearGradient
