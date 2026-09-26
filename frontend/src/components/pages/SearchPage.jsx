@@ -75,6 +75,9 @@ import useCollectionActionMenu from
 import useResultsSortMenu from
   "../../hooks/useResultsSortMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 import {
   getPlaylist,
   savePlaylist,
@@ -590,6 +593,71 @@ useEffect(() => {
   const searchInputRef =
   useRef(null);
 
+  const searchLoadKeyRef =
+    useRef("");
+
+  const [
+    quietSearchVersion,
+    setQuietSearchVersion,
+  ] = useState(0);
+
+
+  useQuietRefresh(
+    () => {
+      setQuietSearchVersion(
+        (current) =>
+          current + 1,
+      );
+    },
+    {
+      enabled:
+        Boolean(
+          preferenceReady &&
+          normalizedQuery,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
+
+
+  useQuietRefresh(
+    async () => {
+      const playlistId =
+        openedPlaylist?.id;
+
+      if (!playlistId) {
+        return;
+      }
+
+      try {
+        const refreshed =
+          await getPlaylist(
+            playlistId,
+          );
+
+        await reconcileDownloadedPlaylistMembership(
+          refreshed,
+          offlineOwnerKey,
+        );
+
+        setOpenedPlaylist(
+          refreshed,
+        );
+      } catch {
+        // Keep the open playlist visible.
+      }
+    },
+    {
+      enabled:
+        Boolean(
+          openedPlaylist?.id,
+        ),
+      intervalMs:
+        20_000,
+    },
+  );
+
 
   /*
    * Load the user's dropdown
@@ -698,6 +766,9 @@ useEffect(() => {
     }
 
     if (!normalizedQuery) {
+      searchLoadKeyRef.current =
+        "";
+
       setResults(
         EMPTY_RESULTS,
       );
@@ -712,11 +783,28 @@ useEffect(() => {
       return undefined;
     }
 
+    const searchKey =
+      [
+        normalizedQuery,
+        sortMode,
+        offlineOwnerKey ??
+          "",
+      ].join(
+        "\u0000",
+      );
+
+    const quietRefresh =
+      searchLoadKeyRef.current ===
+        searchKey &&
+      quietSearchVersion > 0;
+
     const controller =
       new AbortController();
 
-    setLoading(true);
-    setSearchError("");
+    if (!quietRefresh) {
+      setLoading(true);
+      setSearchError("");
+    }
 
     const setLocalResults =
       (localTracks) => {
@@ -735,9 +823,14 @@ useEffect(() => {
             localTracks,
         });
 
-        setSelectedTrackIndex(
-          -1,
-        );
+        if (!quietRefresh) {
+          setSelectedTrackIndex(
+            -1,
+          );
+        }
+
+        searchLoadKeyRef.current =
+          searchKey;
       };
 
     const timer =
@@ -844,9 +937,14 @@ useEffect(() => {
                 data?.playlists || [],
             });
 
-            setSelectedTrackIndex(
-              -1,
-            );
+            if (!quietRefresh) {
+              setSelectedTrackIndex(
+                -1,
+              );
+            }
+
+            searchLoadKeyRef.current =
+              searchKey;
 
             setSearchError(
               "",
@@ -856,6 +954,10 @@ useEffect(() => {
               error?.name ===
               "AbortError"
             ) {
+              return;
+            }
+
+            if (quietRefresh) {
               return;
             }
 
@@ -900,7 +1002,8 @@ useEffect(() => {
           } finally {
             if (
               !controller.signal
-                .aborted
+                .aborted &&
+              !quietRefresh
             ) {
               setLoading(false);
             }
@@ -921,6 +1024,7 @@ useEffect(() => {
     normalizedQuery,
     offlineOwnerKey,
     preferenceReady,
+    quietSearchVersion,
     sortMode,
   ]);
 
