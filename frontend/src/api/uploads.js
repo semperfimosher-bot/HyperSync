@@ -524,6 +524,25 @@ formData.append(
   });
 }
 
+export async function enrichUploadedTrackMetadata(
+  trackId,
+) {
+  return apiRequest(
+    "/admin/tracks/"
+      + encodeURIComponent(
+          trackId,
+        )
+      + "/enrich-metadata",
+    {
+      method:
+        "POST",
+      cache:
+        "no-store",
+    },
+  );
+}
+
+
 export async function uploadTrack(
   item,
   {
