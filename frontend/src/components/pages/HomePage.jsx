@@ -369,7 +369,7 @@ useQuietRefresh(
 
       <section
         className="home-hero-image"
-        aria-label="Hypersync"
+        aria-label="HyperSynced"
       >
 
         <div className="home-hero-image__status">
@@ -418,7 +418,7 @@ useQuietRefresh(
   <OfflineNotice
     compact
     title="Go back online to see Recently Played"
-    description="Your real listening history syncs from your HyperSync account. Downloaded music is still available in Library."
+    description="Your real listening history syncs from your HyperSynced account. Downloaded music is still available in Library."
   />
 ) : recentLoading ? (
 
