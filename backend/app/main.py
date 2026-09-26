@@ -59,6 +59,31 @@ def _activity_description(
             "PATCH",
             "DELETE",
         }
+        or (
+            method == "POST"
+            and path.startswith(
+                "/api/messages/conversations/"
+            )
+        )
+        or (
+            method in {
+                "POST",
+                "DELETE",
+            }
+            and path.startswith(
+                "/api/playlists/liked/tracks/"
+            )
+        )
+        or (
+            method in {
+                "POST",
+                "DELETE",
+            }
+            and path.startswith(
+                "/api/playlists/"
+            )
+            and "/tracks" in path
+        )
         or path in _ACTIVITY_EXCLUDED_PATHS
         or any(
             path.startswith(prefix)
