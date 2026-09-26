@@ -51,6 +51,139 @@ def _text_key(
     )
 
 
+def _genre_family(
+    value: str | None,
+) -> str:
+    key = _text_key(
+        value,
+    )
+
+    if not key:
+        return ""
+
+    families = (
+        (
+            "country",
+            (
+                "country",
+                "americana",
+                "bluegrass",
+                "western",
+            ),
+        ),
+        (
+            "hip-hop",
+            (
+                "hip hop",
+                "hip-hop",
+                "rap",
+                "trap",
+            ),
+        ),
+        (
+            "r&b",
+            (
+                "r&b",
+                "rnb",
+                "soul",
+                "neo soul",
+            ),
+        ),
+        (
+            "electronic",
+            (
+                "electronic",
+                "edm",
+                "dance",
+                "house",
+                "techno",
+                "trance",
+                "dubstep",
+            ),
+        ),
+        (
+            "rock",
+            (
+                "rock",
+                "alternative",
+                "indie rock",
+                "classic rock",
+            ),
+        ),
+        (
+            "metal",
+            (
+                "metal",
+                "metalcore",
+                "deathcore",
+            ),
+        ),
+        (
+            "punk",
+            (
+                "punk",
+                "pop punk",
+                "hardcore",
+            ),
+        ),
+        (
+            "pop",
+            (
+                "pop",
+                "dance pop",
+                "synthpop",
+            ),
+        ),
+        (
+            "latin",
+            (
+                "latin",
+                "reggaeton",
+                "bachata",
+                "salsa",
+            ),
+        ),
+        (
+            "folk",
+            (
+                "folk",
+                "singer-songwriter",
+            ),
+        ),
+        (
+            "jazz",
+            (
+                "jazz",
+                "bebop",
+            ),
+        ),
+        (
+            "classical",
+            (
+                "classical",
+                "orchestral",
+            ),
+        ),
+        (
+            "gospel",
+            (
+                "gospel",
+                "christian",
+                "worship",
+            ),
+        ),
+    )
+
+    for family, aliases in families:
+        if any(
+            alias in key
+            for alias in aliases
+        ):
+            return family
+
+    return key
+
+
 def _bounded(
     value: float,
     lower: float,
@@ -312,6 +445,14 @@ async def recommend_autoplay_tracks(
 
     current_genre = (
         _text_key(
+            current_track.genre,
+        )
+        if current_track
+        else ""
+    )
+
+    current_genre_family = (
+        _genre_family(
             current_track.genre,
         )
         if current_track
@@ -1221,7 +1362,7 @@ async def recommend_autoplay_tracks(
     if current_genre:
         session_genre_affinity[
             current_genre
-        ] += 2.75
+        ] += 6.0
 
     if current_artist:
         session_artist_affinity[
@@ -1485,11 +1626,24 @@ async def recommend_autoplay_tracks(
         # need strong evidence from the
         # recent 12-song session to enter.
         if current_genre:
+            candidate_family = (
+                _genre_family(
+                    track.genre,
+                )
+            )
+
             if (
                 genre_key
                 == current_genre
             ):
-                score += 28.0
+                score += 52.0
+
+            elif (
+                current_genre_family
+                and candidate_family
+                == current_genre_family
+            ):
+                score += 30.0
 
             elif (
                 session_genre_affinity.get(
@@ -1498,7 +1652,7 @@ async def recommend_autoplay_tracks(
                 )
                 <= 0
             ):
-                score -= 12.0
+                score -= 32.0
 
 
         if (
@@ -1694,6 +1848,45 @@ async def recommend_autoplay_tracks(
         )
     )
 
+    if current_genre:
+        exact_genre = [
+            item
+            for item in scored
+            if _text_key(
+                item[1].genre,
+            )
+            == current_genre
+        ]
+
+        same_vibe = [
+            item
+            for item in scored
+            if (
+                _text_key(
+                    item[1].genre,
+                )
+                != current_genre
+                and current_genre_family
+                and _genre_family(
+                    item[1].genre,
+                )
+                == current_genre_family
+            )
+        ]
+
+        other_genres = [
+            item
+            for item in scored
+            if item not in exact_genre
+            and item not in same_vibe
+        ]
+
+        scored = (
+            exact_genre
+            + same_vibe
+            + other_genres
+        )
+
 
     selected: list[
         Track,
@@ -1728,6 +1921,13 @@ async def recommend_autoplay_tracks(
             artist_key
             == last_artist
             and artist_streak >= 2
+            and not (
+                current_genre_family
+                and _genre_family(
+                    track.genre,
+                )
+                == current_genre_family
+            )
         ):
             deferred.append(
                 track,
