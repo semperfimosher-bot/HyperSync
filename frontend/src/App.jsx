@@ -157,6 +157,11 @@ import {
   applyPlaybackRemoteCommand,
 } from "./playbackRemoteCommands.js";
 
+import {
+  MUSIC_SHARE_REQUEST_EVENT,
+  normalizeSharedMusicItem,
+} from "./musicShare.js";
+
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
@@ -2981,6 +2986,8 @@ function MainPage({
   onMessageUser,
   messageUsername,
   onMessageUsernameHandled,
+  sharedMusicToSend,
+  onSharedMusicHandled,
   onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
@@ -3316,6 +3323,12 @@ function MainPage({
           }
           onInitialUsernameHandled={
             onMessageUsernameHandled
+          }
+          sharedMusicToSend={
+            sharedMusicToSend
+          }
+          onSharedMusicHandled={
+            onSharedMusicHandled
           }
           onUnreadChange={
             onMessageNotificationsChanged
@@ -5018,6 +5031,11 @@ export default function App() {
     messageToOpen,
     setMessageToOpen,
   ] = useState("");
+
+  const [
+    sharedMusicToSend,
+    setSharedMusicToSend,
+  ] = useState(null);
 
   const [
     messageNotifications,
@@ -7397,6 +7415,76 @@ const clearPlaylistToOpen =
   );
 
 
+  useEffect(() => {
+    const handleMusicShare =
+      (event) => {
+        const item =
+          normalizeSharedMusicItem(
+            event?.detail,
+          );
+
+        if (!item) {
+          return;
+        }
+
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          openAuth(
+            "signin",
+          );
+
+          return;
+        }
+
+        setSharedMusicToSend(
+          item,
+        );
+
+        setMessageToOpen(
+          "",
+        );
+
+        setMessagesResetToken(
+          (current) =>
+            current + 1,
+        );
+
+        navigate(
+          "messages",
+        );
+      };
+
+    window.addEventListener(
+      MUSIC_SHARE_REQUEST_EVENT,
+      handleMusicShare,
+    );
+
+    return () => {
+      window.removeEventListener(
+        MUSIC_SHARE_REQUEST_EVENT,
+        handleMusicShare,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    navigate,
+    openAuth,
+  ]);
+
+
+  const clearSharedMusicToSend =
+    useCallback(
+      () => {
+        setSharedMusicToSend(
+          null,
+        );
+      },
+      [],
+    );
+
+
   const handleInstallApp =
   useCallback(
     async () => {
@@ -7839,6 +7927,12 @@ const clearPlaylistToOpen =
             }
             onMessageUsernameHandled={
               clearMessageToOpen
+            }
+            sharedMusicToSend={
+              sharedMusicToSend
+            }
+            onSharedMusicHandled={
+              clearSharedMusicToSend
             }
             onMessageNotificationsChanged={
               refreshMessageNotifications
