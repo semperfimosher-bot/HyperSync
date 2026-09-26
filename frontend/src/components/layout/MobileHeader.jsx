@@ -17,7 +17,7 @@ function MobileHeader({
   onDismissPlaylistUpdate,
   messageNotifications,
   onOpenMessage,
-  onReadAdminNotification,
+  onOpenNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -118,20 +118,17 @@ function MobileHeader({
                 data={
                   messageNotifications
                 }
-                onOpenMessage={(
-                  username,
+                onOpenNotification={(
+                  notification,
                 ) => {
                   setNotificationsOpen(
                     false,
                   );
 
-                  onOpenMessage?.(
-                    username,
+                  onOpenNotification?.(
+                    notification,
                   );
                 }}
-                onReadAdminNotification={
-                  onReadAdminNotification
-                }
                 onEnablePush={
                   onEnablePush
                 }
