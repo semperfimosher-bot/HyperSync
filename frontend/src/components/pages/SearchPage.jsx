@@ -293,7 +293,6 @@ function SearchPage({
   onOpenProfile,
   onMessageUser,
   onOpenPlaylist,
-  onGenerateSmartPlaylist,
   onOpenAuth,
   currentUser,
   initialArtistName = "",
@@ -628,11 +627,6 @@ useEffect(() => {
     searchError,
     setSearchError,
   ] = useState("");
-
-  const [
-    smartPlaylistBusy,
-    setSmartPlaylistBusy,
-  ] = useState(false);
 
   const searchInputRef =
   useRef(null);
@@ -1178,6 +1172,18 @@ useEffect(() => {
       album:
         track.album ??
         "",
+
+      genre:
+        track.genre ??
+        "",
+
+      releaseYear:
+        track.release_year ??
+        null,
+
+      durationSeconds:
+        track.duration_seconds ??
+        null,
     }),
   );
 
@@ -1237,43 +1243,6 @@ useEffect(() => {
   }
 }
 
-  async function createLivePlaylist() {
-    if (
-      !normalizedQuery
-      || smartPlaylistBusy
-      || !looksLikeSmartPlaylistQuery(
-        normalizedQuery,
-      )
-    ) {
-      return;
-    }
-
-    setSmartPlaylistBusy(
-      true,
-    );
-
-    setSearchError(
-      "",
-    );
-
-    try {
-      await onGenerateSmartPlaylist?.(
-        normalizedQuery,
-      );
-    } catch (error) {
-      setSearchError(
-        error instanceof Error
-          ? error.message
-          : "Unable to build that live playlist.",
-      );
-    } finally {
-      setSmartPlaylistBusy(
-        false,
-      );
-    }
-  }
-
-
   function handleSearchKeyDown(
     event,
   ) {
@@ -1330,7 +1299,11 @@ useEffect(() => {
       event.currentTarget
         .blur();
 
-      void createLivePlaylist();
+      if (trackCount > 0) {
+        playTrack(
+          0,
+        );
+      }
 
       return;
     }
@@ -2599,16 +2572,20 @@ async function downloadOpenedPlaylist() {
 
 
     <span className="hs-search-status-chip">
-      {smartPlaylistBusy
-        ? "BUILDING LIVE PLAYLIST"
-        : looksLikeSmartPlaylistQuery(
-            normalizedQuery,
+      {looksLikeSmartPlaylistQuery(
+        normalizedQuery,
+      )
+        ? (
+            displayResults.tracks.length
+              ? "GENERATED PLAYLIST READY"
+              : loading
+                ? "BUILDING GENERATED PLAYLIST"
+                : "NO MATCHING MUSIC YET"
           )
-          ? "ENTER → LIVE PLAYLIST"
-          : normalizedQuery &&
-              results.processing_ms
-            ? `${results.processing_ms}ms`
-            : "SMART MATCHING"}
+        : normalizedQuery &&
+            results.processing_ms
+          ? `${results.processing_ms}ms`
+          : "SMART MATCHING"}
     </span>
 
   </div>
@@ -3287,7 +3264,258 @@ async function downloadOpenedPlaylist() {
           ) : null}
 
 
-                    {showPlaylists &&
+                    {looksLikeSmartPlaylistQuery(
+            normalizedQuery,
+          ) ? (
+            <section className="hs-search-generated-playlist">
+
+              <div className="hs-search-generated-playlist__hero">
+
+                <div className="hs-search-generated-playlist__art">
+                  <PlaylistArtwork
+                    tracks={
+                      displayResults.tracks
+                    }
+                    fallbackSize={34}
+                  />
+                </div>
+
+                <div className="hs-search-generated-playlist__copy">
+
+                  <span>
+                    GENERATED PLAYLIST
+                  </span>
+
+                  <h3>
+                    {normalizedQuery}
+                  </h3>
+
+                  <p>
+                    HyperSynced ranked the best matching music for this vibe or genre.
+                  </p>
+
+                  <small>
+                    {displayResults.tracks.length}
+                    {" "}
+                    {displayResults.tracks.length === 1
+                      ? "song"
+                      : "songs"}
+                  </small>
+
+                  <div className="hs-search-generated-playlist__actions">
+                    <button
+                      type="button"
+                      disabled={
+                        displayResults.tracks.length === 0
+                      }
+                      onClick={() => {
+                        playTrack(
+                          0,
+                        );
+                      }}
+                    >
+                      <Icon
+                        name="play"
+                        size={15}
+                      />
+
+                      Play generated playlist
+                    </button>
+                  </div>
+
+                </div>
+
+              </div>
+
+              {displayResults.tracks.length ? (
+                <div className="hs-search-track-list hs-search-generated-playlist__tracks">
+
+                  {displayResults.tracks.map(
+                    (
+                      track,
+                      trackIndex,
+                    ) => {
+                      const artworkUrl =
+                        resolveArtworkUrl(
+                          track.artwork_url,
+                        );
+
+                      const isCurrentTrack =
+                        currentTrackId !== null &&
+                        String(
+                          track.id,
+                        ) ===
+                          currentTrackId;
+
+                      return (
+                        <div
+                          key={
+                            track.id
+                          }
+                          role="button"
+                          tabIndex={0}
+                          {...trackActionMenu.getTriggerProps(
+                            track,
+                          )}
+                          className={[
+                            "hs-search-track",
+                            "hs-search-generated-track",
+                            selectedTrackIndex ===
+                              trackIndex
+                              ? "is-selected"
+                              : "",
+                            isCurrentTrack
+                              ? "is-current-track"
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          onMouseEnter={() => {
+                            setSelectedTrackIndex(
+                              trackIndex,
+                            );
+                          }}
+                          onMouseLeave={() => {
+                            setSelectedTrackIndex(
+                              -1,
+                            );
+                          }}
+                          onClick={() => {
+                            playTrack(
+                              trackIndex,
+                            );
+                          }}
+                          onKeyDown={(
+                            event,
+                          ) => {
+                            if (
+                              event.key ===
+                                "Enter"
+                              || event.key ===
+                                " "
+                            ) {
+                              event.preventDefault();
+
+                              playTrack(
+                                trackIndex,
+                              );
+                            }
+                          }}
+                        >
+
+                          <span className="hs-search-track__rank">
+                            {String(
+                              trackIndex + 1,
+                            ).padStart(
+                              2,
+                              "0",
+                            )}
+                          </span>
+
+                          <span className="hs-search-track__art">
+                            {artworkUrl ? (
+                              <img
+                                src={
+                                  artworkUrl
+                                }
+                                alt=""
+                                loading={
+                                  trackIndex < 6
+                                    ? "eager"
+                                    : "lazy"
+                                }
+                              />
+                            ) : (
+                              <Icon
+                                name="music"
+                                size={20}
+                              />
+                            )}
+
+                            <i aria-hidden="true">
+                              <Icon
+                                name="play"
+                                size={15}
+                              />
+                            </i>
+                          </span>
+
+                          <span className="hs-search-track__copy">
+                            <strong>
+                              {track.title}
+                            </strong>
+
+                            <small>
+                              {track.artist}
+
+                              {track.album
+                                ? ` • ${track.album}`
+                                : ""}
+                            </small>
+                          </span>
+
+                          <span className="hs-search-track__signals">
+                            <em>
+                              {track.genre ||
+                                "VIBE MATCH"}
+                            </em>
+
+                            <small>
+                              {track.release_year
+                                ? `${track.release_year} • `
+                                : ""}
+                              {track.match_label ||
+                                "SMART MATCH"}
+                            </small>
+                          </span>
+
+                          <span className="hs-search-track__duration">
+                            {formatDuration(
+                              track.duration_seconds,
+                            )}
+                          </span>
+
+                          <span className="hs-search-track__play">
+                            <Icon
+                              name={
+                                isCurrentTrack
+                                  ? "pause"
+                                  : "play"
+                              }
+                              size={16}
+                            />
+                          </span>
+
+                        </div>
+                      );
+                    },
+                  )}
+
+                </div>
+              ) : !loading ? (
+                <div className="hs-search-message">
+                  <Icon
+                    name="music"
+                    size={22}
+                  />
+
+                  <div>
+                    <strong>
+                      No matching music yet
+                    </strong>
+
+                    <p>
+                      Try a broader vibe or genre, or add more tagged music to the catalog.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+            </section>
+          ) : null}
+
+
+          {showPlaylists &&
           results.playlists?.length > 0 ? (
 
             <section className="hs-search-section">
@@ -3606,6 +3834,9 @@ async function downloadOpenedPlaylist() {
 
 
           {showTracks &&
+!looksLikeSmartPlaylistQuery(
+  normalizedQuery,
+) &&
 displayResults.tracks.length > 0 ? (
 
             <section className="hs-search-section">
