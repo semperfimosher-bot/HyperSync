@@ -2087,6 +2087,7 @@ async def backfill_track_metadata(
             "year_updated": 0,
             "external_checked": 0,
             "external_matched": 0,
+            "external_sources": {},
             "failed": [],
         }
 
@@ -2096,6 +2097,10 @@ async def backfill_track_metadata(
     year_updated = 0
     external_checked = 0
     external_matched = 0
+    external_sources: dict[
+        str,
+        int,
+    ] = {}
     failed: list[dict] = []
 
     for track in tracks:
@@ -2212,6 +2217,27 @@ async def backfill_track_metadata(
             ]:
                 external_matched += 1
 
+                source = (
+                    external_result.get(
+                        "source",
+                    )
+                )
+
+                if source:
+                    external_sources[
+                        str(
+                            source,
+                        )
+                    ] = (
+                        external_sources.get(
+                            str(
+                                source,
+                            ),
+                            0,
+                        )
+                        + 1
+                    )
+
         genre_changed = (
             track.genre
             != old_genre
@@ -2274,6 +2300,12 @@ async def backfill_track_metadata(
             external_checked,
         "external_matched":
             external_matched,
+        "external_sources":
+            dict(
+                sorted(
+                    external_sources.items(),
+                )
+            ),
         "failed":
             failed,
     }
