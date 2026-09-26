@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile, status
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
@@ -52,6 +52,7 @@ from ...services.generated_playlists import (
 )
 from ...services.music_metadata import (
     enrich_track_metadata,
+    enrich_track_metadata_by_id,
 )
 from ..dependencies import AdminUser, DatabaseSession
 
@@ -1249,6 +1250,7 @@ async def finalize_direct_track_upload(
     ],
     user: AdminUser,
     session: DatabaseSession,
+    background_tasks: BackgroundTasks,
     release_year: Annotated[
         int | None,
         Form(),
@@ -1479,6 +1481,11 @@ async def finalize_direct_track_upload(
 
         await session.commit()
 
+        background_tasks.add_task(
+            enrich_track_metadata_by_id,
+            track.id,
+        )
+
         cleanup_audio = False
 
         response_payload = {
@@ -1586,6 +1593,7 @@ async def upload_track(
     duration_seconds: Annotated[int, Form(...)],
     user: AdminUser,
     session: DatabaseSession,
+    background_tasks: BackgroundTasks,
     title_edited: Annotated[bool, Form()] = False,
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,
@@ -1869,6 +1877,11 @@ async def upload_track(
         )
 
         await session.commit()
+
+        background_tasks.add_task(
+            enrich_track_metadata_by_id,
+            track.id,
+        )
 
         response_payload = {
             "success": True,
