@@ -116,6 +116,7 @@ import {
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
+  removePlaylistFromOffline,
   startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
 
@@ -5776,7 +5777,25 @@ const checkDownloadedGeneratedPlaylistUpdates =
                       progress:
                         0,
                     };
-                  } catch {
+                  } catch (error) {
+                    if (
+                      error?.status ===
+                      404
+                    ) {
+                      await removePlaylistFromOffline(
+                        downloadedPlaylist.id,
+                        offlineOwnerKey,
+                      ).catch(
+                        () => false,
+                      );
+
+                      window.dispatchEvent(
+                        new CustomEvent(
+                          "hypersync:offline-downloads-changed",
+                        ),
+                      );
+                    }
+
                     return null;
                   }
                 },
