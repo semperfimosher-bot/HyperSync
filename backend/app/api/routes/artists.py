@@ -85,6 +85,7 @@ class ArtistProfileResponse(BaseModel):
     album_count: int
     total_plays: int
     monthly_listeners: int
+    tracks: list[ArtistTrackResponse]
     popular_tracks: list[ArtistTrackResponse]
     new_releases: list[ArtistTrackResponse]
     albums: list[ArtistAlbumResponse]
@@ -350,6 +351,17 @@ async def _artist_profile_response(
         ),
     )
 
+    all_tracks = [
+        _track_response(
+            track,
+            play_counts.get(
+                track.id,
+                0,
+            ),
+        )
+        for track in tracks
+    ]
+
     popular_tracks = [
         _track_response(
             track,
@@ -461,6 +473,7 @@ async def _artist_profile_response(
         monthly_listeners=(
             monthly_listeners
         ),
+        tracks=all_tracks,
         popular_tracks=popular_tracks,
         new_releases=new_releases,
         albums=albums,
