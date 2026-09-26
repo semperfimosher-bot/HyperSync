@@ -29,26 +29,45 @@ export function readPasswordRecoveryLinkFromLocation() {
     };
   }
 
+  const hash =
+    window.location.hash
+      .startsWith(
+        "#?",
+      )
+      ? window.location.hash.slice(
+          2,
+        )
+      : "";
+
   const params =
     new URLSearchParams(
-      window.location.search,
+      hash,
     );
 
+  const identifier =
+    params
+      .get(
+        "recovery_identifier",
+      )
+      ?.trim() ??
+    "";
+
+  const code =
+    params
+      .get(
+        "recovery_code",
+      )
+      ?.trim() ??
+    "";
+
   return {
-    identifier:
-      params
-        .get(
-          "recovery_identifier",
-        )
-        ?.trim() ??
-      "",
+    identifier,
     code:
-      params
-        .get(
-          "recovery_code",
-        )
-        ?.trim() ??
-      "",
+      /^\d{6}$/.test(
+        code,
+      )
+        ? code
+        : "",
   };
 }
 
@@ -104,6 +123,9 @@ export default function PasswordRecoveryOverlay({
   onAuthenticated,
   onPasswordReset,
 }) {
+  const recoveryLink =
+    readPasswordRecoveryLinkFromLocation();
+
   const [
     resetToken,
     setResetToken,
@@ -125,9 +147,6 @@ export default function PasswordRecoveryOverlay({
           : "request"
     ),
   );
-
-  const recoveryLink =
-    readPasswordRecoveryLinkFromLocation();
 
   const [
     identifier,
@@ -237,6 +256,8 @@ export default function PasswordRecoveryOverlay({
     clearPasswordResetUrl();
     setResetToken("");
     setResetComplete(false);
+    setIdentifier("");
+    setOtp("");
     setStep("request");
     setMessage("");
     onBackToSignIn?.();
@@ -247,6 +268,8 @@ export default function PasswordRecoveryOverlay({
     clearPasswordResetUrl();
     setResetToken("");
     setResetComplete(false);
+    setIdentifier("");
+    setOtp("");
     setStep("request");
     setMessage("");
     onClose?.();
