@@ -104,6 +104,17 @@ async def send_password_recovery_email(
         )
     )
 
+    use_code_url = (
+        frontend_url
+        + "/?"
+        + urlencode(
+            {
+                "recovery_identifier": username,
+                "recovery_code": otp_code,
+            }
+        )
+    )
+
     message = EmailMessage()
     message["Subject"] = (
         "Your HyperSync account recovery code"
@@ -132,9 +143,14 @@ async def send_password_recovery_email(
                 ),
                 "",
                 (
-                    "You can enter the code in HyperSync "
-                    "to sign back in, or reset your password "
-                    "with this one-use link:"
+                    "Open HyperSync with the recovery code "
+                    "already filled in:"
+                ),
+                use_code_url,
+                "",
+                (
+                    "Or reset your password with this "
+                    "one-use link:"
                 ),
                 reset_url,
                 "",
@@ -151,6 +167,10 @@ async def send_password_recovery_email(
         reset_url,
         quote=True,
     )
+    safe_use_code_url = escape(
+        use_code_url,
+        quote=True,
+    )
 
     message.add_alternative(
         f"""\
@@ -161,11 +181,16 @@ async def send_password_recovery_email(
       <h2 style="margin-top:0">HyperSync account recovery</h2>
       <p>Hi {safe_username},</p>
       <p>Your 6-digit recovery code is:</p>
-      <p style="font-size:30px;letter-spacing:8px;font-weight:700">{otp_code}</p>
+      <div style="font-size:30px;letter-spacing:8px;font-weight:700;padding:14px 18px;background:#071018;border:1px solid #274657;border-radius:10px;text-align:center;user-select:all">{otp_code}</div>
       <p>This code expires in {expires_minutes} minutes.</p>
-      <p>You can enter the code in HyperSync to sign back in, or use the button below to choose a new password.</p>
+      <p>Use the button below to open HyperSync with the code already filled in.</p>
       <p>
-        <a href="{safe_reset_url}" style="display:inline-block;padding:12px 18px;background:#0aa9ef;color:white;text-decoration:none;border-radius:10px">
+        <a href="{safe_use_code_url}" style="display:inline-block;padding:12px 18px;background:#0aa9ef;color:white;text-decoration:none;border-radius:10px;font-weight:700">
+          USE RECOVERY CODE
+        </a>
+      </p>
+      <p>
+        <a href="{safe_reset_url}" style="display:inline-block;padding:12px 18px;background:#183647;color:#eaf7ff;text-decoration:none;border-radius:10px">
           Reset password
         </a>
       </p>
