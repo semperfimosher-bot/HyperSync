@@ -124,7 +124,10 @@ import {
 } from "./offlineDownloads.js";
 
 import {
+  getLibraryTracks,
+  getMyPlaylists,
   getPlaylist,
+  getSavedPlaylists,
 } from "./playlistApi.js";
 
 import {
@@ -161,6 +164,11 @@ import {
   MUSIC_SHARE_REQUEST_EVENT,
   normalizeSharedMusicItem,
 } from "./musicShare.js";
+
+import {
+  resolveSharedMusicLibraryTarget,
+  sharedMusicSearchQuery,
+} from "./sharedMusicNavigation.js";
 
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
@@ -2988,6 +2996,9 @@ function MainPage({
   onMessageUsernameHandled,
   sharedMusicToSend,
   onSharedMusicHandled,
+  onOpenSharedMusic,
+  librarySharedMusicTarget,
+  onLibrarySharedMusicHandled,
   onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
@@ -3330,6 +3341,9 @@ function MainPage({
           onSharedMusicHandled={
             onSharedMusicHandled
           }
+          onOpenSharedMusic={
+            onOpenSharedMusic
+          }
           onUnreadChange={
             onMessageNotificationsChanged
           }
@@ -3368,6 +3382,12 @@ function MainPage({
           }
           onInitialPlaylistHandled={
             onPlaylistOpened
+          }
+          initialSharedMusicTarget={
+            librarySharedMusicTarget
+          }
+          onInitialSharedMusicHandled={
+            onLibrarySharedMusicHandled
           }
           activePlaylistDownloads={
             activePlaylistDownloads
@@ -5035,6 +5055,11 @@ export default function App() {
   const [
     sharedMusicToSend,
     setSharedMusicToSend,
+  ] = useState(null);
+
+  const [
+    librarySharedMusicTarget,
+    setLibrarySharedMusicTarget,
   ] = useState(null);
 
   const [
@@ -7485,6 +7510,128 @@ const clearPlaylistToOpen =
     );
 
 
+  const clearLibrarySharedMusicTarget =
+    useCallback(
+      () => {
+        setLibrarySharedMusicTarget(
+          null,
+        );
+      },
+      [],
+    );
+
+
+  const openSharedMusicFromMessage =
+    useCallback(
+      async (
+        rawItem,
+      ) => {
+        const item =
+          normalizeSharedMusicItem(
+            rawItem,
+          );
+
+        if (!item) {
+          return;
+        }
+
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          updateSearch(
+            sharedMusicSearchQuery(
+              item,
+            ),
+          );
+
+          return;
+        }
+
+        try {
+          const [
+            tracks,
+            ownedPlaylists,
+            savedPlaylists,
+          ] =
+            await Promise.all([
+              getLibraryTracks(),
+              getMyPlaylists(),
+              getSavedPlaylists(),
+            ]);
+
+          const target =
+            resolveSharedMusicLibraryTarget(
+              item,
+              {
+                tracks,
+                ownedPlaylists,
+                savedPlaylists,
+              },
+            );
+
+          if (target) {
+            setSharedMusicToSend(
+              null,
+            );
+
+            if (
+              target.kind ===
+                "playlist"
+            ) {
+              setLibrarySharedMusicTarget(
+                null,
+              );
+
+              setPlaylistToOpen(
+                String(
+                  target.playlist.id,
+                ),
+              );
+            } else {
+              setPlaylistToOpen(
+                null,
+              );
+
+              setLibrarySharedMusicTarget(
+                target,
+              );
+            }
+
+            navigate(
+              "library",
+            );
+
+            return;
+          }
+        } catch {
+          // If Library membership cannot be
+          // checked, Search is still a safe
+          // way to open the shared item.
+        }
+
+        setLibrarySharedMusicTarget(
+          null,
+        );
+
+        setPlaylistToOpen(
+          null,
+        );
+
+        updateSearch(
+          sharedMusicSearchQuery(
+            item,
+          ),
+        );
+      },
+      [
+        currentUser?.account_type,
+        navigate,
+        updateSearch,
+      ],
+    );
+
+
   const handleInstallApp =
   useCallback(
     async () => {
@@ -7933,6 +8080,15 @@ const clearPlaylistToOpen =
             }
             onSharedMusicHandled={
               clearSharedMusicToSend
+            }
+            onOpenSharedMusic={
+              openSharedMusicFromMessage
+            }
+            librarySharedMusicTarget={
+              librarySharedMusicTarget
+            }
+            onLibrarySharedMusicHandled={
+              clearLibrarySharedMusicTarget
             }
             onMessageNotificationsChanged={
               refreshMessageNotifications
