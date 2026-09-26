@@ -25,6 +25,7 @@ export async function getConversation(
 export async function sendMessage(
   username,
   body,
+  sharedMusic = null,
 ) {
   return apiRequest(
     "/messages/conversations/" +
@@ -36,7 +37,10 @@ export async function sendMessage(
         "POST",
       body:
         JSON.stringify({
-          body,
+          body:
+            body ?? "",
+          shared_music:
+            sharedMusic,
         }),
     },
   );
