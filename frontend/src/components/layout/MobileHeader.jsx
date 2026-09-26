@@ -17,6 +17,7 @@ function MobileHeader({
   onDismissPlaylistUpdate,
   messageNotifications,
   onOpenMessage,
+  onReadAdminNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -128,6 +129,9 @@ function MobileHeader({
                     username,
                   );
                 }}
+                onReadAdminNotification={
+                  onReadAdminNotification
+                }
                 onEnablePush={
                   onEnablePush
                 }
