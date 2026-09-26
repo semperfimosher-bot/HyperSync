@@ -1,7 +1,3 @@
-import {
-  looksLikeSmartPlaylistQuery,
-} from "../../smartPlaylistQuery.js";
-
 import Icon from "../ui/Icon.jsx";
 import Avatar from "../profile/Avatar.jsx";
 import { PAGE_TITLES } from "../../constants.js";
@@ -16,7 +12,6 @@ function DesktopTopbar({
   searchQuery,
   onSearchChange,
   onSearchFocus,
-  onSearchSubmit,
   currentUser,
   onNavigate,
   onOpenAuth,
@@ -79,26 +74,12 @@ function DesktopTopbar({
             }}
             onKeyDown={(event) => {
               if (
-                event.key ===
-                  "Enter"
-                && looksLikeSmartPlaylistQuery(
-                  searchQuery,
-                )
+                event.key === "Enter"
               ) {
-                event.preventDefault();
-
                 event.currentTarget
                   .blur();
 
-                void Promise
-                  .resolve(
-                    onSearchSubmit?.(
-                      searchQuery,
-                    ),
-                  )
-                  .catch(
-                    () => {},
-                  );
+                onSearchFocus?.();
 
                 return;
               }
