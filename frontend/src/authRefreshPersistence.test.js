@@ -103,3 +103,107 @@ test(
     }
   },
 );
+
+
+test(
+  "429 refresh cooldown suppresses repeated protected requests",
+  async () => {
+    globalThis.localStorage =
+      createStorage({
+        hypersync_session_active:
+          "true",
+        hypersync_remember_me:
+          "true",
+        hypersync_user_profile:
+          JSON.stringify({
+            id:
+              "user-1",
+            username:
+              "listener",
+          }),
+      });
+
+    globalThis.sessionStorage =
+      createStorage();
+
+    const originalFetch =
+      globalThis.fetch;
+
+    const calls = [];
+
+    globalThis.fetch =
+      async (
+        url,
+      ) => {
+        calls.push(
+          String(
+            url,
+          ),
+        );
+
+        return {
+          ok:
+            false,
+          status:
+            429,
+          headers: {
+            get(name) {
+              return (
+                String(
+                  name,
+                ).toLowerCase() ===
+                "retry-after"
+              )
+                ? "60"
+                : null;
+            },
+          },
+          async json() {
+            return {
+              detail:
+                "Too many requests. Try again shortly.",
+            };
+          },
+        };
+      };
+
+    try {
+      const client =
+        await import(
+          `./api/client.js?refresh-cooldown=${Date.now()}`
+        );
+
+      await assert.rejects(
+        () =>
+          client.refreshAccessToken(),
+        /Too many requests/,
+      );
+
+      assert.equal(
+        calls.length,
+        1,
+      );
+
+      await assert.rejects(
+        () =>
+          client.apiRequest(
+            "/users/me/playback-state",
+          ),
+        /Too many requests/,
+      );
+
+      assert.equal(
+        calls.length,
+        1,
+      );
+
+      assert.equal(
+        client.isAuthRefreshCoolingDown(),
+        true,
+      );
+    } finally {
+      globalThis.fetch =
+        originalFetch;
+    }
+  },
+);
