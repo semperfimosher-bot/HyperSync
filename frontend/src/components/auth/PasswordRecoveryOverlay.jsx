@@ -67,6 +67,7 @@ export default function PasswordRecoveryOverlay({
   onClose,
   onBackToSignIn,
   onAuthenticated,
+  onPasswordReset,
 }) {
   const [
     resetToken,
@@ -377,6 +378,7 @@ export default function PasswordRecoveryOverlay({
         );
 
       clearAuthSession();
+      onPasswordReset?.();
       clearPasswordResetUrl();
       setResetToken("");
       setResetComplete(true);
