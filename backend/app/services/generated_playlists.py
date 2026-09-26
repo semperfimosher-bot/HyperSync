@@ -482,13 +482,20 @@ def smart_track_score(
             genre
             == normalized_query
         ):
-            return 1800
+            return 2600
+
+        if (
+            normalized_query
+            and normalized_query
+            in genre
+        ):
+            return 2350
 
         if (
             genre_family
             in requested_families
         ):
-            return 1500
+            return 1900
 
         return 0
 
