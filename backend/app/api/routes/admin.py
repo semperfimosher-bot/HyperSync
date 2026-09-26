@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
@@ -246,6 +246,7 @@ class PrepareDirectTrackUploadRequest(
     artist: str
     album: str | None = None
     genre: str | None = None
+    release_year: int | None = None
     estimated_bitrate_kbps: float | None = None
 
 
@@ -352,6 +353,25 @@ def _direct_upload_is_safe(
                 .audio_compression_min_source_kbps
             ),
         )
+    )
+
+
+def _valid_release_year(
+    value: int | None,
+) -> int | None:
+    if value is None:
+        return None
+
+    year = int(
+        value,
+    )
+
+    return (
+        year
+        if 1900
+        <= year
+        <= 2100
+        else None
     )
 
 
@@ -1225,6 +1245,10 @@ async def finalize_direct_track_upload(
     ],
     user: AdminUser,
     session: DatabaseSession,
+    release_year: Annotated[
+        int | None,
+        Form(),
+    ] = None,
     artwork: Annotated[
         UploadFile | None,
         File(),
@@ -1413,6 +1437,11 @@ async def finalize_direct_track_upload(
                 genre.strip()
                 or None
             ),
+            release_year=(
+                _valid_release_year(
+                    release_year,
+                )
+            ),
             b2_object_key=(
                 object_key
             ),
@@ -1460,6 +1489,10 @@ async def finalize_direct_track_upload(
                 track.artist,
             "album":
                 track.album,
+            "genre":
+                track.genre,
+            "release_year":
+                track.release_year,
             "b2_object_key":
                 object_key,
             "artwork_object_key":
@@ -1548,6 +1581,10 @@ async def upload_track(
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,
     duration_edited: Annotated[bool, Form()] = False,
+    release_year: Annotated[
+        int | None,
+        Form(),
+    ] = None,
 ):
     """Upload an audio file to B2 and create a Track record."""
 
@@ -1790,6 +1827,14 @@ async def upload_track(
             artist=(resolved_metadata["artist"]),
             album=(resolved_metadata["album"]),
             genre=(resolved_metadata["genre"]),
+            release_year=(
+                _valid_release_year(
+                    resolved_metadata.get(
+                        "release_year",
+                    )
+                    or release_year,
+                )
+            ),
             b2_object_key=(object_key),
             artwork_object_key=(artwork_object_key),
             mime_type=(
@@ -1817,6 +1862,9 @@ async def upload_track(
             "title": track.title,
             "artist": track.artist,
             "album": track.album,
+            "genre": track.genre,
+            "release_year":
+                track.release_year,
             "b2_object_key": (object_key),
             "artwork_object_key": (artwork_object_key),
             "file_size":
@@ -1913,6 +1961,172 @@ async def _delete_track_object_versions(
     return sum(
         deleted_versions,
     )
+
+
+@router.post(
+    "/tracks/backfill-metadata",
+)
+async def backfill_track_metadata(
+    user: AdminUser,
+    session: DatabaseSession,
+    limit: int = Query(
+        default=100,
+        ge=1,
+        le=500,
+    ),
+):
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            (
+                Track.genre.is_(None)
+                | (
+                    Track.genre
+                    == ""
+                )
+                | Track.release_year.is_(None)
+            ),
+        )
+        .order_by(
+            Track.created_at.asc(),
+        )
+        .limit(
+            limit,
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    if not tracks:
+        return {
+            "scanned": 0,
+            "updated": 0,
+            "genre_updated": 0,
+            "year_updated": 0,
+            "failed": [],
+        }
+
+    bucket = get_b2_bucket()
+    updated = 0
+    genre_updated = 0
+    year_updated = 0
+    failed: list[dict] = []
+
+    for track in tracks:
+        try:
+            downloaded = (
+                await asyncio.to_thread(
+                    bucket.download_file_by_name,
+                    track.b2_object_key,
+                )
+            )
+
+            def _read_bytes() -> bytes:
+                buffer = BytesIO()
+                downloaded.save(
+                    buffer,
+                )
+                return buffer.getvalue()
+
+            file_content = (
+                await asyncio.to_thread(
+                    _read_bytes,
+                )
+            )
+
+            embedded = (
+                extract_embedded_audio_metadata(
+                    file_content,
+                )
+            )
+
+            changed = False
+
+            if (
+                not (
+                    track.genre
+                    or ""
+                ).strip()
+                and embedded.get(
+                    "genre",
+                )
+            ):
+                track.genre = (
+                    str(
+                        embedded[
+                            "genre"
+                        ]
+                    )
+                    .strip()[:120]
+                    or None
+                )
+
+                if track.genre:
+                    changed = True
+                    genre_updated += 1
+
+            if (
+                track.release_year
+                is None
+                and embedded.get(
+                    "release_year",
+                )
+                is not None
+            ):
+                track.release_year = (
+                    _valid_release_year(
+                        embedded[
+                            "release_year"
+                        ],
+                    )
+                )
+
+                if (
+                    track.release_year
+                    is not None
+                ):
+                    changed = True
+                    year_updated += 1
+
+            if changed:
+                updated += 1
+
+        except Exception as exc:
+            failed.append(
+                {
+                    "track_id":
+                        str(
+                            track.id,
+                        ),
+                    "title":
+                        track.title,
+                    "error":
+                        str(
+                            exc,
+                        ),
+                }
+            )
+
+    await session.commit()
+
+    return {
+        "scanned":
+            len(
+                tracks,
+            ),
+        "updated":
+            updated,
+        "genre_updated":
+            genre_updated,
+        "year_updated":
+            year_updated,
+        "failed":
+            failed,
+    }
 
 
 @router.post(
