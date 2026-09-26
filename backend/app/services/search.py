@@ -355,6 +355,7 @@ def score_track(
     artist: str,
     album: str | None,
     parsed: ParsedSearch,
+    genre: str | None = None,
 ) -> MatchResult:
     if not parsed.term:
         return MatchResult(
@@ -389,6 +390,11 @@ def score_track(
                 "album",
                 album,
                 20,
+            ),
+            (
+                "genre",
+                genre,
+                55,
             ),
         )
 
