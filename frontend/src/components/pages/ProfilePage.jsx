@@ -34,6 +34,12 @@ import useCollectionActionMenu from
 import useQuietRefresh from
   "../../hooks/useQuietRefresh.js";
 
+import useOnlineStatus from
+  "../../hooks/useOnlineStatus.js";
+
+import OfflineNotice from
+  "../ui/OfflineNotice.jsx";
+
 
 function memberFor(value) {
   if (!value) {
@@ -135,6 +141,9 @@ export default function ProfilePage({
   onSelectPlaybackDevice,
   onPlaybackDeviceCommand,
 }) {
+  const online =
+    useOnlineStatus();
+
   const trackActionMenu =
     useTrackActionMenu();
 
@@ -178,6 +187,12 @@ export default function ProfilePage({
           return;
         }
 
+        if (!online) {
+          setLoading(false);
+          setError("");
+          return;
+        }
+
         if (!quiet) {
           setLoading(true);
           setError("");
@@ -207,6 +222,7 @@ export default function ProfilePage({
       },
       [
         currentUser,
+        online,
       ],
     );
 
@@ -227,7 +243,8 @@ export default function ProfilePage({
     {
       enabled:
         Boolean(
-          currentUser,
+          currentUser
+          && online,
         ),
       intervalMs:
         30_000,
@@ -269,6 +286,21 @@ export default function ProfilePage({
 
 
   if (
+    !online &&
+    !profile
+  ) {
+    return (
+      <div className="hs-profile-page">
+        <OfflineNotice
+          title="Go back online to see your profile"
+          description="Your profile stats, followers, Recently Played, and Top Artists sync from HyperSync."
+        />
+      </div>
+    );
+  }
+
+
+  if (
     loading &&
     !profile
   ) {
@@ -290,6 +322,14 @@ export default function ProfilePage({
 
   return (
     <div className="hs-profile-page">
+      {!online ? (
+        <OfflineNotice
+          compact
+          title="You’re offline"
+          description="Profile activity shown below may be from your last online session. Go back online to refresh it."
+        />
+      ) : null}
+
       <section className="hs-profile-hero">
         <div className="hs-profile-hero__ambient" />
 
@@ -465,7 +505,13 @@ export default function ProfilePage({
         </header>
 
 
-        {profile?.recently_played?.length ? (
+        {!online ? (
+          <OfflineNotice
+            compact
+            title="Go back online to see Recently Played"
+            description="Listening history is synced to your account and is not replaced by downloaded-library activity."
+          />
+        ) : profile?.recently_played?.length ? (
           <div className="hs-recent-grid">
             {profile.recently_played.map(
               (track) => (
@@ -579,7 +625,13 @@ export default function ProfilePage({
         </header>
 
 
-        {profile?.top_artists?.length ? (
+        {!online ? (
+          <OfflineNotice
+            compact
+            title="Go back online to see Top Artists"
+            description="Your listening stats need a connection to refresh."
+          />
+        ) : profile?.top_artists?.length ? (
           <div className="hs-top-artists">
             {profile.top_artists.map(
               (
