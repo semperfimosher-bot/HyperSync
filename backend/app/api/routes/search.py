@@ -511,6 +511,7 @@ async def _load_track_candidates(
             Track.title,
             Track.artist,
             Track.album,
+            Track.genre,
         )
     )
 
@@ -736,6 +737,11 @@ def _match_for_track(
         track.artist,
         track.album,
         parsed,
+        getattr(
+            track,
+            "genre",
+            None,
+        ),
     )
 
 
