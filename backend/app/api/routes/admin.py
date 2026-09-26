@@ -50,6 +50,9 @@ from ...services.generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
 )
+from ...services.music_metadata import (
+    enrich_track_metadata,
+)
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -1982,6 +1985,45 @@ async def _delete_track_object_versions(
 
 
 @router.post(
+    "/tracks/{track_id}/enrich-metadata",
+)
+async def enrich_track_metadata_endpoint(
+    track_id: UUID,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    track = await session.get(
+        Track,
+        track_id,
+    )
+
+    if track is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail="Track not found.",
+        )
+
+    result = await enrich_track_metadata(
+        session,
+        track,
+    )
+
+    return {
+        "track_id":
+            str(
+                track.id,
+            ),
+        "title":
+            track.title,
+        "artist":
+            track.artist,
+        **result,
+    }
+
+
+@router.post(
     "/tracks/backfill-metadata",
 )
 async def backfill_track_metadata(
@@ -1991,6 +2033,11 @@ async def backfill_track_metadata(
         default=100,
         ge=1,
         le=500,
+    ),
+    external_limit: int = Query(
+        default=12,
+        ge=0,
+        le=50,
     ),
 ):
     result = await session.execute(
@@ -2025,6 +2072,8 @@ async def backfill_track_metadata(
             "updated": 0,
             "genre_updated": 0,
             "year_updated": 0,
+            "external_checked": 0,
+            "external_matched": 0,
             "failed": [],
         }
 
@@ -2032,9 +2081,23 @@ async def backfill_track_metadata(
     updated = 0
     genre_updated = 0
     year_updated = 0
+    external_checked = 0
+    external_matched = 0
     failed: list[dict] = []
 
     for track in tracks:
+        old_genre = (
+            track.genre
+        )
+
+        old_year = (
+            track.release_year
+        )
+
+        embedded_error: str | None = (
+            None
+        )
+
         try:
             downloaded = (
                 await asyncio.to_thread(
@@ -2045,10 +2108,14 @@ async def backfill_track_metadata(
 
             def _read_bytes() -> bytes:
                 buffer = BytesIO()
+
                 downloaded.save(
                     buffer,
                 )
-                return buffer.getvalue()
+
+                return (
+                    buffer.getvalue()
+                )
 
             file_content = (
                 await asyncio.to_thread(
@@ -2061,8 +2128,6 @@ async def backfill_track_metadata(
                     file_content,
                 )
             )
-
-            changed = False
 
             if (
                 not (
@@ -2083,10 +2148,6 @@ async def backfill_track_metadata(
                     or None
                 )
 
-                if track.genre:
-                    changed = True
-                    genre_updated += 1
-
             if (
                 track.release_year
                 is None
@@ -2103,17 +2164,73 @@ async def backfill_track_metadata(
                     )
                 )
 
-                if (
-                    track.release_year
-                    is not None
-                ):
-                    changed = True
-                    year_updated += 1
-
-            if changed:
-                updated += 1
-
         except Exception as exc:
+            embedded_error = str(
+                exc,
+            )
+
+        still_missing = (
+            not (
+                track.genre
+                or ""
+            ).strip()
+            or track.release_year
+            is None
+        )
+
+        external_result = None
+
+        if (
+            still_missing
+            and external_checked
+            < external_limit
+        ):
+            external_checked += 1
+
+            external_result = (
+                await enrich_track_metadata(
+                    session,
+                    track,
+                )
+            )
+
+            if external_result[
+                "matched"
+            ]:
+                external_matched += 1
+
+        genre_changed = (
+            track.genre
+            != old_genre
+        )
+
+        year_changed = (
+            track.release_year
+            != old_year
+        )
+
+        if genre_changed:
+            genre_updated += 1
+
+        if year_changed:
+            year_updated += 1
+
+        if (
+            genre_changed
+            or year_changed
+        ):
+            updated += 1
+
+        elif (
+            embedded_error
+            and (
+                external_result
+                is None
+                or not external_result[
+                    "matched"
+                ]
+            )
+        ):
             failed.append(
                 {
                     "track_id":
@@ -2123,9 +2240,7 @@ async def backfill_track_metadata(
                     "title":
                         track.title,
                     "error":
-                        str(
-                            exc,
-                        ),
+                        embedded_error,
                 }
             )
 
@@ -2142,10 +2257,13 @@ async def backfill_track_metadata(
             genre_updated,
         "year_updated":
             year_updated,
+        "external_checked":
+            external_checked,
+        "external_matched":
+            external_matched,
         "failed":
             failed,
     }
-
 
 @router.post(
     "/tracks/delete-bulk",
