@@ -53,6 +53,7 @@ def test_extracts_embedded_audio_metadata(
         "album": ("First Time for Everything, Pt. 1 - EP"),
         "duration_seconds": 207,
         "genre": None,
+        "release_year": None,
     }
 
 
@@ -84,6 +85,7 @@ def test_embedded_metadata_wins_when_field_was_not_edited() -> None:
         "album": "Real Album",
         "duration_seconds": 208,
         "genre": None,
+        "release_year": None,
     }
 
 
@@ -115,6 +117,7 @@ def test_manual_metadata_wins_over_embedded_metadata() -> None:
         "album": "Corrected Album",
         "duration_seconds": 210,
         "genre": None,
+        "release_year": None,
     }
 
 
@@ -138,8 +141,50 @@ def test_embedded_genre_is_preserved() -> None:
             "album": "Album",
             "duration_seconds": 120,
             "genre": "Alternative",
+            "release_year": 2022,
         },
     )
 
     assert result["genre"] == "Alternative"
+    assert result["release_year"] == 2022
 
+
+
+
+def test_extracts_release_year_from_common_date_tags() -> None:
+    audio_metadata = load_audio_metadata_module()
+
+    assert audio_metadata is not None
+
+    assert (
+        audio_metadata._release_year(
+            {
+                "date": [
+                    "2021-10-08",
+                ],
+            },
+        )
+        == 2021
+    )
+
+    assert (
+        audio_metadata._release_year(
+            {
+                "year": [
+                    "1999",
+                ],
+            },
+        )
+        == 1999
+    )
+
+    assert (
+        audio_metadata._release_year(
+            {
+                "date": [
+                    "unknown",
+                ],
+            },
+        )
+        is None
+    )
