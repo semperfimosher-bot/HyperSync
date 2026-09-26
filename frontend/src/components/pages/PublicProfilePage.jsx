@@ -196,6 +196,10 @@ export default function PublicProfilePage({
       return;
     }
 
+    if (!online) {
+      return;
+    }
+
     if (!profile) {
       return;
     }
@@ -241,13 +245,6 @@ export default function PublicProfilePage({
   ) {
     return (
       <div className="hs-profile-page">
-      {!online ? (
-        <OfflineNotice
-          compact
-          title="You’re offline"
-          description="Go back online to refresh this profile and its listening activity."
-        />
-      ) : null}
         <OfflineNotice
           title="Go back online to see this profile"
           description="Public profiles, follow state, and listening activity sync from HyperSync."
@@ -309,6 +306,14 @@ export default function PublicProfilePage({
 
   return (
     <div className="hs-profile-page">
+      {!online ? (
+        <OfflineNotice
+          compact
+          title="You’re offline"
+          description="Go back online to refresh this profile and its listening activity."
+        />
+      ) : null}
+
       <section className="hs-profile-hero">
         <div className="hs-profile-hero__ambient" />
 
