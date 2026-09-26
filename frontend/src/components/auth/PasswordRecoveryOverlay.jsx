@@ -18,6 +18,41 @@ import BrandLogo from "../ui/BrandLogo.jsx";
 import Icon from "../ui/Icon.jsx";
 
 
+export function readPasswordRecoveryLinkFromLocation() {
+  if (
+    typeof window ===
+    "undefined"
+  ) {
+    return {
+      identifier: "",
+      code: "",
+    };
+  }
+
+  const params =
+    new URLSearchParams(
+      window.location.search,
+    );
+
+  return {
+    identifier:
+      params
+        .get(
+          "recovery_identifier",
+        )
+        ?.trim() ??
+      "",
+    code:
+      params
+        .get(
+          "recovery_code",
+        )
+        ?.trim() ??
+      "",
+  };
+}
+
+
 export function readPasswordResetTokenFromLocation() {
   if (
     typeof window ===
@@ -84,14 +119,31 @@ export default function PasswordRecoveryOverlay({
     () => (
       readPasswordResetTokenFromLocation()
         ? "reset"
-        : "request"
+        : recoveryLink.code &&
+            recoveryLink.identifier
+          ? "otp"
+          : "request"
     ),
   );
+
+  const recoveryLink =
+    readPasswordRecoveryLinkFromLocation();
 
   const [
     identifier,
     setIdentifier,
-  ] = useState("");
+  ] = useState(
+    () =>
+      recoveryLink.identifier,
+  );
+
+  const [
+    otp,
+    setOtp,
+  ] = useState(
+    () =>
+      recoveryLink.code,
+  );
 
   const [
     message,
@@ -129,6 +181,28 @@ export default function PasswordRecoveryOverlay({
       );
       setMessage(
         "",
+      );
+      return;
+    }
+
+    const linkedRecovery =
+      readPasswordRecoveryLinkFromLocation();
+
+    if (
+      linkedRecovery.identifier &&
+      linkedRecovery.code
+    ) {
+      setIdentifier(
+        linkedRecovery.identifier,
+      );
+      setOtp(
+        linkedRecovery.code,
+      );
+      setStep(
+        "otp",
+      );
+      setMessage(
+        "Recovery code loaded from your email.",
       );
       return;
     }
@@ -215,6 +289,9 @@ export default function PasswordRecoveryOverlay({
       setIdentifier(
         normalized,
       );
+      setOtp(
+        "",
+      );
       setStep(
         "otp",
       );
@@ -239,16 +316,8 @@ export default function PasswordRecoveryOverlay({
   ) {
     event.preventDefault();
 
-    const form =
-      new FormData(
-        event.currentTarget,
-      );
-
-    const otp =
-      String(
-        form.get("otp") ??
-          "",
-      ).trim();
+    const normalizedOtp =
+      otp.trim();
 
     setBusy(true);
     setMessage("");
@@ -263,7 +332,8 @@ export default function PasswordRecoveryOverlay({
               {
                 identifier:
                   identifier.trim(),
-                otp,
+                otp:
+                  normalizedOtp,
               },
             ),
           },
@@ -551,8 +621,28 @@ export default function PasswordRecoveryOverlay({
                 size={22}
               />
               <input
+                key="recovery-otp"
                 type="text"
                 name="otp"
+                value={
+                  otp
+                }
+                onChange={(
+                  event,
+                ) => {
+                  setOtp(
+                    event.target.value
+                      .replace(
+                        /\D/g,
+                        "",
+                      )
+                      .slice(
+                        0,
+                        6,
+                      ),
+                  );
+                }}
+                autoFocus
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 pattern="[0-9]{6}"
@@ -582,6 +672,9 @@ export default function PasswordRecoveryOverlay({
                   busy
                 }
                 onClick={() => {
+                  setOtp(
+                    "",
+                  );
                   setStep(
                     "request",
                   );
@@ -616,6 +709,7 @@ export default function PasswordRecoveryOverlay({
                 size={22}
               />
               <input
+                key="recovery-identifier"
                 type="text"
                 value={
                   identifier
