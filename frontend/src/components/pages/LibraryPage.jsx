@@ -215,6 +215,8 @@ function LibraryPage({
   onOpenAuth,
   initialPlaylistId = null,
   onInitialPlaylistHandled,
+  initialSharedMusicTarget = null,
+  onInitialSharedMusicHandled,
   resetToken = 0,
   activePlaylistDownloads = [],
 }) {
@@ -317,6 +319,11 @@ const [
   setSelectedLibraryEntity,
 ] = useState(null);
 
+const [
+  focusedLibraryTrack,
+  setFocusedLibraryTrack,
+] = useState(null);
+
   const [
     selectedPlaylist,
     setSelectedPlaylist,
@@ -339,6 +346,10 @@ const [
   );
 
   setSelectedLibraryEntity(
+    null,
+  );
+
+  setFocusedLibraryTrack(
     null,
   );
 
@@ -958,6 +969,72 @@ const [
     };
   }, [
     loadLibrary,
+  ]);
+
+
+  useEffect(() => {
+    if (
+      !initialSharedMusicTarget
+    ) {
+      return;
+    }
+
+    setSelectedPlaylist(
+      null,
+    );
+
+    setPlaylistSearchQuery(
+      "",
+    );
+
+    if (
+      initialSharedMusicTarget.kind ===
+        "track" &&
+      initialSharedMusicTarget.track
+    ) {
+      setActiveTab(
+        "Songs",
+      );
+
+      setSelectedLibraryEntity(
+        null,
+      );
+
+      setFocusedLibraryTrack(
+        initialSharedMusicTarget.track,
+      );
+    } else if (
+      (
+        initialSharedMusicTarget.kind ===
+          "artist" ||
+        initialSharedMusicTarget.kind ===
+          "album"
+      ) &&
+      initialSharedMusicTarget.key
+    ) {
+      setActiveTab(
+        initialSharedMusicTarget.kind ===
+          "artist"
+          ? "Artists"
+          : "Albums",
+      );
+
+      setFocusedLibraryTrack(
+        null,
+      );
+
+      setSelectedLibraryEntity({
+        kind:
+          initialSharedMusicTarget.kind,
+        key:
+          initialSharedMusicTarget.key,
+      });
+    }
+
+    onInitialSharedMusicHandled?.();
+  }, [
+    initialSharedMusicTarget,
+    onInitialSharedMusicHandled,
   ]);
 
 
@@ -2455,6 +2532,13 @@ if (offline) {
       ],
     );
 
+  const visibleSongTracks =
+    focusedLibraryTrack
+      ? [
+          focusedLibraryTrack,
+        ]
+      : sortedDownloadedTracks;
+
   const sortedVisiblePlaylists =
     useMemo(
       () =>
@@ -3519,6 +3603,10 @@ if (offline) {
                 setSelectedLibraryEntity(
                   null,
                 );
+
+                setFocusedLibraryTrack(
+                  null,
+                );
               }}
             >
 
@@ -3605,21 +3693,25 @@ if (offline) {
 
           <div>
             <span>
-              OFFLINE CONTENT
+              {focusedLibraryTrack
+                ? "LIBRARY ITEM"
+                : "OFFLINE CONTENT"}
             </span>
 
             <h3>
-              Downloaded songs
+              {focusedLibraryTrack
+                ? "Shared song"
+                : "Downloaded songs"}
             </h3>
           </div>
 
           <strong>
-            {downloadedTracks.length}
+            {visibleSongTracks.length}
           </strong>
 
         </div>
 
-        {downloadedTracks.length === 0 ? (
+        {visibleSongTracks.length === 0 ? (
 
           <div className="hs-library-empty">
 
@@ -3645,7 +3737,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {sortedDownloadedTracks.map(
+            {visibleSongTracks.map(
               (
                 track,
                 index,
@@ -3779,12 +3871,18 @@ if (offline) {
 
                     <span className="hs-search-track__signals">
                       <em>
-                        DOWNLOADED
+                        {focusedLibraryTrack
+                          ? "IN LIBRARY"
+                          : "DOWNLOADED"}
                       </em>
 
                       <small>
                         {track.album ||
-                          "Offline"}
+                          (
+                            focusedLibraryTrack
+                              ? "Library"
+                              : "Offline"
+                          )}
                       </small>
                     </span>
 
@@ -3795,11 +3893,37 @@ if (offline) {
                     </span>
 
                     <span className="hs-search-track__play">
-                      <button
-                        type="button"
-                        className="hs-search-track__download is-downloaded hs-download-remove-trigger"
-                        disabled={
-                          removingDownloadedTrackKey ===
+                      {!focusedLibraryTrack ? (
+                        <button
+                          type="button"
+                          className="hs-search-track__download is-downloaded hs-download-remove-trigger"
+                          disabled={
+                            removingDownloadedTrackKey ===
+                            (
+                              String(
+                                track.id,
+                              ) +
+                              ":" +
+                              String(
+                                track.media_version ??
+                                "",
+                              )
+                            )
+                          }
+                          title="Remove from downloads"
+                          aria-label={`Remove ${track.title} from downloads`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+
+                            setRemoveDownloadedSongTarget(
+                              track,
+                            );
+                          }}
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          {removingDownloadedTrackKey ===
                           (
                             String(
                               track.id,
@@ -3809,40 +3933,16 @@ if (offline) {
                               track.media_version ??
                               "",
                             )
-                          )
-                        }
-                        title="Remove from downloads"
-                        aria-label={`Remove ${track.title} from downloads`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-
-                          setRemoveDownloadedSongTarget(
-                            track,
-                          );
-                        }}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                        }}
-                      >
-                        {removingDownloadedTrackKey ===
-                        (
-                          String(
-                            track.id,
-                          ) +
-                          ":" +
-                          String(
-                            track.media_version ??
-                            "",
-                          )
-                        ) ? (
-                          <span className="library-spinner" />
-                        ) : (
-                          <Icon
-                            name="check"
-                            size={15}
-                          />
-                        )}
-                      </button>
+                          ) ? (
+                            <span className="library-spinner" />
+                          ) : (
+                            <Icon
+                              name="check"
+                              size={15}
+                            />
+                          )}
+                        </button>
+                      ) : null}
                     </span>
 
                   </div>
