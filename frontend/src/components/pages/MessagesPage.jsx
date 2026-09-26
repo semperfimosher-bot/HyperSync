@@ -455,13 +455,6 @@ export default function MessagesPage({
           setConversation(
             result,
           );
-
-          await loadConversations({
-            quiet:
-              true,
-          });
-
-          onUnreadChange?.();
         } catch {
           /*
            * Keep the current thread visible
@@ -471,8 +464,6 @@ export default function MessagesPage({
         }
       },
       [
-        loadConversations,
-        onUnreadChange,
         selectedUsername,
       ],
     );
@@ -486,7 +477,7 @@ export default function MessagesPage({
           selectedUsername,
         ),
       intervalMs:
-        4_000,
+        5_000,
     },
   );
 
