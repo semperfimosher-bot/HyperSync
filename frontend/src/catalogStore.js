@@ -108,6 +108,180 @@ export function removeCatalogTrack(trackId) {
 }
 
 
+export function removeCatalogTracks(
+  trackIds,
+) {
+  const normalizedTrackIds =
+    new Set(
+      (
+        Array.isArray(
+          trackIds,
+        )
+          ? trackIds
+          : []
+      ).map(
+        (trackId) =>
+          String(
+            trackId,
+          ),
+      ),
+    );
+
+  if (
+    normalizedTrackIds.size ===
+    0
+  ) {
+    return;
+  }
+
+  setCatalogTracks(
+    catalogTracks.filter(
+      (track) =>
+        !normalizedTrackIds.has(
+          String(
+            track.id,
+          ),
+        ),
+    ),
+  );
+}
+
+
+export async function deleteCatalogTracks(
+  trackIds,
+) {
+  const normalizedTrackIds =
+    Array.from(
+      new Set(
+        (
+          Array.isArray(
+            trackIds,
+          )
+            ? trackIds
+            : []
+        )
+          .map(
+            (trackId) =>
+              String(
+                trackId ??
+                "",
+              ).trim(),
+          )
+          .filter(Boolean),
+      ),
+    );
+
+  if (
+    normalizedTrackIds.length ===
+    0
+  ) {
+    return {
+      success:
+        true,
+      deleted_track_ids:
+        [],
+      deleted_count:
+        0,
+      failed:
+        [],
+      deleted_b2_versions:
+        0,
+    };
+  }
+
+  const previousTracks =
+    catalogTracks;
+
+  removeCatalogTracks(
+    normalizedTrackIds,
+  );
+
+  try {
+    const result =
+      await apiRequest(
+        "/admin/tracks/delete-bulk",
+        {
+          method:
+            "POST",
+
+          cache:
+            "no-store",
+
+          body:
+            JSON.stringify({
+              track_ids:
+                normalizedTrackIds,
+            }),
+        },
+      );
+
+    const deletedTrackIds =
+      Array.isArray(
+        result?.deleted_track_ids,
+      )
+        ? result.deleted_track_ids.map(
+            (trackId) =>
+              String(
+                trackId,
+              ),
+          )
+        : [];
+
+    removeCatalogTracks(
+      deletedTrackIds,
+    );
+
+    deletedTrackIds.forEach(
+      (trackId) => {
+        player.stopTrack(
+          trackId,
+        );
+      },
+    );
+
+    await Promise.allSettled(
+      deletedTrackIds.map(
+        (trackId) =>
+          clearCachedTrack(
+            trackId,
+          ),
+      ),
+    );
+
+    if (
+      Array.isArray(
+        result?.failed,
+      ) &&
+      result.failed.length >
+        0
+    ) {
+      await loadCatalog({
+        force:
+          true,
+      }).catch(
+        () => {},
+      );
+    }
+
+    return result;
+
+  } catch (error) {
+    setCatalogTracks(
+      previousTracks,
+    );
+
+    await loadCatalog({
+      force:
+        true,
+    }).catch(
+      () => {},
+    );
+
+    throw error;
+  }
+}
+
+
 export async function deleteCatalogTrack(
   trackId,
 ) {
