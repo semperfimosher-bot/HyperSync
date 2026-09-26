@@ -85,6 +85,10 @@ import {
   filterPlaylistTracks,
 } from "../../playlistTrackSearch.js";
 
+import {
+  downloadPlaylistByIdForOffline,
+} from "../../playlistOfflineAction.js";
+
 
 const EMPTY_RESULTS = {
   query: "",
@@ -1834,6 +1838,9 @@ async function downloadOpenedPlaylist() {
                   artist.name,
                 subtitle:
                   "Artist",
+                artwork_url:
+                  artist.artwork_url ??
+                  null,
                 actions: [
                   {
                     id:
@@ -1946,6 +1953,9 @@ async function downloadOpenedPlaylist() {
                   collaboration.name,
                 subtitle:
                   "Collaboration",
+                artwork_url:
+                  collaboration.artwork_url ??
+                  null,
                 actions: [
                   {
                     id:
@@ -2060,6 +2070,9 @@ async function downloadOpenedPlaylist() {
                 subtitle:
                   album.artist ||
                   "Album",
+                artwork_url:
+                  album.artwork_url ??
+                  null,
                 actions: [
                   {
                     id:
@@ -3023,7 +3036,45 @@ async function downloadOpenedPlaylist() {
                           subtitle:
                             playlist.owner_username ||
                             "Playlist",
+                          artwork_url:
+                            playlist.artwork_url ??
+                            null,
+                          shareKey:
+                            String(
+                              playlist.id,
+                            ),
                           actions: [
+                            {
+                              id:
+                                "play",
+                              label:
+                                "Play playlist",
+                              icon:
+                                "play",
+                              onSelect:
+                                async () => {
+                                  try {
+                                    const fullPlaylist =
+                                      await getPlaylist(
+                                        playlist.id,
+                                      );
+
+                                    playOpenedPlaylist(
+                                      0,
+                                      fullPlaylist.tracks ??
+                                        [],
+                                    );
+                                  } catch (
+                                    requestError
+                                  ) {
+                                    setPlaylistError(
+                                      requestError instanceof Error
+                                        ? requestError.message
+                                        : "Unable to play playlist.",
+                                    );
+                                  }
+                                },
+                            },
                             {
                               id:
                                 "open",
@@ -3036,6 +3087,58 @@ async function downloadOpenedPlaylist() {
                                   void openSearchPlaylist(
                                     playlist.id,
                                   );
+                                },
+                            },
+                            {
+                              id:
+                                "download",
+                              label:
+                                rowDownload?.status ===
+                                  "downloaded"
+                                  ? "Downloaded for offline"
+                                  : rowDownload?.status ===
+                                      "downloading"
+                                    ? (
+                                        "Downloading " +
+                                        rowDownloadPercent +
+                                        "%"
+                                      )
+                                    : "Download playlist",
+                              icon:
+                                rowDownload?.status ===
+                                  "downloaded"
+                                  ? "check"
+                                  : "download",
+                              disabled:
+                                rowDownload?.status ===
+                                  "downloaded" ||
+                                rowDownload?.status ===
+                                  "downloading",
+                              onSelect:
+                                async () => {
+                                  if (!isRegistered) {
+                                    onOpenAuth?.();
+                                    return;
+                                  }
+
+                                  try {
+                                    await downloadPlaylistByIdForOffline(
+                                      playlist.id,
+                                      currentUser,
+                                      {
+                                        ensureSaved:
+                                          true,
+                                      },
+                                    );
+                                  } catch (
+                                    requestError
+                                  ) {
+                                    setPlaylistError(
+                                      requestError instanceof Error
+                                        ? requestError.message
+                                        : "Unable to download playlist.",
+                                    );
+                                  }
                                 },
                             },
                           ],
