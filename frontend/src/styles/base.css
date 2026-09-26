@@ -9562,3 +9562,66 @@ button.hs-shared-music-card:active {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+.track-action-info {
+  display: grid;
+  gap: 6px;
+  padding: 4px 7px 8px;
+}
+
+.track-action-info > div {
+  display: grid;
+  grid-template-columns:
+    92px
+    minmax(0, 1fr);
+  align-items: baseline;
+  gap: 9px;
+  padding: 7px 8px;
+  border:
+    1px solid
+    rgba(75, 174, 211, 0.1);
+  border-radius: 7px;
+  background:
+    rgba(4, 18, 27, 0.62);
+}
+
+.track-action-info span {
+  color: #63808d;
+  font-size: 6px;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.track-action-info strong {
+  overflow-wrap: anywhere;
+  color: #dceef4;
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.track-action-info > small {
+  padding: 3px 7px;
+  color: #66808b;
+  font-size: 6px;
+  text-align: center;
+}
+
+.track-action-layer.is-mobile
+.track-action-info > div {
+  grid-template-columns:
+    108px
+    minmax(0, 1fr);
+  padding: 9px;
+}
+
+.track-action-layer.is-mobile
+.track-action-info span {
+  font-size: 7px;
+}
+
+.track-action-layer.is-mobile
+.track-action-info strong {
+  font-size: 8px;
+}
