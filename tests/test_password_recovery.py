@@ -217,6 +217,71 @@ async def test_login_reports_specific_failure_reason() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recovery_email_contains_use_code_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivered = []
+
+    monkeypatch.setenv(
+        "FRONTEND_PUBLIC_URL",
+        "https://hypersynced.app",
+    )
+    monkeypatch.setenv(
+        "SMTP_HOST",
+        "smtp.example.test",
+    )
+    monkeypatch.setenv(
+        "SMTP_FROM_EMAIL",
+        "no-reply@example.test",
+    )
+
+    get_settings.cache_clear()
+
+    def capture_message(message) -> None:
+        delivered.append(
+            message,
+        )
+
+    monkeypatch.setattr(
+        email_service,
+        "_deliver_message",
+        capture_message,
+    )
+
+    await email_service.send_password_recovery_email(
+        recipient_email="listener@example.com",
+        username="listener",
+        otp_code="123456",
+        reset_token="reset-token-value",
+        expires_minutes=15,
+    )
+
+    assert len(delivered) == 1
+
+    message = delivered[0]
+    html_parts = [
+        part.get_content()
+        for part in message.walk()
+        if part.get_content_type() == "text/html"
+    ]
+
+    assert len(html_parts) == 1
+
+    html = html_parts[0]
+
+    assert "USE RECOVERY CODE" in html
+    assert "123456" in html
+    assert (
+        "recovery_identifier=listener"
+        in html
+    )
+    assert (
+        "recovery_code=123456"
+        in html
+    )
+
+
+@pytest.mark.asyncio
 async def test_recovery_otp_signs_in_and_reset_link_changes_password(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
