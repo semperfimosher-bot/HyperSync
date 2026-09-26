@@ -134,6 +134,26 @@ export default function AdminUploadsPage() {
             true,
         });
 
+        const sourceSummary =
+          Object.entries(
+            result?.external_sources ??
+            {},
+          )
+            .map(
+              ([
+                source,
+                count,
+              ]) =>
+                source
+                + " "
+                + String(
+                    count,
+                  ),
+            )
+            .join(
+              ", ",
+            );
+
         setCatalogMessage(
           "Metadata backfill scanned "
           + String(
@@ -160,6 +180,12 @@ export default function AdminUploadsPage() {
               result?.external_checked ?? 0,
             )
           + " matched"
+          + (
+              sourceSummary
+                ? " • "
+                  + sourceSummary
+                : ""
+            )
           + (
               Array.isArray(
                 result?.failed,
@@ -394,7 +420,7 @@ export default function AdminUploadsPage() {
               }}
             >
               {metadataBackfillBusy
-                ? "Reading tags + catalog..."
+                ? "Checking tags + Apple catalog..."
                 : "Backfill Genre & Year"}
             </button>
 
