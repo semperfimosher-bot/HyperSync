@@ -2999,6 +2999,9 @@ function MainPage({
   playlistToOpen,
   onOpenPlaylist,
   onPlaylistOpened,
+  artistToOpen,
+  onArtistOpened,
+  onOpenArtist,
   onOpenProfile,
   onMessageUser,
   messageUsername,
@@ -3275,6 +3278,12 @@ function MainPage({
           resetToken={
             searchResetToken
           }
+          initialArtistName={
+            artistToOpen
+          }
+          onInitialArtistHandled={
+            onArtistOpened
+          }
           onQueryChange={
             onQueryChange
           }
@@ -3433,7 +3442,7 @@ function MainPage({
             onOpenProfile
           }
           onSearchArtist={
-            onQueryChange
+            onOpenArtist
           }
           onProfileUpdated={
             onProfileUpdated
@@ -3484,7 +3493,7 @@ function MainPage({
             onOpenProfile
           }
           onSearchArtist={
-            onQueryChange
+            onOpenArtist
           }
         />
       );
@@ -5224,6 +5233,11 @@ export default function App() {
   playlistToOpen,
   setPlaylistToOpen,
   ] = useState(null);
+
+  const [
+    artistToOpen,
+    setArtistToOpen,
+  ] = useState("");
 
   const [
     messageToOpen,
@@ -7260,6 +7274,7 @@ const persistAppView =
   setCurrentUser(null);
   setPlaylistUpdates([]);
   setMessageToOpen("");
+  setArtistToOpen("");
   setNotificationDetail(null);
   setMessageNotifications({
     unread_count:
@@ -7518,6 +7533,52 @@ const clearPlaylistToOpen =
     },
     [],
   );
+
+  const clearArtistToOpen =
+    useCallback(
+      () => {
+        setArtistToOpen(
+          "",
+        );
+      },
+      [],
+    );
+
+
+  const openArtistProfile =
+    useCallback(
+      (artistName) => {
+        const cleanName =
+          String(
+            artistName ?? "",
+          ).trim();
+
+        if (!cleanName) {
+          return;
+        }
+
+        setArtistToOpen(
+          cleanName,
+        );
+
+        setSearchQuery(
+          cleanName,
+        );
+
+        setActiveProfileUsername(
+          "",
+        );
+
+        setActivePage(
+          "search",
+        );
+
+        setStatusMessage(
+          "",
+        );
+      },
+      [],
+    );
 
     const openUserProfile =
   useCallback(
@@ -8224,6 +8285,15 @@ const clearPlaylistToOpen =
 
             onPlaylistOpened={
             clearPlaylistToOpen
+            }
+            artistToOpen={
+              artistToOpen
+            }
+            onArtistOpened={
+              clearArtistToOpen
+            }
+            onOpenArtist={
+              openArtistProfile
             }
             profileUsername={
               activeProfileUsername
