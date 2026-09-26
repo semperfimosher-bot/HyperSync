@@ -59,6 +59,9 @@ import useCollectionActionMenu from
 import useResultsSortMenu from
   "../../hooks/useResultsSortMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 import {
   sortResultItems,
 } from "../../sortResults.js";
@@ -760,7 +763,9 @@ const [
 
   const loadLibrary =
   useCallback(
-    async () => {
+    async ({
+      quiet = false,
+    } = {}) => {
       if (!isRegistered) {
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
@@ -831,11 +836,16 @@ const [
       }
 
 
-      if (!cached) {
+      if (
+        !cached &&
+        !quiet
+      ) {
         setLoading(true);
       }
 
-      setError("");
+      if (!quiet) {
+        setError("");
+      }
 
       try {
         const [
@@ -926,7 +936,7 @@ const [
           );
 
           setError("");
-        } else {
+        } else if (!quiet) {
           setError(
             requestError instanceof Error
               ? requestError.message
@@ -934,7 +944,9 @@ const [
           );
         }
       } finally {
-        setLoading(false);
+        if (!quiet) {
+          setLoading(false);
+        }
       }
     },
     [
@@ -948,6 +960,21 @@ const [
   }, [
     loadLibrary,
   ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadLibrary({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        isRegistered,
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   useEffect(() => {
