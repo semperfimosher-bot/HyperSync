@@ -286,6 +286,19 @@ class PlaybackRemoteCommandRequest(
 
     track_id: UUID | None = None
 
+    queue_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+
+    queue_index: int | None = Field(
+        default=None,
+        ge=0,
+        le=499,
+    )
+
 
 class PlaybackRemoteCommandResponse(
     BaseModel,
@@ -299,6 +312,14 @@ class PlaybackRemoteCommandResponse(
     action: PlaybackRemoteAction
 
     value: float | None = None
+
+    queue: list[
+        PlaybackTrackResponse
+    ] = Field(
+        default_factory=list,
+    )
+
+    queue_index: int | None = None
 
     created_at: datetime
 
@@ -631,6 +652,53 @@ def playback_track_response(
     )
 
 
+def playback_queue_track_response(
+    track: Track,
+) -> PlaybackTrackResponse:
+    return PlaybackTrackResponse(
+        id=track.id,
+        title=track.title,
+        artist=track.artist,
+        album=track.album,
+        genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+        release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
+        duration_seconds=(
+            track.duration_seconds
+        ),
+        audio_url=(
+            f"/api/audio/{track.id}"
+        ),
+        artwork_url=(
+            (
+                "/api/catalog/tracks/"
+                f"{track.id}/artwork"
+            )
+            if track.artwork_object_key
+            else None
+        ),
+        mime_type=track.mime_type,
+        file_size=track.file_size,
+        media_version=(
+            _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
+                track,
+            )
+        ),
+    )
+
+
 async def build_playback_state(
     session: DatabaseSession,
     user: User,
@@ -705,6 +773,11 @@ async def build_playback_state(
 
 def playback_command_response(
     command: PlaybackCommand,
+    *,
+    queue: list[
+        PlaybackTrackResponse
+    ] | None = None,
+    queue_index: int | None = None,
 ) -> PlaybackRemoteCommandResponse:
     return PlaybackRemoteCommandResponse(
         id=command.id,
@@ -719,6 +792,12 @@ def playback_command_response(
             command.action,
         ),
         value=command.value,
+        queue=(
+            queue
+            if queue is not None
+            else []
+        ),
+        queue_index=queue_index,
         created_at=(
             command.created_at
         ),
@@ -2447,6 +2526,15 @@ async def live_playback_device(
                             track_id=message.get(
                                 "track_id",
                             ),
+                            queue_track_ids=(
+                                message.get(
+                                    "queue_track_ids",
+                                )
+                                or []
+                            ),
+                            queue_index=message.get(
+                                "queue_index",
+                            ),
                         )
                     )
 
@@ -2776,6 +2864,14 @@ async def send_playback_device_command(
     value = payload.value
     selected_track = None
 
+    canonical_queue: list[
+        PlaybackTrackResponse
+    ] = []
+
+    canonical_queue_index: int | None = (
+        None
+    )
+
     if payload.action == "seek":
         if (
             value is None
@@ -2847,6 +2943,141 @@ async def send_playback_device_command(
                 ),
                 detail="Track not found.",
             )
+
+        requested_queue_ids = list(
+            payload.queue_track_ids
+        )
+
+        requested_queue_index = (
+            payload.queue_index
+        )
+
+        if (
+            requested_queue_index
+            is None
+            or requested_queue_index
+            >= len(
+                requested_queue_ids,
+            )
+            or requested_queue_ids[
+                requested_queue_index
+            ]
+            != payload.track_id
+        ):
+            requested_queue_index = (
+                next(
+                    (
+                        index
+                        for (
+                            index,
+                            queue_track_id,
+                        )
+                        in enumerate(
+                            requested_queue_ids
+                        )
+                        if queue_track_id
+                        == payload.track_id
+                    ),
+                    None,
+                )
+            )
+
+        if not requested_queue_ids:
+            requested_queue_ids = [
+                payload.track_id,
+            ]
+
+            requested_queue_index = 0
+
+        queue_track_result = (
+            await session.execute(
+                select(
+                    Track,
+                ).where(
+                    Track.id.in_(
+                        set(
+                            requested_queue_ids,
+                        )
+                    ),
+                    Track.is_published.is_(
+                        True,
+                    ),
+                )
+            )
+        )
+
+        queue_track_by_id = {
+            track.id:
+                track
+            for track
+            in queue_track_result.scalars().all()
+        }
+
+        canonical_queue = []
+
+        for (
+            original_index,
+            queue_track_id,
+        ) in enumerate(
+            requested_queue_ids,
+        ):
+            queue_track = (
+                queue_track_by_id.get(
+                    queue_track_id,
+                )
+            )
+
+            if queue_track is None:
+                continue
+
+            if (
+                requested_queue_index
+                == original_index
+            ):
+                canonical_queue_index = (
+                    len(
+                        canonical_queue,
+                    )
+                )
+
+            canonical_queue.append(
+                playback_queue_track_response(
+                    queue_track,
+                )
+            )
+
+        if (
+            canonical_queue_index
+            is None
+        ):
+            for (
+                index,
+                queue_track,
+            ) in enumerate(
+                canonical_queue,
+            ):
+                if (
+                    queue_track.id
+                    == payload.track_id
+                ):
+                    canonical_queue_index = (
+                        index
+                    )
+
+                    break
+
+        if (
+            canonical_queue_index
+            is None
+        ):
+            canonical_queue.insert(
+                0,
+                playback_queue_track_response(
+                    selected_track,
+                ),
+            )
+
+            canonical_queue_index = 0
 
     else:
         value = None
@@ -3129,6 +3360,18 @@ async def send_playback_device_command(
     command_response = (
         playback_command_response(
             command,
+            queue=(
+                canonical_queue
+                if payload.action
+                == "play_track"
+                else None
+            ),
+            queue_index=(
+                canonical_queue_index
+                if payload.action
+                == "play_track"
+                else None
+            ),
         )
     )
 

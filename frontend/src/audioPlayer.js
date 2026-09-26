@@ -429,6 +429,96 @@ function normalizeTrackMeta(
 }
 
 
+function applyRemoteSelectionShadow(
+  trackId,
+  meta = {},
+  queue = null,
+  queueIndex = 0,
+) {
+  if (!trackId) {
+    return;
+  }
+
+  const normalizedMeta =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  currentTrackId =
+    String(
+      trackId,
+    );
+
+  currentTrackMeta =
+    normalizedMeta;
+
+  currentArtworkUrl =
+    normalizedMeta.artworkUrl;
+
+  currentTrackTitle =
+    normalizedMeta.title;
+
+  currentTrackArtist =
+    normalizedMeta.artist;
+
+  if (
+    Array.isArray(
+      queue,
+    ) &&
+    queue.length > 0
+  ) {
+    currentQueue =
+      queue.map(
+        (entry) => ({
+          id:
+            String(
+              entry.id,
+            ),
+          meta: {
+            ...entry.meta,
+          },
+        }),
+      );
+
+    currentQueueIndex =
+      Math.min(
+        Math.max(
+          Number.isInteger(
+            queueIndex,
+          )
+            ? queueIndex
+            : 0,
+          0,
+        ),
+        currentQueue.length - 1,
+      );
+  } else {
+    currentQueue = [
+      {
+        id:
+          String(
+            trackId,
+          ),
+        meta:
+          normalizedMeta,
+      },
+    ];
+
+    currentQueueIndex =
+      0;
+  }
+
+  queueRevision +=
+    1;
+
+  rememberAutoplayTrack(
+    currentTrackId,
+  );
+
+  notify();
+}
+
+
 function getSafeCurrentTime() {
   return Number.isFinite(
     audio.currentTime,
@@ -2466,15 +2556,39 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  const remoteQueue = [
+    {
+      id:
+        String(
+          trackId,
+        ),
+      meta:
+        normalizeTrackMeta(
+          meta,
+        ),
+    },
+  ];
+
   if (
     await dispatchRemotePlayback(
       "play_track",
       {
         trackId,
         meta,
+        queue:
+          remoteQueue,
+        queueIndex:
+          0,
       },
     )
   ) {
+    applyRemoteSelectionShadow(
+      trackId,
+      meta,
+      remoteQueue,
+      0,
+    );
+
     return getState();
   }
 
@@ -2522,9 +2636,20 @@ export async function playQueueIndex(
           track.id,
         meta:
           track.meta,
+        queue:
+          currentQueue,
+        queueIndex:
+          index,
       },
     )
   ) {
+    applyRemoteSelectionShadow(
+      track.id,
+      track.meta,
+      currentQueue,
+      index,
+    );
+
     return getState();
   }
 
@@ -2630,10 +2755,19 @@ export async function playTrackQueue(
           track.id,
         meta:
           track.meta,
+        queue:
+          currentQueue,
+        queueIndex:
+          currentQueueIndex,
       },
     )
   ) {
-    notify();
+    applyRemoteSelectionShadow(
+      track.id,
+      track.meta,
+      currentQueue,
+      currentQueueIndex,
+    );
 
     return getState();
   }

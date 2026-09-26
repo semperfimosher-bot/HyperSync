@@ -118,8 +118,76 @@ export async function applyPlaybackRemoteCommand(
       }
 
       if (
-        action === "transfer" ||
         action === "play_track"
+      ) {
+        const remoteQueue =
+          Array.isArray(
+            command.queue,
+          )
+            ? command.queue
+            : [];
+
+        if (
+          remoteQueue.length > 0 &&
+          typeof player
+            .playTrackQueue ===
+            "function"
+        ) {
+          const requestedIndex =
+            Number(
+              command.queue_index,
+            );
+
+          const safeIndex =
+            Number.isInteger(
+              requestedIndex,
+            )
+              ? Math.min(
+                  Math.max(
+                    requestedIndex,
+                    0,
+                  ),
+                  remoteQueue.length - 1,
+                )
+              : 0;
+
+          await player.playTrackQueue(
+            remoteQueue,
+            safeIndex,
+          );
+
+          return player.getState();
+        }
+
+        if (
+          snapshot?.track?.id
+        ) {
+          await player.restoreAccountPlayback(
+            snapshot.track,
+            snapshotPosition(
+              snapshot,
+            ),
+          );
+
+          if (
+            snapshot.paused
+          ) {
+            player.pausePlayback();
+          } else if (
+            player.getState()
+              ?.paused
+          ) {
+            await player.togglePlay();
+          }
+        } else {
+          player.stopTrack();
+        }
+
+        return player.getState();
+      }
+
+      if (
+        action === "transfer"
       ) {
         if (
           snapshot?.track?.id
@@ -164,10 +232,6 @@ export async function applyPlaybackRemoteCommand(
               await player.togglePlay();
             }
           }
-        } else if (
-          action === "play_track"
-        ) {
-          player.stopTrack();
         }
 
         return player.getState();

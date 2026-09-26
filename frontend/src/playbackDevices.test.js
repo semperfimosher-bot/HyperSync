@@ -547,3 +547,160 @@ test(
     );
   },
 );
+
+
+
+test(
+  "remote play-track installs the controller queue before playing",
+  async () => {
+    const calls = [];
+
+    const fakePlayer = {
+      state: {
+        trackId:
+          "old-track",
+        paused:
+          true,
+      },
+
+      getState() {
+        return this.state;
+      },
+
+      async runWithLocalPlaybackControl(
+        callback,
+      ) {
+        calls.push(
+          "local-control",
+        );
+
+        return callback();
+      },
+
+      async playTrackQueue(
+        queue,
+        index,
+      ) {
+        calls.push([
+          "queue",
+          queue.map(
+            (track) =>
+              track.id,
+          ),
+          index,
+        ]);
+
+        this.state = {
+          trackId:
+            queue[index].id,
+          paused:
+            false,
+        };
+      },
+
+      async restoreAccountPlayback() {
+        calls.push(
+          "restore",
+        );
+      },
+
+      async togglePlay() {
+        calls.push(
+          "play",
+        );
+      },
+
+      pausePlayback() {
+        calls.push(
+          "pause",
+        );
+      },
+
+      stopTrack() {
+        calls.push(
+          "stop",
+        );
+      },
+    };
+
+    await applyPlaybackRemoteCommand(
+      {
+        action:
+          "play_track",
+        queue_index:
+          1,
+        queue: [
+          {
+            id:
+              "track-1",
+            title:
+              "First",
+            artist:
+              "Artist",
+          },
+          {
+            id:
+              "track-2",
+            title:
+              "Second",
+            artist:
+              "Artist",
+          },
+          {
+            id:
+              "track-3",
+            title:
+              "Third",
+            artist:
+              "Artist",
+          },
+        ],
+      },
+      {
+        player:
+          fakePlayer,
+
+        snapshot: {
+          track: {
+            id:
+              "track-2",
+          },
+          position_seconds:
+            0,
+          paused:
+            false,
+        },
+
+        snapshotPosition:
+          (snapshot) =>
+            snapshot.position_seconds,
+      },
+    );
+
+    assert.deepEqual(
+      calls,
+      [
+        "local-control",
+        [
+          "queue",
+          [
+            "track-1",
+            "track-2",
+            "track-3",
+          ],
+          1,
+        ],
+      ],
+    );
+
+    assert.equal(
+      fakePlayer.state.trackId,
+      "track-2",
+    );
+
+    assert.equal(
+      fakePlayer.state.paused,
+      false,
+    );
+  },
+);

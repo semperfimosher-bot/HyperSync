@@ -5733,6 +5733,46 @@ export default function App() {
             );
           }
 
+          const queueEntries =
+            Array.isArray(
+              options?.queue,
+            )
+              ? options.queue.slice(
+                  0,
+                  500,
+                )
+              : [];
+
+          const queueTrackIds =
+            queueEntries
+              .map(
+                (entry) =>
+                  String(
+                    entry?.id ??
+                      "",
+                  ).trim(),
+              )
+              .filter(
+                Boolean,
+              );
+
+          const queueIndex =
+            Number.isInteger(
+              options?.queueIndex,
+            )
+              ? Math.min(
+                  Math.max(
+                    options.queueIndex,
+                    0,
+                  ),
+                  Math.max(
+                    queueTrackIds.length -
+                      1,
+                    0,
+                  ),
+                )
+              : null;
+
           const liveConnection =
             playbackLiveConnectionRef
               .current;
@@ -5746,6 +5786,8 @@ export default function App() {
               trackId:
                 options?.trackId ??
                 null,
+              queueTrackIds,
+              queueIndex,
             }) ??
             null;
 
@@ -5776,6 +5818,8 @@ export default function App() {
                 trackId:
                   options?.trackId ??
                   null,
+                queueTrackIds,
+                queueIndex,
               });
 
             usedRealtime =
@@ -5941,6 +5985,12 @@ export default function App() {
                 trackId,
                 trackMeta:
                   payload?.meta ??
+                  null,
+                queue:
+                  payload?.queue ??
+                  null,
+                queueIndex:
+                  payload?.queueIndex ??
                   null,
               },
             );

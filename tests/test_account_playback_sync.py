@@ -1068,10 +1068,61 @@ async def test_play_track_command_switches_remote_song_and_playback_owner() -> N
                     "play_track",
                 "track_id":
                     str(second_track_id),
+                "queue_track_ids": [
+                    str(
+                        first_track_id,
+                    ),
+                    str(
+                        second_track_id,
+                    ),
+                ],
+                "queue_index":
+                    1,
             },
         )
 
         assert select_remote.status_code == 201, select_remote.text
+
+        remote_command = (
+            select_remote.json()
+        )
+
+        assert remote_command[
+            "queue_index"
+        ] == 1
+
+        assert [
+            item["id"]
+            for item in remote_command[
+                "queue"
+            ]
+        ] == [
+            str(
+                first_track_id,
+            ),
+            str(
+                second_track_id,
+            ),
+        ]
+
+        assert (
+            remote_command["queue"][1][
+                "title"
+            ]
+            == "Remote Selected Song"
+        )
+
+        assert (
+            remote_command["queue"][1][
+                "audio_url"
+            ]
+            == (
+                "/api/audio/"
+                + str(
+                    second_track_id,
+                )
+            )
+        )
 
         phone_poll = await client.post(
             "/api/users/me/playback-devices/poll",

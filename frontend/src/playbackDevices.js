@@ -315,6 +315,8 @@ export async function sendPlaybackDeviceCommand({
   action,
   value = null,
   trackId = null,
+  queueTrackIds = [],
+  queueIndex = null,
 }) {
   const target =
     encodeURIComponent(
@@ -343,6 +345,28 @@ export async function sendPlaybackDeviceCommand({
           value,
           track_id:
             trackId,
+          queue_track_ids:
+            Array.isArray(
+              queueTrackIds,
+            )
+              ? queueTrackIds
+                  .slice(
+                    0,
+                    500,
+                  )
+                  .map(
+                    (trackIdValue) =>
+                      String(
+                        trackIdValue,
+                      ),
+                  )
+              : [],
+          queue_index:
+            Number.isInteger(
+              queueIndex,
+            )
+              ? queueIndex
+              : null,
         }),
     },
   );
@@ -619,6 +643,8 @@ export async function connectPlaybackDeviceLive({
       action,
       value = null,
       trackId = null,
+      queueTrackIds = [],
+      queueIndex = null,
     }) {
       if (!isReady()) {
         return null;
@@ -673,6 +699,28 @@ export async function connectPlaybackDeviceLive({
             value,
             track_id:
               trackId,
+            queue_track_ids:
+              Array.isArray(
+                queueTrackIds,
+              )
+                ? queueTrackIds
+                    .slice(
+                      0,
+                      500,
+                    )
+                    .map(
+                      (trackIdValue) =>
+                        String(
+                          trackIdValue,
+                        ),
+                    )
+                : [],
+            queue_index:
+              Number.isInteger(
+                queueIndex,
+              )
+                ? queueIndex
+                : null,
           }),
         );
       } catch (error) {
