@@ -48,6 +48,9 @@ import {
 import Avatar from
   "../profile/Avatar.jsx";
 
+import ArtistProfilePage from
+  "./ArtistProfilePage.jsx";
+
 import Icon from
   "../ui/Icon.jsx";
 
@@ -288,6 +291,8 @@ function SearchPage({
   onOpenPlaylist,
   onOpenAuth,
   currentUser,
+  initialArtistName = "",
+  onInitialArtistHandled,
   resetToken = 0,
   activePlaylistDownloads = [],
 }) {
@@ -316,6 +321,11 @@ function SearchPage({
   openedPlaylist,
   setOpenedPlaylist,
 ] = useState(null);
+
+  const [
+    openedArtistName,
+    setOpenedArtistName,
+  ] = useState("");
 
 const [
   playlistSearchQuery,
@@ -513,6 +523,10 @@ useEffect(() => {
     null,
   );
 
+  setOpenedArtistName(
+    "",
+  );
+
   setPlaylistSearchQuery(
     "",
   );
@@ -528,6 +542,26 @@ useEffect(() => {
   });
 }, [
   resetToken,
+]);
+
+
+useEffect(() => {
+  if (!initialArtistName) {
+    return;
+  }
+
+  setOpenedPlaylist(
+    null,
+  );
+
+  setOpenedArtistName(
+    initialArtistName,
+  );
+
+  onInitialArtistHandled?.();
+}, [
+  initialArtistName,
+  onInitialArtistHandled,
 ]);
 
   const [
@@ -2016,16 +2050,16 @@ async function downloadOpenedPlaylist() {
                       "music",
                     onSelect:
                       () => {
-                        onQueryChange(
-                          `songs by ${artist.name}`,
+                        setOpenedArtistName(
+                          artist.name,
                         );
                       },
                   },
                 ],
               })}
               onClick={() => {
-                onQueryChange(
-                  `songs by ${artist.name}`,
+                setOpenedArtistName(
+                  artist.name,
                 );
               }}
             >
@@ -2145,16 +2179,16 @@ async function downloadOpenedPlaylist() {
                       "music",
                     onSelect:
                       () => {
-                        onQueryChange(
-                          `songs by ${collaboration.name}`,
+                        setOpenedArtistName(
+                          collaboration.name,
                         );
                       },
                   },
                 ],
               })}
               onClick={() => {
-                onQueryChange(
-                  `songs by ${collaboration.name}`,
+                setOpenedArtistName(
+                  collaboration.name,
                 );
               }}
             >
@@ -2345,6 +2379,28 @@ async function downloadOpenedPlaylist() {
       </SearchEntityPanel>
 
     ) : null;
+
+
+  if (openedArtistName) {
+    return (
+      <ArtistProfilePage
+        artistName={
+          openedArtistName
+        }
+        currentUser={
+          currentUser
+        }
+        onOpenAuth={
+          onOpenAuth
+        }
+        onBack={() => {
+          setOpenedArtistName(
+            "",
+          );
+        }}
+      />
+    );
+  }
 
 
   return (
