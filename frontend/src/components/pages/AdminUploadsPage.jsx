@@ -20,10 +20,16 @@ export default function AdminUploadsPage() {
   const {
   tracks: uploadedTracks,
   error: catalogError,
+  refreshCatalog,
 } = useCatalogTracks();
 
   const [catalogMessage, setCatalogMessage] =
     useState("");
+
+  const [
+    metadataBackfillBusy,
+    setMetadataBackfillBusy,
+  ] = useState(false);
 
   const [
     diagnostics,
@@ -97,6 +103,78 @@ export default function AdminUploadsPage() {
     );
   }
 };
+
+  const backfillMetadata =
+    async () => {
+      if (metadataBackfillBusy) {
+        return;
+      }
+
+      setMetadataBackfillBusy(
+        true,
+      );
+      setCatalogMessage(
+        "",
+      );
+
+      try {
+        const result =
+          await apiRequest(
+            "/admin/tracks/backfill-metadata?limit=500",
+            {
+              method:
+                "POST",
+              cache:
+                "no-store",
+            },
+          );
+
+        await refreshCatalog({
+          force:
+            true,
+        });
+
+        setCatalogMessage(
+          "Metadata backfill scanned "
+          + String(
+              result?.scanned ?? 0,
+            )
+          + " track(s), updated "
+          + String(
+              result?.updated ?? 0,
+            )
+          + " • genre "
+          + String(
+              result?.genre_updated ?? 0,
+            )
+          + " • year "
+          + String(
+              result?.year_updated ?? 0,
+            )
+          + (
+              Array.isArray(
+                result?.failed,
+              )
+              && result.failed.length
+                ? " • "
+                  + result.failed.length
+                  + " failed"
+                : ""
+            ),
+        );
+      } catch (error) {
+        setCatalogMessage(
+          error instanceof Error
+            ? error.message
+            : "Metadata backfill failed.",
+        );
+      } finally {
+        setMetadataBackfillBusy(
+          false,
+        );
+      }
+    };
+
 
   const queueProgress =
     queue.length === 0
@@ -294,9 +372,27 @@ export default function AdminUploadsPage() {
             </h3>
           </div>
 
-          <strong className="admin-panel-count">
-            {uploadedTracks.length} total
-          </strong>
+          <div className="admin-upload-catalog__actions">
+            <button
+              type="button"
+              className="secondary-admin-button"
+              disabled={
+                metadataBackfillBusy
+                || uploadedTracks.length === 0
+              }
+              onClick={() => {
+                void backfillMetadata();
+              }}
+            >
+              {metadataBackfillBusy
+                ? "Reading metadata..."
+                : "Backfill Genre & Year"}
+            </button>
+
+            <strong className="admin-panel-count">
+              {uploadedTracks.length} total
+            </strong>
+          </div>
         </div>
 
         {catalogMessage ? (
@@ -332,7 +428,14 @@ export default function AdminUploadsPage() {
                     <small>
                       {track.artist}
                       {" • "}
-                      {track.album}
+                      {track.album ||
+                        "No album"}
+                      {" • "}
+                      {track.genre ||
+                        "No genre"}
+                      {" • "}
+                      {track.release_year ||
+                        "No year"}
                     </small>
                   </div>
 
