@@ -142,6 +142,7 @@ import {
 
 import {
   getMessageNotifications,
+  markAdminNotificationRead,
 } from "./messageApi.js";
 
 import {
@@ -3597,6 +3598,7 @@ function PlayerBar({
   onOpenAuth,
   messageNotifications,
   onOpenMessage,
+  onReadAdminNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -4582,6 +4584,9 @@ function PlayerBar({
                     username,
                   );
                 }}
+                onReadAdminNotification={
+                  onReadAdminNotification
+                }
                 onEnablePush={
                   onEnablePush
                 }
@@ -7158,6 +7163,29 @@ const checkDownloadedGeneratedPlaylistUpdates =
   );
 
 
+  const readAdminNotification =
+    useCallback(
+      async (
+        notificationId,
+      ) => {
+        if (!notificationId) {
+          return;
+        }
+
+        try {
+          await markAdminNotificationRead(
+            notificationId,
+          );
+        } finally {
+          await refreshMessageNotifications();
+        }
+      },
+      [
+        refreshMessageNotifications,
+      ],
+    );
+
+
 const persistAppView =
   useCallback(
     (state) => {
@@ -8120,6 +8148,9 @@ const clearPlaylistToOpen =
     onOpenMessage={
       openMessageUser
     }
+    onReadAdminNotification={
+      readAdminNotification
+    }
     onEnablePush={() => {
       void handleEnablePush();
     }}
@@ -8268,6 +8299,9 @@ const clearPlaylistToOpen =
         }
         onOpenMessage={
           openMessageUser
+        }
+        onReadAdminNotification={
+          readAdminNotification
         }
         onEnablePush={() => {
           void handleEnablePush();
