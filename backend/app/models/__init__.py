@@ -1,6 +1,8 @@
 from .account import (
     AccountType,
     ListeningEvent,
+    PlaybackCommand,
+    PlaybackDevice,
     User,
     UserAppState,
     UserFollow,
@@ -32,6 +34,8 @@ __all__ = [
     "Message",
     "PushSubscription",
     "ListeningEvent",
+    "PlaybackCommand",
+    "PlaybackDevice",
     "User",
     "UserAppState",
     "UserFollow",
