@@ -36,6 +36,12 @@ function buildPreparationPayload(
       String(
         item.genre ?? "",
       ).trim(),
+    release_year:
+      Number.isInteger(
+        item.releaseYear,
+      )
+        ? item.releaseYear
+        : null,
     estimated_bitrate_kbps:
       Number.isFinite(
         item.bitrateKbps,
@@ -255,6 +261,15 @@ async function finalizeDirectUpload(
   );
 
   formData.append(
+    "release_year",
+    item.releaseYear
+      ? String(
+          item.releaseYear,
+        )
+      : "",
+  );
+
+  formData.append(
     "duration_seconds",
     String(
       Math.max(
@@ -347,6 +362,14 @@ function sendUpload({
     formData.append("title", item.title.trim());
     formData.append("artist", item.artist.trim());
     formData.append("album", item.album.trim());
+    formData.append(
+      "release_year",
+      item.releaseYear
+        ? String(
+            item.releaseYear,
+          )
+        : "",
+    );
     formData.append(
       "duration_seconds",
       String(item.duration || 0),
