@@ -20,11 +20,17 @@ import {
 import useOnlineStatus from
   "../../hooks/useOnlineStatus.js";
 
+import useTrackActionMenu from
+  "../../hooks/useTrackActionMenu.js";
+
 import Icon from "../ui/Icon.jsx";
 import OfflineNotice from
   "../ui/OfflineNotice.jsx";
 import TrackArtwork from
   "../ui/TrackArtwork.jsx";
+
+import TrackActionMenu from
+  "../music/TrackActionMenu.jsx";
 
 
 function statValue(
@@ -41,6 +47,78 @@ function statValue(
     },
   ).format(
     Number(value) || 0,
+  );
+}
+
+
+function formatTrackDuration(
+  seconds,
+) {
+  const value =
+    Number(
+      seconds,
+    );
+
+  if (
+    !Number.isFinite(
+      value,
+    )
+    || value <= 0
+  ) {
+    return "--:--";
+  }
+
+  const minutes =
+    Math.floor(
+      value / 60,
+    );
+
+  const remainder =
+    Math.floor(
+      value % 60,
+    )
+      .toString()
+      .padStart(
+        2,
+        "0",
+      );
+
+  return (
+    `${minutes}:${remainder}`
+  );
+}
+
+
+function formatReleaseDate(
+  value,
+) {
+  if (!value) {
+    return "";
+  }
+
+  const date =
+    new Date(
+      value,
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime(),
+    )
+  ) {
+    return "";
+  }
+
+  return date.toLocaleDateString(
+    [],
+    {
+      year:
+        "numeric",
+      month:
+        "short",
+      day:
+        "numeric",
+    },
   );
 }
 
@@ -65,6 +143,10 @@ function trackMeta(
       track.file_size ?? null,
     mediaVersion:
       track.media_version ?? null,
+    artworkVersion:
+      track.artwork_version ?? null,
+    durationSeconds:
+      track.duration_seconds ?? null,
   };
 }
 
@@ -77,6 +159,23 @@ export default function ArtistProfilePage({
 }) {
   const online =
     useOnlineStatus();
+
+  const trackActionMenu =
+    useTrackActionMenu();
+
+  const [
+    currentTrackId,
+    setCurrentTrackId,
+  ] = useState(
+    () =>
+      player.getState()
+        ?.trackId
+        ? String(
+            player.getState()
+              .trackId,
+          )
+        : null,
+  );
 
   const [
     profile,
@@ -149,6 +248,23 @@ export default function ArtistProfilePage({
   }, [
     load,
   ]);
+
+
+  useEffect(() => {
+    return player.subscribe(
+      (
+        nextState,
+      ) => {
+        setCurrentTrackId(
+          nextState?.trackId
+            ? String(
+                nextState.trackId,
+              )
+            : null,
+        );
+      },
+    );
+  }, []);
 
 
   async function toggleFollow() {
@@ -314,6 +430,9 @@ export default function ArtistProfilePage({
     return null;
   }
 
+  const songs =
+    profile.tracks ?? [];
+
   const popular =
     profile.popular_tracks ?? [];
 
@@ -378,11 +497,11 @@ export default function ArtistProfilePage({
               type="button"
               className="hs-primary-button"
               disabled={
-                !popular.length
+                !songs.length
               }
               onClick={() => {
                 playTracks(
-                  popular,
+                  songs,
                   0,
                 );
               }}
@@ -549,6 +668,196 @@ export default function ArtistProfilePage({
         )}
       </section>
 
+      <section className="hs-profile-section hs-artist-songs-section">
+        <header className="hs-section-header">
+          <div>
+            <span className="hs-eyebrow">
+              FULL CATALOG
+            </span>
+            <h2>
+              Songs
+            </h2>
+          </div>
+
+          <span className="hs-artist-song-count">
+            {songs.length}
+            {" "}
+            {songs.length === 1
+              ? "song"
+              : "songs"}
+          </span>
+        </header>
+
+        {songs.length ? (
+          <div className="hs-search-track-list hs-artist-library-track-list">
+            {songs.map(
+              (
+                track,
+                index,
+              ) => {
+                const artwork =
+                  resolveArtworkUrl(
+                    track.artwork_url,
+                  );
+
+                const isCurrentTrack =
+                  currentTrackId !== null
+                  && String(
+                    track.id,
+                  ) ===
+                    currentTrackId;
+
+                const releaseDate =
+                  formatReleaseDate(
+                    track.released_at,
+                  );
+
+                const playTrack =
+                  () => {
+                    playTracks(
+                      songs,
+                      index,
+                    );
+                  };
+
+                return (
+                  <div
+                    key={
+                      String(
+                        track.id,
+                      )
+                    }
+                    role="button"
+                    tabIndex={0}
+                    {...trackActionMenu.getTriggerProps(
+                      track,
+                    )}
+                    className={[
+                      "hs-search-track",
+                      "hs-library-track-row",
+                      "hs-artist-library-track-row",
+                      isCurrentTrack
+                        ? "is-current-track"
+                        : "",
+                    ]
+                      .filter(
+                        Boolean,
+                      )
+                      .join(
+                        " ",
+                      )}
+                    onClick={
+                      playTrack
+                    }
+                    onKeyDown={(
+                      event,
+                    ) => {
+                      if (
+                        event.key ===
+                          "Enter"
+                        || event.key ===
+                          " "
+                      ) {
+                        event.preventDefault();
+                        playTrack();
+                      }
+                    }}
+                  >
+                    <span className="hs-search-track__rank">
+                      {String(
+                        index + 1,
+                      ).padStart(
+                        2,
+                        "0",
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__art">
+                      {artwork ? (
+                        <img
+                          src={
+                            artwork
+                          }
+                          alt=""
+                        />
+                      ) : (
+                        <Icon
+                          name="music"
+                          size={20}
+                        />
+                      )}
+
+                      <i aria-hidden="true">
+                        <Icon
+                          name="play"
+                          size={15}
+                        />
+                      </i>
+                    </span>
+
+                    <span className="hs-search-track__copy">
+                      <strong>
+                        {track.title}
+                      </strong>
+
+                      <small>
+                        {track.artist ||
+                          profile.name}
+
+                        {track.album
+                          ? ` • ${track.album}`
+                          : " • Single"}
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__signals">
+                      <em>
+                        {track.album ||
+                          "Single"}
+                      </em>
+
+                      <small>
+                        {statValue(
+                          track.global_play_count,
+                        )}
+                        {" "}
+                        plays
+                        {releaseDate
+                          ? ` • ${releaseDate}`
+                          : ""}
+                      </small>
+                    </span>
+
+                    <span className="hs-search-track__duration">
+                      {formatTrackDuration(
+                        track.duration_seconds,
+                      )}
+                    </span>
+
+                    <span className="hs-search-track__play">
+                      <Icon
+                        name="play"
+                        size={16}
+                      />
+                    </span>
+                  </div>
+                );
+              },
+            )}
+          </div>
+        ) : (
+          <div className="hs-empty-card">
+            <strong>
+              No songs yet
+            </strong>
+            <p>
+              Uploaded songs for this artist will appear here automatically.
+            </p>
+          </div>
+        )}
+      </section>
+
+
       <section className="hs-profile-section">
         <header className="hs-section-header">
           <div>
@@ -667,6 +976,21 @@ export default function ArtistProfilePage({
           )}
         </div>
       </section>
+
+      <TrackActionMenu
+        menu={
+          trackActionMenu.menu
+        }
+        onClose={
+          trackActionMenu.closeMenu
+        }
+        currentUser={
+          currentUser
+        }
+        onRequireAuth={
+          onOpenAuth
+        }
+      />
     </div>
   );
 }
