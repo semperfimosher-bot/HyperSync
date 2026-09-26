@@ -5,6 +5,7 @@ import pytest
 
 from backend.app.services.music_metadata import (
     lookup_external_track_metadata,
+    lookup_lastfm_track_metadata,
 )
 
 
@@ -228,6 +229,151 @@ async def test_musicbrainz_lookup_rejects_wrong_recording_duration() -> None:
                 duration_seconds=180,
                 client=client,
                 throttle=False,
+            )
+        )
+
+    assert result is None
+
+
+
+@pytest.mark.asyncio
+async def test_lastfm_lookup_returns_genre_and_album_release_year() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        method = (
+            request.url.params.get(
+                "method",
+            )
+        )
+
+        if method == "track.getInfo":
+            return httpx.Response(
+                200,
+                json={
+                    "track": {
+                        "name":
+                            "Fallback Song",
+                        "duration":
+                            "184000",
+                        "mbid":
+                            "",
+                        "artist": {
+                            "name":
+                                "Fallback Artist",
+                        },
+                        "album": {
+                            "title":
+                                "Fallback Album",
+                        },
+                        "toptags": {
+                            "tag": [
+                                {
+                                    "name":
+                                        "country",
+                                },
+                                {
+                                    "name":
+                                        "seen live",
+                                },
+                            ],
+                        },
+                    },
+                },
+            )
+
+        if method == "album.getInfo":
+            return httpx.Response(
+                200,
+                json={
+                    "album": {
+                        "name":
+                            "Fallback Album",
+                        "artist":
+                            "Fallback Artist",
+                        "releasedate":
+                            "18 Oct 2024, 00:00",
+                        "tags": {
+                            "tag": [
+                                {
+                                    "name":
+                                        "country",
+                                }
+                            ],
+                        },
+                    },
+                },
+            )
+
+        raise AssertionError(
+            method,
+        )
+
+    async with httpx.AsyncClient(
+        base_url="https://lastfm.test",
+        transport=httpx.MockTransport(
+            handler,
+        ),
+    ) as client:
+        result = (
+            await lookup_lastfm_track_metadata(
+                title="Fallback Song",
+                artist="Fallback Artist",
+                duration_seconds=184,
+                client=client,
+                api_key="test-key",
+            )
+        )
+
+    assert result is not None
+    assert result["source"] == "lastfm"
+    assert result["genre"] == "Country"
+    assert result["release_year"] == 2024
+    assert result["confidence"] >= 0.94
+
+
+@pytest.mark.asyncio
+async def test_lastfm_lookup_rejects_wrong_artist_or_duration() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "track": {
+                    "name":
+                        "Fallback Song",
+                    "duration":
+                        "320000",
+                    "artist": {
+                        "name":
+                            "Wrong Artist",
+                    },
+                    "toptags": {
+                        "tag": [
+                            {
+                                "name":
+                                    "pop",
+                            }
+                        ],
+                    },
+                },
+            },
+        )
+
+    async with httpx.AsyncClient(
+        base_url="https://lastfm.test",
+        transport=httpx.MockTransport(
+            handler,
+        ),
+    ) as client:
+        result = (
+            await lookup_lastfm_track_metadata(
+                title="Fallback Song",
+                artist="Fallback Artist",
+                duration_seconds=184,
+                client=client,
+                api_key="test-key",
             )
         )
 
