@@ -26,6 +26,7 @@ async def record_admin_activity(
     body: str,
     actor_user_id: UUID | None = None,
     actor_username: str | None = None,
+    source_message_id: UUID | None = None,
 ) -> None:
     """Record one activity notification for every active admin."""
 
@@ -82,7 +83,7 @@ async def record_admin_activity(
             )
             normalized_title = (
                 title.strip()[:160]
-                or "HyperSync activity"
+                or "HyperSynced activity"
             )
             normalized_body = (
                 body.strip()
@@ -99,6 +100,9 @@ async def record_admin_activity(
                         actor_username=(
                             resolved_actor[:32]
                             or None
+                        ),
+                        source_message_id=(
+                            source_message_id
                         ),
                     )
                 )
