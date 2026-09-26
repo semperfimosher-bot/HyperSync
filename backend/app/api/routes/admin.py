@@ -31,6 +31,9 @@ from ...services.audio_compression import (
     compress_audio_for_storage,
     should_attempt_audio_compression,
 )
+from ...services.artists import (
+    ensure_artist_profile,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
@@ -1436,6 +1439,11 @@ async def finalize_direct_track_upload(
             track,
         )
 
+        await ensure_artist_profile(
+            session,
+            track.artist,
+        )
+
         await session.commit()
 
         cleanup_audio = False
@@ -1793,6 +1801,11 @@ async def upload_track(
         )
 
         session.add(track)
+
+        await ensure_artist_profile(
+            session,
+            track.artist,
+        )
 
         await session.commit()
 
