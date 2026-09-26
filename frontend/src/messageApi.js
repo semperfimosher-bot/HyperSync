@@ -54,6 +54,23 @@ export async function getMessageNotifications() {
 }
 
 
+export async function markMessageNotificationRead(
+  messageId,
+) {
+  return apiRequest(
+    "/messages/notifications/messages/" +
+      encodeURIComponent(
+        messageId,
+      ) +
+      "/read",
+    {
+      method:
+        "POST",
+    },
+  );
+}
+
+
 export async function markAdminNotificationRead(
   notificationId,
 ) {
