@@ -366,6 +366,12 @@ function sendUpload({
     formData.append("title", item.title.trim());
     formData.append("artist", item.artist.trim());
     formData.append("album", item.album.trim());
+    formData.append(
+      "genre",
+      String(
+        item.genre ?? "",
+      ).trim(),
+    );
     if (
       Number.isInteger(
         item.releaseYear,
