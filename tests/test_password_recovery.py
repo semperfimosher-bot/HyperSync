@@ -13,6 +13,7 @@ from backend.app.database import (
 from backend.app.main import app
 from backend.app.models.account import User
 from backend.app.models.base import Base
+from backend.app.services import email as email_service
 from backend.app.security.rate_limit import (
     reset_rate_limits,
 )
