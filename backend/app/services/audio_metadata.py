@@ -20,7 +20,6 @@ class EmbeddedAudioMetadata(
     duration_seconds: int | None
     genre: str | None
     release_year: int | None
-    release_year: int | None
 
 
 class ResolvedTrackMetadata(
@@ -31,6 +30,7 @@ class ResolvedTrackMetadata(
     album: str | None
     duration_seconds: int
     genre: str | None
+    release_year: int | None
 
 
 def normalize_track_identity(
