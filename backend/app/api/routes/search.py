@@ -1122,8 +1122,16 @@ def _serialize_tracks(
             title=(row["track"].title),
             artist=(row["track"].artist),
             album=(row["track"].album),
-            genre=(row["track"].genre),
-            release_year=(row["track"].release_year),
+            genre=getattr(
+                row["track"],
+                "genre",
+                None,
+            ),
+            release_year=getattr(
+                row["track"],
+                "release_year",
+                None,
+            ),
             duration_seconds=(row["track"].duration_seconds),
             audio_url=(_track_audio_url(row["track"])),
             artwork_url=(_track_artwork_url(row["track"])),
