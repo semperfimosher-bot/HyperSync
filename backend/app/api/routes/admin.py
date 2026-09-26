@@ -252,6 +252,12 @@ class CancelDirectTrackUploadRequest(
     object_key: str
 
 
+class BulkTrackDeleteRequest(
+    BaseModel,
+):
+    track_ids: list[UUID]
+
+
 def _direct_upload_extension(
     filename: str,
 ) -> str:
@@ -1868,6 +1874,225 @@ async def upload_track(
         ) from exc
 
 
+async def _delete_track_object_versions(
+    bucket,
+    track: Track,
+) -> int:
+    object_keys = [
+        key
+        for key in (
+            track.b2_object_key,
+            track.artwork_object_key,
+        )
+        if key
+    ]
+
+    deleted_versions = await asyncio.gather(
+        *(
+            delete_all_object_versions(
+                bucket,
+                object_key,
+            )
+            for object_key in object_keys
+        )
+    )
+
+    return sum(
+        deleted_versions,
+    )
+
+
+@router.post(
+    "/tracks/delete-bulk",
+)
+async def delete_tracks_bulk(
+    payload: BulkTrackDeleteRequest,
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    unique_track_ids = list(
+        dict.fromkeys(
+            payload.track_ids,
+        )
+    )
+
+    if not unique_track_ids:
+        return {
+            "success": True,
+            "deleted_track_ids": [],
+            "deleted_count": 0,
+            "failed": [],
+            "deleted_b2_versions": 0,
+        }
+
+    if len(unique_track_ids) > 2000:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Bulk deletion is limited "
+                "to 2000 tracks at a time."
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                unique_track_ids,
+            )
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    track_by_id = {
+        track.id: track
+        for track in tracks
+    }
+
+    bucket = get_b2_bucket()
+
+    storage_limit = (
+        asyncio.Semaphore(
+            12,
+        )
+    )
+
+    async def delete_storage(
+        track: Track,
+    ):
+        async with storage_limit:
+            try:
+                deleted_versions = (
+                    await _delete_track_object_versions(
+                        bucket,
+                        track,
+                    )
+                )
+
+                return (
+                    track,
+                    deleted_versions,
+                    None,
+                )
+
+            except Exception as exc:
+                return (
+                    track,
+                    0,
+                    str(
+                        exc,
+                    ),
+                )
+
+    storage_results = (
+        await asyncio.gather(
+            *(
+                delete_storage(
+                    track,
+                )
+                for track in tracks
+            )
+        )
+    )
+
+    deleted_track_ids: list[str] = []
+    failed: list[dict[str, str]] = []
+    deleted_b2_versions = 0
+
+    for (
+        track,
+        deleted_versions,
+        error_message,
+    ) in storage_results:
+        if error_message is not None:
+            failed.append(
+                {
+                    "track_id":
+                        str(
+                            track.id,
+                        ),
+                    "message":
+                        (
+                            "Failed to permanently "
+                            "remove track files from "
+                            f"B2: {error_message}"
+                        ),
+                }
+            )
+
+            continue
+
+        await session.delete(
+            track,
+        )
+
+        deleted_track_ids.append(
+            str(
+                track.id,
+            )
+        )
+
+        deleted_b2_versions += int(
+            deleted_versions,
+        )
+
+    for track_id in unique_track_ids:
+        if track_id in track_by_id:
+            continue
+
+        failed.append(
+            {
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+                "message":
+                    "Track not found.",
+            }
+        )
+
+    try:
+        await session.commit()
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Track files were removed from "
+                "storage, but the database bulk "
+                f"delete failed: {exc}"
+            ),
+        ) from exc
+
+    return {
+        "success":
+            len(
+                failed,
+            )
+            == 0,
+        "deleted_track_ids":
+            deleted_track_ids,
+        "deleted_count":
+            len(
+                deleted_track_ids,
+            ),
+        "failed":
+            failed,
+        "deleted_b2_versions":
+            deleted_b2_versions,
+    }
+
+
 @router.delete("/tracks/{track_id}")
 async def delete_track(
     track_id: UUID,
@@ -1889,23 +2114,11 @@ async def delete_track(
 
     bucket = get_b2_bucket()
 
-    object_keys = [
-        key
-        for key in (
-            track.b2_object_key,
-            track.artwork_object_key,
-        )
-        if key
-    ]
-
     try:
-        deleted_versions = await asyncio.gather(
-            *(
-                delete_all_object_versions(
-                    bucket,
-                    object_key,
-                )
-                for object_key in object_keys
+        deleted_versions = (
+            await _delete_track_object_versions(
+                bucket,
+                track,
             )
         )
 
@@ -1926,5 +2139,5 @@ async def delete_track(
         "deleted_track_id": str(track_id),
         "deleted_object_key": track.b2_object_key,
         "deleted_artwork_object_key": track.artwork_object_key,
-        "deleted_b2_versions": sum(deleted_versions),
+        "deleted_b2_versions": deleted_versions,
     }
