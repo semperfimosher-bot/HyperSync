@@ -1627,6 +1627,24 @@ git push origin main
 
 ---
 
+## External Metadata Enrichment
+
+HyperSynced can fill missing track genre and release-year metadata after upload and during the administrator metadata backfill.
+
+Provider order:
+
+1. Last.fm — primary fast metadata lookup when `LASTFM_API_KEY` is configured.
+2. Apple/iTunes Search — fallback for genre and release date; no API key is required.
+3. MusicBrainz — final fallback with conservative public-API request spacing.
+
+Uploads do not wait for these providers. The track is committed first, then missing metadata is enriched in a background task. Provider errors leave the uploaded track intact.
+
+For local development, put the provider variables in `backend/.env`. For production on Northflank, add the same variables to the backend service environment/secret configuration. Keep `LASTFM_API_KEY` server-side and never expose it as a `VITE_*` variable.
+
+The complete placeholders and defaults are documented in `.env.example`.
+
+---
+
 ## 33. Security Requirements
 
 HyperSync must include:
