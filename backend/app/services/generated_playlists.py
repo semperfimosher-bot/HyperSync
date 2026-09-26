@@ -357,6 +357,14 @@ def _is_direct_genre_query(
     return False
 
 
+def is_direct_genre_query(
+    query: str,
+) -> bool:
+    return _is_direct_genre_query(
+        query,
+    )
+
+
 def smart_playlist_kind(
     query: str,
 ) -> str:
