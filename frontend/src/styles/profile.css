@@ -1785,6 +1785,75 @@ button.hs-profile-stat:hover,
 }
 
 
+.hs-account-actions
+> .hs-playback-device-control,
+.hs-playback-device-panel {
+  display: none;
+}
+
+
+@media (max-width: 699px) {
+  .hs-account-actions
+  > .hs-playback-device-control {
+    display: grid;
+
+    border-color:
+      rgba(53, 198, 255, 0.22);
+
+    color:
+      #55dfff;
+
+    background:
+      linear-gradient(
+        135deg,
+        rgba(0, 127, 190, 0.13),
+        rgba(5, 27, 38, 0.62)
+      );
+  }
+
+
+  .hs-account-actions
+  > .hs-playback-device-control.is-remote {
+    border-color:
+      rgba(27, 217, 255, 0.48);
+
+    background:
+      linear-gradient(
+        135deg,
+        rgba(0, 157, 222, 0.2),
+        rgba(5, 27, 38, 0.7)
+      );
+
+    box-shadow:
+      0 0 18px
+      rgba(0, 174, 255, 0.08);
+  }
+
+
+  .hs-playback-device-panel {
+    display: grid;
+
+    margin:
+      -1px
+      0
+      2px;
+
+    overflow: hidden;
+
+    border-radius: 11px;
+  }
+
+
+  .hs-playback-device-panel
+  .playback-devices-panel {
+    max-height:
+      min(58vh, 430px);
+
+    border-radius: 11px;
+  }
+}
+
+
 /* =========================================================
    MODALS
    ========================================================= */
