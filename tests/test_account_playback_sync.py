@@ -434,20 +434,26 @@ async def test_playback_devices_are_account_scoped() -> None:
         app=app,
     )
 
-    async with AsyncClient(
-        transport=transport,
-        base_url="http://test",
-    ) as client:
+    async with (
+        AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as first_client,
+        AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as second_client,
+    ):
         first_token = (
             await register_and_login(
-                client,
+                first_client,
                 f"device-owner-{run_id}",
             )
         )
 
         second_token = (
             await register_and_login(
-                client,
+                second_client,
                 f"device-other-{run_id}",
             )
         )
@@ -462,7 +468,7 @@ async def test_playback_devices_are_account_scoped() -> None:
                 f"Bearer {second_token}",
         }
 
-        registered = await client.post(
+        registered = await first_client.post(
             "/api/users/me/playback-devices/poll",
             headers=first_headers,
             json={
@@ -481,7 +487,7 @@ async def test_playback_devices_are_account_scoped() -> None:
         ), registered.text
 
         cross_account = (
-            await client.post(
+            await second_client.post(
                 (
                     "/api/users/me/playback-devices/"
                     "private-device/commands"
@@ -500,3 +506,4 @@ async def test_playback_devices_are_account_scoped() -> None:
             cross_account.status_code
             == 404
         ), cross_account.text
+
