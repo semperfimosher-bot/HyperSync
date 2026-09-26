@@ -135,6 +135,7 @@ import {
 } from "./offlineDownloads.js";
 
 import {
+  generateSmartPlaylist,
   getPlaylist,
 } from "./playlistApi.js";
 
@@ -2998,6 +2999,7 @@ function MainPage({
   profileUsername,
   playlistToOpen,
   onOpenPlaylist,
+  onGenerateSmartPlaylist,
   onPlaylistOpened,
   artistToOpen,
   onArtistOpened,
@@ -3295,6 +3297,9 @@ function MainPage({
           }
           onOpenPlaylist={
             onOpenPlaylist
+          }
+          onGenerateSmartPlaylist={
+            onGenerateSmartPlaylist
           }
           onOpenAuth={
             onOpenAuth
@@ -5171,6 +5176,29 @@ function AuthOverlay({
 // App shell
 // ======================================================================================
 
+function shouldKeepTextFocus(
+  target,
+) {
+  if (
+    !(target instanceof Element)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        "textarea",
+        "select",
+        "[contenteditable='true']",
+        "[role='textbox']",
+        "input:not([type='button']):not([type='submit']):not([type='reset']):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])",
+      ].join(", "),
+    ),
+  );
+}
+
+
 function shouldIgnorePlaybackShortcut(
   target,
 ) {
@@ -5510,6 +5538,90 @@ export default function App() {
         );
       },
     );
+  }, []);
+
+
+  useEffect(() => {
+    let releaseTimer =
+      null;
+
+    const releaseNonTextFocus =
+      (event) => {
+        if (
+          shouldKeepTextFocus(
+            event.target,
+          )
+        ) {
+          return;
+        }
+
+        if (releaseTimer) {
+          window.clearTimeout(
+            releaseTimer,
+          );
+        }
+
+        /*
+         * Wait until the click has fully
+         * dispatched, then release button/
+         * link/card focus back to dead
+         * document space. Text entry keeps
+         * focus so typing still works.
+         */
+        releaseTimer =
+          window.setTimeout(
+            () => {
+              releaseTimer =
+                null;
+
+              const active =
+                document.activeElement;
+
+              if (
+                active instanceof
+                  HTMLElement
+                && active !==
+                  document.body
+                && active !==
+                  document.documentElement
+                && !shouldKeepTextFocus(
+                  active,
+                )
+              ) {
+                active.blur();
+              }
+            },
+            0,
+          );
+      };
+
+    window.addEventListener(
+      "click",
+      releaseNonTextFocus,
+    );
+
+    window.addEventListener(
+      "contextmenu",
+      releaseNonTextFocus,
+    );
+
+    return () => {
+      if (releaseTimer) {
+        window.clearTimeout(
+          releaseTimer,
+        );
+      }
+
+      window.removeEventListener(
+        "click",
+        releaseNonTextFocus,
+      );
+
+      window.removeEventListener(
+        "contextmenu",
+        releaseNonTextFocus,
+      );
+    };
   }, []);
 
 
@@ -7524,6 +7636,80 @@ if (
   );
 
 
+  const createSmartPlaylistFromSearch =
+    useCallback(
+      async (
+        rawQuery,
+      ) => {
+        const cleanQuery =
+          String(
+            rawQuery ?? "",
+          )
+            .trim()
+            .replace(
+              /\s+/g,
+              " ",
+            );
+
+        if (!cleanQuery) {
+          return null;
+        }
+
+        if (
+          currentUser?.account_type !==
+            "registered"
+        ) {
+          openAuth(
+            "signin",
+          );
+
+          return null;
+        }
+
+        setStatusMessage(
+          "Building live playlist...",
+        );
+
+        try {
+          const playlist =
+            await generateSmartPlaylist(
+              cleanQuery,
+            );
+
+          if (playlist?.id) {
+            setLibraryResetToken(
+              (current) =>
+                current + 1,
+            );
+
+            openPlaylistFromSearch(
+              playlist.id,
+            );
+          }
+
+          setStatusMessage(
+            "",
+          );
+
+          return playlist;
+        } catch (error) {
+          setStatusMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to build that live playlist.",
+          );
+
+          throw error;
+        }
+      },
+      [
+        currentUser?.account_type,
+        openAuth,
+        openPlaylistFromSearch,
+      ],
+    );
+
+
 const clearPlaylistToOpen =
   useCallback(
     () => {
@@ -8261,6 +8447,9 @@ const clearPlaylistToOpen =
           onSearchFocus={
             openSearchFromTopbar
           }
+          onSearchSubmit={
+            createSmartPlaylistFromSearch
+          }
           currentUser={currentUser}
           onNavigate={navigate}
           onOpenAuth={() => {
@@ -8281,6 +8470,10 @@ const clearPlaylistToOpen =
 
             onOpenPlaylist={
             openPlaylistFromSearch
+            }
+
+            onGenerateSmartPlaylist={
+              createSmartPlaylistFromSearch
             }
 
             onPlaylistOpened={
