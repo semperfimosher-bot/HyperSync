@@ -4082,7 +4082,7 @@ function PlayerBar({
       >
 
         <TrackArtwork
-          src={state.artworkUrl}
+          src={displayArtworkUrl}
           alt={titleText}
           variant={1}
         />
@@ -4112,8 +4112,8 @@ function PlayerBar({
 
           <button
             type="button"
-            onClick={() =>
-              player.seekTo(0)
+            onClick={
+              handlePrevious
             }
             disabled={!canControl}
             aria-label="Previous"
@@ -4131,14 +4131,14 @@ function PlayerBar({
             onClick={toggle}
             disabled={!canControl}
             aria-label={
-              state.paused
+              effectivePaused
                 ? "Play"
                 : "Pause"
             }
           >
             <Icon
               name={
-                state.paused
+                effectivePaused
                   ? "play"
                   : "pause"
               }
@@ -4149,9 +4149,9 @@ function PlayerBar({
 
           <button
             type="button"
-            onClick={() => {
-              void player.skipToNext();
-            }}
+            onClick={
+              handleNext
+            }
             disabled={!canControl}
             aria-label="Next"
           >
@@ -4168,7 +4168,7 @@ function PlayerBar({
 
           <span>
             {formatTime(
-              state.currentTime,
+              effectiveCurrentTime,
             )}
           </span>
 
@@ -4198,7 +4198,7 @@ function PlayerBar({
         event.target.value,
       );
 
-    player.seekTo(
+    handleSeek(
       value,
     );
   }}
@@ -4207,7 +4207,7 @@ function PlayerBar({
 
           <span>
             {formatTime(
-              state.duration,
+              effectiveDuration,
             )}
           </span>
 
@@ -4217,6 +4217,61 @@ function PlayerBar({
 
 
       <div className="player-bar__right">
+        {currentUser?.account_type ===
+        "registered" ? (
+          <div className="desktop-player-device-center">
+            <button
+              type="button"
+              className={[
+                "icon-button",
+                "desktop-player-device-button",
+                controllingRemote
+                  ? "is-remote"
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-label="Choose playback device"
+              aria-expanded={
+                devicesOpen
+              }
+              title={
+                controlledDevice?.name
+                  ? (
+                      "Controlling " +
+                      controlledDevice.name
+                    )
+                  : "Choose playback device"
+              }
+              onClick={() => {
+                setDevicesOpen(
+                  (open) =>
+                    !open,
+                );
+
+                setNotificationsOpen(
+                  false,
+                );
+              }}
+            >
+              <Icon
+                name="devices"
+                size={18}
+              />
+
+              {playbackDevices.filter(
+                (device) =>
+                  device.is_online,
+              ).length > 1 ? (
+                <span
+                  className="icon-button__dot"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </button>
+          </div>
+        ) : null}
+
         <PlaylistUpdateNotice
           update={playlistUpdate}
           variant="desktop"
@@ -4247,6 +4302,10 @@ function PlayerBar({
 
               setNotificationsOpen(
                 (open) => !open,
+              );
+
+              setDevicesOpen(
+                false,
               );
             }}
           >
@@ -4341,13 +4400,80 @@ function PlayerBar({
       >
         <Icon
           name={
-            state.paused
+            effectivePaused
               ? "play"
               : "pause"
           }
           size={19}
         />
       </button>
+
+      {currentUser?.account_type ===
+      "registered" ? (
+        <button
+          type="button"
+          className={[
+            "mobile-player-device-control",
+            controllingRemote
+              ? "is-remote"
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          aria-label="Choose playback device"
+          aria-expanded={
+            devicesOpen
+          }
+          onClick={() => {
+            setDevicesOpen(
+              (open) =>
+                !open,
+            );
+
+            setNotificationsOpen(
+              false,
+            );
+          }}
+        >
+          <Icon
+            name="devices"
+            size={17}
+          />
+        </button>
+      ) : null}
+
+      {devicesOpen &&
+      currentUser?.account_type ===
+        "registered" ? (
+        <div className="playback-devices-popover">
+          <PlaybackDevicesPanel
+            devices={
+              playbackDevices
+            }
+            currentDeviceId={
+              currentPlaybackDeviceId
+            }
+            controlledDeviceId={
+              controlledPlaybackDeviceId
+            }
+            onSelectDevice={(
+              deviceId,
+            ) => {
+              onSelectPlaybackDevice?.(
+                deviceId,
+              );
+            }}
+            onTransferToDevice={(
+              deviceId,
+            ) => {
+              void onPlaybackDeviceCommand?.(
+                deviceId,
+                "transfer",
+              );
+            }}
+          />
+        </div>
+      ) : null}
 
 
       <TrackActionMenu
