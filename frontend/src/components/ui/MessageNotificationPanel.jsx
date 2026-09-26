@@ -39,8 +39,7 @@ function notificationTime(
 
 export default function MessageNotificationPanel({
   data,
-  onOpenMessage,
-  onReadAdminNotification,
+  onOpenNotification,
   onEnablePush,
   pushBusy = false,
   pushEnabled = false,
@@ -91,17 +90,8 @@ export default function MessageNotificationPanel({
                           .message_id
                   }
                   onClick={() => {
-                    if (adminActivity) {
-                      onReadAdminNotification?.(
-                        notification
-                          .notification_id,
-                      );
-                      return;
-                    }
-
-                    onOpenMessage?.(
-                      notification
-                        .sender_username,
+                    onOpenNotification?.(
+                      notification,
                     );
                   }}
                 >
