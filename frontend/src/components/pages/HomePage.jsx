@@ -30,6 +30,12 @@ import useTrackActionMenu from
 import useQuietRefresh from
   "../../hooks/useQuietRefresh.js";
 
+import useOnlineStatus from
+  "../../hooks/useOnlineStatus.js";
+
+import OfflineNotice from
+  "../ui/OfflineNotice.jsx";
+
 import {
   getMyProfile,
 } from "../../profileApi.js";
@@ -124,6 +130,9 @@ function HomePage({
   onNavigate,
   onOpenAuth,
 }) {
+  const online =
+    useOnlineStatus();
+
   const trackActionMenu =
     useTrackActionMenu();
 
@@ -405,7 +414,13 @@ useQuietRefresh(
 }}
         />
 
-          {recentLoading ? (
+          {!online && currentUser ? (
+  <OfflineNotice
+    compact
+    title="Go back online to see Recently Played"
+    description="Your real listening history syncs from your HyperSync account. Downloaded music is still available in Library."
+  />
+) : recentLoading ? (
 
   <div className="home-empty-state">
 
