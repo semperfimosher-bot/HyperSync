@@ -251,7 +251,7 @@ export default function ArtistProfilePage({
 
         <OfflineNotice
           title="Go back online to see this artist"
-          description="Artist profiles, follower stats, releases, and live catalog information sync from HyperSync."
+          description="Artist profiles, follower stats, releases, and live catalog information sync from HyperSynced."
         />
       </div>
     );
