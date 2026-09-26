@@ -710,7 +710,7 @@
   }
 
   .player-bar {
-    position: static;
+    position: relative;
     grid-column: 1 / -1;
     grid-row: 2;
     display: grid;
@@ -758,7 +758,9 @@
   }
 
   .player-like,
-  .mobile-player-control {
+  .mobile-player-actions,
+  .mobile-player-control,
+  .mobile-player-device-control {
     display: none;
   }
 
@@ -1024,9 +1026,26 @@
     gap: 10px;
   }
 
+  .desktop-player-device-center,
   .desktop-player-notification-center {
     position: relative;
     flex: 0 0 auto;
+  }
+
+  .desktop-player-device-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .playback-devices-popover {
+    right: 18px;
+    bottom: calc(100% + 12px);
+    left: auto;
+    width: min(
+      360px,
+      calc(100vw - 42px)
+    );
+    padding: 0;
   }
 
   .desktop-player-notification-button {
