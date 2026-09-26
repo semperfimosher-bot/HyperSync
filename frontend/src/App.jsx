@@ -5056,6 +5056,18 @@ export default function App() {
       playbackPendingWriteRef.current =
         null;
 
+      setPlaybackDevices(
+        [],
+      );
+
+      setAccountPlaybackSnapshot(
+        null,
+      );
+
+      setControlledPlaybackDeviceId(
+        null,
+      );
+
       return undefined;
     }
 
@@ -5068,8 +5080,14 @@ export default function App() {
     let pollInterval =
       null;
 
+    let pollInFlight =
+      false;
+
     const deviceId =
       playbackDeviceIdRef.current;
+
+    const deviceDescriptor =
+      playbackDeviceDescriptorRef.current;
 
     const markPublished =
       (state) => {
@@ -5110,7 +5128,7 @@ export default function App() {
             ?.onLine ===
             false
         ) {
-          return;
+          return null;
         }
 
         if (
@@ -5120,7 +5138,7 @@ export default function App() {
           playbackPendingWriteRef.current =
             state;
 
-          return;
+          return null;
         }
 
         playbackWriteInFlightRef.current =
@@ -5163,7 +5181,7 @@ export default function App() {
             );
 
           if (cancelled) {
-            return;
+            return null;
           }
 
           playbackLastServerUpdateRef
@@ -5177,13 +5195,20 @@ export default function App() {
                 ),
               );
 
+          setAccountPlaybackSnapshot(
+            response,
+          );
+
           markPublished(
             state,
           );
+
+          return response;
         } catch {
           // Playback remains fully usable
           // if account sync is temporarily
           // unavailable.
+          return null;
         } finally {
           playbackWriteInFlightRef.current =
             false;
@@ -5223,7 +5248,7 @@ export default function App() {
           Math.max(
             Number(
               state?.currentTime ??
-              0,
+                0,
             ) || 0,
             0,
           );
@@ -5231,7 +5256,7 @@ export default function App() {
         const paused =
           Boolean(
             state?.paused ??
-            true,
+              true,
           );
 
         const now =
@@ -5310,10 +5335,74 @@ export default function App() {
         }
       };
 
-    const fetchRemotePlayback =
+    const applyPendingCommands =
+      async (
+        commands,
+        snapshot,
+      ) => {
+        const queue =
+          Array.isArray(
+            commands,
+          )
+            ? commands
+            : [];
+
+        for (
+          const command
+          of queue
+        ) {
+          if (cancelled) {
+            return;
+          }
+
+          let applied =
+            false;
+
+          playbackApplyingRemoteRef.current =
+            true;
+
+          try {
+            const result =
+              await applyPlaybackRemoteCommand(
+                command,
+                {
+                  player,
+                  snapshot,
+                  snapshotPosition:
+                    accountPlaybackPosition,
+                },
+              );
+
+            applied =
+              Boolean(
+                result,
+              );
+          } catch {
+            // Browser autoplay policies can
+            // reject a remote Play on a device
+            // that has never been interacted
+            // with. Other commands continue.
+          } finally {
+            playbackApplyingRemoteRef.current =
+              false;
+          }
+
+          if (
+            applied &&
+            !cancelled
+          ) {
+            await publishPlayback(
+              player.getState(),
+            );
+          }
+        }
+      };
+
+    const pollDevice =
       async () => {
         if (
           cancelled ||
+          pollInFlight ||
           globalThis.navigator
             ?.onLine ===
             false
@@ -5321,30 +5410,96 @@ export default function App() {
           return null;
         }
 
+        pollInFlight =
+          true;
+
         try {
-          const snapshot =
-            await apiRequest(
-              "/users/me/playback-state",
-            );
+          const response =
+            await pollPlaybackDevice({
+              deviceId,
+              name:
+                deviceDescriptor.name,
+              deviceType:
+                deviceDescriptor.deviceType,
+            });
 
           if (cancelled) {
             return null;
           }
 
+          const devices =
+            Array.isArray(
+              response?.devices,
+            )
+              ? response.devices
+              : [];
+
+          const snapshot =
+            response
+              ?.playback_state ??
+            null;
+
+          setPlaybackDevices(
+            devices,
+          );
+
+          setAccountPlaybackSnapshot(
+            snapshot,
+          );
+
+          setControlledPlaybackDeviceId(
+            (current) => {
+              const currentStillOnline =
+                current &&
+                devices.some(
+                  (device) =>
+                    device.device_id ===
+                      current &&
+                    device.is_online,
+                );
+
+              if (
+                currentStillOnline
+              ) {
+                return current;
+              }
+
+              const active =
+                devices.find(
+                  (device) =>
+                    device.is_active &&
+                    device.is_online,
+                );
+
+              return (
+                active?.device_id ??
+                deviceId
+              );
+            },
+          );
+
           await applyRemotePlayback(
+            snapshot,
+          );
+
+          await applyPendingCommands(
+            response?.commands,
             snapshot,
           );
 
           return snapshot;
         } catch {
           return null;
+        } finally {
+          pollInFlight =
+            false;
         }
       };
 
     const bootstrap =
       async () => {
         const remote =
-          await fetchRemotePlayback();
+          await pollDevice();
 
         if (cancelled) {
           return;
@@ -5401,9 +5556,9 @@ export default function App() {
         pollInterval =
           window.setInterval(
             () => {
-              void fetchRemotePlayback();
+              void pollDevice();
             },
-            ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS,
+            ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
           );
       };
 
@@ -5411,7 +5566,7 @@ export default function App() {
 
     const handleFocus =
       () => {
-        void fetchRemotePlayback();
+        void pollDevice();
       };
 
     const handleVisibility =
@@ -5420,7 +5575,7 @@ export default function App() {
           document.visibilityState ===
             "visible"
         ) {
-          void fetchRemotePlayback();
+          void pollDevice();
         }
       };
 
