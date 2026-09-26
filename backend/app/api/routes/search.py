@@ -41,6 +41,7 @@ from ...models.playlist import (
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
+    is_direct_genre_query,
     smart_query_has_semantic_signal,
     smart_track_score,
 )
@@ -495,6 +496,44 @@ async def _load_track_candidates(
     if not term:
         return []
 
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        result = await session.execute(
+            select(
+                Track,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+        )
+
+        genre_candidates = [
+            track
+            for track
+            in result.scalars().all()
+            if smart_track_score(
+                track,
+                parsed.raw,
+            )
+            > 0
+        ]
+
+        genre_candidates.sort(
+            key=lambda track: (
+                -smart_track_score(
+                    track,
+                    parsed.raw,
+                ),
+                track.artist.casefold(),
+                track.title.casefold(),
+            )
+        )
+
+        return genre_candidates
+
     prefix_pattern = f"{term}%"
 
     contains_pattern = f"%{term}%"
@@ -801,6 +840,22 @@ def _match_for_track(
             field="created_at",
         )
 
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        smart_score = smart_track_score(
+            track,
+            parsed.raw,
+        )
+
+        if smart_score > 0:
+            return MatchResult(
+                score=smart_score,
+                tier=1,
+                label="GENRE MATCH",
+                field="genre",
+            )
+
     direct_match = score_track(
         track.title,
         track.artist,
@@ -911,8 +966,13 @@ async def _build_track_rows(
     )
 
     if (
-        parsed.intent == "recent"
-        and not parsed.term
+        (
+            parsed.intent == "recent"
+            and not parsed.term
+        )
+        or is_direct_genre_query(
+            parsed.raw,
+        )
     ):
         return sorted_rows
 
