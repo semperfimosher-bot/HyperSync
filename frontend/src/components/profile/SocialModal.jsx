@@ -190,7 +190,7 @@ export default function SocialModal({
         <header>
           <div>
             <span className="hs-eyebrow">
-              HYPERSYNC SOCIAL
+              HYPERSYNCED SOCIAL
             </span>
 
             <h2>{title}</h2>
