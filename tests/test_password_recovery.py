@@ -49,16 +49,17 @@ async def password_recovery_database_schema(
     )
 
     get_settings.cache_clear()
-    reset_rate_limits()
 
     async with get_engine().begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
         )
 
+    await reset_rate_limits()
+
     yield
 
-    reset_rate_limits()
+    await reset_rate_limits()
     get_settings.cache_clear()
 
 
@@ -89,7 +90,7 @@ async def _register(
 
 
 @pytest.mark.asyncio
-async def test_login_reports_specific_failure_reason() -> None:
+async def test_login_does_not_reveal_account_state() -> None:
     transport = ASGITransport(
         app=app,
     )
@@ -122,13 +123,13 @@ async def test_login_reports_specific_failure_reason() -> None:
 
         assert (
             missing_username.status_code
-            == 404
+            == 401
         )
         assert (
             missing_username.json()[
                 "detail"
             ]
-            == "No account exists with that username."
+            == "Invalid username/email or password."
         )
 
         missing_email = await client.post(
@@ -143,13 +144,13 @@ async def test_login_reports_specific_failure_reason() -> None:
 
         assert (
             missing_email.status_code
-            == 404
+            == 401
         )
         assert (
             missing_email.json()[
                 "detail"
             ]
-            == "No account exists with that email address."
+            == "Invalid username/email or password."
         )
 
         wrong_password = await client.post(
@@ -170,7 +171,7 @@ async def test_login_reports_specific_failure_reason() -> None:
             wrong_password.json()[
                 "detail"
             ]
-            == "Incorrect password."
+            == "Invalid username/email or password."
         )
 
         session_factory = (
@@ -207,14 +208,46 @@ async def test_login_reports_specific_failure_reason() -> None:
 
         assert (
             disabled.status_code
-            == 403
+            == 401
         )
         assert (
             disabled.json()[
                 "detail"
             ]
-            == "This account is disabled."
+            == "Invalid username/email or password."
         )
+
+
+@pytest.mark.asyncio
+async def test_recovery_request_does_not_reveal_missing_account() -> None:
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/auth/password-recovery/request",
+            json={
+                "identifier":
+                    "missing-recovery-account@example.test",
+            },
+        )
+
+    assert response.status_code == 202
+
+    assert (
+        response.json()[
+            "detail"
+        ]
+        == (
+            "If an eligible account exists, "
+            "recovery instructions have been "
+            "sent to its email address."
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -279,6 +312,14 @@ async def test_recovery_email_contains_use_code_button(
     assert (
         "recovery_code=123456"
         in html
+    )
+    assert (
+        "/reset-password#?token="
+        in html
+    )
+    assert (
+        "/reset-password?token="
+        not in html
     )
 
 
@@ -367,7 +408,7 @@ async def test_recovery_otp_signs_in_and_reset_link_changes_password(
             wrong_otp.json()[
                 "detail"
             ]
-            == "Recovery code is incorrect."
+            == "Recovery code is invalid or expired."
         )
 
         verified = await client.post(

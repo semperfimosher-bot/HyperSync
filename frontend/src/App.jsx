@@ -130,6 +130,7 @@ import {
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
+  removeAllOfflineDownloadsForOwner,
   removePlaylistFromOffline,
   startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
@@ -137,6 +138,10 @@ import {
 import {
   getPlaylist,
 } from "./playlistApi.js";
+
+import {
+  clearCachedLibraryScope,
+} from "./libraryCache.js";
 
 import {
   findMissingPlaylistTracks,
@@ -7375,6 +7380,23 @@ const persistAppView =
    * account logs out.
    */
   player.pausePlayback();
+
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
+
+  if (offlineOwnerKey) {
+    clearCachedLibraryScope(
+      offlineOwnerKey,
+    );
+
+    void removeAllOfflineDownloadsForOwner(
+      offlineOwnerKey,
+    ).catch(
+      () => {},
+    );
+  }
 
   logoutSession();
 

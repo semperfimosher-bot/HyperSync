@@ -87,9 +87,19 @@ export function readPasswordResetTokenFromLocation() {
     return "";
   }
 
+  const hash =
+    window.location.hash
+      .startsWith(
+        "#?",
+      )
+      ? window.location.hash.slice(
+          2,
+        )
+      : "";
+
   return (
     new URLSearchParams(
-      window.location.search,
+      hash,
     )
       .get(
         "token",

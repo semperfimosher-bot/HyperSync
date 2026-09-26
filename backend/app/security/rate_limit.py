@@ -1,56 +1,40 @@
 from __future__ import annotations
 
-from collections import deque
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from threading import Lock
-from time import monotonic
+from math import ceil
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+
+from ..database import get_session_factory
+from ..models.system import RateLimitBucket
 
 
-_BUCKETS: dict[
-    str,
-    deque[float],
-] = {}
+def _as_utc_aware(
+    value: datetime,
+) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
 
-_LOCK = Lock()
-
-_MAX_BUCKETS = 10_000
-_EVICT_BUCKETS = 1_000
+    return value.astimezone(
+        UTC,
+    )
 
 
 def _client_identifier(
     request: Request,
 ) -> str:
-    cloudflare_ip = (
-        request.headers.get(
-            "cf-connecting-ip",
-        )
-        or ""
-    ).strip()
+    """
+    Use only the ASGI client address.
 
-    if cloudflare_ip:
-        return cloudflare_ip[:64]
-
-    forwarded_for = (
-        request.headers.get(
-            "x-forwarded-for",
-        )
-        or ""
-    )
-
-    if forwarded_for:
-        first_hop = (
-            forwarded_for
-            .split(
-                ",",
-                1,
-            )[0]
-            .strip()
-        )
-
-        if first_hop:
-            return first_hop[:64]
+    Uvicorn is responsible for accepting forwarded headers from trusted
+    reverse proxies. Reading CF-Connecting-IP/X-Forwarded-For here would
+    let an origin client spoof the address and bypass abuse controls.
+    """
 
     if request.client:
         return str(
@@ -65,11 +49,14 @@ def _bucket_key(
     request: Request,
     scope: str,
     identity: str | None,
+    include_client: bool,
 ) -> str:
     client_key = (
         _client_identifier(
             request,
         )
+        if include_client
+        else ""
     )
 
     identity_key = (
@@ -94,108 +81,197 @@ def _bucket_key(
     ).hexdigest()
 
     return (
-        scope
+        scope[:80]
         + ":"
         + digest
     )
 
 
-def enforce_rate_limit(
+async def enforce_rate_limit(
     request: Request,
     *,
     scope: str,
     limit: int,
     window_seconds: int,
     identity: str | None = None,
+    include_client: bool = True,
 ) -> None:
+    """
+    Apply a database-backed fixed-window rate limit.
+
+    The database makes limits consistent across API replicas and process
+    restarts. Set include_client=False for a true account/token-wide limit
+    that must not be reset by changing source IPs.
+    """
+
     if (
         limit <= 0
         or window_seconds <= 0
     ):
         return
 
-    now = monotonic()
-
-    cutoff = (
-        now
-        - float(
-            window_seconds,
-        )
-    )
-
     key = _bucket_key(
         request=request,
         scope=scope,
         identity=identity,
+        include_client=include_client,
     )
 
-    retry_after = 1
+    session_factory = (
+        get_session_factory()
+    )
 
-    with _LOCK:
-        if (
-            key not in _BUCKETS
-            and len(_BUCKETS)
-            >= _MAX_BUCKETS
-        ):
-            for stale_key in list(
-                _BUCKETS,
-            )[
-                :_EVICT_BUCKETS
-            ]:
-                _BUCKETS.pop(
-                    stale_key,
-                    None,
-                )
-
-        bucket = _BUCKETS.setdefault(
-            key,
-            deque(),
+    for attempt in range(2):
+        now = datetime.now(
+            UTC,
         )
 
-        while (
-            bucket
-            and bucket[0]
-            <= cutoff
-        ):
-            bucket.popleft()
+        async with session_factory() as session:
+            try:
+                result = await session.execute(
+                    select(
+                        RateLimitBucket,
+                    )
+                    .where(
+                        RateLimitBucket.key
+                        == key,
+                    )
+                    .with_for_update()
+                )
 
-        if len(bucket) >= limit:
-            retry_after = max(
-                1,
-                int(
-                    window_seconds
-                    - (
-                        now
-                        - bucket[0]
+                bucket = (
+                    result
+                    .scalar_one_or_none()
+                )
+
+                if bucket is None:
+                    await session.execute(
+                        delete(
+                            RateLimitBucket,
+                        ).where(
+                            RateLimitBucket.updated_at
+                            < (
+                                now
+                                - timedelta(
+                                    days=2,
+                                )
+                            ),
+                        )
+                    )
+
+                    session.add(
+                        RateLimitBucket(
+                            key=key,
+                            window_started_at=now,
+                            request_count=1,
+                            updated_at=now,
+                        )
+                    )
+
+                    await session.commit()
+
+                    return
+
+                window_started_at = (
+                    _as_utc_aware(
+                        bucket
+                        .window_started_at,
                     )
                 )
-                + 1,
-            )
 
-        else:
-            bucket.append(
-                now,
-            )
+                elapsed = (
+                    now
+                    - window_started_at
+                ).total_seconds()
 
-            return
+                if (
+                    elapsed >=
+                    float(
+                        window_seconds,
+                    )
+                ):
+                    bucket.window_started_at = (
+                        now
+                    )
 
-    raise HTTPException(
-        status_code=(
-            status.HTTP_429_TOO_MANY_REQUESTS
-        ),
-        detail=(
-            "Too many requests. "
-            "Try again shortly."
-        ),
-        headers={
-            "Retry-After":
-                str(
-                    retry_after,
-                ),
-        },
+                    bucket.request_count = (
+                        1
+                    )
+
+                    bucket.updated_at = (
+                        now
+                    )
+
+                    await session.commit()
+
+                    return
+
+                if (
+                    bucket.request_count
+                    >= limit
+                ):
+                    retry_after = max(
+                        1,
+                        ceil(
+                            float(
+                                window_seconds,
+                            )
+                            - elapsed,
+                        ),
+                    )
+
+                    raise HTTPException(
+                        status_code=(
+                            status
+                            .HTTP_429_TOO_MANY_REQUESTS
+                        ),
+                        detail=(
+                            "Too many requests. "
+                            "Try again shortly."
+                        ),
+                        headers={
+                            "Retry-After":
+                                str(
+                                    retry_after,
+                                ),
+                        },
+                    )
+
+                bucket.request_count += (
+                    1
+                )
+
+                bucket.updated_at = (
+                    now
+                )
+
+                await session.commit()
+
+                return
+
+            except IntegrityError:
+                await session.rollback()
+
+                if attempt == 0:
+                    continue
+
+                raise
+
+    raise RuntimeError(
+        "Unable to update rate limit state.",
     )
 
 
-def reset_rate_limits() -> None:
-    with _LOCK:
-        _BUCKETS.clear()
+async def reset_rate_limits() -> None:
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        await session.execute(
+            delete(
+                RateLimitBucket,
+            )
+        )
+
+        await session.commit()

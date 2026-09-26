@@ -1,12 +1,14 @@
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from hashlib import sha256
 import hmac
+import logging
 from secrets import randbelow, token_urlsafe
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -34,6 +36,11 @@ from ...security.tokens import (
     create_access_token,
     create_refresh_token,
     hash_refresh_token,
+)
+from ..dependencies import OptionalCurrentUser
+
+logger = logging.getLogger(
+    __name__,
 )
 
 router = APIRouter(
@@ -260,14 +267,23 @@ def resolve_registration_role(
         .strip()
     )
 
-    if not configured_password:
+    if (
+        len(
+            configured_password,
+        ) < 24
+        or configured_password
+        .casefold()
+        .startswith(
+            "replace-with-",
+        )
+    ):
         raise HTTPException(
             status_code=(
                 status.HTTP_503_SERVICE_UNAVAILABLE
             ),
             detail=(
                 "Administrator account creation "
-                "is not configured."
+                "requires a strong server-side secret."
             ),
         )
 
@@ -291,6 +307,53 @@ def resolve_registration_role(
         )
 
     return UserRole.ADMIN
+
+
+def enforce_admin_creation_authorization(
+    *,
+    existing_admin: bool,
+    requester_role: UserRole | None,
+) -> None:
+    if (
+        existing_admin
+        and requester_role
+        != UserRole.ADMIN
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Creating additional administrator "
+                "accounts requires an authenticated "
+                "administrator."
+            ),
+        )
+
+
+async def _lock_admin_registration(
+    session,
+) -> None:
+    bind = session.get_bind()
+
+    if (
+        bind is not None
+        and bind.dialect.name
+        == "postgresql"
+    ):
+        await session.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "487583953)"
+            )
+        )
+
+
+@lru_cache
+def _dummy_password_hash() -> str:
+    return hash_password(
+        "hypersync-dummy-password-value",
+    )
 
 
 def make_user_response(
@@ -603,10 +666,11 @@ async def register(
     payload: RegisterRequest,
     request: Request,
     response: Response,
+    requester: OptionalCurrentUser,
 ):
     settings = get_settings()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth-register",
         limit=(
@@ -620,7 +684,7 @@ async def register(
     )
 
     if payload.create_admin:
-        enforce_rate_limit(
+        await enforce_rate_limit(
             request,
             scope="auth-admin-register",
             limit=(
@@ -673,6 +737,44 @@ async def register(
                 .admin_account_creation_password
             ),
         )
+
+        if role == UserRole.ADMIN:
+            await _lock_admin_registration(
+                session,
+            )
+
+            existing_admin_result = (
+                await session.execute(
+                    select(
+                        User.id,
+                    )
+                    .where(
+                        User.role
+                        == UserRole.ADMIN,
+                        User.is_active
+                        .is_(
+                            True,
+                        ),
+                    )
+                    .limit(
+                        1,
+                    )
+                )
+            )
+
+            enforce_admin_creation_authorization(
+                existing_admin=(
+                    existing_admin_result
+                    .scalar_one_or_none()
+                    is not None
+                ),
+                requester_role=(
+                    requester.role
+                    if requester
+                    is not None
+                    else None
+                ),
+            )
 
         user = User(
             account_type=AccountType.REGISTERED,
@@ -761,7 +863,7 @@ async def login(
 
     identifier = payload.username.strip()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth-login-ip",
         limit=(
@@ -774,9 +876,10 @@ async def login(
         ),
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth-login-identity",
+        include_client=False,
         identity=identifier,
         limit=(
             settings
@@ -797,47 +900,33 @@ async def login(
             load_profile=True,
         )
 
-        if user is None:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_404_NOT_FOUND
-                ),
-                detail=missing_account_detail(
-                    identifier,
-                ),
+        password_hash = (
+            user.password_hash
+            if (
+                user is not None
+                and user.password_hash
             )
+            else _dummy_password_hash()
+        )
 
-        if not user.is_active:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_403_FORBIDDEN
-                ),
-                detail=(
-                    "This account is disabled."
-                ),
-            )
-
-        if not user.password_hash:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_409_CONFLICT
-                ),
-                detail=(
-                    "This account does not have "
-                    "a password set."
-                ),
-            )
-
-        if not verify_password(
+        password_ok = verify_password(
             payload.password,
-            user.password_hash,
+            password_hash,
+        )
+
+        if (
+            user is None
+            or not user.is_active
+            or not user.password_hash
+            or not password_ok
         ):
             raise HTTPException(
                 status_code=(
                     status.HTTP_401_UNAUTHORIZED
                 ),
                 detail=(
-                    "Incorrect password."
+                    "Invalid username/email "
+                    "or password."
                 ),
             )
 
@@ -885,7 +974,7 @@ async def request_password_recovery(
     settings = get_settings()
     identifier = payload.identifier.strip()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-request-ip",
         limit=(
@@ -898,9 +987,10 @@ async def request_password_recovery(
         ),
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-request-identity",
+        include_client=False,
         identity=identifier,
         limit=(
             settings
@@ -912,6 +1002,28 @@ async def request_password_recovery(
         ),
     )
 
+    ttl_minutes = max(
+        1,
+        int(
+            settings
+            .password_recovery_ttl_minutes
+        ),
+    )
+
+    generic_response = (
+        RecoveryDispatchResponse(
+            detail=(
+                "If an eligible account exists, "
+                "recovery instructions have been "
+                "sent to its email address."
+            ),
+            expires_in=(
+                ttl_minutes
+                * 60
+            ),
+        )
+    )
+
     session_factory = get_session_factory()
 
     async with session_factory() as session:
@@ -920,44 +1032,12 @@ async def request_password_recovery(
             identifier,
         )
 
-        if user is None:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_404_NOT_FOUND
-                ),
-                detail=missing_account_detail(
-                    identifier,
-                ),
-            )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_403_FORBIDDEN
-                ),
-                detail=(
-                    "This account is disabled."
-                ),
-            )
-
-        if not user.email:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_409_CONFLICT
-                ),
-                detail=(
-                    "This account does not have "
-                    "an email address."
-                ),
-            )
-
-        ttl_minutes = max(
-            1,
-            int(
-                settings
-                .password_recovery_ttl_minutes
-            ),
-        )
+        if (
+            user is None
+            or not user.is_active
+            or not user.email
+        ):
+            return generic_response
 
         now = datetime.now(
             UTC,
@@ -1022,7 +1102,7 @@ async def request_password_recovery(
                 reset_token=reset_token,
                 expires_minutes=ttl_minutes,
             )
-        except EmailDeliveryError as exc:
+        except EmailDeliveryError:
             await session.execute(
                 delete(
                     PasswordRecovery,
@@ -1034,27 +1114,12 @@ async def request_password_recovery(
 
             await session.commit()
 
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_503_SERVICE_UNAVAILABLE
-                ),
-                detail=(
-                    "Recovery email could not "
-                    "be sent. Try again shortly."
-                ),
-            ) from exc
+            logger.warning(
+                "Password recovery email delivery failed.",
+                exc_info=True,
+            )
 
-        return RecoveryDispatchResponse(
-            detail=(
-                "A recovery code and password "
-                "reset link were sent to the "
-                "email address on this account."
-            ),
-            expires_in=(
-                ttl_minutes
-                * 60
-            ),
-        )
+        return generic_response
 
 
 @router.post(
@@ -1069,7 +1134,7 @@ async def verify_password_recovery_otp(
     settings = get_settings()
     identifier = payload.identifier.strip()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-verify-ip",
         limit=(
@@ -1086,9 +1151,10 @@ async def verify_password_recovery_otp(
         ),
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-verify-identity",
+        include_client=False,
         identity=identifier,
         limit=(
             max(
@@ -1113,23 +1179,17 @@ async def verify_password_recovery_otp(
             load_profile=True,
         )
 
-        if user is None:
+        if (
+            user is None
+            or not user.is_active
+        ):
             raise HTTPException(
                 status_code=(
-                    status.HTTP_404_NOT_FOUND
-                ),
-                detail=missing_account_detail(
-                    identifier,
-                ),
-            )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_403_FORBIDDEN
+                    status.HTTP_401_UNAUTHORIZED
                 ),
                 detail=(
-                    "This account is disabled."
+                    "Recovery code is invalid "
+                    "or expired."
                 ),
             )
 
@@ -1169,11 +1229,11 @@ async def verify_password_recovery_otp(
         if recovery is None:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_410_GONE
+                    status.HTTP_401_UNAUTHORIZED
                 ),
                 detail=(
-                    "No active recovery code "
-                    "exists. Request a new one."
+                    "Recovery code is invalid "
+                    "or expired."
                 ),
             )
 
@@ -1197,11 +1257,11 @@ async def verify_password_recovery_otp(
 
             raise HTTPException(
                 status_code=(
-                    status.HTTP_410_GONE
+                    status.HTTP_401_UNAUTHORIZED
                 ),
                 detail=(
-                    "Recovery code has expired. "
-                    "Request a new one."
+                    "Recovery code is invalid "
+                    "or expired."
                 ),
             )
 
@@ -1254,7 +1314,8 @@ async def verify_password_recovery_otp(
                     status.HTTP_401_UNAUTHORIZED
                 ),
                 detail=(
-                    "Recovery code is incorrect."
+                    "Recovery code is invalid "
+                    "or expired."
                 ),
             )
 
@@ -1320,7 +1381,7 @@ async def reset_password_from_recovery_link(
     settings = get_settings()
     token = payload.token.strip()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-reset-ip",
         limit=(
@@ -1333,9 +1394,10 @@ async def reset_password_from_recovery_link(
         ),
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="password-recovery-reset-token",
+        include_client=False,
         identity=token,
         limit=(
             max(
@@ -1563,7 +1625,7 @@ async def refresh(
 ):
     settings = get_settings()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="auth-refresh",
         limit=(

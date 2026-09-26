@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     web_push_vapid_public_key: str = ""
     web_push_vapid_private_key: str = ""
     web_push_vapid_subject: str = ""
+    web_push_allowed_host_suffixes: str = (
+        "fcm.googleapis.com,"
+        "android.googleapis.com,"
+        "push.services.mozilla.com,"
+        "push.apple.com,"
+        "notify.windows.com"
+    )
 
     admin_database_delete_password: str = ""
 
@@ -177,6 +184,23 @@ class Settings(BaseSettings):
             for origin in self.frontend_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def push_allowed_host_suffixes(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            item
+            .strip()
+            .lower()
+            .lstrip(".")
+            for item in (
+                self
+                .web_push_allowed_host_suffixes
+                .split(",")
+            )
+            if item.strip()
+        )
 
     @property
     def sqlalchemy_database_url(self) -> str:

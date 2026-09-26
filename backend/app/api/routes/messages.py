@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from datetime import (
     UTC,
     datetime,
@@ -48,6 +50,7 @@ from ...services.message_retention import (
 from ...services.web_push import (
     PushSubscriptionData,
     deliver_message_push,
+    validate_push_endpoint,
     web_push_enabled,
 )
 from ..dependencies import (
@@ -289,50 +292,21 @@ def _admin_message_details(
     *,
     sender_username: str,
     recipient_username: str,
-    body: str,
-    shared_kind: str | None = None,
-    shared_title: str | None = None,
-    shared_subtitle: str | None = None,
 ) -> str:
-    details = (
+    return (
         "@"
         + (
             sender_username
             or "unknown"
         )
-        + " sent a message to @"
+        + " sent a private message to @"
         + (
             recipient_username
             or "unknown"
         )
-        + "."
+        + ". Message contents are not copied "
+        + "to administrator notifications."
     )
-
-    if body:
-        details += (
-            "\n\nMessage:\n"
-            + body
-        )
-
-    if (
-        shared_kind
-        and shared_title
-    ):
-        details += (
-            "\n\nShared "
-            + shared_kind
-            + ': "'
-            + shared_title
-            + '"'
-        )
-
-        if shared_subtitle:
-            details += (
-                " — "
-                + shared_subtitle
-            )
-
-    return details
 
 
 def _message_user(
@@ -645,10 +619,11 @@ async def send_message(
 ) -> MessageResponse:
     settings = get_settings()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="message-send",
         identity=str(user.id),
+        include_client=False,
         limit=settings.message_send_rate_limit,
         window_seconds=(
             settings.message_send_rate_window_seconds
@@ -754,22 +729,6 @@ async def send_message(
             recipient_username=(
                 target.username
                 or ""
-            ),
-            body=body,
-            shared_kind=(
-                shared_music.kind
-                if shared_music
-                else None
-            ),
-            shared_title=(
-                shared_music.title
-                if shared_music
-                else None
-            ),
-            shared_subtitle=(
-                shared_music.subtitle
-                if shared_music
-                else None
             ),
         )
     )
@@ -1187,10 +1146,22 @@ async def subscribe_push(
     user: CurrentUser,
     session: DatabaseSession,
 ) -> None:
+    try:
+        endpoint = validate_push_endpoint(
+            payload.endpoint,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=str(exc),
+        ) from exc
+
     result = await session.execute(
         select(PushSubscription).where(
             PushSubscription.endpoint
-            == payload.endpoint,
+            == endpoint,
         )
     )
 
@@ -1199,7 +1170,7 @@ async def subscribe_push(
     if subscription is None:
         subscription = PushSubscription(
             user_id=user.id,
-            endpoint=payload.endpoint,
+            endpoint=endpoint,
             p256dh=payload.keys.p256dh,
             auth=payload.keys.auth,
             user_agent=request.headers.get(
@@ -1208,6 +1179,32 @@ async def subscribe_push(
         )
         session.add(subscription)
     else:
+        same_keys = (
+            hmac.compare_digest(
+                subscription.p256dh,
+                payload.keys.p256dh,
+            )
+            and hmac.compare_digest(
+                subscription.auth,
+                payload.keys.auth,
+            )
+        )
+
+        if (
+            subscription.user_id
+            != user.id
+            and not same_keys
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "That push subscription is already "
+                    "registered to another account."
+                ),
+            )
+
         subscription.user_id = user.id
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth

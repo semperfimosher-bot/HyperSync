@@ -5,6 +5,7 @@ import json
 import logging
 from collections.abc import Sequence
 from typing import TypedDict
+from urllib.parse import urlsplit
 
 from pywebpush import (
     WebPushException,
@@ -30,6 +31,63 @@ class PushSubscriptionData(
     auth: str
 
 
+def _push_host_allowed(
+    hostname: str,
+) -> bool:
+    host = hostname.strip().lower().rstrip(".")
+
+    if not host:
+        return False
+
+    return any(
+        host == suffix
+        or host.endswith(
+            "." + suffix,
+        )
+        for suffix in (
+            get_settings()
+            .push_allowed_host_suffixes
+        )
+    )
+
+
+def validate_push_endpoint(
+    endpoint: str,
+) -> str:
+    normalized = endpoint.strip()
+
+    try:
+        parsed = urlsplit(
+            normalized,
+        )
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(
+            "Push endpoint is invalid.",
+        ) from exc
+
+    if (
+        parsed.scheme.lower()
+        != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or (
+            port is not None
+            and port != 443
+        )
+        or not _push_host_allowed(
+            parsed.hostname,
+        )
+    ):
+        raise ValueError(
+            "Push endpoint is not an allowed HTTPS push service.",
+        )
+
+    return normalized
+
+
 def web_push_enabled() -> bool:
     settings = get_settings()
 
@@ -47,12 +105,26 @@ def _send_one(
     settings = get_settings()
 
     try:
+        endpoint = (
+            validate_push_endpoint(
+                subscription[
+                    "endpoint"
+                ],
+            )
+        )
+
+    except ValueError:
+        logger.warning(
+            "Discarding invalid stored web push endpoint.",
+        )
+
+        return True
+
+    try:
         webpush(
             subscription_info={
                 "endpoint":
-                    subscription[
-                        "endpoint"
-                    ],
+                    endpoint,
                 "keys": {
                     "p256dh":
                         subscription[

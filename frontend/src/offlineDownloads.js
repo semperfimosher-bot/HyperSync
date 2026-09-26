@@ -3433,6 +3433,124 @@ export async function cleanupLegacyUnscopedDownloads() {
 }
 
 
+export async function removeAllOfflineDownloadsForOwner(
+  ownerKey,
+) {
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
+      ownerKey,
+    );
+
+  const ownerPinPrefix =
+    getOfflineOwnerPinPrefix(
+      normalizedOwnerKey,
+    );
+
+  if (
+    !normalizedOwnerKey ||
+    !ownerPinPrefix
+  ) {
+    return {
+      removedPinReferences:
+        0,
+      removedJobs:
+        0,
+    };
+  }
+
+  const [
+    records,
+    jobs,
+  ] =
+    await Promise.all([
+      getPinnedMediaRecords(),
+      getDownloadJobs(),
+    ]);
+
+  let removedPinReferences =
+    0;
+
+  let removedJobs =
+    0;
+
+  for (
+    const record
+    of records
+  ) {
+    const ownerPinRefs =
+      getMediaPinReferences(
+        record,
+      ).filter(
+        (pinRef) =>
+          String(
+            pinRef,
+          ).startsWith(
+            ownerPinPrefix,
+          ),
+      );
+
+    for (
+      const pinRef
+      of ownerPinRefs
+    ) {
+      await removeDownloadedMedia(
+        record.trackId,
+        record.mediaVersion,
+        pinRef,
+      );
+
+      removedPinReferences +=
+        1;
+    }
+  }
+
+  for (
+    const job
+    of jobs
+  ) {
+    if (
+      normalizeOwnerKey(
+        job?.ownerKey,
+      ) !==
+        normalizedOwnerKey
+    ) {
+      continue;
+    }
+
+    await deleteDownloadJob(
+      job.id,
+    );
+
+    removedJobs +=
+      1;
+  }
+
+  for (
+    const [
+      key,
+      snapshot,
+    ]
+    of activePlaylistDownloadJobs
+  ) {
+    if (
+      snapshot?.ownerKey ===
+        normalizedOwnerKey
+    ) {
+      activePlaylistDownloadJobs.delete(
+        key,
+      );
+    }
+  }
+
+  emitOfflineDownloadsChanged();
+
+  return {
+    removedPinReferences,
+    removedJobs,
+  };
+}
+
+
 export async function recoverInterruptedDownloadJobs(
   ownerKey,
 ) {

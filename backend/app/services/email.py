@@ -96,7 +96,7 @@ async def send_password_recovery_email(
 
     reset_url = (
         frontend_url
-        + "/reset-password?"
+        + "/reset-password#?"
         + urlencode(
             {
                 "token": reset_token,

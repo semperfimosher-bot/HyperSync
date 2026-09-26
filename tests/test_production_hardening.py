@@ -8,7 +8,9 @@ from httpx import ASGITransport, AsyncClient
 from backend.app.api.routes.audio import (
     resolve_local_audio_fallback,
 )
+from backend.app.database import get_engine
 from backend.app.main import app
+from backend.app.models.base import Base
 from backend.app.security.rate_limit import (
     enforce_rate_limit,
     reset_rate_limits,
@@ -40,12 +42,25 @@ def request_for(
     )
 
 
-def test_auth_rate_limit_blocks_after_budget() -> None:
-    reset_rate_limits()
+@pytest.fixture(autouse=True)
+async def rate_limit_database_schema():
+    async with get_engine().begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+        )
 
+    await reset_rate_limits()
+
+    yield
+
+    await reset_rate_limits()
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_blocks_after_budget() -> None:
     request = request_for()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="test-login",
         identity="user@example.com",
@@ -53,7 +68,7 @@ def test_auth_rate_limit_blocks_after_budget() -> None:
         window_seconds=60,
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="test-login",
         identity="user@example.com",
@@ -64,7 +79,7 @@ def test_auth_rate_limit_blocks_after_budget() -> None:
     with pytest.raises(
         HTTPException,
     ) as exc_info:
-        enforce_rate_limit(
+        await enforce_rate_limit(
             request,
             scope="test-login",
             identity="user@example.com",
@@ -89,12 +104,11 @@ def test_auth_rate_limit_blocks_after_budget() -> None:
     ) >= 1
 
 
-def test_auth_rate_limit_separates_identity_buckets() -> None:
-    reset_rate_limits()
-
+@pytest.mark.asyncio
+async def test_auth_rate_limit_separates_identity_buckets() -> None:
     request = request_for()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="test-login",
         identity="first@example.com",
@@ -102,7 +116,7 @@ def test_auth_rate_limit_separates_identity_buckets() -> None:
         window_seconds=60,
     )
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="test-login",
         identity="second@example.com",
@@ -110,6 +124,107 @@ def test_auth_rate_limit_separates_identity_buckets() -> None:
         window_seconds=60,
     )
 
+
+
+
+@pytest.mark.asyncio
+async def test_identity_rate_limit_cannot_be_reset_by_changing_ip() -> None:
+    await enforce_rate_limit(
+        request_for(
+            "203.0.113.10",
+        ),
+        scope="test-account-limit",
+        identity="same-user@example.com",
+        include_client=False,
+        limit=1,
+        window_seconds=60,
+    )
+
+    with pytest.raises(
+        HTTPException,
+    ) as exc_info:
+        await enforce_rate_limit(
+            request_for(
+                "198.51.100.25",
+            ),
+            scope="test-account-limit",
+            identity="same-user@example.com",
+            include_client=False,
+            limit=1,
+            window_seconds=60,
+        )
+
+    assert (
+        exc_info.value.status_code
+        == 429
+    )
+
+
+@pytest.mark.asyncio
+async def test_spoofed_forwarded_headers_do_not_change_rate_limit_client() -> None:
+    base_scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/api/auth/login",
+        "raw_path": b"/api/auth/login",
+        "query_string": b"",
+        "client": (
+            "203.0.113.44",
+            443,
+        ),
+        "server": (
+            "api.hypersynced.app",
+            443,
+        ),
+    }
+
+    first = Request({
+        **base_scope,
+        "headers": [
+            (
+                b"x-forwarded-for",
+                b"1.1.1.1",
+            ),
+        ],
+    })
+
+    second = Request({
+        **base_scope,
+        "headers": [
+            (
+                b"x-forwarded-for",
+                b"8.8.8.8",
+            ),
+            (
+                b"cf-connecting-ip",
+                b"9.9.9.9",
+            ),
+        ],
+    })
+
+    await enforce_rate_limit(
+        first,
+        scope="test-forwarded-header",
+        limit=1,
+        window_seconds=60,
+    )
+
+    with pytest.raises(
+        HTTPException,
+    ) as exc_info:
+        await enforce_rate_limit(
+            second,
+            scope="test-forwarded-header",
+            limit=1,
+            window_seconds=60,
+        )
+
+    assert (
+        exc_info.value.status_code
+        == 429
+    )
 
 def test_audio_fallback_rejects_absolute_and_traversal_paths() -> None:
     assert (

@@ -120,6 +120,24 @@ export function setCachedLibrary(
 }
 
 
+export function clearCachedLibraryScope(
+  userKey,
+) {
+  try {
+    localStorage.removeItem(
+      getScopeKey(
+        userKey,
+      ),
+    );
+  } catch {
+    /*
+     * Cache cleanup must never
+     * break account logout.
+     */
+  }
+}
+
+
 export function clearCachedLibrary(
   userKey,
 ) {
