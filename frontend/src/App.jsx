@@ -135,7 +135,6 @@ import {
 } from "./offlineDownloads.js";
 
 import {
-  generateSmartPlaylist,
   getPlaylist,
 } from "./playlistApi.js";
 
@@ -2999,7 +2998,6 @@ function MainPage({
   profileUsername,
   playlistToOpen,
   onOpenPlaylist,
-  onGenerateSmartPlaylist,
   onPlaylistOpened,
   artistToOpen,
   onArtistOpened,
@@ -3297,9 +3295,6 @@ function MainPage({
           }
           onOpenPlaylist={
             onOpenPlaylist
-          }
-          onGenerateSmartPlaylist={
-            onGenerateSmartPlaylist
           }
           onOpenAuth={
             onOpenAuth
@@ -7636,83 +7631,6 @@ if (
   );
 
 
-  const createSmartPlaylistFromSearch =
-    useCallback(
-      async (
-        rawQuery,
-      ) => {
-        const cleanQuery =
-          String(
-            rawQuery ?? "",
-          )
-            .trim()
-            .replace(
-              /\s+/g,
-              " ",
-            );
-
-        if (!cleanQuery) {
-          return null;
-        }
-
-        if (
-          currentUser?.account_type !==
-            "registered"
-        ) {
-          setAuthMode(
-            "signin",
-          );
-
-          setAuthOpen(
-            true,
-          );
-
-          return null;
-        }
-
-        setStatusMessage(
-          "Building live playlist...",
-        );
-
-        try {
-          const playlist =
-            await generateSmartPlaylist(
-              cleanQuery,
-            );
-
-          if (playlist?.id) {
-            setLibraryResetToken(
-              (current) =>
-                current + 1,
-            );
-
-            openPlaylistFromSearch(
-              playlist.id,
-            );
-          }
-
-          setStatusMessage(
-            "",
-          );
-
-          return playlist;
-        } catch (error) {
-          setStatusMessage(
-            error instanceof Error
-              ? error.message
-              : "Unable to build that live playlist.",
-          );
-
-          throw error;
-        }
-      },
-      [
-        currentUser?.account_type,
-        openPlaylistFromSearch,
-      ],
-    );
-
-
 const clearPlaylistToOpen =
   useCallback(
     () => {
@@ -8450,9 +8368,6 @@ const clearPlaylistToOpen =
           onSearchFocus={
             openSearchFromTopbar
           }
-          onSearchSubmit={
-            createSmartPlaylistFromSearch
-          }
           currentUser={currentUser}
           onNavigate={navigate}
           onOpenAuth={() => {
@@ -8473,10 +8388,6 @@ const clearPlaylistToOpen =
 
             onOpenPlaylist={
             openPlaylistFromSearch
-            }
-
-            onGenerateSmartPlaylist={
-              createSmartPlaylistFromSearch
             }
 
             onPlaylistOpened={
