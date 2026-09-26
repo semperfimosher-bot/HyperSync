@@ -2078,6 +2078,41 @@ async def send_playback_device_command(
         command,
     )
 
+    if payload.action == "transfer":
+        playback_state = (
+            await session.get(
+                UserAppState,
+                user.id,
+            )
+        )
+
+        previous_device_id = (
+            playback_state
+                .playback_device_id
+            if playback_state
+            is not None
+            else None
+        )
+
+        if (
+            previous_device_id
+            and previous_device_id
+            != target_device_id
+        ):
+            session.add(
+                PlaybackCommand(
+                    user_id=user.id,
+                    target_device_id=(
+                        previous_device_id
+                    ),
+                    source_device_id=(
+                        payload
+                            .source_device_id
+                    ),
+                    action="pause",
+                )
+            )
+
     await session.commit()
 
     await session.refresh(
