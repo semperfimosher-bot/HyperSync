@@ -7659,8 +7659,12 @@ if (
           currentUser?.account_type !==
             "registered"
         ) {
-          openAuth(
+          setAuthMode(
             "signin",
+          );
+
+          setAuthOpen(
+            true,
           );
 
           return null;
@@ -7704,7 +7708,6 @@ if (
       },
       [
         currentUser?.account_type,
-        openAuth,
         openPlaylistFromSearch,
       ],
     );
