@@ -260,14 +260,18 @@ async function finalizeDirectUpload(
     ).trim(),
   );
 
-  formData.append(
-    "release_year",
-    item.releaseYear
-      ? String(
-          item.releaseYear,
-        )
-      : "",
-  );
+  if (
+    Number.isInteger(
+      item.releaseYear,
+    )
+  ) {
+    formData.append(
+      "release_year",
+      String(
+        item.releaseYear,
+      ),
+    );
+  }
 
   formData.append(
     "duration_seconds",
@@ -362,14 +366,18 @@ function sendUpload({
     formData.append("title", item.title.trim());
     formData.append("artist", item.artist.trim());
     formData.append("album", item.album.trim());
-    formData.append(
-      "release_year",
-      item.releaseYear
-        ? String(
-            item.releaseYear,
-          )
-        : "",
-    );
+    if (
+      Number.isInteger(
+        item.releaseYear,
+      )
+    ) {
+      formData.append(
+        "release_year",
+        String(
+          item.releaseYear,
+        ),
+      );
+    }
     formData.append(
       "duration_seconds",
       String(item.duration || 0),
