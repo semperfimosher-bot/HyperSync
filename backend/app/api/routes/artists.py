@@ -56,6 +56,8 @@ class ArtistTrackResponse(BaseModel):
     title: str
     artist: str
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
     duration_seconds: int | None
     audio_url: str | None = None
     artwork_url: str | None = None
@@ -165,6 +167,8 @@ def _track_response(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=track.genre,
+        release_year=track.release_year,
         duration_seconds=(
             track.duration_seconds
         ),
