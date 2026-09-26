@@ -915,6 +915,40 @@ async def _build_track_rows(
         track_ids,
     )
 
+    artist_user_plays: dict[
+        str,
+        int,
+    ] = {}
+
+    for track in candidates:
+        artist_key = (
+            track.artist
+            or ""
+        ).casefold()
+
+        if not artist_key:
+            continue
+
+        track_plays = user_history.get(
+            track.id,
+            (
+                0,
+                None,
+            ),
+        )[0]
+
+        artist_user_plays[
+            artist_key
+        ] = (
+            artist_user_plays.get(
+                artist_key,
+                0,
+            )
+            + int(
+                track_plays,
+            )
+        )
+
     rows: list[dict] = []
 
     for track in candidates:
@@ -949,6 +983,15 @@ async def _build_track_rows(
                 "match_label": (match.label),
                 "matched_field": (match.field),
                 "user_play_count": (user_play_count),
+                "artist_user_play_count": (
+                    artist_user_plays.get(
+                        (
+                            track.artist
+                            or ""
+                        ).casefold(),
+                        0,
+                    )
+                ),
                 "global_play_count": (
                     global_counts.get(
                         track.id,
@@ -966,15 +1009,188 @@ async def _build_track_rows(
     )
 
     if (
-        (
-            parsed.intent == "recent"
-            and not parsed.term
-        )
-        or is_direct_genre_query(
-            parsed.raw,
-        )
+        parsed.intent == "recent"
+        and not parsed.term
     ):
         return sorted_rows
+
+    if is_direct_genre_query(
+        parsed.raw,
+    ):
+        now = datetime.now(
+            UTC,
+        )
+
+        def genre_rank(
+            row: dict,
+        ) -> tuple[
+            float,
+            str,
+            str,
+        ]:
+            created_at = row.get(
+                "created_at",
+            )
+
+            freshness = 0.0
+
+            if created_at is not None:
+                normalized_created = (
+                    created_at.replace(
+                        tzinfo=UTC,
+                    )
+                    if created_at.tzinfo
+                    is None
+                    else created_at.astimezone(
+                        UTC,
+                    )
+                )
+
+                age_days = max(
+                    (
+                        now
+                        - normalized_created
+                    ).days,
+                    0,
+                )
+
+                freshness = max(
+                    0.0,
+                    90.0
+                    - min(
+                        age_days,
+                        730,
+                    )
+                    * (
+                        90.0
+                        / 730.0
+                    ),
+                )
+
+            personalized = min(
+                int(
+                    row.get(
+                        "user_play_count",
+                        0,
+                    )
+                ),
+                40,
+            ) * 7.0
+
+            artist_affinity = min(
+                int(
+                    row.get(
+                        "artist_user_play_count",
+                        0,
+                    )
+                ),
+                80,
+            ) * 2.5
+
+            popularity = min(
+                int(
+                    row.get(
+                        "global_play_count",
+                        0,
+                    )
+                ),
+                500,
+            ) * 0.45
+
+            total = (
+                float(
+                    row.get(
+                        "match_score",
+                        0,
+                    )
+                )
+                + personalized
+                + artist_affinity
+                + popularity
+                + freshness
+            )
+
+            return (
+                -total,
+                str(
+                    row.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold(),
+                str(
+                    row.get(
+                        "title",
+                        "",
+                    )
+                ).casefold(),
+            )
+
+        ranked = sorted(
+            rows,
+            key=genre_rank,
+        )
+
+        diversified: list[dict] = []
+        pending = list(
+            ranked,
+        )
+
+        while pending:
+            if (
+                len(
+                    diversified,
+                )
+                < 2
+            ):
+                diversified.append(
+                    pending.pop(
+                        0,
+                    )
+                )
+                continue
+
+            last_two_artists = {
+                str(
+                    item.get(
+                        "artist",
+                        "",
+                    )
+                ).casefold()
+                for item
+                in diversified[
+                    -2:
+                ]
+            }
+
+            next_index = next(
+                (
+                    index
+                    for (
+                        index,
+                        item,
+                    )
+                    in enumerate(
+                        pending,
+                    )
+                    if str(
+                        item.get(
+                            "artist",
+                            "",
+                        )
+                    ).casefold()
+                    not in last_two_artists
+                ),
+                0,
+            )
+
+            diversified.append(
+                pending.pop(
+                    next_index,
+                )
+            )
+
+        return diversified
 
     return sorted_rows[:TRACK_RESULT_LIMIT]
 
