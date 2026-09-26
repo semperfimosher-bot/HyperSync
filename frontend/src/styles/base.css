@@ -7603,7 +7603,7 @@ button > span:nth-child(2) {
   white-space: pre-wrap;
 }
 
-.hs-message-bubble small {
+.hs-message-bubble > small {
   display: block;
 
   margin-top: 5px;
@@ -7615,7 +7615,7 @@ button > span:nth-child(2) {
   text-align: right;
 }
 
-.hs-message-bubble.is-mine small {
+.hs-message-bubble.is-mine > small {
   color:
     rgba(209, 244, 251, 0.65);
 }
