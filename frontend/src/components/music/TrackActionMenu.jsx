@@ -88,6 +88,14 @@ function playerTrack(
 
     album:
       track.album ?? "",
+
+    genre:
+      track.genre ?? "",
+
+    releaseYear:
+      track.release_year ??
+      track.releaseYear ??
+      null,
   };
 }
 
