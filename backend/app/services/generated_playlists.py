@@ -152,7 +152,6 @@ VIBE_FAMILIES: dict[
         "jazz",
         "electronic",
         "folk",
-        "rock",
     ),
     "relax": (
         "r&b",
@@ -172,7 +171,6 @@ VIBE_FAMILIES: dict[
         "r&b",
         "jazz",
         "folk",
-        "rock",
     ),
     "calm": (
         "jazz",
@@ -185,13 +183,11 @@ VIBE_FAMILIES: dict[
         "jazz",
         "electronic",
         "folk",
-        "rock",
     ),
     "night": (
         "r&b",
         "jazz",
         "electronic",
-        "rock",
     ),
     "late": (
         "r&b",
