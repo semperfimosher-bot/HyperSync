@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
@@ -75,6 +81,13 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
             listener,
         )
 
+        release_base = datetime(
+            2026,
+            1,
+            1,
+            tzinfo=UTC,
+        )
+
         first = Track(
             title="First Song",
             artist="Example Artist",
@@ -84,6 +97,7 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
             file_size=100,
             duration_seconds=120,
             is_published=True,
+            created_at=release_base,
         )
 
         second = Track(
@@ -95,6 +109,12 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
             file_size=100,
             duration_seconds=140,
             is_published=True,
+            created_at=(
+                release_base
+                + timedelta(
+                    days=1,
+                )
+            ),
         )
 
         session.add_all(
