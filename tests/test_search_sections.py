@@ -731,7 +731,7 @@ async def test_recent_track_rows_return_full_history_newest_first(
 
 
 @pytest.mark.asyncio
-async def test_direct_genre_rows_are_not_limited_to_search_cap(
+async def test_direct_genre_rows_are_capped_at_500(
     monkeypatch,
 ):
     base_time = datetime(
@@ -810,13 +810,17 @@ async def test_direct_genre_rows_are_not_limited_to_search_cap(
         "smart",
     )
 
-    assert len(rows) == len(
-        country_tracks,
+    assert (
+        search_route.TRACK_RESULT_LIMIT
+        == 500
     )
 
-    assert len(rows) > (
-        search_route.TRACK_RESULT_LIMIT
+    assert (
+        search_route.TRACK_CANDIDATE_LIMIT
+        == 500
     )
+
+    assert len(rows) == 500
 
     assert all(
         row["track"].genre

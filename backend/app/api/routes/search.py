@@ -78,8 +78,8 @@ router = APIRouter(
     tags=["search"],
 )
 
-TRACK_CANDIDATE_LIMIT = 80
-TRACK_RESULT_LIMIT = 40
+TRACK_CANDIDATE_LIMIT = 500
+TRACK_RESULT_LIMIT = 500
 
 PEOPLE_CANDIDATE_LIMIT = 40
 PEOPLE_RESULT_LIMIT = 20
@@ -1012,7 +1012,9 @@ async def _build_track_rows(
         parsed.intent == "recent"
         and not parsed.term
     ):
-        return sorted_rows
+        return sorted_rows[
+            :TRACK_RESULT_LIMIT
+        ]
 
     if is_direct_genre_query(
         parsed.raw,
@@ -1190,9 +1192,13 @@ async def _build_track_rows(
                 )
             )
 
-        return diversified
+        return diversified[
+            :TRACK_RESULT_LIMIT
+        ]
 
-    return sorted_rows[:TRACK_RESULT_LIMIT]
+    return sorted_rows[
+        :TRACK_RESULT_LIMIT
+    ]
 
 
 async def _search_people(
