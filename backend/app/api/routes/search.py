@@ -313,7 +313,7 @@ async def _serialize_search_playlist(
         ),
 
         owner_username=(
-            "HyperSync"
+            "HyperSynced"
         ),
 
         visibility=(
