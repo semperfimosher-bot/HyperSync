@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     lastfm_base_url: str = "https://ws.audioscrobbler.com"
     lastfm_api_key: str = ""
     lastfm_timeout_seconds: float = 8.0
+    lastfm_min_interval_seconds: float = 0.25
     lastfm_cache_hours: int = 24
 
     client_cache_hours: int = 24
