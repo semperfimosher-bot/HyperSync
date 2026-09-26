@@ -2040,6 +2040,35 @@ async def lookup_external_track_metadata(
             throttle=throttle,
         )
 
+    # Last.fm is the fast primary lookup.
+    # Read-only track metadata needs only
+    # an API key and is not subject to our
+    # Apple/MusicBrainz request spacing.
+    lastfm = (
+        await lookup_lastfm_track_metadata(
+            title=title,
+            artist=artist,
+            duration_seconds=(
+                duration_seconds
+            ),
+        )
+    )
+
+    if (
+        lastfm is not None
+        and lastfm[
+            "genre"
+        ]
+        and lastfm[
+            "release_year"
+        ]
+        is not None
+    ):
+        return lastfm
+
+    # Apple is the second pass because it
+    # is especially useful for release
+    # date/year and primary genre.
     apple = (
         await lookup_apple_track_metadata(
             title=title,
@@ -2051,39 +2080,10 @@ async def lookup_external_track_metadata(
         )
     )
 
-    # A near-exact Apple match with both
-    # fields present is enough to avoid a
-    # slower MusicBrainz lookup.
-    if (
-        apple is not None
-        and apple[
-            "confidence"
-        ] >= 0.965
-        and apple[
-            "genre"
-        ]
-        and apple[
-            "release_year"
-        ]
-        is not None
-    ):
-        return apple
-
-    musicbrainz = (
-        await _lookup_musicbrainz_track_metadata(
-            title=title,
-            artist=artist,
-            duration_seconds=(
-                duration_seconds
-            ),
-            throttle=throttle,
-        )
-    )
-
     combined = (
         _merge_external_metadata(
+            lastfm,
             apple,
-            musicbrainz,
         )
     )
 
@@ -2099,21 +2099,25 @@ async def lookup_external_track_metadata(
     ):
         return combined
 
-    lastfm = (
-        await lookup_lastfm_track_metadata(
+    # MusicBrainz is the final fallback.
+    # Its public API requires respectful
+    # request pacing, so avoid it unless
+    # the faster providers were incomplete.
+    musicbrainz = (
+        await _lookup_musicbrainz_track_metadata(
             title=title,
             artist=artist,
             duration_seconds=(
                 duration_seconds
             ),
+            throttle=throttle,
         )
     )
 
     return _merge_external_metadata(
         combined,
-        lastfm,
+        musicbrainz,
     )
-
 
 async def enrich_track_metadata(
     session: AsyncSession,
