@@ -7,6 +7,10 @@ import * as player from
   "../../audioPlayer.js";
 
 import {
+  apiRequest,
+} from "../../api/client.js";
+
+import {
   addLikedTrackOfflinePin,
   downloadTrackForOffline,
   getLikedSongsDownloadPinRef,
@@ -102,6 +106,23 @@ export default function TrackActionMenu({
   );
 
   const [
+    infoMode,
+    setInfoMode,
+  ] = useState(
+    false,
+  );
+
+  const [
+    infoTrack,
+    setInfoTrack,
+  ] = useState(null);
+
+  const [
+    loadingInfo,
+    setLoadingInfo,
+  ] = useState(false);
+
+  const [
     playlists,
     setPlaylists,
   ] = useState([]);
@@ -167,6 +188,11 @@ export default function TrackActionMenu({
 
   useEffect(() => {
     setPlaylistMode(false);
+    setInfoMode(false);
+    setInfoTrack(
+      track ?? null,
+    );
+    setLoadingInfo(false);
 
     setPlaylists([]);
 
@@ -299,6 +325,55 @@ export default function TrackActionMenu({
     onClose();
 
     onRequireAuth?.();
+  }
+
+
+  async function openSongInfo() {
+    setInfoMode(
+      true,
+    );
+
+    setPlaylistMode(
+      false,
+    );
+
+    setInfoTrack(
+      track,
+    );
+
+    if (!track?.id) {
+      return;
+    }
+
+    setLoadingInfo(
+      true,
+    );
+
+    try {
+      const canonical =
+        await apiRequest(
+          "/catalog/tracks/"
+          + encodeURIComponent(
+              track.id,
+            ),
+          {
+            cache:
+              "no-store",
+          },
+        );
+
+      setInfoTrack({
+        ...track,
+        ...canonical,
+      });
+    } catch {
+      // Local track metadata is still useful
+      // when the catalog request is offline.
+    } finally {
+      setLoadingInfo(
+        false,
+      );
+    }
   }
 
 
@@ -676,7 +751,87 @@ export default function TrackActionMenu({
         </div>
 
 
-        {playlistMode ? (
+        {infoMode ? (
+          <>
+            <button
+              type="button"
+              className="track-action-menu__back"
+              onClick={() => {
+                setInfoMode(
+                  false,
+                );
+              }}
+            >
+              ← Back
+            </button>
+
+            <div className="track-action-menu__label">
+              SONG INFO
+            </div>
+
+            <div className="track-action-info">
+              <div>
+                <span>
+                  Title
+                </span>
+                <strong>
+                  {infoTrack?.title ||
+                    track.title ||
+                    "Unknown"}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Artist
+                </span>
+                <strong>
+                  {infoTrack?.artist ||
+                    track.artist ||
+                    "Unknown Artist"}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Genre
+                </span>
+                <strong>
+                  {infoTrack?.genre ||
+                    "Unknown"}
+                </strong>
+              </div>
+
+              <div>
+                <span>
+                  Year released
+                </span>
+                <strong>
+                  {infoTrack?.release_year ||
+                    infoTrack?.releaseYear ||
+                    "Unknown"}
+                </strong>
+              </div>
+
+              {infoTrack?.album ? (
+                <div>
+                  <span>
+                    Album
+                  </span>
+                  <strong>
+                    {infoTrack.album}
+                  </strong>
+                </div>
+              ) : null}
+
+              {loadingInfo ? (
+                <small>
+                  Refreshing catalog metadata...
+                </small>
+              ) : null}
+            </div>
+          </>
+        ) : playlistMode ? (
           <>
 
             <button
@@ -842,6 +997,31 @@ export default function TrackActionMenu({
 
               <span>
                 Add to playlist
+              </span>
+
+              <Icon
+                name="chevron"
+                size={13}
+              />
+            </button>
+
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                void openSongInfo();
+              }}
+            >
+              <span className="track-action-icon">
+                <Icon
+                  name="disc"
+                  size={15}
+                />
+              </span>
+
+              <span>
+                Song info
               </span>
 
               <Icon
