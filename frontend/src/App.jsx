@@ -4391,56 +4391,58 @@ function PlayerBar({
           MOBILE CONTROL
           ================================================= */}
 
-      <button
-        className="mobile-player-control"
-        type="button"
-        onClick={toggle}
-        disabled={!canControl}
-        aria-label="Playback"
-      >
-        <Icon
-          name={
-            effectivePaused
-              ? "play"
-              : "pause"
-          }
-          size={19}
-        />
-      </button>
-
-      {currentUser?.account_type ===
-      "registered" ? (
+      <div className="mobile-player-actions">
         <button
+          className="mobile-player-control"
           type="button"
-          className={[
-            "mobile-player-device-control",
-            controllingRemote
-              ? "is-remote"
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          aria-label="Choose playback device"
-          aria-expanded={
-            devicesOpen
-          }
-          onClick={() => {
-            setDevicesOpen(
-              (open) =>
-                !open,
-            );
-
-            setNotificationsOpen(
-              false,
-            );
-          }}
+          onClick={toggle}
+          disabled={!canControl}
+          aria-label="Playback"
         >
           <Icon
-            name="devices"
-            size={17}
+            name={
+              effectivePaused
+                ? "play"
+                : "pause"
+            }
+            size={19}
           />
         </button>
-      ) : null}
+
+        {currentUser?.account_type ===
+        "registered" ? (
+          <button
+            type="button"
+            className={[
+              "mobile-player-device-control",
+              controllingRemote
+                ? "is-remote"
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-label="Choose playback device"
+            aria-expanded={
+              devicesOpen
+            }
+            onClick={() => {
+              setDevicesOpen(
+                (open) =>
+                  !open,
+              );
+
+              setNotificationsOpen(
+                false,
+              );
+            }}
+          >
+            <Icon
+              name="devices"
+              size={17}
+            />
+          </button>
+        ) : null}
+      </div>
 
       {devicesOpen &&
       currentUser?.account_type ===
