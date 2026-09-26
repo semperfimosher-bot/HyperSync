@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from difflib import SequenceMatcher
 import re
 import time
 import unicodedata
@@ -95,6 +96,10 @@ _GENRE_ALIASES: dict[str, str] = {
     "worship": "Worship",
     "reggae": "Reggae",
     "ska": "Ska",
+    "singer songwriter": "Singer/Songwriter",
+    "soundtrack": "Soundtrack",
+    "world": "World",
+    "new age": "New Age",
 }
 
 
@@ -116,6 +121,16 @@ _artist_genre_cache: dict[
 ] = {}
 
 _lastfm_lookup_cache: dict[
+    str,
+    tuple[
+        float,
+        ExternalTrackMetadata | None,
+    ],
+] = {}
+
+_apple_request_lock = asyncio.Lock()
+_apple_last_request_at = 0.0
+_apple_lookup_cache: dict[
     str,
     tuple[
         float,
@@ -318,6 +333,86 @@ def _first_artist_id(
             return artist_id
 
     return None
+
+
+def _canonical_genre_text(
+    value: object,
+) -> str | None:
+    if not isinstance(
+        value,
+        str,
+    ):
+        return None
+
+    cleaned = " ".join(
+        value.strip().split()
+    )
+
+    if not cleaned:
+        return None
+
+    normalized = _normalize(
+        cleaned,
+    )
+
+    canonical = (
+        _GENRE_ALIASES.get(
+            normalized,
+        )
+    )
+
+    if canonical:
+        return canonical
+
+    for (
+        alias,
+        mapped,
+    ) in _GENRE_ALIASES.items():
+        if (
+            len(alias) >= 4
+            and (
+                normalized.startswith(
+                    alias + " ",
+                )
+                or normalized.endswith(
+                    " " + alias,
+                )
+            )
+        ):
+            return mapped
+
+    return cleaned[:120]
+
+
+def _text_similarity(
+    left: object,
+    right: object,
+) -> float:
+    normalized_left = _normalize(
+        left,
+    )
+
+    normalized_right = _normalize(
+        right,
+    )
+
+    if (
+        not normalized_left
+        or not normalized_right
+    ):
+        return 0.0
+
+    if (
+        normalized_left
+        == normalized_right
+    ):
+        return 1.0
+
+    return SequenceMatcher(
+        None,
+        normalized_left,
+        normalized_right,
+    ).ratio()
 
 
 def _canonical_genre_from_items(
@@ -528,6 +623,387 @@ def _lucene_phrase(
             '\\"',
         )
     )
+
+
+async def _apple_throttle() -> None:
+    global _apple_last_request_at
+
+    settings = get_settings()
+
+    interval = max(
+        float(
+            settings
+            .apple_search_min_interval_seconds
+        ),
+        0.0,
+    )
+
+    async with _apple_request_lock:
+        delay = (
+            interval
+            - (
+                time.monotonic()
+                - _apple_last_request_at
+            )
+        )
+
+        if delay > 0:
+            await asyncio.sleep(
+                delay,
+            )
+
+        _apple_last_request_at = (
+            time.monotonic()
+        )
+
+
+def _apple_candidate_match(
+    candidate: dict[str, object],
+    *,
+    title: str,
+    artist: str,
+    duration_seconds: int | None,
+) -> float | None:
+    kind = candidate.get(
+        "kind",
+    )
+
+    if (
+        isinstance(
+            kind,
+            str,
+        )
+        and kind.casefold()
+        != "song"
+    ):
+        return None
+
+    title_similarity = (
+        _text_similarity(
+            candidate.get(
+                "trackName",
+            ),
+            title,
+        )
+    )
+
+    artist_similarity = (
+        _text_similarity(
+            candidate.get(
+                "artistName",
+            ),
+            artist,
+        )
+    )
+
+    if (
+        title_similarity < 0.94
+        or artist_similarity < 0.88
+    ):
+        return None
+
+    candidate_duration = (
+        _duration_seconds(
+            candidate.get(
+                "trackTimeMillis",
+            )
+        )
+    )
+
+    wanted_duration = (
+        float(
+            duration_seconds,
+        )
+        if (
+            duration_seconds
+            is not None
+            and duration_seconds > 0
+        )
+        else None
+    )
+
+    duration_score = 0.0
+
+    if (
+        candidate_duration
+        is not None
+        and wanted_duration
+        is not None
+    ):
+        delta = abs(
+            candidate_duration
+            - wanted_duration
+        )
+
+        if delta > 12.0:
+            return None
+
+        duration_score = (
+            1.0
+            if delta <= 3.0
+            else (
+                0.96
+                if delta <= 6.0
+                else 0.90
+            )
+        )
+
+    confidence = (
+        0.52
+        * title_similarity
+        + 0.36
+        * artist_similarity
+        + 0.12
+        * (
+            duration_score
+            if duration_score > 0
+            else 0.88
+        )
+    )
+
+    if confidence < 0.91:
+        return None
+
+    return min(
+        confidence,
+        0.995,
+    )
+
+
+async def lookup_apple_track_metadata(
+    *,
+    title: str,
+    artist: str,
+    duration_seconds: int | None,
+    client: httpx.AsyncClient | None = None,
+    throttle: bool = True,
+) -> ExternalTrackMetadata | None:
+    settings = get_settings()
+
+    cache_key = (
+        _normalize(
+            artist,
+        )
+        + "\x1f"
+        + _normalize(
+            title,
+        )
+        + "\x1f"
+        + str(
+            int(
+                duration_seconds
+                or 0
+            )
+        )
+    )
+
+    now = time.monotonic()
+
+    if client is None:
+        cached = (
+            _apple_lookup_cache.get(
+                cache_key,
+            )
+        )
+
+        if (
+            cached is not None
+            and now - cached[0]
+            < (
+                settings
+                .apple_search_cache_hours
+                * 60
+                * 60
+            )
+        ):
+            return cached[1]
+
+    owns_client = (
+        client is None
+    )
+
+    if client is None:
+        client = httpx.AsyncClient(
+            base_url=(
+                settings
+                .apple_search_base_url
+                .rstrip(
+                    "/",
+                )
+            ),
+            headers={
+                "User-Agent":
+                    settings
+                    .musicbrainz_user_agent,
+                "Accept":
+                    "application/json",
+            },
+            timeout=float(
+                settings
+                .apple_search_timeout_seconds
+            ),
+        )
+
+    try:
+        if throttle:
+            await _apple_throttle()
+
+        response = await client.get(
+            "/search",
+            params={
+                "term":
+                    f"{artist} {title}",
+                "country":
+                    settings
+                    .apple_search_country,
+                "media":
+                    "music",
+                "entity":
+                    "song",
+                "limit":
+                    25,
+                "explicit":
+                    "Yes",
+            },
+        )
+
+        response.raise_for_status()
+
+        payload = response.json()
+
+        if not isinstance(
+            payload,
+            dict,
+        ):
+            raise ValueError(
+                "Apple Search returned invalid data.",
+            )
+
+        raw_results = payload.get(
+            "results",
+        )
+
+        matches: list[
+            tuple[
+                float,
+                dict[
+                    str,
+                    object,
+                ],
+            ]
+        ] = []
+
+        if isinstance(
+            raw_results,
+            list,
+        ):
+            for item in raw_results:
+                if not isinstance(
+                    item,
+                    dict,
+                ):
+                    continue
+
+                confidence = (
+                    _apple_candidate_match(
+                        item,
+                        title=title,
+                        artist=artist,
+                        duration_seconds=(
+                            duration_seconds
+                        ),
+                    )
+                )
+
+                if confidence is None:
+                    continue
+
+                matches.append(
+                    (
+                        confidence,
+                        item,
+                    )
+                )
+
+        matches.sort(
+            key=lambda item: (
+                -item[0],
+                str(
+                    item[1].get(
+                        "trackName",
+                        "",
+                    )
+                ).casefold(),
+            )
+        )
+
+        if not matches:
+            result = None
+
+        else:
+            confidence = (
+                matches[0][0]
+            )
+
+            candidate = (
+                matches[0][1]
+            )
+
+            raw_track_id = (
+                candidate.get(
+                    "trackId",
+                )
+            )
+
+            recording_id = (
+                str(
+                    raw_track_id,
+                )
+                if raw_track_id
+                is not None
+                else None
+            )
+
+            result = {
+                "source":
+                    "apple",
+                "recording_id":
+                    recording_id,
+                "genre":
+                    _canonical_genre_text(
+                        candidate.get(
+                            "primaryGenreName",
+                        )
+                    ),
+                "release_year":
+                    _year(
+                        candidate.get(
+                            "releaseDate",
+                        )
+                    ),
+                "confidence":
+                    confidence,
+            }
+
+        if owns_client:
+            _apple_lookup_cache[
+                cache_key
+            ] = (
+                now,
+                result,
+            )
+
+        return result
+
+    except (
+        httpx.HTTPError,
+        ValueError,
+    ):
+        return None
+
+    finally:
+        if owns_client:
+            await client.aclose()
 
 
 async def _throttle() -> None:
@@ -1549,8 +2025,12 @@ async def lookup_external_track_metadata(
     client: httpx.AsyncClient | None = None,
     throttle: bool = True,
 ) -> ExternalTrackMetadata | None:
-    musicbrainz = (
-        await _lookup_musicbrainz_track_metadata(
+    # Explicit client injection is used by
+    # MusicBrainz unit tests. Keep those
+    # deterministic and isolated from the
+    # configured provider chain.
+    if client is not None:
+        return await _lookup_musicbrainz_track_metadata(
             title=title,
             artist=artist,
             duration_seconds=(
@@ -1559,26 +2039,65 @@ async def lookup_external_track_metadata(
             client=client,
             throttle=throttle,
         )
+
+    apple = (
+        await lookup_apple_track_metadata(
+            title=title,
+            artist=artist,
+            duration_seconds=(
+                duration_seconds
+            ),
+            throttle=throttle,
+        )
     )
 
-    # Explicit client injection is used by
-    # MusicBrainz unit tests. Keep those
-    # deterministic and isolated from the
-    # configured fallback provider.
-    if client is not None:
-        return musicbrainz
-
+    # A near-exact Apple match with both
+    # fields present is enough to avoid a
+    # slower MusicBrainz lookup.
     if (
-        musicbrainz is not None
-        and musicbrainz[
+        apple is not None
+        and apple[
+            "confidence"
+        ] >= 0.965
+        and apple[
             "genre"
         ]
-        and musicbrainz[
+        and apple[
             "release_year"
         ]
         is not None
     ):
-        return musicbrainz
+        return apple
+
+    musicbrainz = (
+        await _lookup_musicbrainz_track_metadata(
+            title=title,
+            artist=artist,
+            duration_seconds=(
+                duration_seconds
+            ),
+            throttle=throttle,
+        )
+    )
+
+    combined = (
+        _merge_external_metadata(
+            apple,
+            musicbrainz,
+        )
+    )
+
+    if (
+        combined is not None
+        and combined[
+            "genre"
+        ]
+        and combined[
+            "release_year"
+        ]
+        is not None
+    ):
+        return combined
 
     lastfm = (
         await lookup_lastfm_track_metadata(
@@ -1591,7 +2110,7 @@ async def lookup_external_track_metadata(
     )
 
     return _merge_external_metadata(
-        musicbrainz,
+        combined,
         lastfm,
     )
 
