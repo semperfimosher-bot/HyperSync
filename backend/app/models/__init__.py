@@ -11,6 +11,10 @@ from .account import (
     UserRole,
     UserSession,
 )
+from .artist import (
+    ArtistFollow,
+    ArtistProfile,
+)
 from .base import Base
 from .media import (
     Track,
@@ -31,6 +35,8 @@ from .system import SystemResetState
 __all__ = [
     "AccountType",
     "Base",
+    "ArtistFollow",
+    "ArtistProfile",
     "Track",
     "TrackLyrics",
     "AdminNotification",
