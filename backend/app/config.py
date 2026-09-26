@@ -149,6 +149,12 @@ class Settings(BaseSettings):
     musicbrainz_min_interval_seconds: float = 1.1
     musicbrainz_cache_hours: int = 24
 
+    apple_search_base_url: str = "https://itunes.apple.com"
+    apple_search_country: str = "US"
+    apple_search_timeout_seconds: float = 8.0
+    apple_search_min_interval_seconds: float = 3.1
+    apple_search_cache_hours: int = 24
+
     lastfm_base_url: str = "https://ws.audioscrobbler.com"
     lastfm_api_key: str = ""
     lastfm_timeout_seconds: float = 8.0
