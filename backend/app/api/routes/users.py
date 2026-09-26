@@ -159,6 +159,8 @@ class PlaybackTrackResponse(
     artist: str
 
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
 
     duration_seconds: int | None
 
@@ -327,6 +329,8 @@ class TrackSummary(BaseModel):
     title: str
     artist: str
     album: str | None
+    genre: str | None = None
+    release_year: int | None = None
     audio_url: str | None = None
     artwork_url: str | None = None
 
@@ -582,6 +586,8 @@ def playback_track_response(
         title=track.title,
         artist=track.artist,
         album=track.album,
+        genre=track.genre,
+        release_year=track.release_year,
         duration_seconds=(
             track.duration_seconds
         ),
@@ -1047,6 +1053,8 @@ async def build_dashboard(
             title=track.title,
             artist=track.artist,
             album=track.album,
+            genre=track.genre,
+            release_year=track.release_year,
             audio_url=audio_url(
                 track,
             ),
