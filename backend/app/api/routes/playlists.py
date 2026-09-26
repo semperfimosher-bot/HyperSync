@@ -305,7 +305,7 @@ async def playlist_owner_username(
     playlist: Playlist,
 ) -> str:
     if playlist.owner_id is None:
-        return "HyperSync"
+        return "HyperSynced"
 
     owner = await session.get(
         User,
@@ -966,7 +966,7 @@ async def get_liked_playlist(
             owner_id=user.id,
             title="Liked Songs",
             description=(
-                "Songs you like on HyperSync."
+                "Songs you like on HyperSynced."
             ),
             visibility="private",
             generated_key=liked_key,
