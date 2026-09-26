@@ -2199,6 +2199,15 @@ if (offline) {
           album:
             track.album ??
             "",
+
+          genre:
+            track.genre ??
+            "",
+
+          releaseYear:
+            track.release_year ??
+            track.releaseYear ??
+            null,
         }),
       );
 
@@ -2265,6 +2274,15 @@ if (offline) {
           album:
             track.album ??
             "",
+
+          genre:
+            track.genre ??
+            "",
+
+          releaseYear:
+            track.release_year ??
+            track.releaseYear ??
+            null,
         }),
       );
 
@@ -3860,6 +3878,14 @@ if (offline) {
                           null,
                         mediaVersion:
                           track.media_version ??
+                          null,
+
+                        genre:
+                          track.genre ??
+                          "",
+
+                        releaseYear:
+                          track.release_year ??
                           null,
                       },
                     ).catch(
