@@ -618,3 +618,499 @@ async def test_offline_playback_devices_are_removed_from_database() -> None:
             )
 
             assert stale_row is None
+
+
+
+@pytest.mark.asyncio
+async def test_playback_device_expires_after_five_seconds_and_releases_audio_owner() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-five-second-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Five Second Presence",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/device-five-second-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        registered = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "expired-device",
+                "name":
+                    "Old Computer",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert registered.status_code == 200, registered.text
+
+        playback = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    12,
+                "paused":
+                    False,
+                "device_id":
+                    "expired-device",
+            },
+        )
+
+        assert playback.status_code == 200, playback.text
+
+        async with session_factory() as session:
+            user = (
+                await session.execute(
+                    select(User).where(
+                        User.username
+                        == username,
+                    )
+                )
+            ).scalar_one()
+
+            device = await session.get(
+                PlaybackDevice,
+                (
+                    user.id,
+                    "expired-device",
+                ),
+            )
+
+            assert device is not None
+
+            device.last_seen_at = (
+                datetime.now(UTC)
+                - timedelta(
+                    seconds=6,
+                )
+            )
+
+            await session.commit()
+
+        fresh_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "fresh-device",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert fresh_poll.status_code == 200, fresh_poll.text
+
+        payload = fresh_poll.json()
+
+        assert {
+            device["device_id"]
+            for device in payload["devices"]
+        } == {
+            "fresh-device",
+        }
+
+        assert (
+            payload["playback_state"][
+                "device_id"
+            ]
+            is None
+        )
+
+        assert (
+            payload["playback_state"][
+                "paused"
+            ]
+            is True
+        )
+
+
+@pytest.mark.asyncio
+async def test_transfer_moves_authoritative_playback_owner_before_target_poll() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-transfer-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Instant Handoff",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/device-transfer-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=240,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        for (
+            device_id,
+            name,
+            device_type,
+        ) in (
+            (
+                "computer",
+                "Computer",
+                "desktop",
+            ),
+            (
+                "phone",
+                "Phone",
+                "mobile",
+            ),
+        ):
+            response = await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        device_id,
+                    "name":
+                        name,
+                    "device_type":
+                        device_type,
+                },
+            )
+
+            assert response.status_code == 200, response.text
+
+        playback = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    40,
+                "paused":
+                    False,
+                "device_id":
+                    "computer",
+            },
+        )
+
+        assert playback.status_code == 200, playback.text
+
+        transfer = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "transfer",
+            },
+        )
+
+        assert transfer.status_code == 201, transfer.text
+
+        phone_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "phone",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert phone_poll.status_code == 200, phone_poll.text
+
+        phone_payload = phone_poll.json()
+
+        assert (
+            phone_payload[
+                "playback_state"
+            ][
+                "device_id"
+            ]
+            == "phone"
+        )
+
+        assert (
+            phone_payload[
+                "playback_state"
+            ][
+                "paused"
+            ]
+            is False
+        )
+
+        assert (
+            phone_payload[
+                "playback_state"
+            ][
+                "position_seconds"
+            ]
+            >= 40
+        )
+
+        assert [
+            command["action"]
+            for command in
+            phone_payload["commands"]
+        ] == [
+            "transfer",
+        ]
+
+        computer_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "computer",
+                "name":
+                    "Computer",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert computer_poll.status_code == 200, computer_poll.text
+
+        assert [
+            command["action"]
+            for command in
+            computer_poll.json()[
+                "commands"
+            ]
+        ] == [
+            "pause",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_play_track_command_switches_remote_song_and_playback_owner() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-play-track-{run_id}"
+    first_track_id = uuid4()
+    second_track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                Track(
+                    id=first_track_id,
+                    title="First Device Song",
+                    artist="HyperSync Devices",
+                    album="Connect",
+                    b2_object_key=(
+                        f"audio/device-first-{run_id}.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    file_size=4096,
+                    duration_seconds=180,
+                    is_published=True,
+                ),
+                Track(
+                    id=second_track_id,
+                    title="Remote Selected Song",
+                    artist="HyperSync Devices",
+                    album="Connect",
+                    b2_object_key=(
+                        f"audio/device-second-{run_id}.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    file_size=4096,
+                    duration_seconds=200,
+                    is_published=True,
+                ),
+            ]
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        for device_id in (
+            "computer",
+            "phone",
+        ):
+            poll = await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        device_id,
+                    "name":
+                        device_id.title(),
+                    "device_type":
+                        (
+                            "desktop"
+                            if device_id
+                            == "computer"
+                            else "mobile"
+                        ),
+                },
+            )
+
+            assert poll.status_code == 200, poll.text
+
+        first_playback = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(first_track_id),
+                "position_seconds":
+                    70,
+                "paused":
+                    False,
+                "device_id":
+                    "computer",
+            },
+        )
+
+        assert first_playback.status_code == 200, first_playback.text
+
+        select_remote = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "play_track",
+                "track_id":
+                    str(second_track_id),
+            },
+        )
+
+        assert select_remote.status_code == 201, select_remote.text
+
+        phone_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "phone",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert phone_poll.status_code == 200, phone_poll.text
+
+        state = phone_poll.json()[
+            "playback_state"
+        ]
+
+        assert (
+            state["track"]["id"]
+            == str(
+                second_track_id,
+            )
+        )
+
+        assert state["device_id"] == "phone"
+        assert state["paused"] is False
+        assert state["position_seconds"] == pytest.approx(
+            0,
+        )
+
+        assert [
+            command["action"]
+            for command in
+            phone_poll.json()[
+                "commands"
+            ]
+        ] == [
+            "play_track",
+        ]

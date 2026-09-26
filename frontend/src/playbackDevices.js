@@ -1,3 +1,14 @@
+import {
+  API_BASE,
+  refreshAccessToken,
+} from "./api/client.js";
+
+import {
+  getAccessToken,
+  hasStoredSession,
+} from "./api/storage.js";
+
+
 async function requestApi(
   path,
   options,
@@ -121,6 +132,69 @@ function platformName(
 }
 
 
+function playbackLiveUrl() {
+  const base =
+    new URL(
+      API_BASE,
+      globalThis.location
+        ?.origin ??
+        "http://localhost",
+    );
+
+  const path =
+    base.pathname
+      .replace(
+        /\/+$/,
+        "",
+      ) +
+    "/users/me/playback-devices/live";
+
+  base.pathname =
+    path;
+
+  base.search =
+    "";
+
+  base.hash =
+    "";
+
+  if (
+    base.protocol ===
+      "https:"
+  ) {
+    base.protocol =
+      "wss:";
+  } else {
+    base.protocol =
+      "ws:";
+  }
+
+  return base.toString();
+}
+
+
+async function playbackAccessToken() {
+  const existing =
+    getAccessToken();
+
+  if (existing) {
+    return existing;
+  }
+
+  if (!hasStoredSession()) {
+    return null;
+  }
+
+  const auth =
+    await refreshAccessToken();
+
+  return (
+    auth?.access_token ??
+    null
+  );
+}
+
+
 export function getPlaybackDeviceDescriptor(
   navigatorLike =
     globalThis.navigator,
@@ -225,6 +299,7 @@ export async function sendPlaybackDeviceCommand({
   sourceDeviceId,
   action,
   value = null,
+  trackId = null,
 }) {
   const target =
     encodeURIComponent(
@@ -251,7 +326,169 @@ export async function sendPlaybackDeviceCommand({
             sourceDeviceId,
           action,
           value,
+          track_id:
+            trackId,
         }),
     },
   );
+}
+
+
+export async function connectPlaybackDeviceLive({
+  deviceId,
+  name,
+  deviceType,
+  onEvent,
+  onClose,
+}) {
+  if (
+    typeof globalThis.WebSocket !==
+      "function"
+  ) {
+    return null;
+  }
+
+  const accessToken =
+    await playbackAccessToken();
+
+  if (!accessToken) {
+    return null;
+  }
+
+  const socket =
+    new WebSocket(
+      playbackLiveUrl(),
+    );
+
+  let heartbeatTimer =
+    null;
+
+  let closed =
+    false;
+
+  const stopHeartbeat =
+    () => {
+      if (
+        heartbeatTimer !==
+          null
+      ) {
+        globalThis.clearInterval(
+          heartbeatTimer,
+        );
+
+        heartbeatTimer =
+          null;
+      }
+    };
+
+  socket.addEventListener(
+    "open",
+    () => {
+      socket.send(
+        JSON.stringify({
+          type:
+            "authenticate",
+          access_token:
+            accessToken,
+          device_id:
+            deviceId,
+          name,
+          device_type:
+            deviceType,
+        }),
+      );
+
+      heartbeatTimer =
+        globalThis.setInterval(
+          () => {
+            if (
+              socket.readyState ===
+              globalThis.WebSocket.OPEN
+            ) {
+              socket.send(
+                JSON.stringify({
+                  type:
+                    "heartbeat",
+                }),
+              );
+            }
+          },
+          1000,
+        );
+    },
+  );
+
+  socket.addEventListener(
+    "message",
+    (event) => {
+      try {
+        const payload =
+          JSON.parse(
+            String(
+              event.data ??
+              "",
+            ),
+          );
+
+        onEvent?.(
+          payload,
+        );
+      } catch {
+        // Ignore malformed realtime frames.
+      }
+    },
+  );
+
+  socket.addEventListener(
+    "close",
+    (event) => {
+      if (closed) {
+        return;
+      }
+
+      closed =
+        true;
+
+      stopHeartbeat();
+
+      onClose?.(
+        event,
+      );
+    },
+  );
+
+  socket.addEventListener(
+    "error",
+    () => {
+      /*
+       * The close event owns reconnect
+       * behavior so errors do not cause
+       * duplicate retries.
+       */
+    },
+  );
+
+  return {
+    close() {
+      if (closed) {
+        return;
+      }
+
+      closed =
+        true;
+
+      stopHeartbeat();
+
+      try {
+        socket.close(
+          1000,
+          "client shutdown",
+        );
+      } catch {
+        // Socket may already be gone.
+      }
+    },
+
+    socket,
+  };
 }

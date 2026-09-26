@@ -300,3 +300,250 @@ test(
     );
   },
 );
+
+
+
+test(
+  "play-track remote command restores the authoritative snapshot and starts it",
+  async () => {
+    const calls = [];
+
+    const fakePlayer = {
+      state: {
+        trackId:
+          "old-track",
+        paused:
+          true,
+      },
+
+      getState() {
+        return this.state;
+      },
+
+      async runWithLocalPlaybackControl(
+        callback,
+      ) {
+        calls.push(
+          "local-control",
+        );
+
+        return callback();
+      },
+
+      async restoreAccountPlayback(
+        track,
+        position,
+      ) {
+        calls.push([
+          "restore",
+          track.id,
+          position,
+        ]);
+
+        this.state = {
+          trackId:
+            track.id,
+          paused:
+            true,
+        };
+      },
+
+      async togglePlay() {
+        calls.push(
+          "play",
+        );
+
+        this.state = {
+          ...this.state,
+          paused:
+            false,
+        };
+      },
+
+      pausePlayback() {
+        calls.push(
+          "pause",
+        );
+      },
+
+      stopTrack() {
+        calls.push(
+          "stop",
+        );
+      },
+    };
+
+    await applyPlaybackRemoteCommand(
+      {
+        action:
+          "play_track",
+      },
+      {
+        player:
+          fakePlayer,
+
+        snapshot: {
+          track: {
+            id:
+              "new-track",
+          },
+          position_seconds:
+            0,
+          paused:
+            false,
+        },
+
+        snapshotPosition:
+          (snapshot) =>
+            snapshot.position_seconds,
+      },
+    );
+
+    assert.deepEqual(
+      calls,
+      [
+        "local-control",
+        [
+          "restore",
+          "new-track",
+          0,
+        ],
+        "play",
+      ],
+    );
+  },
+);
+
+
+test(
+  "duplicate transfer command does not restart already matching playback",
+  async () => {
+    const calls = [];
+
+    const fakePlayer = {
+      state: {
+        trackId:
+          "track-1",
+        paused:
+          false,
+      },
+
+      getState() {
+        return this.state;
+      },
+
+      async runWithLocalPlaybackControl(
+        callback,
+      ) {
+        calls.push(
+          "local-control",
+        );
+
+        return callback();
+      },
+
+      async restoreAccountPlayback() {
+        calls.push(
+          "restore",
+        );
+      },
+
+      async togglePlay() {
+        calls.push(
+          "play",
+        );
+      },
+
+      pausePlayback() {
+        calls.push(
+          "pause",
+        );
+      },
+    };
+
+    await applyPlaybackRemoteCommand(
+      {
+        action:
+          "transfer",
+      },
+      {
+        player:
+          fakePlayer,
+
+        snapshot: {
+          track: {
+            id:
+              "track-1",
+          },
+          position_seconds:
+            22,
+          paused:
+            false,
+        },
+
+        snapshotPosition:
+          (snapshot) =>
+            snapshot.position_seconds,
+      },
+    );
+
+    assert.deepEqual(
+      calls,
+      [
+        "local-control",
+      ],
+    );
+  },
+);
+
+
+test(
+  "remote stop command stays inside local-control bypass",
+  async () => {
+    const calls = [];
+
+    const fakePlayer = {
+      getState() {
+        return {
+          paused:
+            true,
+        };
+      },
+
+      async runWithLocalPlaybackControl(
+        callback,
+      ) {
+        calls.push(
+          "local-control",
+        );
+
+        return callback();
+      },
+
+      stopTrack() {
+        calls.push(
+          "stop",
+        );
+      },
+    };
+
+    await applyPlaybackRemoteCommand(
+      {
+        action:
+          "stop",
+      },
+      {
+        player:
+          fakePlayer,
+      },
+    );
+
+    assert.deepEqual(
+      calls,
+      [
+        "local-control",
+        "stop",
+      ],
+    );
+  },
+);

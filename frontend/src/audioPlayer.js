@@ -136,6 +136,121 @@ let playbackPhase =
 let playbackError =
   null;
 
+let remotePlaybackController =
+  null;
+
+let forceLocalPlaybackDepth =
+  0;
+
+
+export function setRemotePlaybackController(
+  controller,
+) {
+  remotePlaybackController =
+    controller &&
+    typeof controller ===
+      "object"
+      ? controller
+      : null;
+}
+
+
+export async function runWithLocalPlaybackControl(
+  callback,
+) {
+  forceLocalPlaybackDepth +=
+    1;
+
+  try {
+    return await callback();
+  } finally {
+    forceLocalPlaybackDepth =
+      Math.max(
+        forceLocalPlaybackDepth -
+          1,
+        0,
+      );
+  }
+}
+
+
+function shouldRoutePlaybackRemotely() {
+  if (
+    forceLocalPlaybackDepth >
+      0 ||
+    !remotePlaybackController
+  ) {
+    return false;
+  }
+
+  try {
+    return Boolean(
+      remotePlaybackController
+        .shouldHandle?.(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+
+async function dispatchRemotePlayback(
+  action,
+  payload = null,
+) {
+  if (
+    !shouldRoutePlaybackRemotely()
+  ) {
+    return false;
+  }
+
+  try {
+    await remotePlaybackController
+      .dispatch?.(
+        action,
+        payload,
+      );
+  } catch {
+    /*
+     * Never fall through to local audio
+     * after a remote-control failure.
+     * The selected playback device remains
+     * authoritative until the user changes it.
+     */
+  }
+
+  return true;
+}
+
+
+function dispatchRemotePlaybackInBackground(
+  action,
+  payload = null,
+) {
+  if (
+    !shouldRoutePlaybackRemotely()
+  ) {
+    return false;
+  }
+
+  try {
+    void Promise.resolve(
+      remotePlaybackController
+        .dispatch?.(
+          action,
+          payload,
+        ),
+    ).catch(
+      () => {},
+    );
+  } catch {
+    // Keep the local speaker silent.
+  }
+
+  return true;
+}
+
+
 function beginListeningEvent(
   trackId,
 ) {
@@ -2268,6 +2383,18 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId,
+        meta,
+      },
+    )
+  ) {
+    return getState();
+  }
+
   finishListeningEvent(
   "skipped",
   getSafeCurrentTime(),
@@ -2294,10 +2421,6 @@ export async function playTrack(
 export async function playQueueIndex(
   index,
 ) {
-  finishListeningEvent(
-  "skipped",
-  getSafeCurrentTime(),
-);
   const track =
     getQueueTrackAtIndex(
       currentQueue,
@@ -2307,6 +2430,25 @@ export async function playQueueIndex(
   if (!track) {
     return false;
   }
+
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId:
+          track.id,
+        meta:
+          track.meta,
+      },
+    )
+  ) {
+    return getState();
+  }
+
+  finishListeningEvent(
+  "skipped",
+  getSafeCurrentTime(),
+);
 
 
   currentQueueIndex =
@@ -2345,10 +2487,6 @@ export async function playTrackQueue(
   tracks,
   startIndex = 0,
 ) {
-  finishListeningEvent(
-  "skipped",
-  getSafeCurrentTime(),
-);
   const queue =
     buildTrackQueue(
       tracks,
@@ -2400,6 +2538,27 @@ export async function playTrackQueue(
     currentQueue[
       currentQueueIndex
     ];
+
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId:
+          track.id,
+        meta:
+          track.meta,
+      },
+    )
+  ) {
+    notify();
+
+    return getState();
+  }
+
+  finishListeningEvent(
+    "skipped",
+    getSafeCurrentTime(),
+  );
 
 
   const state =
@@ -2477,6 +2636,18 @@ export async function playUrl(
   url,
   meta = {},
 ) {
+  if (
+    await dispatchRemotePlayback(
+      "play_url",
+      {
+        url,
+        meta,
+      },
+    )
+  ) {
+    return getState();
+  }
+
   if (!url) {
     return null;
   }
@@ -2586,6 +2757,14 @@ export async function playUrl(
 
 
 export async function togglePlay() {
+  if (
+    await dispatchRemotePlayback(
+      "toggle",
+    )
+  ) {
+    return getState();
+  }
+
   if (audio.paused) {
     /*
      * Normally this has already been
@@ -2631,6 +2810,19 @@ export async function togglePlay() {
 
 export function pausePlayback() {
   if (
+    dispatchRemotePlaybackInBackground(
+      "pause",
+    )
+  ) {
+    return getState();
+  }
+
+  return silenceLocalPlayback();
+}
+
+
+export function silenceLocalPlayback() {
+  if (
     !audio.paused
   ) {
     audio.pause();
@@ -2671,6 +2863,17 @@ export function pausePlayback() {
 export function stopTrack(
   trackId = null,
 ) {
+  if (
+    dispatchRemotePlaybackInBackground(
+      "stop",
+      {
+        trackId,
+      },
+    )
+  ) {
+    return true;
+  }
+
   if (
     trackId &&
     String(trackId) !==
@@ -2748,6 +2951,18 @@ export function seekTo(
     return;
   }
 
+  if (
+    dispatchRemotePlaybackInBackground(
+      "seek",
+      {
+        value:
+          timeSeconds,
+      },
+    )
+  ) {
+    return;
+  }
+
 
   audio.currentTime =
     Math.max(
@@ -2771,6 +2986,17 @@ export function seekTo(
 export function setVolume(
   value,
 ) {
+  if (
+    dispatchRemotePlaybackInBackground(
+      "volume",
+      {
+        value,
+      },
+    )
+  ) {
+    return;
+  }
+
   audio.volume =
     Math.max(
       0,
@@ -2802,6 +3028,9 @@ if (
   window.__HYPERSYNC_PLAYER = {
     playTrack,
     restoreAccountPlayback,
+    runWithLocalPlaybackControl,
+    setRemotePlaybackController,
+    silenceLocalPlayback,
     playTrackQueue,
     playTrackNext,
     addTrackToQueue,
@@ -2821,6 +3050,14 @@ if (
 }
 
 export async function skipToNext() {
+  if (
+    await dispatchRemotePlayback(
+      "next",
+    )
+  ) {
+    return true;
+  }
+
   if (!currentTrackId) {
     return false;
   }
@@ -2843,6 +3080,14 @@ export async function skipToNext() {
 
 
 export async function skipToPrevious() {
+  if (
+    await dispatchRemotePlayback(
+      "previous",
+    )
+  ) {
+    return true;
+  }
+
   if (!currentTrackId) {
     return false;
   }

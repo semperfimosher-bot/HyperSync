@@ -166,6 +166,7 @@ import {
 } from "./pwaInstall.js";
 
 import {
+  connectPlaybackDeviceLive,
   getPlaybackDeviceDescriptor,
   pollPlaybackDevice,
   sendPlaybackDeviceCommand,
@@ -187,13 +188,16 @@ import {
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
-  3000;
+  750;
 
 const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
-  1500;
+  1000;
+
+const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
+  750;
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
-  15000;
+  5000;
 
 const ACCOUNT_PLAYBACK_DEVICE_KEY =
   "hypersync:playback-device-id";
@@ -5412,6 +5416,43 @@ export default function App() {
     setControlledPlaybackDeviceId,
   ] = useState(null);
 
+  const playbackDevicesRef =
+    useRef([]);
+
+  const accountPlaybackSnapshotRef =
+    useRef(null);
+
+  const controlledPlaybackDeviceIdRef =
+    useRef(null);
+
+  const playbackSeenCommandIdsRef =
+    useRef(
+      new Set(),
+    );
+
+  const selectControlledPlaybackDevice =
+    useCallback(
+      (
+        deviceId,
+      ) => {
+        const normalized =
+          String(
+            deviceId ??
+              "",
+          ).trim() ||
+          null;
+
+        controlledPlaybackDeviceIdRef.current =
+          normalized;
+
+        setControlledPlaybackDeviceId(
+          normalized,
+        );
+      },
+      [],
+    );
+
+
   const playbackDeviceIdRef =
     useRef(
       getAccountPlaybackDeviceId(),
@@ -5453,6 +5494,7 @@ export default function App() {
         targetDeviceId,
         action,
         value = null,
+        options = {},
       ) => {
         if (
           currentUser?.account_type !==
@@ -5474,10 +5516,18 @@ export default function App() {
         const currentDeviceId =
           playbackDeviceIdRef.current;
 
+        const snapshot =
+          accountPlaybackSnapshotRef
+            .current;
+
         try {
           if (
             targetId ===
-            currentDeviceId
+              currentDeviceId &&
+            action !==
+              "transfer" &&
+            action !==
+              "play_track"
           ) {
             const result =
               await applyPlaybackRemoteCommand(
@@ -5487,14 +5537,17 @@ export default function App() {
                 },
                 {
                   player,
-                  snapshot:
-                    accountPlaybackSnapshot,
+                  snapshot,
                   snapshotPosition:
                     accountPlaybackPosition,
                 },
               );
 
             if (result) {
+              controlledPlaybackDeviceIdRef
+                .current =
+                  currentDeviceId;
+
               setControlledPlaybackDeviceId(
                 currentDeviceId,
               );
@@ -5505,14 +5558,53 @@ export default function App() {
             );
           }
 
-          await sendPlaybackDeviceCommand({
-            targetDeviceId:
-              targetId,
-            sourceDeviceId:
-              currentDeviceId,
-            action,
-            value,
-          });
+          const response =
+            await sendPlaybackDeviceCommand({
+              targetDeviceId:
+                targetId,
+              sourceDeviceId:
+                currentDeviceId,
+              action,
+              value,
+              trackId:
+                options?.trackId ??
+                null,
+            });
+
+          /*
+           * The server changes ownership and
+           * pushes a pause to the old speaker
+           * before this browser starts audio.
+           * A tiny network hop is preferable
+           * to even a brief two-device overlap.
+           */
+          if (
+            targetId ===
+              currentDeviceId &&
+            action ===
+              "transfer"
+          ) {
+            await applyPlaybackRemoteCommand(
+              {
+                ...response,
+                action:
+                  "transfer",
+              },
+              {
+                player,
+                snapshot:
+                  accountPlaybackSnapshotRef
+                    .current ??
+                  snapshot,
+                snapshotPosition:
+                  accountPlaybackPosition,
+              },
+            );
+          }
+
+          controlledPlaybackDeviceIdRef
+            .current =
+              targetId;
 
           setControlledPlaybackDeviceId(
             targetId,
@@ -5520,14 +5612,193 @@ export default function App() {
 
           return true;
         } catch {
+          if (
+            targetId ===
+              currentDeviceId &&
+            action ===
+              "transfer"
+          ) {
+            player.silenceLocalPlayback();
+          }
+
           return false;
         }
       },
       [
-        accountPlaybackSnapshot,
         currentUser?.account_type,
       ],
     );
+
+
+  useEffect(() => {
+    playbackDevicesRef.current =
+      playbackDevices;
+  }, [
+    playbackDevices,
+  ]);
+
+
+  useEffect(() => {
+    accountPlaybackSnapshotRef.current =
+      accountPlaybackSnapshot;
+  }, [
+    accountPlaybackSnapshot,
+  ]);
+
+
+  useEffect(() => {
+    controlledPlaybackDeviceIdRef.current =
+      controlledPlaybackDeviceId;
+  }, [
+    controlledPlaybackDeviceId,
+  ]);
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      player.setRemotePlaybackController(
+        null,
+      );
+
+      return undefined;
+    }
+
+    player.setRemotePlaybackController({
+      shouldHandle:
+        () => {
+          const targetId =
+            controlledPlaybackDeviceIdRef
+              .current;
+
+          if (
+            !targetId ||
+            targetId ===
+              playbackDeviceIdRef.current
+          ) {
+            return false;
+          }
+
+          return playbackDevicesRef
+            .current
+            .some(
+              (device) =>
+                device.device_id ===
+                  targetId &&
+                device.is_online,
+            );
+        },
+
+      dispatch:
+        async (
+          action,
+          payload,
+        ) => {
+          const targetId =
+            controlledPlaybackDeviceIdRef
+              .current;
+
+          if (!targetId) {
+            return false;
+          }
+
+          if (
+            action ===
+              "play_track"
+          ) {
+            const trackId =
+              String(
+                payload?.trackId ??
+                "",
+              ).trim();
+
+            if (!trackId) {
+              return false;
+            }
+
+            return sendAccountPlaybackCommand(
+              targetId,
+              "play_track",
+              null,
+              {
+                trackId,
+              },
+            );
+          }
+
+          if (
+            action ===
+              "play_url"
+          ) {
+            /*
+             * Arbitrary URL playback has no
+             * cross-device catalog identity.
+             * Suppress local audio instead of
+             * leaking sound from the controller.
+             */
+            return false;
+          }
+
+          if (
+            action ===
+              "toggle"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              accountPlaybackSnapshotRef
+                .current
+                ?.paused
+                ? "play"
+                : "pause",
+            );
+          }
+
+          if (
+            action ===
+              "seek" ||
+            action ===
+              "volume"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              action,
+              Number(
+                payload?.value,
+              ),
+            );
+          }
+
+          if (
+            action ===
+              "pause" ||
+            action ===
+              "next" ||
+            action ===
+              "previous" ||
+            action ===
+              "stop"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              action,
+            );
+          }
+
+          return false;
+        },
+    });
+
+    return () => {
+      player.setRemotePlaybackController(
+        null,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    sendAccountPlaybackCommand,
+  ]);
 
 
   useEffect(() => {
@@ -5971,6 +6242,18 @@ export default function App() {
       playbackPendingWriteRef.current =
         null;
 
+      playbackDevicesRef.current =
+        [];
+
+      accountPlaybackSnapshotRef.current =
+        null;
+
+      controlledPlaybackDeviceIdRef.current =
+        null;
+
+      playbackSeenCommandIdsRef.current
+        .clear();
+
       setPlaybackDevices(
         [],
       );
@@ -5997,6 +6280,12 @@ export default function App() {
 
     let pollInFlight =
       false;
+
+    let liveConnection =
+      null;
+
+    let liveReconnectTimer =
+      null;
 
     const deviceId =
       playbackDeviceIdRef.current;
@@ -6043,6 +6332,24 @@ export default function App() {
             ?.onLine ===
             false
         ) {
+          return null;
+        }
+
+        const activeDeviceId =
+          accountPlaybackSnapshotRef
+            .current
+            ?.device_id;
+
+        if (
+          activeDeviceId &&
+          activeDeviceId !==
+            deviceId
+        ) {
+          /*
+           * A controller is never allowed to
+           * steal playback merely because its
+           * local Audio element changed state.
+           */
           return null;
         }
 
@@ -6109,6 +6416,9 @@ export default function App() {
                     ?.updated_at,
                 ),
               );
+
+          accountPlaybackSnapshotRef.current =
+            response;
 
           setAccountPlaybackSnapshot(
             response,
@@ -6216,30 +6526,90 @@ export default function App() {
         playbackLastServerUpdateRef.current =
           updatedAt;
 
-        if (
-          snapshot?.device_id ===
-            deviceId
-        ) {
-          return;
-        }
+        accountPlaybackSnapshotRef.current =
+          snapshot;
 
         playbackApplyingRemoteRef.current =
           true;
 
         try {
-          if (
-            snapshot?.track?.id
-          ) {
-            await player
-              .restoreAccountPlayback(
-                snapshot.track,
-                accountPlaybackPosition(
-                  snapshot,
-                ),
-              );
-          } else {
-            player.stopTrack();
+          const ownsPlayback =
+            snapshot?.device_id ===
+              deviceId;
+
+          if (!ownsPlayback) {
+            /*
+             * This is the hard audio-output
+             * gate: once another device owns
+             * playback, this browser cannot
+             * emit audio even if it had been
+             * playing a moment earlier.
+             */
+            player.silenceLocalPlayback();
+
+            return;
           }
+
+          const desiredTrackId =
+            snapshot?.track?.id
+              ? String(
+                  snapshot.track.id,
+                )
+              : null;
+
+          const localState =
+            player.getState();
+
+          const alreadyPlayingDesiredTrack =
+            Boolean(
+              desiredTrackId &&
+              String(
+                localState?.trackId ??
+                "",
+              ) ===
+                desiredTrackId &&
+              !snapshot?.paused &&
+              !localState?.paused
+            );
+
+          if (
+            alreadyPlayingDesiredTrack
+          ) {
+            markPublished(
+              localState,
+            );
+
+            return;
+          }
+
+          await player.runWithLocalPlaybackControl(
+            async () => {
+              if (
+                snapshot?.track?.id
+              ) {
+                await player
+                  .restoreAccountPlayback(
+                    snapshot.track,
+                    accountPlaybackPosition(
+                      snapshot,
+                    ),
+                  );
+
+                if (
+                  snapshot.paused
+                ) {
+                  player.pausePlayback();
+                } else if (
+                  player.getState()
+                    ?.paused
+                ) {
+                  await player.togglePlay();
+                }
+              } else {
+                player.stopTrack();
+              }
+            },
+          );
 
           markPublished(
             player.getState(),
@@ -6268,6 +6638,23 @@ export default function App() {
         ) {
           if (cancelled) {
             return;
+          }
+
+          const commandId =
+            String(
+              command?.id ??
+              "",
+            );
+
+          if (
+            commandId &&
+            playbackSeenCommandIdsRef
+              .current
+              .has(
+                commandId,
+              )
+          ) {
+            continue;
           }
 
           let applied =
@@ -6300,6 +6687,36 @@ export default function App() {
           } finally {
             playbackApplyingRemoteRef.current =
               false;
+          }
+
+          if (
+            applied &&
+            commandId
+          ) {
+            playbackSeenCommandIdsRef
+              .current
+              .add(
+                commandId,
+              );
+
+            if (
+              playbackSeenCommandIdsRef
+                .current.size >
+                256
+            ) {
+              const oldest =
+                playbackSeenCommandIdsRef
+                  .current
+                  .values()
+                  .next()
+                  .value;
+
+              playbackSeenCommandIdsRef
+                .current
+                .delete(
+                  oldest,
+                );
+            }
           }
 
           if (
@@ -6354,6 +6771,12 @@ export default function App() {
               ?.playback_state ??
             null;
 
+          playbackDevicesRef.current =
+            devices;
+
+          accountPlaybackSnapshotRef.current =
+            snapshot;
+
           setPlaybackDevices(
             devices,
           );
@@ -6373,12 +6796,6 @@ export default function App() {
                     device.is_online,
                 );
 
-              if (
-                currentStillOnline
-              ) {
-                return current;
-              }
-
               const active =
                 devices.find(
                   (device) =>
@@ -6386,10 +6803,32 @@ export default function App() {
                     device.is_online,
                 );
 
-              return (
+              if (
+                currentStillOnline &&
+                (
+                  current !==
+                    deviceId ||
+                  !active ||
+                  active.device_id ===
+                    deviceId
+                )
+              ) {
+                controlledPlaybackDeviceIdRef
+                  .current =
+                    current;
+
+                return current;
+              }
+
+              const next =
                 active?.device_id ??
-                deviceId
-              );
+                deviceId;
+
+              controlledPlaybackDeviceIdRef
+                .current =
+                  next;
+
+              return next;
             },
           );
 
@@ -6411,6 +6850,179 @@ export default function App() {
         }
       };
 
+    const handleLiveEvent =
+      async (
+        event,
+      ) => {
+        if (
+          cancelled ||
+          !event ||
+          typeof event !==
+            "object"
+        ) {
+          return;
+        }
+
+        const devices =
+          Array.isArray(
+            event.devices,
+          )
+            ? event.devices
+            : null;
+
+        if (devices) {
+          playbackDevicesRef.current =
+            devices;
+
+          setPlaybackDevices(
+            devices,
+          );
+        }
+
+        const snapshot =
+          event.playback_state ??
+          null;
+
+        if (snapshot) {
+          accountPlaybackSnapshotRef.current =
+            snapshot;
+
+          setAccountPlaybackSnapshot(
+            snapshot,
+          );
+
+          const activeId =
+            snapshot.device_id;
+
+          if (
+            activeId &&
+            (
+              !controlledPlaybackDeviceIdRef
+                .current ||
+              controlledPlaybackDeviceIdRef
+                .current ===
+                deviceId
+            )
+          ) {
+            controlledPlaybackDeviceIdRef
+              .current =
+                activeId;
+
+            setControlledPlaybackDeviceId(
+              activeId,
+            );
+          }
+
+          await applyRemotePlayback(
+            snapshot,
+          );
+        }
+
+        if (
+          event.type ===
+            "command" &&
+          event.command
+        ) {
+          await applyPendingCommands(
+            [
+              event.command,
+            ],
+            snapshot ??
+              accountPlaybackSnapshotRef
+                .current,
+          );
+        }
+
+        if (
+          event.type ===
+            "presence_changed"
+        ) {
+          void pollDevice();
+        }
+      };
+
+
+    const scheduleLiveReconnect =
+      () => {
+        if (
+          cancelled ||
+          liveReconnectTimer
+        ) {
+          return;
+        }
+
+        liveReconnectTimer =
+          window.setTimeout(
+            () => {
+              liveReconnectTimer =
+                null;
+
+              void connectLive();
+            },
+            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+          );
+      };
+
+
+    const connectLive =
+      async () => {
+        if (
+          cancelled ||
+          liveConnection ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return;
+        }
+
+        try {
+          const connection =
+            await connectPlaybackDeviceLive({
+              deviceId,
+              name:
+                deviceDescriptor.name,
+              deviceType:
+                deviceDescriptor.deviceType,
+
+              onEvent:
+                (event) => {
+                  void handleLiveEvent(
+                    event,
+                  );
+                },
+
+              onClose:
+                () => {
+                  liveConnection =
+                    null;
+
+                  if (!cancelled) {
+                    void pollDevice();
+                    scheduleLiveReconnect();
+                  }
+                },
+            });
+
+          if (
+            cancelled
+          ) {
+            connection?.close?.();
+            return;
+          }
+
+          liveConnection =
+            connection;
+
+          if (!connection) {
+            scheduleLiveReconnect();
+          }
+        } catch {
+          scheduleLiveReconnect();
+        }
+      };
+
+
     const bootstrap =
       async () => {
         const remote =
@@ -6419,6 +7031,8 @@ export default function App() {
         if (cancelled) {
           return;
         }
+
+        void connectLive();
 
         const local =
           player.getState();
@@ -6482,6 +7096,7 @@ export default function App() {
     const handleFocus =
       () => {
         void pollDevice();
+        void connectLive();
       };
 
     const handleVisibility =
@@ -6520,6 +7135,20 @@ export default function App() {
           pollInterval,
         );
       }
+
+      if (liveReconnectTimer) {
+        window.clearTimeout(
+          liveReconnectTimer,
+        );
+
+        liveReconnectTimer =
+          null;
+      }
+
+      liveConnection?.close?.();
+
+      liveConnection =
+        null;
 
       playbackPendingWriteRef.current =
         null;
@@ -8488,7 +9117,7 @@ const clearPlaylistToOpen =
               controlledPlaybackDeviceId
             }
             onSelectPlaybackDevice={
-              setControlledPlaybackDeviceId
+              selectControlledPlaybackDevice
             }
             onPlaybackDeviceCommand={
               sendAccountPlaybackCommand
@@ -8559,7 +9188,7 @@ const clearPlaylistToOpen =
           accountPlaybackSnapshot
         }
         onSelectPlaybackDevice={
-          setControlledPlaybackDeviceId
+          selectControlledPlaybackDevice
         }
         onPlaybackDeviceCommand={
           sendAccountPlaybackCommand

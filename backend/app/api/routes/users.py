@@ -18,6 +18,8 @@ from fastapi import (
     File,
     HTTPException,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import StreamingResponse
@@ -47,10 +49,14 @@ from ...services.b2 import (
     delete_all_object_versions,
     get_b2_bucket,
 )
+from ...services.playback_realtime import (
+    playback_realtime_hub,
+)
 from ..dependencies import (
     CurrentUser,
     DatabaseSession,
     OptionalCurrentUser,
+    authenticate_access_token,
 )
 from .audio import stream_b2_file
 from .catalog import (
@@ -68,7 +74,7 @@ router = APIRouter(
 
 
 PLAYBACK_DEVICE_ONLINE_TTL = timedelta(
-    seconds=90,
+    seconds=5,
 )
 
 PLAYBACK_DEVICE_LIST_LIMIT = 20
@@ -260,6 +266,8 @@ PlaybackRemoteAction = Literal[
     "seek",
     "volume",
     "transfer",
+    "play_track",
+    "stop",
 ]
 
 
@@ -274,6 +282,8 @@ class PlaybackRemoteCommandRequest(
     action: PlaybackRemoteAction
 
     value: float | None = None
+
+    track_id: UUID | None = None
 
 
 class PlaybackRemoteCommandResponse(
@@ -692,6 +702,44 @@ async def build_playback_state(
     )
 
 
+def playback_command_response(
+    command: PlaybackCommand,
+) -> PlaybackRemoteCommandResponse:
+    return PlaybackRemoteCommandResponse(
+        id=command.id,
+        source_device_id=(
+            command.source_device_id
+        ),
+        target_device_id=(
+            command.target_device_id
+        ),
+        action=cast(
+            PlaybackRemoteAction,
+            command.action,
+        ),
+        value=command.value,
+        created_at=(
+            command.created_at
+        ),
+    )
+
+
+def _as_utc_playback_time(
+    value: datetime | None,
+) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
+    )
+
+
 def playback_device_is_online(
     last_seen_at: datetime,
     *,
@@ -786,6 +834,20 @@ async def prune_offline_playback_devices(
             ),
         )
     )
+
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if (
+        state is not None
+        and state.playback_device_id
+        in stale_device_ids
+    ):
+        state.playback_paused = True
+        state.playback_device_id = None
+        state.playback_updated_at = reference
 
     return stale_device_ids
 
@@ -1938,10 +2000,25 @@ async def update_my_playback_state(
 
     await session.commit()
 
-    return await build_playback_state(
-        session,
-        user,
+    playback_state = (
+        await build_playback_state(
+            session,
+            user,
+        )
     )
+
+    await playback_realtime_hub.broadcast(
+        user.id,
+        {
+            "type": "playback_state",
+            "playback_state":
+                playback_state.model_dump(
+                    mode="json",
+                ),
+        },
+    )
+
+    return playback_state
 
 
 @router.post(
@@ -2052,22 +2129,8 @@ async def poll_my_playback_device(
     return PlaybackDevicePollResponse(
         devices=devices,
         commands=[
-            PlaybackRemoteCommandResponse(
-                id=command.id,
-                source_device_id=(
-                    command.source_device_id
-                ),
-                target_device_id=(
-                    command.target_device_id
-                ),
-                action=cast(
-                    PlaybackRemoteAction,
-                    command.action,
-                ),
-                value=command.value,
-                created_at=(
-                    command.created_at
-                ),
+            playback_command_response(
+                command,
             )
             for command in commands
         ],
@@ -2075,6 +2138,378 @@ async def poll_my_playback_device(
             playback_state
         ),
     )
+
+
+@router.websocket(
+    "/me/playback-devices/live",
+)
+async def live_playback_device(
+    websocket: WebSocket,
+):
+    await websocket.accept()
+
+    user: User | None = None
+    device_id = ""
+    registered_socket = False
+
+    try:
+        try:
+            auth_message = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=5,
+            )
+        except TimeoutError:
+            await websocket.close(
+                code=4408,
+            )
+            return
+
+        if (
+            not isinstance(
+                auth_message,
+                dict,
+            )
+            or auth_message.get(
+                "type",
+            ) != "authenticate"
+        ):
+            await websocket.close(
+                code=4401,
+            )
+            return
+
+        token = str(
+            auth_message.get(
+                "access_token",
+                "",
+            )
+        ).strip()
+
+        device_id = str(
+            auth_message.get(
+                "device_id",
+                "",
+            )
+        ).strip()
+
+        name = str(
+            auth_message.get(
+                "name",
+                "",
+            )
+        ).strip()
+
+        device_type = str(
+            auth_message.get(
+                "device_type",
+                "browser",
+            )
+        ).strip()
+
+        if (
+            not token
+            or not device_id
+            or len(
+                device_id,
+            ) > 64
+            or not name
+            or len(
+                name,
+            ) > 120
+            or device_type
+            not in {
+                "desktop",
+                "mobile",
+                "tablet",
+                "browser",
+            }
+        ):
+            await websocket.close(
+                code=4401,
+            )
+            return
+
+        session_factory = (
+            get_session_factory()
+        )
+
+        async with session_factory() as session:
+            try:
+                user = (
+                    await authenticate_access_token(
+                        session,
+                        token,
+                    )
+                )
+            except HTTPException:
+                await websocket.close(
+                    code=4401,
+                )
+                return
+
+            try:
+                require_registered_playback_user(
+                    user,
+                )
+            except HTTPException:
+                await websocket.close(
+                    code=4403,
+                )
+                return
+
+            now = datetime.now(
+                UTC,
+            )
+
+            device = await session.get(
+                PlaybackDevice,
+                (
+                    user.id,
+                    device_id,
+                ),
+            )
+
+            if device is None:
+                device = PlaybackDevice(
+                    user_id=user.id,
+                    device_id=device_id,
+                    name=name,
+                    device_type=device_type,
+                    last_seen_at=now,
+                )
+
+                session.add(
+                    device,
+                )
+            else:
+                device.name = name
+                device.device_type = (
+                    device_type
+                )
+                device.last_seen_at = now
+
+            await prune_offline_playback_devices(
+                session,
+                user,
+                now=now,
+            )
+
+            await session.commit()
+
+            playback_state = (
+                await build_playback_state(
+                    session,
+                    user,
+                )
+            )
+
+            devices = (
+                await list_playback_devices(
+                    session,
+                    user,
+                    active_device_id=(
+                        playback_state
+                        .device_id
+                    ),
+                    now=now,
+                )
+            )
+
+        await playback_realtime_hub.connect(
+            user.id,
+            device_id,
+            websocket,
+        )
+
+        registered_socket = True
+
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "devices": [
+                    device.model_dump(
+                        mode="json",
+                    )
+                    for device in devices
+                ],
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            }
+        )
+
+        await playback_realtime_hub.broadcast(
+            user.id,
+            {
+                "type":
+                    "presence_changed",
+            },
+            exclude_device_id=(
+                device_id
+            ),
+        )
+
+        while True:
+            try:
+                message = (
+                    await asyncio.wait_for(
+                        websocket.receive_json(),
+                        timeout=5,
+                    )
+                )
+            except TimeoutError:
+                await websocket.close(
+                    code=4000,
+                )
+                break
+
+            if not isinstance(
+                message,
+                dict,
+            ):
+                continue
+
+            if message.get(
+                "type",
+            ) not in {
+                "heartbeat",
+                "presence",
+            }:
+                continue
+
+            async with session_factory() as session:
+                live_device = await session.get(
+                    PlaybackDevice,
+                    (
+                        user.id,
+                        device_id,
+                    ),
+                )
+
+                if live_device is None:
+                    break
+
+                now = datetime.now(
+                    UTC,
+                )
+
+                live_device.last_seen_at = (
+                    now
+                )
+
+                await prune_offline_playback_devices(
+                    session,
+                    user,
+                    now=now,
+                )
+
+                await session.commit()
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        should_cleanup = (
+            user is not None
+            and registered_socket
+            and bool(
+                device_id,
+            )
+        )
+
+        is_current_socket = False
+
+        if should_cleanup:
+            is_current_socket = (
+                await playback_realtime_hub.disconnect(
+                    user.id,
+                    device_id,
+                    websocket,
+                )
+            )
+
+        if (
+            should_cleanup
+            and is_current_socket
+        ):
+            session_factory = (
+                get_session_factory()
+            )
+
+            playback_state = None
+
+            async with session_factory() as session:
+                await session.execute(
+                    delete(
+                        PlaybackCommand,
+                    ).where(
+                        PlaybackCommand.user_id
+                        == user.id,
+                        PlaybackCommand.target_device_id
+                        == device_id,
+                    )
+                )
+
+                live_device = await session.get(
+                    PlaybackDevice,
+                    (
+                        user.id,
+                        device_id,
+                    ),
+                )
+
+                if live_device is not None:
+                    await session.delete(
+                        live_device,
+                    )
+
+                state = await session.get(
+                    UserAppState,
+                    user.id,
+                )
+
+                if (
+                    state is not None
+                    and state.playback_device_id
+                    == device_id
+                ):
+                    state.playback_paused = True
+                    state.playback_device_id = None
+                    state.playback_updated_at = (
+                        datetime.now(
+                            UTC,
+                        )
+                    )
+
+                await session.commit()
+
+                playback_state = (
+                    await build_playback_state(
+                        session,
+                        user,
+                    )
+                )
+
+            await playback_realtime_hub.broadcast(
+                user.id,
+                {
+                    "type":
+                        "presence_changed",
+                },
+            )
+
+            if playback_state is not None:
+                await playback_realtime_hub.broadcast(
+                    user.id,
+                    {
+                        "type":
+                            "playback_state",
+                        "playback_state":
+                            playback_state.model_dump(
+                                mode="json",
+                            ),
+                    },
+                )
 
 
 @router.post(
@@ -2145,6 +2580,7 @@ async def send_playback_device_command(
         )
 
     value = payload.value
+    selected_track = None
 
     if payload.action == "seek":
         if (
@@ -2179,6 +2615,60 @@ async def send_playback_device_command(
                 ),
             )
 
+    elif payload.action == "play_track":
+        value = None
+
+        if payload.track_id is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_400_BAD_REQUEST
+                ),
+                detail=(
+                    "Play-track commands require "
+                    "a track id."
+                ),
+            )
+
+        track_result = await session.execute(
+            select(
+                Track,
+            ).where(
+                Track.id
+                == payload.track_id,
+                Track.is_published.is_(
+                    True,
+                ),
+            )
+        )
+
+        selected_track = (
+            track_result
+            .scalar_one_or_none()
+        )
+
+        if selected_track is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_404_NOT_FOUND
+                ),
+                detail="Track not found.",
+            )
+
+        await session.execute(
+            delete(
+                PlaybackCommand,
+            ).where(
+                PlaybackCommand.user_id
+                == user.id,
+                PlaybackCommand.target_device_id
+                == target_device_id,
+                PlaybackCommand.consumed_at
+                .is_(
+                    None,
+                ),
+            )
+        )
+
     else:
         value = None
 
@@ -2198,20 +2688,91 @@ async def send_playback_device_command(
         command,
     )
 
-    if payload.action == "transfer":
-        playback_state = (
+    previous_pause_command = None
+    playback_state_row = None
+
+    if payload.action in {
+        "transfer",
+        "play_track",
+    }:
+        playback_state_row = (
             await session.get(
                 UserAppState,
                 user.id,
             )
         )
 
+        if playback_state_row is None:
+            playback_state_row = (
+                UserAppState(
+                    user_id=user.id,
+                )
+            )
+
+            session.add(
+                playback_state_row,
+            )
+
         previous_device_id = (
-            playback_state
-                .playback_device_id
-            if playback_state
-            is not None
-            else None
+            playback_state_row
+            .playback_device_id
+        )
+
+        if payload.action == "transfer":
+            updated_at = (
+                _as_utc_playback_time(
+                    playback_state_row
+                    .playback_updated_at,
+                )
+            )
+
+            if (
+                not playback_state_row
+                .playback_paused
+                and updated_at
+                is not None
+            ):
+                elapsed = max(
+                    (
+                        now -
+                        updated_at
+                    ).total_seconds(),
+                    0.0,
+                )
+
+                playback_state_row.playback_position_seconds = (
+                    max(
+                        float(
+                            playback_state_row
+                            .playback_position_seconds
+                            or 0.0
+                        ),
+                        0.0,
+                    )
+                    + elapsed
+                )
+        else:
+            playback_state_row.playback_track_id = (
+                selected_track.id
+                if selected_track
+                is not None
+                else None
+            )
+
+            playback_state_row.playback_position_seconds = (
+                0.0
+            )
+
+            playback_state_row.playback_paused = (
+                False
+            )
+
+        playback_state_row.playback_device_id = (
+            target_device_id
+        )
+
+        playback_state_row.playback_updated_at = (
+            now
         )
 
         if (
@@ -2219,7 +2780,7 @@ async def send_playback_device_command(
             and previous_device_id
             != target_device_id
         ):
-            session.add(
+            previous_pause_command = (
                 PlaybackCommand(
                     user_id=user.id,
                     target_device_id=(
@@ -2227,10 +2788,14 @@ async def send_playback_device_command(
                     ),
                     source_device_id=(
                         payload
-                            .source_device_id
+                        .source_device_id
                     ),
                     action="pause",
                 )
+            )
+
+            session.add(
+                previous_pause_command,
             )
 
     await session.commit()
@@ -2239,23 +2804,89 @@ async def send_playback_device_command(
         command,
     )
 
-    return PlaybackRemoteCommandResponse(
-        id=command.id,
-        source_device_id=(
-            command.source_device_id
-        ),
-        target_device_id=(
-            command.target_device_id
-        ),
-        action=cast(
-            PlaybackRemoteAction,
-            command.action,
-        ),
-        value=command.value,
-        created_at=(
-            command.created_at
-        ),
+    if previous_pause_command is not None:
+        await session.refresh(
+            previous_pause_command,
+        )
+
+    command_response = (
+        playback_command_response(
+            command,
+        )
     )
+
+    playback_state = (
+        await build_playback_state(
+            session,
+            user,
+        )
+    )
+
+    if previous_pause_command is not None:
+        previous_response = (
+            playback_command_response(
+                previous_pause_command,
+            )
+        )
+
+        /*
+         * Tell the previous audio owner to
+         * go silent before the new owner is
+         * notified. That ordering avoids a
+         * short two-device overlap during
+         * handoff.
+         */
+        await playback_realtime_hub.send_to(
+            user.id,
+            previous_pause_command
+            .target_device_id,
+            {
+                "type":
+                    "command",
+                "command":
+                    previous_response.model_dump(
+                        mode="json",
+                    ),
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            },
+        )
+
+    if payload.action in {
+        "transfer",
+        "play_track",
+    }:
+        await playback_realtime_hub.broadcast(
+            user.id,
+            {
+                "type":
+                    "playback_state",
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            },
+        )
+
+    await playback_realtime_hub.send_to(
+        user.id,
+        target_device_id,
+        {
+            "type": "command",
+            "command":
+                command_response.model_dump(
+                    mode="json",
+                ),
+            "playback_state":
+                playback_state.model_dump(
+                    mode="json",
+                ),
+        },
+    )
+
+    return command_response
 
 
 @router.get(
