@@ -23,6 +23,9 @@ from ...security.passwords import hash_password, verify_password
 from ...security.rate_limit import (
     enforce_rate_limit,
 )
+from ...services.admin_notifications import (
+    record_admin_activity,
+)
 from ...services.email import (
     EmailDeliveryError,
     send_password_recovery_email,
@@ -707,6 +710,23 @@ async def register(
         user.last_login_at = datetime.now(UTC)
 
         await session.commit()
+
+        await record_admin_activity(
+            kind="account",
+            title="New user created",
+            body=(
+                "@"
+                + str(
+                    user.username
+                    or "unknown",
+                )
+                + " created a registered "
+                + user.role.value
+                + " account."
+            ),
+            actor_user_id=user.id,
+            actor_username=user.username,
+        )
 
         access_token, expires_in = create_access_token(
             user_id=user.id,
