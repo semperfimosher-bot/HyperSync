@@ -131,6 +131,17 @@ async def generated_playlist_needs_refresh(
     ):
         return True
 
+    expected_title = (
+        playlist.generated_query.strip()
+    )
+
+    if (
+        expected_title
+        and playlist.title
+        != expected_title
+    ):
+        return True
+
     catalog_result = await session.execute(
         select(
             func.count(
@@ -417,7 +428,7 @@ async def ensure_artist_playlist(
         )
 
         playlist.title = (
-            f"{artist_name} Essentials"
+            artist_name
         )
 
         playlist.description = (
