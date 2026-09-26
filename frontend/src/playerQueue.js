@@ -64,6 +64,15 @@ export function buildTrackQueue(
         album:
           track.album ??
           "",
+
+        genre:
+          track.genre ??
+          "",
+
+        releaseYear:
+          track.releaseYear ??
+          track.release_year ??
+          null,
       },
     }));
 }
