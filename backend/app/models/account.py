@@ -377,6 +377,88 @@ class ListeningEvent(
     )
 
 
+class PlaybackDevice(
+    Base,
+):
+    __tablename__ = "playback_devices"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+
+    device_id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+
+    device_type: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="browser",
+        server_default="browser",
+    )
+
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+
+
+class PlaybackCommand(
+    UUIDPrimaryKeyMixin,
+    TimestampMixin,
+    Base,
+):
+    __tablename__ = "playback_commands"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    target_device_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+
+    source_device_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+
+    action: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+    )
+
+    value: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+
 class UserAppState(
     TimestampMixin,
     Base,
