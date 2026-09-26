@@ -3017,6 +3017,11 @@ function MainPage({
   activePlaylistDownloads,
   installState,
   onInstallApp,
+  playbackDevices = [],
+  currentPlaybackDeviceId,
+  controlledPlaybackDeviceId,
+  onSelectPlaybackDevice,
+  onPlaybackDeviceCommand,
 }) {
   const warmOwnerKey =
     [
@@ -3437,16 +3442,16 @@ function MainPage({
             playbackDevices
           }
           currentPlaybackDeviceId={
-            playbackDeviceIdRef.current
+            currentPlaybackDeviceId
           }
           controlledPlaybackDeviceId={
             controlledPlaybackDeviceId
           }
           onSelectPlaybackDevice={
-            setControlledPlaybackDeviceId
+            onSelectPlaybackDevice
           }
           onPlaybackDeviceCommand={
-            sendAccountPlaybackCommand
+            onPlaybackDeviceCommand
           }
         />
       );
@@ -8194,6 +8199,21 @@ const clearPlaylistToOpen =
             }
             onInstallApp={
               handleInstallApp
+            }
+            playbackDevices={
+              playbackDevices
+            }
+            currentPlaybackDeviceId={
+              playbackDeviceIdRef.current
+            }
+            controlledPlaybackDeviceId={
+              controlledPlaybackDeviceId
+            }
+            onSelectPlaybackDevice={
+              setControlledPlaybackDeviceId
+            }
+            onPlaybackDeviceCommand={
+              sendAccountPlaybackCommand
             }
           />
         </main>
