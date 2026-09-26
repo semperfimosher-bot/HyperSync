@@ -441,6 +441,8 @@ test(
           title: "Song",
           artist: "Artist",
           album: "Album",
+          genre: "Country",
+          release_year: 2024,
           artwork_version:
             "art-v2",
           duration_seconds:
@@ -456,6 +458,16 @@ test(
     assert.equal(
       entry.meta.artist,
       "Artist",
+    );
+
+    assert.equal(
+      entry.meta.genre,
+      "Country",
+    );
+
+    assert.equal(
+      entry.meta.releaseYear,
+      2024,
     );
 
     assert.equal(
