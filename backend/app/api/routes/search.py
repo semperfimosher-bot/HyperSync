@@ -518,12 +518,14 @@ async def _load_track_candidates(
         )
     )
 
-    if (
+    used_postgresql_similarity = (
         _is_postgresql(
             session,
         )
         and len(term) >= 3
-    ):
+    )
+
+    if used_postgresql_similarity:
         query_literal = literal(
             term,
         )
@@ -589,40 +591,48 @@ async def _load_track_candidates(
         if direct:
             return direct
 
-    direct_pattern = prefix_pattern if len(term) == 1 else contains_pattern
-
-    direct_conditions = [
-        field.ilike(
-            direct_pattern,
+    if not used_postgresql_similarity:
+        direct_pattern = (
+            prefix_pattern
+            if len(term) == 1
+            else contains_pattern
         )
-        for field in fields
-    ]
 
-    result = await session.execute(
-        stmt.where(
-            or_(
-                *direct_conditions,
+        direct_conditions = [
+            field.ilike(
+                direct_pattern,
+            )
+            for field in fields
+        ]
+
+        result = await session.execute(
+            stmt.where(
+                or_(
+                    *direct_conditions,
+                )
+            )
+            .order_by(
+                Track.artist.asc(),
+                Track.title.asc(),
+            )
+            .limit(
+                TRACK_CANDIDATE_LIMIT,
             )
         )
-        .order_by(
-            Track.artist.asc(),
-            Track.title.asc(),
-        )
-        .limit(
-            TRACK_CANDIDATE_LIMIT,
-        )
-    )
 
-    direct = list(result.scalars().all())
+        direct = list(
+            result.scalars().all()
+        )
 
-    if direct:
-        return direct
+        if direct:
+            return direct
 
     if not smart_query_has_semantic_signal(
         parsed.raw,
     ):
-        if len(term) < 3 or _is_postgresql(
-            session,
+        if (
+            len(term) < 3
+            or used_postgresql_similarity
         ):
             return []
 
