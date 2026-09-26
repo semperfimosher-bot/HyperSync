@@ -26,7 +26,7 @@ test(
 
 
 test(
-  "returns the complete recently played history without a limit",
+  "limits home recently played to twelve tracks",
   () => {
     const profile = {
       recently_played: Array.from(
@@ -37,11 +37,11 @@ test(
       ),
     };
 
-    assert.deepEqual(
+    assert.equal(
       getHomeRecentlyPlayed(
         profile,
-      ),
-      profile.recently_played,
+      ).length,
+      12,
     );
   },
 );
