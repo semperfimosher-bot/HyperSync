@@ -6915,6 +6915,143 @@ button > span:nth-child(2) {
   gap: 14px;
 }
 
+.hs-message-share-picker {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(230px, 420px)
+    auto;
+  align-items: center;
+  gap: 12px;
+  padding:
+    11px
+    12px;
+  border:
+    1px solid
+    rgba(77, 227, 255, 0.18);
+  border-radius: 11px;
+  background:
+    linear-gradient(
+      100deg,
+      rgba(5, 22, 31, 0.96),
+      rgba(4, 15, 22, 0.94)
+    );
+  box-shadow:
+    inset 0 1px
+    rgba(255, 255, 255, 0.025);
+}
+
+.hs-message-share-picker > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hs-message-share-picker > div:first-child > span {
+  color: var(--blue-bright);
+  font:
+    800 6px
+    "JetBrains Mono",
+    monospace;
+  letter-spacing: 0.12em;
+}
+
+.hs-message-share-picker > div:first-child > strong {
+  color: #e8f7fb;
+  font-size: 10px;
+}
+
+.hs-message-share-picker > button {
+  min-height: 32px;
+  padding:
+    0
+    10px;
+  border:
+    1px solid
+    rgba(91, 156, 181, 0.18);
+  border-radius: 8px;
+  color: #8fb5c2;
+  background:
+    rgba(8, 28, 38, 0.82);
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.hs-shared-music-card {
+  display: grid;
+  min-width: 0;
+  grid-template-columns:
+    46px
+    minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding:
+    7px;
+  border:
+    1px solid
+    rgba(70, 177, 211, 0.16);
+  border-radius: 9px;
+  background:
+    rgba(2, 11, 17, 0.72);
+}
+
+.hs-shared-music-card__art {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 7px;
+  color: #63cce5;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(0, 112, 166, 0.26),
+      rgba(12, 34, 45, 0.86)
+    );
+}
+
+.hs-shared-music-card__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hs-shared-music-card__copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.hs-shared-music-card__copy small {
+  margin: 0;
+  color: #4fd8f3;
+  font:
+    800 5.5px
+    "JetBrains Mono",
+    monospace;
+  letter-spacing: 0.1em;
+  text-align: left;
+}
+
+.hs-shared-music-card__copy strong,
+.hs-shared-music-card__copy em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hs-shared-music-card__copy strong {
+  color: #e9f7fa;
+  font-size: 9px;
+}
+
+.hs-shared-music-card__copy em {
+  color: #6e8d99;
+  font-size: 7px;
+  font-style: normal;
+}
+
 .hs-messages-console__copy {
   max-width: 560px;
 
@@ -7433,6 +7570,25 @@ button > span:nth-child(2) {
     );
 }
 
+.hs-message-bubble .hs-shared-music-card {
+  min-width:
+    min(
+      310px,
+      58vw
+    );
+  margin-bottom: 7px;
+  background:
+    rgba(2, 10, 15, 0.42);
+}
+
+.hs-message-bubble.is-mine
+.hs-shared-music-card {
+  border-color:
+    rgba(198, 241, 250, 0.18);
+  background:
+    rgba(1, 53, 72, 0.32);
+}
+
 .hs-message-bubble p {
   margin: 0;
 
@@ -7842,6 +7998,30 @@ button > span:nth-child(2) {
 }
 
 @media (max-width: 520px) {
+  .hs-message-share-picker {
+    grid-template-columns:
+      minmax(0, 1fr)
+      auto;
+    gap: 8px;
+  }
+
+  .hs-message-share-picker >
+  .hs-shared-music-card {
+    grid-column:
+      1 / -1;
+    grid-row:
+      2;
+  }
+
+  .hs-message-bubble
+  .hs-shared-music-card {
+    min-width:
+      min(
+        250px,
+        72vw
+      );
+  }
+
   .hs-messages-console__copy {
     font-size: 7.8px;
   }
