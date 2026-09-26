@@ -25,6 +25,9 @@ import Avatar from
 import Icon from
   "../ui/Icon.jsx";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 
 function formatMessageTime(
   value,
@@ -249,7 +252,9 @@ export default function MessagesPage({
 
   const loadConversations =
     useCallback(
-      async () => {
+      async ({
+        quiet = false,
+      } = {}) => {
         try {
           const result =
             await getConversations();
@@ -271,14 +276,18 @@ export default function MessagesPage({
 
           onUnreadChange?.();
         } catch (requestError) {
-          setError(
-            requestError
-              instanceof Error
-              ? requestError.message
-              : "Unable to load messages.",
-          );
+          if (!quiet) {
+            setError(
+              requestError
+                instanceof Error
+                ? requestError.message
+                : "Unable to load messages.",
+            );
+          }
         } finally {
-          setLoading(false);
+          if (!quiet) {
+            setLoading(false);
+          }
         }
       },
       [
@@ -406,23 +415,80 @@ export default function MessagesPage({
 
   useEffect(() => {
     void loadConversations();
-
-    const interval =
-      window.setInterval(
-        () => {
-          void loadConversations();
-        },
-        10_000,
-      );
-
-    return () => {
-      window.clearInterval(
-        interval,
-      );
-    };
   }, [
     loadConversations,
   ]);
+
+
+  useQuietRefresh(
+    () =>
+      loadConversations({
+        quiet:
+          true,
+      }),
+    {
+      intervalMs:
+        15_000,
+    },
+  );
+
+
+  const refreshOpenConversation =
+    useCallback(
+      async () => {
+        const username =
+          String(
+            selectedUsername ??
+            "",
+          ).trim();
+
+        if (!username) {
+          return;
+        }
+
+        try {
+          const result =
+            await getConversation(
+              username,
+            );
+
+          setConversation(
+            result,
+          );
+
+          await loadConversations({
+            quiet:
+              true,
+          });
+
+          onUnreadChange?.();
+        } catch {
+          /*
+           * Keep the current thread visible
+           * through temporary background
+           * refresh failures.
+           */
+        }
+      },
+      [
+        loadConversations,
+        onUnreadChange,
+        selectedUsername,
+      ],
+    );
+
+
+  useQuietRefresh(
+    refreshOpenConversation,
+    {
+      enabled:
+        Boolean(
+          selectedUsername,
+        ),
+      intervalMs:
+        4_000,
+    },
+  );
 
 
   useEffect(() => {
