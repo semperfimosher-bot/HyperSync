@@ -123,33 +123,6 @@ function formatReleaseDate(
 }
 
 
-function trackMeta(
-  track,
-) {
-  return {
-    audioUrl:
-      track.audio_url,
-    artworkUrl:
-      track.artwork_url,
-    title:
-      track.title,
-    artist:
-      track.artist,
-    album:
-      track.album ?? "",
-    mimeType:
-      track.mime_type ?? null,
-    fileSize:
-      track.file_size ?? null,
-    mediaVersion:
-      track.media_version ?? null,
-    artworkVersion:
-      track.artwork_version ?? null,
-    durationSeconds:
-      track.duration_seconds ?? null,
-  };
-}
-
 
 export default function ArtistProfilePage({
   artistName,
@@ -164,18 +137,18 @@ export default function ArtistProfilePage({
     useTrackActionMenu();
 
   const [
-    currentTrackId,
-    setCurrentTrackId,
+    playbackState,
+    setPlaybackState,
   ] = useState(
-    () =>
-      player.getState()
-        ?.trackId
-        ? String(
-            player.getState()
-              .trackId,
-          )
-        : null,
+    () => player.getState(),
   );
+
+  const currentTrackId =
+    playbackState?.trackId
+      ? String(
+          playbackState.trackId,
+        )
+      : null;
 
   const [
     profile,
@@ -252,17 +225,7 @@ export default function ArtistProfilePage({
 
   useEffect(() => {
     return player.subscribe(
-      (
-        nextState,
-      ) => {
-        setCurrentTrackId(
-          nextState?.trackId
-            ? String(
-                nextState.trackId,
-              )
-            : null,
-        );
-      },
+      setPlaybackState,
     );
   }, []);
 
@@ -328,10 +291,37 @@ export default function ArtistProfilePage({
       (track) => ({
         id:
           track.id,
-        meta:
-          trackMeta(
-            track,
+        audioUrl:
+          track.audio_url ??
+          null,
+        artworkUrl:
+          resolveArtworkUrl(
+            track.artwork_url,
           ),
+        mimeType:
+          track.mime_type ??
+          null,
+        fileSize:
+          track.file_size ??
+          null,
+        mediaVersion:
+          track.media_version ??
+          null,
+        artworkVersion:
+          track.artwork_version ??
+          null,
+        durationSeconds:
+          track.duration_seconds ??
+          null,
+        title:
+          track.title ??
+          "",
+        artist:
+          track.artist ??
+          "",
+        album:
+          track.album ??
+          "",
       }),
     );
 
@@ -348,9 +338,54 @@ export default function ArtistProfilePage({
   }
 
 
+  function playArtistTrack(
+    track,
+  ) {
+    if (!track?.id) {
+      return;
+    }
+
+    const trackId =
+      String(
+        track.id,
+      );
+
+    if (
+      currentTrackId ===
+      trackId
+    ) {
+      void player
+        .togglePlay()
+        .catch(
+          () => {},
+        );
+
+      return;
+    }
+
+    const index =
+      songs.findIndex(
+        (candidate) =>
+          String(
+            candidate.id,
+          ) ===
+          trackId,
+      );
+
+    playTracks(
+      songs.length
+        ? songs
+        : [track],
+      index >= 0
+        ? index
+        : 0,
+    );
+  }
+
+
   if (!online) {
     return (
-      <div className="hs-artist-profile-page">
+      <div className="hs-profile-page hs-artist-profile-page">
         <button
           type="button"
           className="hs-artist-back"
@@ -379,7 +414,7 @@ export default function ArtistProfilePage({
     && !profile
   ) {
     return (
-      <div className="hs-artist-profile-page">
+      <div className="hs-profile-page hs-artist-profile-page">
         <div className="hs-profile-skeleton" />
         <div className="hs-profile-skeleton" />
       </div>
@@ -392,7 +427,7 @@ export default function ArtistProfilePage({
     && !profile
   ) {
     return (
-      <div className="hs-artist-profile-page">
+      <div className="hs-profile-page hs-artist-profile-page">
         <button
           type="button"
           className="hs-artist-back"
@@ -440,7 +475,7 @@ export default function ArtistProfilePage({
     profile.new_releases ?? [];
 
   return (
-    <div className="hs-artist-profile-page">
+    <div className="hs-profile-page hs-artist-profile-page">
       <button
         type="button"
         className="hs-artist-back"
@@ -455,8 +490,12 @@ export default function ArtistProfilePage({
         Back to search
       </button>
 
-      <section className="hs-artist-hero">
-        <div className="hs-artist-hero__art">
+      <section className="hs-profile-hero hs-artist-hero">
+        <div
+          className="hs-profile-hero__ambient"
+          aria-hidden="true"
+        />
+        <div className="hs-profile-hero__avatar hs-artist-hero__art">
           {resolveArtworkUrl(
             profile.artwork_url,
           ) ? (
@@ -476,7 +515,7 @@ export default function ArtistProfilePage({
           )}
         </div>
 
-        <div className="hs-artist-hero__copy">
+        <div className="hs-profile-hero__identity hs-artist-hero__copy">
           <span className="hs-eyebrow">
             ARTIST
           </span>
@@ -537,7 +576,7 @@ export default function ArtistProfilePage({
         </div>
       </section>
 
-      <section className="hs-artist-stats">
+      <section className="hs-profile-stats hs-artist-stats">
         <div>
           <strong>
             {statValue(
@@ -610,9 +649,8 @@ export default function ArtistProfilePage({
                   type="button"
                   key={track.id}
                   onClick={() => {
-                    playTracks(
-                      popular,
-                      index,
+                    playArtistTrack(
+                      track,
                     );
                   }}
                 >
@@ -714,9 +752,8 @@ export default function ArtistProfilePage({
 
                 const playTrack =
                   () => {
-                    playTracks(
-                      songs,
-                      index,
+                    playArtistTrack(
+                      track,
                     );
                   };
 
@@ -836,7 +873,12 @@ export default function ArtistProfilePage({
 
                     <span className="hs-search-track__play">
                       <Icon
-                        name="play"
+                        name={
+                          isCurrentTrack
+                          && !playbackState?.paused
+                            ? "pause"
+                            : "play"
+                        }
                         size={16}
                       />
                     </span>
@@ -882,9 +924,8 @@ export default function ArtistProfilePage({
                   className="hs-recent-card"
                   key={track.id}
                   onClick={() => {
-                    playTracks(
-                      releases,
-                      index,
+                    playArtistTrack(
+                      track,
                     );
                   }}
                 >
