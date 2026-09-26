@@ -71,6 +71,7 @@ async def test_saved_generated_playlist_refreshes_in_place_for_new_music() -> No
         )
 
         assert playlist is not None
+        assert playlist.title == artist
 
         playlist_id = playlist.id
 
@@ -106,6 +107,7 @@ async def test_saved_generated_playlist_refreshes_in_place_for_new_music() -> No
 
         assert refreshed is not None
         assert refreshed.id == playlist_id
+        assert refreshed.title == artist
 
         track_count = (
             await session.execute(
@@ -228,3 +230,64 @@ async def test_generated_artist_playlist_includes_full_catalog_up_to_700_tracks(
         assert set(rows).issubset(
             matching_ids,
         )
+
+
+@pytest.mark.asyncio
+async def test_legacy_essentials_title_is_removed_without_catalog_change() -> None:
+    run_id = uuid4().hex[:8]
+    artist = f"Generated Rename {run_id}"
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                Track(
+                    id=uuid4(),
+                    title="First",
+                    artist=artist,
+                    album="Generated",
+                    b2_object_key=f"audio/{run_id}-rename-first.mp3",
+                    mime_type="audio/mpeg",
+                    file_size=1000,
+                    duration_seconds=180,
+                    is_published=True,
+                ),
+                Track(
+                    id=uuid4(),
+                    title="Second",
+                    artist=artist,
+                    album="Generated",
+                    b2_object_key=f"audio/{run_id}-rename-second.mp3",
+                    mime_type="audio/mpeg",
+                    file_size=1000,
+                    duration_seconds=180,
+                    is_published=True,
+                ),
+            ]
+        )
+
+        await session.commit()
+
+        playlist = await ensure_artist_playlist(
+            session,
+            artist,
+        )
+
+        assert playlist is not None
+
+        playlist_id = playlist.id
+        playlist.title = (
+            f"{artist} Essentials"
+        )
+
+        await session.commit()
+
+        renamed = await ensure_artist_playlist(
+            session,
+            artist,
+        )
+
+        assert renamed is not None
+        assert renamed.id == playlist_id
+        assert renamed.title == artist
