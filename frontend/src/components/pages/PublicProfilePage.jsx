@@ -29,6 +29,9 @@ import useTrackActionMenu from
 import useCollectionActionMenu from
   "../../hooks/useCollectionActionMenu.js";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 
 function memberFor(value) {
   if (!value) {
@@ -103,38 +106,71 @@ export default function PublicProfilePage({
 
 
   const load =
-    useCallback(async () => {
-      if (!username) {
-        return;
-      }
+    useCallback(
+      async ({
+        quiet = false,
+      } = {}) => {
+        if (!username) {
+          return;
+        }
 
-      setLoading(true);
-      setError("");
+        if (!quiet) {
+          setLoading(true);
+          setError("");
+        }
 
-      try {
-        const data =
-          await getPublicProfile(
-            username,
-          );
+        try {
+          const data =
+            await getPublicProfile(
+              username,
+            );
 
-        setProfile(data);
+          setProfile(data);
+          setError("");
 
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Unable to load profile.",
-        );
+        } catch (loadError) {
+          if (!quiet) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "Unable to load profile.",
+            );
+          }
 
-      } finally {
-        setLoading(false);
-      }
-    }, [username]);
+        } finally {
+          if (!quiet) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        username,
+      ],
+    );
 
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [
+    load,
+  ]);
+
+
+  useQuietRefresh(
+    () =>
+      load({
+        quiet:
+          true,
+      }),
+    {
+      enabled:
+        Boolean(
+          username,
+        ),
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   async function followAction() {
