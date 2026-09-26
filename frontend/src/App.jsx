@@ -124,10 +124,7 @@ import {
 } from "./offlineDownloads.js";
 
 import {
-  getLibraryTracks,
-  getMyPlaylists,
   getPlaylist,
-  getSavedPlaylists,
 } from "./playlistApi.js";
 
 import {
@@ -166,7 +163,6 @@ import {
 } from "./musicShare.js";
 
 import {
-  resolveSharedMusicLibraryTarget,
   sharedMusicSearchQuery,
 } from "./sharedMusicNavigation.js";
 
@@ -2997,8 +2993,6 @@ function MainPage({
   sharedMusicToSend,
   onSharedMusicHandled,
   onOpenSharedMusic,
-  librarySharedMusicTarget,
-  onLibrarySharedMusicHandled,
   onMessageNotificationsChanged,
   onProfileUpdated,
   onNavigate,
@@ -3382,12 +3376,6 @@ function MainPage({
           }
           onInitialPlaylistHandled={
             onPlaylistOpened
-          }
-          initialSharedMusicTarget={
-            librarySharedMusicTarget
-          }
-          onInitialSharedMusicHandled={
-            onLibrarySharedMusicHandled
           }
           activePlaylistDownloads={
             activePlaylistDownloads
@@ -5055,11 +5043,6 @@ export default function App() {
   const [
     sharedMusicToSend,
     setSharedMusicToSend,
-  ] = useState(null);
-
-  const [
-    librarySharedMusicTarget,
-    setLibrarySharedMusicTarget,
   ] = useState(null);
 
   const [
@@ -7510,20 +7493,9 @@ const clearPlaylistToOpen =
     );
 
 
-  const clearLibrarySharedMusicTarget =
-    useCallback(
-      () => {
-        setLibrarySharedMusicTarget(
-          null,
-        );
-      },
-      [],
-    );
-
-
   const openSharedMusicFromMessage =
     useCallback(
-      async (
+      (
         rawItem,
       ) => {
         const item =
@@ -7534,81 +7506,6 @@ const clearPlaylistToOpen =
         if (!item) {
           return;
         }
-
-        if (
-          currentUser?.account_type !==
-            "registered"
-        ) {
-          updateSearch(
-            sharedMusicSearchQuery(
-              item,
-            ),
-          );
-
-          return;
-        }
-
-        try {
-          const [
-            tracks,
-            ownedPlaylists,
-            savedPlaylists,
-          ] =
-            await Promise.all([
-              getLibraryTracks(),
-              getMyPlaylists(),
-              getSavedPlaylists(),
-            ]);
-
-          const target =
-            resolveSharedMusicLibraryTarget(
-              item,
-              {
-                tracks,
-                ownedPlaylists,
-                savedPlaylists,
-              },
-            );
-
-          if (target) {
-            if (
-              target.kind ===
-                "playlist"
-            ) {
-              setLibrarySharedMusicTarget(
-                null,
-              );
-
-              setPlaylistToOpen(
-                String(
-                  target.playlist.id,
-                ),
-              );
-            } else {
-              setPlaylistToOpen(
-                null,
-              );
-
-              setLibrarySharedMusicTarget(
-                target,
-              );
-            }
-
-            navigate(
-              "library",
-            );
-
-            return;
-          }
-        } catch {
-          // If Library membership cannot be
-          // checked, Search is still a safe
-          // way to open the shared item.
-        }
-
-        setLibrarySharedMusicTarget(
-          null,
-        );
 
         setPlaylistToOpen(
           null,
@@ -7621,8 +7518,6 @@ const clearPlaylistToOpen =
         );
       },
       [
-        currentUser?.account_type,
-        navigate,
         updateSearch,
       ],
     );
@@ -8079,12 +7974,6 @@ const clearPlaylistToOpen =
             }
             onOpenSharedMusic={
               openSharedMusicFromMessage
-            }
-            librarySharedMusicTarget={
-              librarySharedMusicTarget
-            }
-            onLibrarySharedMusicHandled={
-              clearLibrarySharedMusicTarget
             }
             onMessageNotificationsChanged={
               refreshMessageNotifications
