@@ -18,6 +18,10 @@ export function selectRightRailPlayerState(
       state.artist ??
       "",
 
+    album:
+      state.album ??
+      "",
+
     queue:
       Array.isArray(
         state.queue,
@@ -50,6 +54,8 @@ export function isSameRightRailPlayerState(
         right?.title &&
       left?.artist ===
         right?.artist &&
+      left?.album ===
+        right?.album &&
       left?.queue ===
         right?.queue &&
       left?.queueIndex ===
