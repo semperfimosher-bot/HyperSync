@@ -71,6 +71,9 @@ import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.j
 import PlaybackDevicesPanel from
   "./components/player/PlaybackDevicesPanel.jsx";
 
+import MobilePlayerDetails from
+  "./components/player/MobilePlayerDetails.jsx";
+
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
 import PasswordRecoveryOverlay, {
@@ -3584,6 +3587,7 @@ function PlayerBar({
   accountPlaybackSnapshot,
   onSelectPlaybackDevice,
   onPlaybackDeviceCommand,
+  onOpenPlayerDetails,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -3611,6 +3615,12 @@ function PlayerBar({
   ] = useState(null);
 
   const remoteSeekTimerRef =
+    useRef(null);
+
+  const playerDetailsPressTimerRef =
+    useRef(null);
+
+  const playerDetailsPointerRef =
     useRef(null);
 
   const [
@@ -4034,6 +4044,154 @@ function PlayerBar({
         );
     };
 
+  const clearPlayerDetailsPress =
+    useCallback(
+      () => {
+        if (
+          playerDetailsPressTimerRef
+            .current
+        ) {
+          window.clearTimeout(
+            playerDetailsPressTimerRef
+              .current,
+          );
+
+          playerDetailsPressTimerRef.current =
+            null;
+        }
+
+        playerDetailsPointerRef.current =
+          null;
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    return () => {
+      clearPlayerDetailsPress();
+    };
+  }, [
+    clearPlayerDetailsPress,
+  ]);
+
+
+  const handlePlayerDetailsPointerDown =
+    useCallback(
+      (event) => {
+        if (
+          event.pointerType !==
+            "touch" ||
+          !onOpenPlayerDetails ||
+          (
+            !displayTrackId &&
+            !state.queue?.length
+          )
+        ) {
+          return;
+        }
+
+        if (
+          event.target instanceof
+            Element &&
+          event.target.closest(
+            [
+              "button",
+              "input",
+              "a[href]",
+              "[role='button']",
+              "[role='slider']",
+            ].join(", "),
+          )
+        ) {
+          return;
+        }
+
+        clearPlayerDetailsPress();
+
+        const pointer = {
+          pointerId:
+            event.pointerId,
+          x:
+            event.clientX,
+          y:
+            event.clientY,
+        };
+
+        playerDetailsPointerRef.current =
+          pointer;
+
+        playerDetailsPressTimerRef.current =
+          window.setTimeout(
+            () => {
+              playerDetailsPressTimerRef.current =
+                null;
+
+              playerDetailsPointerRef.current =
+                null;
+
+              try {
+                navigator.vibrate?.(
+                  10,
+                );
+              } catch {
+                // Haptics are optional.
+              }
+
+              onOpenPlayerDetails();
+            },
+            520,
+          );
+      },
+      [
+        clearPlayerDetailsPress,
+        displayTrackId,
+        onOpenPlayerDetails,
+        state.queue?.length,
+      ],
+    );
+
+
+  const handlePlayerDetailsPointerMove =
+    useCallback(
+      (event) => {
+        const pointer =
+          playerDetailsPointerRef
+            .current;
+
+        if (
+          !pointer ||
+          pointer.pointerId !==
+            event.pointerId
+        ) {
+          return;
+        }
+
+        const movedX =
+          Math.abs(
+            event.clientX -
+              pointer.x,
+          );
+
+        const movedY =
+          Math.abs(
+            event.clientY -
+              pointer.y,
+          );
+
+        if (
+          movedX > 12 ||
+          movedY > 12
+        ) {
+          clearPlayerDetailsPress();
+        }
+      },
+      [
+        clearPlayerDetailsPress,
+      ],
+    );
+
+
   const currentTrackAction =
     displayTrackId
       ? {
@@ -4085,10 +4243,29 @@ function PlayerBar({
         }
       : null;
 
+  const currentTrackMenuTriggerProps =
+    currentTrackAction
+      ? trackActionMenu.getTriggerProps(
+          currentTrackAction,
+        )
+      : {};
+
   return (
     <section
       className="player-bar"
       aria-label="Player"
+      onPointerDown={
+        handlePlayerDetailsPointerDown
+      }
+      onPointerMove={
+        handlePlayerDetailsPointerMove
+      }
+      onPointerUp={
+        clearPlayerDetailsPress
+      }
+      onPointerCancel={
+        clearPlayerDetailsPress
+      }
     >
 
       {/* =================================================
@@ -4097,13 +4274,29 @@ function PlayerBar({
 
       <div
         className="player-bar__track"
-        {...(
-          currentTrackAction
-            ? trackActionMenu.getTriggerProps(
-                currentTrackAction,
-              )
-            : {}
-        )}
+        onContextMenu={(event) => {
+          const nativeEvent =
+            event.nativeEvent;
+
+          if (
+            nativeEvent
+              ?.pointerType ===
+                "touch" ||
+            nativeEvent
+              ?.sourceCapabilities
+              ?.firesTouchEvents
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+
+          currentTrackMenuTriggerProps
+            .onContextMenu
+            ?.(
+              event,
+            );
+        }}
       >
 
         <TrackArtwork
@@ -5088,6 +5281,11 @@ export default function App() {
       readPasswordResetTokenFromLocation(),
     ),
   );
+
+  const [
+    mobilePlayerDetailsOpen,
+    setMobilePlayerDetailsOpen,
+  ] = useState(false);
 
   const [authOpen, setAuthOpen] =
     useState(
@@ -8083,6 +8281,22 @@ const clearPlaylistToOpen =
         onPlaybackDeviceCommand={
           sendAccountPlaybackCommand
         }
+        onOpenPlayerDetails={() => {
+          setMobilePlayerDetailsOpen(
+            true,
+          );
+        }}
+      />
+
+      <MobilePlayerDetails
+        open={
+          mobilePlayerDetailsOpen
+        }
+        onClose={() => {
+          setMobilePlayerDetailsOpen(
+            false,
+          );
+        }}
       />
 
       <MobileBottomNav
