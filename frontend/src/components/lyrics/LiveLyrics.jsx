@@ -344,7 +344,7 @@ function LiveLyrics() {
 
   const trackArtist =
     playerState.artist
-    || "HyperSync";
+    || "HyperSynced";
 
 
   let badgeText =
