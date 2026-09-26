@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from typing import Literal
 from uuid import UUID
 
@@ -279,6 +283,56 @@ def _shared_music_response(
             message.shared_artwork_url
         ),
     )
+
+
+def _admin_message_details(
+    *,
+    sender_username: str,
+    recipient_username: str,
+    body: str,
+    shared_kind: str | None = None,
+    shared_title: str | None = None,
+    shared_subtitle: str | None = None,
+) -> str:
+    details = (
+        "@"
+        + (
+            sender_username
+            or "unknown"
+        )
+        + " sent a message to @"
+        + (
+            recipient_username
+            or "unknown"
+        )
+        + "."
+    )
+
+    if body:
+        details += (
+            "\n\nMessage:\n"
+            + body
+        )
+
+    if (
+        shared_kind
+        and shared_title
+    ):
+        details += (
+            "\n\nShared "
+            + shared_kind
+            + ': "'
+            + shared_title
+            + '"'
+        )
+
+        if shared_subtitle:
+            details += (
+                " — "
+                + shared_subtitle
+            )
+
+    return details
 
 
 def _message_user(
@@ -688,43 +742,37 @@ async def send_message(
             deliver_message_push,
             subscriptions,
             user.username
-            or "HyperSync user",
+            or "HyperSynced user",
         )
 
     message_details = (
-        "@"
-        + str(
-            user.username
-            or "unknown",
+        _admin_message_details(
+            sender_username=(
+                user.username
+                or ""
+            ),
+            recipient_username=(
+                target.username
+                or ""
+            ),
+            body=body,
+            shared_kind=(
+                shared_music.kind
+                if shared_music
+                else None
+            ),
+            shared_title=(
+                shared_music.title
+                if shared_music
+                else None
+            ),
+            shared_subtitle=(
+                shared_music.subtitle
+                if shared_music
+                else None
+            ),
         )
-        + " sent a message to @"
-        + str(
-            target.username
-            or "unknown",
-        )
-        + "."
     )
-
-    if body:
-        message_details += (
-            "\n\nMessage:\n"
-            + body
-        )
-
-    if shared_music is not None:
-        message_details += (
-            "\n\nShared "
-            + shared_music.kind
-            + ': "'
-            + shared_music.title
-            + '"'
-        )
-
-        if shared_music.subtitle:
-            message_details += (
-                " — "
-                + shared_music.subtitle
-            )
 
     await record_admin_activity(
         kind="message",
@@ -732,6 +780,7 @@ async def send_message(
         body=message_details,
         actor_user_id=user.id,
         actor_username=user.username,
+        source_message_id=message.id,
     )
 
     return _message_response(
@@ -740,6 +789,112 @@ async def send_message(
         user,
         target,
     )
+
+
+@router.delete(
+    "/messages/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_sent_message(
+    message_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    result = await session.execute(
+        select(
+            Message,
+        ).where(
+            Message.id
+            == message_id,
+            Message.sender_id
+            == user.id,
+        )
+    )
+
+    message = (
+        result.scalar_one_or_none()
+    )
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sent message not found.",
+        )
+
+    recipient = await session.get(
+        User,
+        message.recipient_id,
+    )
+
+    legacy_details = (
+        _admin_message_details(
+            sender_username=(
+                user.username
+                or ""
+            ),
+            recipient_username=(
+                recipient.username
+                if recipient
+                and recipient.username
+                else "unknown"
+            ),
+            body=message.body,
+            shared_kind=(
+                message.shared_kind
+            ),
+            shared_title=(
+                message.shared_title
+            ),
+            shared_subtitle=(
+                message.shared_subtitle
+            ),
+        )
+    )
+
+    await session.execute(
+        delete(
+            AdminNotification,
+        ).where(
+            or_(
+                AdminNotification.source_message_id
+                == message.id,
+                and_(
+                    AdminNotification.source_message_id
+                    .is_(
+                        None,
+                    ),
+                    AdminNotification.kind
+                    == "message",
+                    AdminNotification.title
+                    == "New user message",
+                    AdminNotification.actor_username
+                    == user.username,
+                    AdminNotification.body
+                    == legacy_details,
+                    AdminNotification.created_at
+                    >= (
+                        message.created_at
+                        - timedelta(
+                            seconds=2,
+                        )
+                    ),
+                    AdminNotification.created_at
+                    <= (
+                        message.created_at
+                        + timedelta(
+                            minutes=1,
+                        )
+                    ),
+                ),
+            )
+        )
+    )
+
+    await session.delete(
+        message,
+    )
+
+    await session.commit()
 
 
 @router.get(
