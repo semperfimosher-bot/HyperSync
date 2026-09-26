@@ -11,6 +11,44 @@ import TrackArtwork from "../ui/TrackArtwork.jsx";
 import Icon from "../ui/Icon.jsx";
 
 
+function formatQueueDuration(
+  seconds,
+) {
+  const value =
+    Number(
+      seconds,
+    );
+
+  if (
+    !Number.isFinite(
+      value,
+    )
+    || value <= 0
+  ) {
+    return "";
+  }
+
+  const minutes =
+    Math.floor(
+      value / 60,
+    );
+
+  const remainder =
+    Math.floor(
+      value % 60,
+    )
+      .toString()
+      .padStart(
+        2,
+        "0",
+      );
+
+  return (
+    `${minutes}:${remainder}`
+  );
+}
+
+
 function MobilePlayerDetails({
   open,
   onClose,
@@ -368,6 +406,10 @@ function MobilePlayerDetails({
                           {[
                             meta.artist,
                             meta.album,
+                            formatQueueDuration(
+                              meta.durationSeconds ??
+                              meta.duration_seconds,
+                            ),
                           ]
                             .filter(Boolean)
                             .join(" • ") ||
