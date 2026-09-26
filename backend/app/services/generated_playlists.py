@@ -1040,9 +1040,6 @@ async def ensure_smart_playlist(
         query,
     )
 
-    if not tracks:
-        return None
-
     now = datetime.now(
         UTC,
     )
