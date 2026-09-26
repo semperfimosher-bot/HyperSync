@@ -727,3 +727,195 @@ async def test_recent_track_rows_return_full_history_newest_first(
         )
     ]
 
+
+
+
+@pytest.mark.asyncio
+async def test_direct_genre_rows_are_not_limited_to_search_cap(
+    monkeypatch,
+):
+    base_time = datetime(
+        2026,
+        1,
+        1,
+        tzinfo=UTC,
+    )
+
+    country_tracks = [
+        SimpleNamespace(
+            id=uuid4(),
+            title=f"Country Track {index:03d}",
+            artist=f"Country Artist {index:03d}",
+            album="Country",
+            genre=(
+                "Country"
+                if index % 2 == 0
+                else "Americana"
+            ),
+            created_at=(
+                base_time
+                + timedelta(
+                    minutes=index,
+                )
+            ),
+        )
+        for index in range(
+            search_route.TRACK_RESULT_LIMIT
+            + 65
+        )
+    ]
+
+    monkeypatch.setattr(
+        search_route,
+        "_load_track_candidates",
+        AsyncMock(
+            return_value=country_tracks,
+        ),
+    )
+
+    monkeypatch.setattr(
+        search_route,
+        "_global_play_counts",
+        AsyncMock(
+            return_value={
+                track.id: 1
+                for track
+                in country_tracks
+            },
+        ),
+    )
+
+    monkeypatch.setattr(
+        search_route,
+        "_user_history",
+        AsyncMock(
+            return_value={},
+        ),
+    )
+
+    parsed = ParsedSearch(
+        raw="country",
+        term="country",
+        intent="general",
+        field_hint="any",
+    )
+
+    rows = await search_route._build_track_rows(
+        cast(
+            AsyncSession,
+            SimpleNamespace(),
+        ),
+        parsed,
+        None,
+        "smart",
+    )
+
+    assert len(rows) == len(
+        country_tracks,
+    )
+
+    assert len(rows) > (
+        search_route.TRACK_RESULT_LIMIT
+    )
+
+    assert all(
+        row["track"].genre
+        in {
+            "Country",
+            "Americana",
+        }
+        for row in rows
+    )
+
+
+@pytest.mark.asyncio
+async def test_direct_genre_candidate_query_has_no_limit():
+    tracks = [
+        SimpleNamespace(
+            id=uuid4(),
+            title="Country Song",
+            artist="Country Artist",
+            album="Country",
+            genre="Country",
+            created_at=datetime(
+                2026,
+                1,
+                1,
+                tzinfo=UTC,
+            ),
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Americana Song",
+            artist="Americana Artist",
+            album="Americana",
+            genre="Americana",
+            created_at=datetime(
+                2026,
+                1,
+                2,
+                tzinfo=UTC,
+            ),
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Rap Song",
+            artist="Rap Artist",
+            album="Rap",
+            genre="Hip-Hop/Rap",
+            created_at=datetime(
+                2026,
+                1,
+                3,
+                tzinfo=UTC,
+            ),
+        ),
+    ]
+
+    class FakeScalars:
+        def all(self):
+            return tracks
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    execute_mock = AsyncMock(
+        return_value=FakeResult(),
+    )
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            execute=execute_mock,
+        ),
+    )
+
+    parsed = ParsedSearch(
+        raw="country",
+        term="country",
+        intent="general",
+        field_hint="any",
+    )
+
+    results = await search_route._load_track_candidates(
+        session,
+        parsed,
+        None,
+    )
+
+    statement = execute_mock.await_args.args[0]
+
+    assert getattr(
+        statement,
+        "_limit_clause",
+        None,
+    ) is None
+
+    assert [
+        track.genre
+        for track in results
+    ] == [
+        "Country",
+        "Americana",
+    ]
