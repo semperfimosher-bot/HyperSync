@@ -3,7 +3,7 @@ import Icon from "./Icon.jsx";
 
 export default function OfflineNotice({
   title = "Go back online to see this",
-  description = "This information is synced from HyperSynced and needs an internet connection.",
+  description = "This information is synced from HyperSynceded and needs an internet connection.",
   compact = false,
 }) {
   return (
