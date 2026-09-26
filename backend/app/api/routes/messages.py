@@ -26,8 +26,10 @@ from ...config import get_settings
 from ...models.account import (
     AccountType,
     User,
+    UserRole,
 )
 from ...models.messaging import (
+    AdminNotification,
     Message,
     PushSubscription,
 )
@@ -132,6 +134,7 @@ class ConversationResponse(BaseModel):
 
 
 class MessageNotification(BaseModel):
+    type: Literal["message"] = "message"
     message_id: UUID
     sender_username: str
     sender_display_name: str
@@ -140,9 +143,22 @@ class MessageNotification(BaseModel):
     created_at: datetime
 
 
+class AdminActivityNotification(BaseModel):
+    type: Literal["admin_activity"] = "admin_activity"
+    notification_id: UUID
+    kind: str
+    title: str
+    body: str
+    actor_username: str | None = None
+    created_at: datetime
+
+
 class NotificationResponse(BaseModel):
     unread_count: int
-    notifications: list[MessageNotification]
+    notifications: list[
+        MessageNotification
+        | AdminActivityNotification
+    ]
 
 
 class PushKeys(BaseModel):
@@ -758,10 +774,134 @@ async def message_notifications(
             )
         )
 
-    return NotificationResponse(
-        unread_count=total,
-        notifications=notifications,
+    admin_total = 0
+
+    if user.role == UserRole.ADMIN:
+        admin_result = await session.execute(
+            select(
+                AdminNotification,
+            )
+            .where(
+                AdminNotification.recipient_id
+                == user.id,
+                AdminNotification.viewed_at
+                .is_(None),
+            )
+            .order_by(
+                AdminNotification.created_at.desc(),
+            )
+            .limit(20)
+        )
+
+        admin_unread = (
+            admin_result
+            .scalars()
+            .all()
+        )
+
+        admin_count_result = await session.execute(
+            select(
+                func.count(
+                    AdminNotification.id,
+                ),
+            ).where(
+                AdminNotification.recipient_id
+                == user.id,
+                AdminNotification.viewed_at
+                .is_(None),
+            )
+        )
+
+        admin_total = int(
+            admin_count_result.scalar_one()
+            or 0
+        )
+
+        notifications.extend(
+            [
+                AdminActivityNotification(
+                    notification_id=(
+                        notification.id
+                    ),
+                    kind=notification.kind,
+                    title=notification.title,
+                    body=notification.body,
+                    actor_username=(
+                        notification
+                        .actor_username
+                    ),
+                    created_at=(
+                        notification
+                        .created_at
+                    ),
+                )
+                for notification
+                in admin_unread
+            ]
+        )
+
+    notifications.sort(
+        key=lambda notification:
+            notification.created_at,
+        reverse=True,
     )
+
+    return NotificationResponse(
+        unread_count=(
+            total
+            + admin_total
+        ),
+        notifications=notifications[:20],
+    )
+
+
+@router.post(
+    "/admin-notifications/{notification_id}/read",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def read_admin_notification(
+    notification_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Administrator access required."
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            AdminNotification,
+        ).where(
+            AdminNotification.id
+            == notification_id,
+            AdminNotification.recipient_id
+            == user.id,
+        )
+    )
+
+    notification = (
+        result.scalar_one_or_none()
+    )
+
+    if notification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Admin notification not found."
+            ),
+        )
+
+    if notification.viewed_at is None:
+        notification.viewed_at = (
+            datetime.now(
+                UTC,
+            )
+        )
+        await session.commit()
 
 
 @router.get(
