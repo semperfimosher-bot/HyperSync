@@ -613,8 +613,6 @@ async def _run_ingest(
                 result.track_id
             )
 
-            session.state = "ready"
-
             session.error = None
 
             pending_listener_user_ids = (
@@ -641,6 +639,13 @@ async def _run_ingest(
                     in pending_listener_user_ids
                 ],
                 return_exceptions=True,
+            )
+
+        async with _lock:
+            session.state = "ready"
+
+            session.updated_at = (
+                _now()
             )
 
         job_completed(
