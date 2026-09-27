@@ -5,6 +5,31 @@ export const ON_DEMAND_PLAYLIST_LIMIT =
   500;
 
 
+export function onDemandPollDelay(
+  consecutiveFailures = 0,
+) {
+  const failureCount =
+    Math.max(
+      0,
+      Math.min(
+        5,
+        Math.floor(
+          Number(
+            consecutiveFailures,
+          ) || 0,
+        ),
+      ),
+    );
+
+  return Math.min(
+    1500 * (
+      2 ** failureCount
+    ),
+    30000,
+  );
+}
+
+
 export function onDemandTrackId(
   value,
 ) {
