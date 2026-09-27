@@ -9691,3 +9691,63 @@ button.hs-shared-music-card:active {
 .track-action-info strong {
   font-size: 8px;
 }
+
+
+/* =========================================================
+   LIBRARY PINNING + LIKED SONGS FILTER
+   ========================================================= */
+
+.hs-liked-genre-filter {
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(0, 220px);
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.hs-liked-genre-filter > span {
+  color: #6d8b98;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hs-liked-genre-filter select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border:
+    1px solid
+    rgba(79, 195, 235, 0.2);
+  border-radius: 8px;
+  color: #dff8ff;
+  background:
+    rgba(4, 18, 27, 0.92);
+  font: inherit;
+  font-size: 9px;
+}
+
+.hs-liked-genre-filter select:focus-visible {
+  outline:
+    2px solid
+    var(--blue-bright);
+  outline-offset: 2px;
+}
+
+.hs-library-playlist-row.is-pinned {
+  border-color:
+    rgba(65, 214, 255, 0.32);
+  box-shadow:
+    inset 3px 0
+    rgba(65, 214, 255, 0.58);
+}
+
+@media (max-width: 520px) {
+  .hs-liked-genre-filter {
+    grid-template-columns:
+      1fr;
+  }
+}
