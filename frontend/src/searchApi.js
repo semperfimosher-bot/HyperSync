@@ -65,3 +65,54 @@ export function saveSearchPreferences(
     },
   );
 }
+
+
+
+export function searchOnDemandMusic(
+  query,
+  options = {},
+) {
+  const params =
+    new URLSearchParams({
+      q:
+        query,
+    });
+
+  return apiRequest(
+    `/on-demand/search?${params.toString()}`,
+    {
+      signal:
+        options.signal,
+    },
+  );
+}
+
+
+export function prepareOnDemandTrack(
+  candidateKey,
+) {
+  return apiRequest(
+    "/on-demand/prepare",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          candidate_key:
+            candidateKey,
+        }),
+    },
+  );
+}
+
+
+export function getOnDemandStatus(
+  provisionId,
+) {
+  return apiRequest(
+    `/on-demand/${encodeURIComponent(
+      provisionId,
+    )}/status`,
+  );
+}
