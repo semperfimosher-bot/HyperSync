@@ -52,3 +52,55 @@ def test_frontend_csp_allows_production_realtime_and_beacon() -> None:
         "https://*.backblazeb2.com;"
         in policy
     )
+
+
+def test_production_frontend_uses_same_origin_api_proxy() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    client = (
+        root
+        / "frontend"
+        / "src"
+        / "api"
+        / "client.js"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    dockerfile = (
+        root
+        / "frontend"
+        / "Dockerfile"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    nginx = (
+        root
+        / "frontend"
+        / "nginx.conf"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert (
+        "https://api.hypersynced.app/api"
+        not in client
+    )
+    assert (
+        "ENV VITE_API_BASE_URL=/api"
+        in dockerfile
+    )
+    assert "location /api/" in nginx
+    assert (
+        "proxy_pass https://api.hypersynced.app;"
+        in nginx
+    )
+    assert (
+        "proxy_set_header Upgrade $http_upgrade;"
+        in nginx
+    )
+    assert (
+        'proxy_set_header Connection "upgrade";'
+        in nginx
+    )
