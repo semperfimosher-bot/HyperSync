@@ -710,7 +710,10 @@ useEffect(() => {
       const playlistId =
         openedPlaylist?.id;
 
-      if (!playlistId) {
+      if (
+        !playlistId ||
+        openedPlaylist?.transient
+      ) {
         return;
       }
 
@@ -735,7 +738,8 @@ useEffect(() => {
     {
       enabled:
         Boolean(
-          openedPlaylist?.id,
+          openedPlaylist?.id &&
+          !openedPlaylist?.transient,
         ),
       intervalMs:
         20_000,
@@ -1569,6 +1573,14 @@ useEffect(() => {
 
             onDemand:
               !permanentTrackId,
+
+            provisionKey:
+              candidateKey,
+
+            provisionId:
+              prepared
+                ?.provision_id ??
+              null,
           },
         );
 
@@ -1879,6 +1891,52 @@ useEffect(() => {
   setPlaylistError("");
 
   try {
+    if (
+      onDemandArtistPlaylist &&
+      String(
+        onDemandArtistPlaylist.id,
+      ) ===
+        String(
+          playlistId,
+        )
+    ) {
+      const playlist =
+        onDemandArtistPlaylist;
+
+      setOpenedPlaylist(
+        playlist,
+      );
+
+      setPlaylistDownload({
+        status: "idle",
+        progress: 0,
+        trackProgress: {},
+      });
+
+      const warmKeys =
+        (
+          playlist.tracks ??
+          []
+        )
+          .map(
+            (track) =>
+              track?.provision_key ??
+              track?.provisionKey ??
+              null,
+          )
+          .filter(
+            Boolean,
+          );
+
+      void warmOnDemandTracks(
+        warmKeys,
+      ).catch(
+        () => {},
+      );
+
+      return;
+    }
+
     const [
       playlist,
       downloadedPlaylists,
@@ -2137,6 +2195,28 @@ function playOpenedPlaylist(
           track.release_year ??
           track.releaseYear ??
           null,
+
+        durationSeconds:
+          track.duration_seconds ??
+          track.durationSeconds ??
+          null,
+
+        onDemand:
+          track.source_type ===
+            "on_demand" ||
+          isOnDemandTrackId(
+            track.id,
+          ),
+
+        provisionKey:
+          track.provision_key ??
+          track.provisionKey ??
+          null,
+
+        provisionId:
+          track.provision_id ??
+          track.provisionId ??
+          null,
       }),
     );
 
@@ -2201,6 +2281,7 @@ async function playSearchCollection(
 async function toggleOpenedPlaylistSaved() {
   if (
     !openedPlaylist ||
+    openedPlaylist.transient ||
     playlistActionBusy
   ) {
     return;
@@ -2307,6 +2388,7 @@ async function confirmRemoveOpenedPlaylistDownload() {
 async function downloadOpenedPlaylist() {
   if (
     !openedPlaylist ||
+    openedPlaylist.transient ||
     playlistDownload.status ===
       "downloading"
   ) {
