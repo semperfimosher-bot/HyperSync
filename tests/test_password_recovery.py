@@ -258,7 +258,7 @@ async def test_recovery_email_contains_use_code_button(
 
     monkeypatch.setenv(
         "FRONTEND_PUBLIC_URL",
-        "https://hypersynced.app",
+        "http://localhost:4153",
     )
     monkeypatch.setenv(
         "SMTP_HOST",
@@ -305,6 +305,11 @@ async def test_recovery_email_contains_use_code_button(
 
     assert "USE RECOVERY CODE" in html
     assert "123456" in html
+    assert (
+        "https://hypersynced.app"
+        in html
+    )
+    assert "localhost" not in html
     assert (
         "recovery_identifier=listener"
         in html
