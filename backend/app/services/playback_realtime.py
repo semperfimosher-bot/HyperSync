@@ -83,6 +83,37 @@ class PlaybackRealtimeHub:
 
             return True
 
+    async def connected_device_ids(
+        self,
+        user_id: UUID,
+    ) -> set[str]:
+        async with self._lock:
+            return set(
+                self._connections
+                .get(
+                    user_id,
+                    {},
+                )
+                .keys()
+            )
+
+
+    async def is_connected(
+        self,
+        user_id: UUID,
+        device_id: str,
+    ) -> bool:
+        async with self._lock:
+            return (
+                device_id
+                in self._connections
+                .get(
+                    user_id,
+                    {},
+                )
+            )
+
+
     async def send_to(
         self,
         user_id: UUID,
