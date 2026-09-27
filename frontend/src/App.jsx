@@ -212,9 +212,6 @@ const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
 const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
   750;
 
-const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
-  90000;
-
 const PLAYBACK_HANDOFF_OVERLAP_MS =
   1000;
 
@@ -324,16 +321,12 @@ function accountPlaybackPosition(
       : 0;
 
   /*
-   * A browser that disappears cannot keep
-   * claiming to play forever. Only advance
-   * a recent active-device heartbeat.
+   * Device presence is authoritative on the server.
+   * Do not freeze the displayed remote clock merely
+   * because a mobile browser throttled JavaScript
+   * while locked or backgrounded. The server clears
+   * playback ownership when that device is truly gone.
    */
-  if (
-    ageMs >
-    ACCOUNT_PLAYBACK_STALE_PLAYING_MS
-  ) {
-    return base;
-  }
 
   const duration =
     Number(
