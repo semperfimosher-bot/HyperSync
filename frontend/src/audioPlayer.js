@@ -42,6 +42,7 @@ import {
 
 import {
   isOnDemandTrackId,
+  onDemandPollDelay,
 } from "./onDemandMusic.js";
 
 
@@ -272,6 +273,7 @@ function dispatchRemotePlaybackInBackground(
 function waitForOnDemandHistory(
   provisionId,
   attempts = 0,
+  consecutiveFailures = 0,
 ) {
   if (
     !provisionId ||
@@ -282,6 +284,9 @@ function waitForOnDemandHistory(
 
   globalThis.setTimeout?.(
     async () => {
+      let nextFailures =
+        consecutiveFailures;
+
       try {
         const status =
           await apiRequest(
@@ -304,20 +309,40 @@ function waitForOnDemandHistory(
         ) {
           return;
         }
-      } catch {
-        // A later poll can still observe
-        // the completed catalog ingest.
+
+        nextFailures = 0;
+      } catch (error) {
+        const statusCode =
+          Number(
+            error?.status ??
+            0,
+          );
+
+        if (
+          statusCode === 404 ||
+          statusCode === 410
+        ) {
+          return;
+        }
+
+        nextFailures =
+          Math.min(
+            consecutiveFailures + 1,
+            5,
+          );
       }
 
       waitForOnDemandHistory(
         provisionId,
         attempts + 1,
+        nextFailures,
       );
     },
-    1500,
+    onDemandPollDelay(
+      consecutiveFailures,
+    ),
   );
 }
-
 
 function beginListeningEvent(
   trackId,
