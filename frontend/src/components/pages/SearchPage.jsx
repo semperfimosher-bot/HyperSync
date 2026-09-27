@@ -4247,7 +4247,11 @@ displayResults.tracks.length > 0 ? (
                 </div>
 
                 <strong>
-                  {results.counts.tracks}
+                  {
+                    combinedResults
+                      .counts
+                      .tracks
+                  }
                 </strong>
 
               </div>
@@ -4277,8 +4281,14 @@ displayResults.tracks.length > 0 ? (
                         key={track.id}
                         role="button"
                         tabIndex={0}
-                        {...trackActionMenu.getTriggerProps(
-                        track,
+                        {...(
+                          track.source_type ===
+                            "on_demand"
+                            ? {}
+                            : trackActionMenu
+                                .getTriggerProps(
+                                  track,
+                                )
                         )}
                         className={[
                         "hs-search-track",
@@ -4390,15 +4400,39 @@ displayResults.tracks.length > 0 ? (
                         <span className="hs-search-track__signals">
 
                           <em>
-                            {track.user_play_count > 0
-                              ? "IN YOUR ROTATION"
-                              : track.match_label}
+                            {track.source_type ===
+                              "on_demand"
+                              ? (
+                                  preparingOnDemandKey ===
+                                    track.provision_key
+                                    ? "PREPARING..."
+                                    : "AVAILABLE ON DEMAND"
+                                )
+                              : (
+                                  track.user_play_count > 0
+                                    ? "IN YOUR ROTATION"
+                                    : track.match_label
+                                )}
                           </em>
 
                           <small>
-                            {track.global_play_count}
-                            {" "}
-                            plays
+                            {track.source_type ===
+                              "on_demand"
+                              ? (
+                                  track.provider
+                                    ? String(
+                                        track.provider,
+                                      )
+                                      .replace(
+                                        "+",
+                                        " + ",
+                                      )
+                                      .toUpperCase()
+                                    : "DEE ZER + ITUNES"
+                                )
+                              : (
+                                  `${track.global_play_count} plays`
+                                )}
                           </small>
 
                         </span>
@@ -4413,7 +4447,14 @@ displayResults.tracks.length > 0 ? (
 
                         <span className="hs-search-track__play">
                           <Icon
-                            name="play"
+                            name={
+                              track.source_type ===
+                                "on_demand" &&
+                              preparingOnDemandKey ===
+                                track.provision_key
+                                ? "chart"
+                                : "play"
+                            }
                             size={16}
                           />
                         </span>
