@@ -3630,6 +3630,7 @@ function PlayerBar({
   messageNotifications,
   onOpenMessage,
   onOpenNotification,
+  onDeleteNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -4615,6 +4616,9 @@ function PlayerBar({
                     notification,
                   );
                 }}
+                onDeleteNotification={
+                  onDeleteNotification
+                }
                 onEnablePush={
                   onEnablePush
                 }
@@ -8766,6 +8770,100 @@ const checkDownloadedGeneratedPlaylistUpdates =
   );
 
 
+  const consumeNotification =
+    useCallback(
+      async (
+        notification,
+      ) => {
+        if (!notification) {
+          return;
+        }
+
+        const notificationKey =
+          notification.type ===
+            "admin_activity"
+            ? String(
+                notification
+                  .notification_id ??
+                  "",
+              )
+            : String(
+                notification
+                  .message_id ??
+                  "",
+              );
+
+        setMessageNotifications(
+          (current) => {
+            const currentItems =
+              Array.isArray(
+                current?.notifications,
+              )
+                ? current.notifications
+                : [];
+
+            const nextItems =
+              currentItems.filter(
+                (item) => {
+                  const itemKey =
+                    item.type ===
+                      "admin_activity"
+                      ? String(
+                          item
+                            .notification_id ??
+                            "",
+                        )
+                      : String(
+                          item
+                            .message_id ??
+                            "",
+                        );
+
+                  return (
+                    item.type !==
+                      notification.type ||
+                    itemKey !==
+                      notificationKey
+                  );
+                },
+              );
+
+            return {
+              unread_count:
+                nextItems.length,
+              notifications:
+                nextItems,
+            };
+          },
+        );
+
+        try {
+          if (
+            notification.type ===
+              "admin_activity"
+          ) {
+            await markAdminNotificationRead(
+              notification
+                .notification_id,
+            );
+          } else {
+            await markMessageNotificationRead(
+              notification
+                .message_id,
+            );
+          }
+        } catch {
+          // Refresh restores the item if deletion failed.
+        } finally {
+          await refreshMessageNotifications();
+        }
+      },
+      [
+        refreshMessageNotifications,
+      ],
+    );
+
+
   const openNotificationDetail =
     useCallback(
       (
@@ -8779,34 +8877,31 @@ const checkDownloadedGeneratedPlaylistUpdates =
           notification,
         );
 
-        void (
-          async () => {
-            try {
-              if (
-                notification.type ===
-                "admin_activity"
-              ) {
-                await markAdminNotificationRead(
-                  notification
-                    .notification_id,
-                );
-              } else {
-                await markMessageNotificationRead(
-                  notification
-                    .message_id,
-                );
-              }
-            } catch {
-              // The detail overlay can still show the
-              // locally received notification payload.
-            } finally {
-              await refreshMessageNotifications();
-            }
-          }
-        )();
+        void consumeNotification(
+          notification,
+        );
       },
       [
-        refreshMessageNotifications,
+        consumeNotification,
+      ],
+    );
+
+
+  const deleteNotification =
+    useCallback(
+      (
+        notification,
+      ) => {
+        if (!notification) {
+          return;
+        }
+
+        void consumeNotification(
+          notification,
+        );
+      },
+      [
+        consumeNotification,
       ],
     );
 
@@ -9841,6 +9936,9 @@ const clearPlaylistToOpen =
     onOpenNotification={
       openNotificationDetail
     }
+    onDeleteNotification={
+      deleteNotification
+    }
     onEnablePush={() => {
       void handleEnablePush();
     }}
@@ -10007,6 +10105,9 @@ const clearPlaylistToOpen =
         }
         onOpenNotification={
           openNotificationDetail
+        }
+        onDeleteNotification={
+          deleteNotification
         }
         onEnablePush={() => {
           void handleEnablePush();
