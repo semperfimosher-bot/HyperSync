@@ -1133,6 +1133,8 @@ useEffect(() => {
                 {
                   signal:
                     controller.signal,
+                  bypassCache:
+                    quietRefresh,
                 },
               );
 
