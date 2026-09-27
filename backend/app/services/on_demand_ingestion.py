@@ -764,12 +764,14 @@ async def search_and_remember(
     query: str,
     *,
     limit: int | None = None,
+    kind: str = "song",
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
     candidates = (
         await search_catalog_metadata(
             query,
+            kind=kind,
             limit=(
                 limit
                 if limit
