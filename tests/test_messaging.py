@@ -184,6 +184,13 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
             session,
         )
 
+        assert (
+            await session.get(
+                AdminNotification,
+                notification.id,
+            )
+        ) is None
+
         cleared_feed = (
             await message_routes.message_notifications(
                 admin,
@@ -298,6 +305,22 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
             )
         )
 
+        notification_row = (
+            await session.execute(
+                select(
+                    AdminNotification,
+                ).where(
+                    AdminNotification.recipient_id
+                    == recipient.id,
+                    AdminNotification.kind
+                    == message_routes
+                    .DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification.source_message_id
+                    == message.id,
+                )
+            )
+        ).scalar_one()
+
         assert feed.unread_count == 1
         assert len(
             feed.notifications,
@@ -329,6 +352,26 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
             message.id,
             recipient,
             session,
+        )
+
+        assert (
+            await session.get(
+                AdminNotification,
+                notification_row.id,
+            )
+        ) is None
+
+        preserved_message = (
+            await session.get(
+                Message,
+                message.id,
+            )
+        )
+
+        assert preserved_message is not None
+        assert (
+            preserved_message.viewed_at
+            is not None
         )
 
         cleared = (
