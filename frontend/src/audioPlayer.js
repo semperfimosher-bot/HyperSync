@@ -3054,7 +3054,18 @@ export async function playQueueIndex(
     return false;
   }
 
+  const provisional =
+    isOnDemandTrackId(
+      track.id,
+    )
+    || Boolean(
+      track.meta?.onDemand ??
+      track.meta?.on_demand ??
+      false,
+    );
+
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
@@ -3173,7 +3184,18 @@ export async function playTrackQueue(
       currentQueueIndex
     ];
 
+  const provisional =
+    isOnDemandTrackId(
+      track.id,
+    )
+    || Boolean(
+      track.meta?.onDemand ??
+      track.meta?.on_demand ??
+      false,
+    );
+
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
