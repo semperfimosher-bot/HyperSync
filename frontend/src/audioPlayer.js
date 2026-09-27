@@ -269,17 +269,120 @@ function dispatchRemotePlaybackInBackground(
 }
 
 
-function beginListeningEvent(
-  trackId,
+function waitForOnDemandHistory(
+  provisionId,
+  attempts = 0,
 ) {
   if (
+    !provisionId ||
+    attempts >= 80
+  ) {
+    return;
+  }
+
+  globalThis.setTimeout?.(
+    async () => {
+      try {
+        const status =
+          await apiRequest(
+            `/on-demand/${encodeURIComponent(
+              provisionId,
+            )}/status`,
+          );
+
+        if (
+          status?.state ===
+            "ready"
+        ) {
+          notifyListeningHistoryChanged();
+          return;
+        }
+
+        if (
+          status?.state ===
+            "failed"
+        ) {
+          return;
+        }
+      } catch {
+        // A later poll can still observe
+        // the completed catalog ingest.
+      }
+
+      waitForOnDemandHistory(
+        provisionId,
+        attempts + 1,
+      );
+    },
+    1500,
+  );
+}
+
+
+function beginListeningEvent(
+  trackId,
+  meta = {},
+) {
+  if (!getAccessToken()) {
+    activeListeningEvent =
+      null;
+
+    return;
+  }
+
+  const provisional =
     isOnDemandTrackId(
       trackId,
     )
-    || !getAccessToken()
-  ) {
+    || Boolean(
+      meta?.onDemand ??
+      meta?.on_demand ??
+      false,
+    );
+
+  if (provisional) {
     activeListeningEvent =
       null;
+
+    const provisionId =
+      meta?.provisionId ??
+      meta?.provision_id ??
+      null;
+
+    if (!provisionId) {
+      return;
+    }
+
+    void apiRequest(
+      `/on-demand/${encodeURIComponent(
+        provisionId,
+      )}/played`,
+      {
+        method:
+          "POST",
+      },
+    )
+      .then(
+        (data) => {
+          if (
+            data?.recorded
+          ) {
+            notifyListeningHistoryChanged();
+            return;
+          }
+
+          if (
+            data?.pending
+          ) {
+            waitForOnDemandHistory(
+              provisionId,
+            );
+          }
+        },
+      )
+      .catch(
+        () => {},
+      );
 
     return;
   }
@@ -346,7 +449,6 @@ function beginListeningEvent(
     },
   );
 }
-
 
 function finishListeningEvent(
   outcome,
@@ -448,6 +550,16 @@ function normalizeTrackMeta(
         meta.on_demand ??
         false,
       ),
+
+    provisionKey:
+      meta.provisionKey ??
+      meta.provision_key ??
+      null,
+
+    provisionId:
+      meta.provisionId ??
+      meta.provision_id ??
+      null,
 
     title:
       meta.title ??
@@ -2270,6 +2382,91 @@ function applyTrackMetadata(
 }
 
 
+async function resolveOnDemandPlaybackMeta(
+  trackId,
+  meta = {},
+) {
+  const normalized =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  const provisional =
+    isOnDemandTrackId(
+      trackId,
+    )
+    || normalized.onDemand;
+
+  if (
+    !provisional ||
+    normalized.audioUrl
+  ) {
+    return normalized;
+  }
+
+  const candidateKey =
+    normalized.provisionKey;
+
+  if (!candidateKey) {
+    throw new Error(
+      "This on-demand track is missing its metadata key.",
+    );
+  }
+
+  const prepared =
+    await apiRequest(
+      "/on-demand/prepare",
+      {
+        method:
+          "POST",
+
+        body:
+          JSON.stringify({
+            candidate_key:
+              candidateKey,
+          }),
+      },
+    );
+
+  const permanentTrackId =
+    prepared?.track_id ??
+    null;
+
+  const streamPath =
+    permanentTrackId
+      ? (
+          "/api/audio/" +
+          encodeURIComponent(
+            permanentTrackId,
+          )
+        )
+      : prepared?.stream_url;
+
+  const audioUrl =
+    resolveMediaUrl(
+      streamPath,
+    );
+
+  if (!audioUrl) {
+    throw new Error(
+      "Audio is still preparing. Try again in a moment.",
+    );
+  }
+
+  return normalizeTrackMeta({
+    ...meta,
+    audioUrl,
+    onDemand:
+      true,
+    provisionKey:
+      candidateKey,
+    provisionId:
+      prepared?.provision_id ??
+      null,
+  });
+}
+
+
 async function playTrackInternal(
   trackId,
   meta = {},
@@ -2305,6 +2502,68 @@ async function playTrackInternal(
     meta,
   );
 
+  let playbackMeta =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  if (
+    isOnDemandTrackId(
+      trackId,
+    )
+    || playbackMeta.onDemand
+  ) {
+    try {
+      playbackMeta =
+        await resolveOnDemandPlaybackMeta(
+          trackId,
+          playbackMeta,
+        );
+
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        )
+      ) {
+        return null;
+      }
+
+      currentTrackMeta =
+        playbackMeta;
+
+      currentArtworkUrl =
+        playbackMeta.artworkUrl;
+
+      currentTrackTitle =
+        playbackMeta.title;
+
+      currentTrackArtist =
+        playbackMeta.artist;
+
+      notify();
+
+    } catch (error) {
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        )
+      ) {
+        return null;
+      }
+
+      setPlaybackPhase(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare on-demand playback.",
+      );
+
+      notify();
+
+      throw error;
+    }
+  }
+
 
   const useStableMediaRoute =
     Boolean(
@@ -2320,7 +2579,7 @@ async function playTrackInternal(
     audioSource =
       await prepareTrackAudioSource(
         trackId,
-        meta,
+        playbackMeta,
         {
           useStableMediaRoute,
           preferCachedBlob:
@@ -2460,7 +2719,7 @@ persistPlayerState({
  */
 void recordTrackPlayback(
   trackId,
-  meta,
+  playbackMeta,
 ).catch(
   () => {},
 );
@@ -2469,11 +2728,14 @@ void recordTrackPlayback(
 /*
  * Start a backend listening session.
  *
- * beginListeningEvent already handles
- * authentication and performs the POST.
+ * Catalog tracks write directly to the
+ * listening endpoint. On-demand tracks
+ * mark their provision as played so the
+ * event can be attached after lazy ingest.
  */
 beginListeningEvent(
   trackId,
+  playbackMeta,
 );
 
 
