@@ -33,6 +33,7 @@ import {
   prepareOnDemandTrack,
   saveSearchPreferences,
   searchHypersync,
+  searchOnDemandArtistMusic,
   searchOnDemandMusic,
   warmOnDemandTracks,
 } from "../../searchApi.js";
@@ -645,6 +646,11 @@ useEffect(() => {
   ] = useState([]);
 
   const [
+    onDemandArtistTracks,
+    setOnDemandArtistTracks,
+  ] = useState([]);
+
+  const [
     preparingOnDemandKey,
     setPreparingOnDemandKey,
   ] = useState("");
@@ -865,6 +871,10 @@ useEffect(() => {
         [],
       );
 
+      setOnDemandArtistTracks(
+        [],
+      );
+
       setLoading(false);
       setSearchError("");
 
@@ -898,6 +908,10 @@ useEffect(() => {
       setSearchError("");
 
       setOnDemandTracks(
+        [],
+      );
+
+      setOnDemandArtistTracks(
         [],
       );
     }
@@ -1098,6 +1112,87 @@ useEffect(() => {
             setOnDemandTracks(
               remoteTracks,
             );
+
+            const artistName =
+              inferOnDemandArtistName(
+                normalizedQuery,
+                remoteTracks,
+              );
+
+            const normalizedArtist =
+              artistName
+                ?.normalize(
+                  "NFKC",
+                )
+                .toLocaleLowerCase() ??
+              "";
+
+            const catalogHasArtist =
+              Boolean(
+                normalizedArtist,
+              ) &&
+              (
+                Array.isArray(
+                  data?.artists,
+                )
+                  ? data.artists
+                  : []
+              ).some(
+                (artist) =>
+                  String(
+                    artist?.name ??
+                      "",
+                  )
+                    .normalize(
+                      "NFKC",
+                    )
+                    .toLocaleLowerCase() ===
+                  normalizedArtist,
+              );
+
+            if (
+              artistName &&
+              !catalogHasArtist
+            ) {
+              const artistData =
+                await searchOnDemandArtistMusic(
+                  artistName,
+                  {
+                    signal:
+                      controller.signal,
+                  },
+                ).catch(
+                  () => null,
+                );
+
+              if (
+                controller.signal
+                  .aborted
+              ) {
+                return;
+              }
+
+              const exactArtistTracks =
+                Array.isArray(
+                  artistData?.tracks,
+                )
+                  ? artistData.tracks
+                      .map(
+                        normalizeOnDemandTrack,
+                      )
+                      .filter(
+                        Boolean,
+                      )
+                  : [];
+
+              setOnDemandArtistTracks(
+                exactArtistTracks,
+              );
+            } else {
+              setOnDemandArtistTracks(
+                [],
+              );
+            }
           } catch (error) {
             if (
               error?.name ===
@@ -1181,8 +1276,17 @@ useEffect(() => {
   const onDemandArtistPlaylist =
     useMemo(
       () => {
+        const playlistMetadataTracks =
+          onDemandArtistTracks.length > 0
+            ? onDemandArtistTracks
+            : onDemandTracks;
+
         const artistName =
           inferOnDemandArtistName(
+            normalizedQuery,
+            playlistMetadataTracks,
+          )
+          ?? inferOnDemandArtistName(
             normalizedQuery,
             onDemandTracks,
           );
@@ -1226,11 +1330,13 @@ useEffect(() => {
           artistName,
           catalogTracks:
             results.tracks,
-          onDemandTracks,
+          onDemandTracks:
+            playlistMetadataTracks,
         });
       },
       [
         normalizedQuery,
+        onDemandArtistTracks,
         onDemandTracks,
         results.artists,
         results.tracks,
