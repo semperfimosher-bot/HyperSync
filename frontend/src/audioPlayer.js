@@ -162,6 +162,114 @@ let remotePlaybackController =
 let forceLocalPlaybackDepth =
   0;
 
+const queuedAudioWarmups =
+  new Map();
+
+
+function warmQueuedAudioEntry(
+  entry,
+) {
+  if (
+    !entry?.id ||
+    !entry?.meta?.audioUrl ||
+    (
+      !entry.meta.onDemand &&
+      !isOnDemandTrackId(
+        entry.id,
+      )
+    ) ||
+    typeof globalThis.fetch !==
+      "function"
+  ) {
+    return null;
+  }
+
+  const source =
+    resolveMediaUrl(
+      entry.meta.audioUrl,
+    );
+
+  if (!source) {
+    return null;
+  }
+
+  const key = [
+    String(
+      entry.id,
+    ),
+    source,
+  ].join(
+    "|",
+  );
+
+  const existing =
+    queuedAudioWarmups.get(
+      key,
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  const task =
+    (async () => {
+      try {
+        const response =
+          await globalThis.fetch(
+            source,
+            {
+              method:
+                "GET",
+              headers: {
+                Range:
+                  "bytes=0-524287",
+              },
+              credentials:
+                "include",
+            },
+          );
+
+        if (
+          !response?.ok &&
+          response?.status !==
+            206
+        ) {
+          return false;
+        }
+
+        const reader =
+          response.body
+            ?.getReader?.();
+
+        if (reader) {
+          try {
+            await reader.read();
+          } finally {
+            await reader.cancel()
+              .catch(
+                () => {},
+              );
+          }
+        }
+
+        return true;
+      } catch {
+        return false;
+      } finally {
+        queuedAudioWarmups.delete(
+          key,
+        );
+      }
+    })();
+
+  queuedAudioWarmups.set(
+    key,
+    task,
+  );
+
+  return task;
+}
+
 
 export function setRemotePlaybackController(
   controller,
@@ -3519,6 +3627,14 @@ export function playTrackNext(
 
   notify();
 
+  void Promise.resolve(
+    warmQueuedAudioEntry(
+      entry,
+    ),
+  ).catch(
+    () => {},
+  );
+
   return true;
 }
 
@@ -3551,6 +3667,14 @@ export function addTrackToQueue(
     1;
 
   notify();
+
+  void Promise.resolve(
+    warmQueuedAudioEntry(
+      entry,
+    ),
+  ).catch(
+    () => {},
+  );
 
   return true;
 }
