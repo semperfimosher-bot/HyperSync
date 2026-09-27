@@ -210,7 +210,17 @@ function Get-OnDemandReadinessValues {
 }
 
 function Show-OnDemandReadiness {
-    $values = Get-OnDemandReadinessValues
+    try {
+        $values = Get-OnDemandReadinessValues
+    }
+    catch {
+        Write-Warning (
+            "Could not display the optional local readiness summary: " +
+            $_.Exception.Message
+        )
+
+        return
+    }
 
     Write-Host ""
     Write-Host "Local on-demand readiness:" -ForegroundColor Cyan
