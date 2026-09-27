@@ -270,6 +270,121 @@ function dispatchRemotePlaybackInBackground(
 }
 
 
+function promoteOnDemandPlayback(
+  provisionId,
+  trackId,
+) {
+  const permanentTrackId =
+    String(
+      trackId ?? "",
+    ).trim();
+
+  if (
+    !permanentTrackId ||
+    !provisionId ||
+    currentTrackMeta
+      ?.provisionId !==
+      provisionId
+  ) {
+    return false;
+  }
+
+  const previousTrackId =
+    currentTrackId;
+
+  const catalogAudioUrl =
+    "/api/audio/" +
+    encodeURIComponent(
+      permanentTrackId,
+    );
+
+  currentTrackId =
+    permanentTrackId;
+
+  currentTrackMeta =
+    normalizeTrackMeta({
+      ...currentTrackMeta,
+      audioUrl:
+        catalogAudioUrl,
+      onDemand:
+        false,
+      catalogTrackId:
+        permanentTrackId,
+    });
+
+  if (
+    loadedAudioTrackId ===
+      previousTrackId
+  ) {
+    loadedAudioTrackId =
+      permanentTrackId;
+  }
+
+  let queueChanged =
+    false;
+
+  currentQueue =
+    currentQueue.map(
+      (entry) => {
+        if (
+          String(
+            entry?.id ?? "",
+          ) !==
+            String(
+              previousTrackId ?? "",
+            )
+        ) {
+          return entry;
+        }
+
+        queueChanged =
+          true;
+
+        return {
+          id:
+            permanentTrackId,
+          meta:
+            normalizeTrackMeta({
+              ...(entry?.meta ?? {}),
+              ...currentTrackMeta,
+              audioUrl:
+                catalogAudioUrl,
+              onDemand:
+                false,
+              catalogTrackId:
+                permanentTrackId,
+            }),
+        };
+      },
+    );
+
+  if (queueChanged) {
+    queueRevision +=
+      1;
+  }
+
+  rememberAutoplayTrack(
+    permanentTrackId,
+  );
+
+  persistPlayerState({
+    force:
+      true,
+  });
+
+  notify();
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
+
+  return true;
+}
+
+
 function waitForOnDemandHistory(
   provisionId,
   attempts = 0,
@@ -300,19 +415,12 @@ function waitForOnDemandHistory(
             "ready"
         ) {
           if (
-            status?.track_id &&
-            currentTrackMeta
-              ?.provisionId ===
-              provisionId
+            status?.track_id
           ) {
-            currentTrackMeta =
-              normalizeTrackMeta({
-                ...currentTrackMeta,
-                catalogTrackId:
-                  status.track_id,
-              });
-
-            notify();
+            promoteOnDemandPlayback(
+              provisionId,
+              status.track_id,
+            );
           }
 
           notifyListeningHistoryChanged();
@@ -408,6 +516,15 @@ function beginListeningEvent(
           if (
             data?.recorded
           ) {
+            if (
+              data?.track_id
+            ) {
+              promoteOnDemandPlayback(
+                provisionId,
+                data.track_id,
+              );
+            }
+
             notifyListeningHistoryChanged();
             return;
           }
