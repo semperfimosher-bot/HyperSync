@@ -5,6 +5,12 @@ import pytest
 
 from bot.youtube_source import DownloadedAudio
 
+from backend.app.api.routes import (
+    on_demand as on_demand_routes,
+)
+from backend.app.models.account import (
+    AccountType,
+)
 from backend.app.services import (
     on_demand_ingestion,
 )
@@ -153,6 +159,92 @@ async def test_admin_prepare_can_still_start_ingest(
     )
 
     assert ingest_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_queue_route_prewarms_and_starts_ingest_without_recording_play(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _candidate()
+
+    prepare_calls: list[
+        tuple[
+            str,
+            bool,
+        ]
+    ] = []
+
+    async def fake_rate_limit(
+        *_args,
+        **_kwargs,
+    ) -> None:
+        return None
+
+    async def fake_prepare(
+        candidate_key: str,
+        *,
+        start_ingest: bool = False,
+    ):
+        prepare_calls.append(
+            (
+                candidate_key,
+                start_ingest,
+            )
+        )
+
+        return {
+            "provision_id":
+                str(
+                    uuid4(),
+                ),
+            "state":
+                "ingesting",
+            "stream_url":
+                "/api/on-demand/test/stream?token=test-token",
+            "track_id":
+                None,
+        }
+
+    monkeypatch.setattr(
+        on_demand_routes,
+        "enforce_rate_limit",
+        fake_rate_limit,
+    )
+
+    monkeypatch.setattr(
+        on_demand_routes,
+        "prepare_candidate",
+        fake_prepare,
+    )
+
+    result = await on_demand_routes.queue_on_demand(
+        on_demand_routes.PrepareOnDemandRequest(
+            candidate_key=
+                candidate.key,
+        ),
+        SimpleNamespace(),
+        SimpleNamespace(
+            id=
+                uuid4(),
+            account_type=
+                AccountType.REGISTERED,
+        ),
+    )
+
+    assert prepare_calls == [
+        (
+            candidate.key,
+            True,
+        )
+    ]
+
+    assert result[
+        "state"
+    ] == "ingesting"
+
+    assert result[
+        "stream_url"
+    ]
 
 
 @pytest.mark.asyncio
