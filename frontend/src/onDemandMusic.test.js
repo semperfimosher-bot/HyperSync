@@ -8,6 +8,7 @@ import {
   normalizeOnDemandTrack,
   onDemandArtistLookupQuery,
   onDemandPollDelay,
+  prioritizeSearchPlaybackTracks,
   onDemandTrackId,
 } from "./onDemandMusic.js";
 
@@ -308,6 +309,46 @@ test(
         "songs by   Kane Brown",
       ),
       "Kane Brown",
+    );
+  },
+);
+
+
+test(
+  "search playback starts selected track then continues by relevance",
+  () => {
+    const tracks = [
+      {
+        id:
+          "most-relevant",
+      },
+      {
+        id:
+          "selected",
+      },
+      {
+        id:
+          "third",
+      },
+      {
+        id:
+          "most-relevant",
+      },
+    ];
+
+    assert.deepEqual(
+      prioritizeSearchPlaybackTracks(
+        tracks,
+        tracks[1],
+      ).map(
+        (track) =>
+          track.id,
+      ),
+      [
+        "selected",
+        "most-relevant",
+        "third",
+      ],
     );
   },
 );
