@@ -1,5 +1,5 @@
 export const PAGE_WARM_TTL_MS =
-  2 * 60 * 60 * 1000;
+  12 * 60 * 60 * 1000;
 
 export const PAGE_WARM_SWEEP_MS =
   60 * 1000;
