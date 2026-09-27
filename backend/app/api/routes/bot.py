@@ -167,6 +167,7 @@ async def bot_ingest(
     try:
         return await prepare_candidate(
             payload.candidate_key,
+            start_ingest=True,
         )
 
     except KeyError as exc:
