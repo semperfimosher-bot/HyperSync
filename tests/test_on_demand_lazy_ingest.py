@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -87,13 +87,7 @@ async def test_prepare_is_source_only_until_played(
     played = (
         await on_demand_ingestion
         .record_provision_play(
-            uuid4()
-            if not prepared.get(
-                "provision_id",
-            )
-            else __import__(
-                "uuid",
-            ).UUID(
+            UUID(
                 prepared[
                     "provision_id"
                 ]
