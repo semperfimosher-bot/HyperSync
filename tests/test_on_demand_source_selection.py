@@ -6,6 +6,9 @@ from bot.youtube_source import (
     rank_source_candidates,
     score_source_candidate,
 )
+from backend.app.services.on_demand_ingestion import (
+    is_allowed_artwork_url,
+)
 
 
 def _metadata(
@@ -120,4 +123,26 @@ def test_temporary_media_url_only_allows_https_googlevideo_hosts() -> None:
 
     assert not is_allowed_direct_media_url(
         "https://example.com/audio"
+    )
+
+
+def test_artwork_urls_only_allow_deezer_and_itunes_cdn_hosts() -> None:
+    assert is_allowed_artwork_url(
+        "https://e-cdns-images.dzcdn.net/images/cover/example/500x500.jpg"
+    )
+
+    assert is_allowed_artwork_url(
+        "https://is1-ssl.mzstatic.com/image/thumb/Music/example/600x600bb.jpg"
+    )
+
+    assert not is_allowed_artwork_url(
+        "http://e-cdns-images.dzcdn.net/images/cover/example.jpg"
+    )
+
+    assert not is_allowed_artwork_url(
+        "https://mzstatic.com.attacker.example/image.jpg"
+    )
+
+    assert not is_allowed_artwork_url(
+        "https://127.0.0.1/internal"
     )
