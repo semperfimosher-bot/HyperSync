@@ -434,3 +434,108 @@ export function buildOnDemandArtistPlaylist({
       unique,
   };
 }
+
+
+export function prioritizeSearchPlaybackTracks(
+  tracks,
+  selectedTrack,
+  limit = 500,
+) {
+  const source =
+    Array.isArray(
+      tracks,
+    )
+      ? tracks
+      : [];
+
+  if (!selectedTrack) {
+    return [];
+  }
+
+  const cap =
+    Math.max(
+      1,
+      Math.min(
+        500,
+        Number.isFinite(
+          Number(
+            limit,
+          ),
+        )
+          ? Math.floor(
+              Number(
+                limit,
+              ),
+            )
+          : 500,
+      ),
+    );
+
+  const identityFor =
+    (track) =>
+      String(
+        track?.id ??
+        track?.provision_key ??
+        track?.provisionKey ??
+        "",
+      ).trim();
+
+  const selectedIdentity =
+    identityFor(
+      selectedTrack,
+    );
+
+  const ordered = [
+    selectedTrack,
+    ...source,
+  ];
+
+  const result = [];
+  const seen = new Set();
+
+  for (const track of ordered) {
+    const identity =
+      identityFor(
+        track,
+      );
+
+    if (
+      !identity ||
+      (
+        seen.has(
+          identity,
+        )
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      identity,
+    );
+
+    result.push(
+      track,
+    );
+
+    if (
+      result.length >=
+      cap
+    ) {
+      break;
+    }
+  }
+
+  if (
+    selectedIdentity &&
+    result[0] &&
+    identityFor(
+      result[0],
+    ) !==
+      selectedIdentity
+  ) {
+    return [];
+  }
+
+  return result;
+}
