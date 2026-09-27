@@ -753,6 +753,7 @@ async def _search_deezer(
     query: str,
     *,
     limit: int,
+    artist_only: bool = False,
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
@@ -762,6 +763,17 @@ async def _search_deezer(
             int(limit),
             500,
         ),
+    )
+
+    provider_query = (
+        'artist:"'
+        + query.replace(
+            '"',
+            " ",
+        ).strip()
+        + '"'
+        if artist_only
+        else query
     )
 
     async with httpx.AsyncClient(
@@ -805,7 +817,7 @@ async def _search_deezer(
                     "/search/track",
                     params={
                         "q":
-                            query,
+                            provider_query,
                         "limit":
                             page_limit,
                         "index":
@@ -922,6 +934,7 @@ async def _search_itunes(
     query: str,
     *,
     limit: int,
+    artist_only: bool = False,
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
@@ -968,6 +981,14 @@ async def _search_itunes(
                         ),
                     "explicit":
                         "Yes",
+                    **(
+                        {
+                            "attribute":
+                                "artistTerm",
+                        }
+                        if artist_only
+                        else {}
+                    ),
                 },
             )
 
@@ -1464,21 +1485,35 @@ async def search_catalog_metadata(
         500,
     )
 
+    artist_only = (
+        kind.strip().casefold()
+        == "artist"
+    )
+
     deezer, itunes = await asyncio.gather(
         _search_deezer(
             clean_query,
             limit=provider_limit,
+            artist_only=artist_only,
         ),
         _search_itunes(
             clean_query,
             limit=provider_limit,
+            artist_only=artist_only,
         ),
     )
 
     merged = merge_catalog_candidates(
         deezer,
         itunes,
-        limit=provider_limit,
+        limit=min(
+            700,
+            provider_limit
+            + min(
+                provider_limit,
+                200,
+            ),
+        ),
     )
 
     return rank_catalog_candidates_for_kind(
