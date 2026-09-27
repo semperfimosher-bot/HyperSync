@@ -208,7 +208,7 @@ const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
   750;
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
-  5000;
+  90000;
 
 const PLAYBACK_HANDOFF_OVERLAP_MS =
   1000;
@@ -7595,21 +7595,65 @@ export default function App() {
             0,
         };
 
+        const controlTarget =
+          resolveCurrentPlaybackControlTarget();
+
+        const currentDeviceId =
+          playbackDeviceIdRef.current;
+
+        const snapshot =
+          accountPlaybackSnapshotRef.current;
+
+        const controllingRemote =
+          Boolean(
+            controlTarget &&
+            currentDeviceId &&
+            controlTarget !==
+              currentDeviceId &&
+            snapshot?.device_id ===
+              controlTarget,
+          );
+
+        const remoteTime =
+          controllingRemote
+            ? accountPlaybackPosition(
+                snapshot,
+              )
+            : null;
+
         const currentTime =
-          Number.isFinite(
-            playerState.currentTime,
-          )
-            ? playerState.currentTime
-            : 0;
+          controllingRemote
+            ? remoteTime
+            : (
+                Number.isFinite(
+                  playerState.currentTime,
+                )
+                  ? playerState.currentTime
+                  : 0
+              );
+
+        const remoteDuration =
+          Number(
+            snapshot?.track
+              ?.duration_seconds,
+          );
 
         const duration =
+          controllingRemote &&
           Number.isFinite(
-            playerState.duration,
+            remoteDuration,
           ) &&
-          playerState.duration >
-            0
-            ? playerState.duration
-            : Infinity;
+          remoteDuration > 0
+            ? remoteDuration
+            : (
+                Number.isFinite(
+                  playerState.duration,
+                ) &&
+                playerState.duration >
+                  0
+                  ? playerState.duration
+                  : Infinity
+              );
 
         const delta =
           side ===
