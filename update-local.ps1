@@ -2,6 +2,7 @@
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
+    [string]$Branch = "feature/on-demand-ingestion",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations,
@@ -12,7 +13,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
-$Branch = "feature/offline-pwa-downloads"
+
+if ([string]::IsNullOrWhiteSpace($Branch)) {
+    throw "A Git branch name is required."
+}
+
+$Branch = $Branch.Trim()
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $VenvRoot = Join-Path $RepoRoot ".venv"
 $PythonPath = Join-Path $VenvRoot "Scripts\python.exe"
@@ -163,6 +169,87 @@ function Update-FrontendDependencies {
     }
     finally {
         Pop-Location
+    }
+}
+
+function Show-OnDemandReadiness {
+    $probeScript = @'
+from pathlib import Path
+from backend.app.config import get_settings
+
+settings = get_settings()
+
+database_mode = "remote PostgreSQL" if settings.database_url.strip() else "local SQLite"
+b2_ready = all(
+    value.strip()
+    for value in (
+        settings.b2_endpoint,
+        settings.b2_key_id,
+        settings.b2_application_key,
+        settings.b2_bucket_name,
+    )
+)
+cookies_path = settings.yt_dlp_cookies_file.strip()
+cookies_ready = bool(cookies_path and Path(cookies_path).expanduser().is_file())
+admin_ready = bool(settings.admin_account_creation_password.strip())
+
+print("database=" + database_mode)
+print("b2=" + ("ready" if b2_ready else "missing"))
+print("cookies=" + ("ready" if cookies_ready else ("configured-but-missing" if cookies_path else "optional-not-set")))
+print("admin=" + ("ready" if admin_ready else "not-set"))
+'@
+
+    $probeOutput = @(
+        & $PythonPath -c $probeScript
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect local on-demand configuration."
+    }
+
+    $values = @{}
+
+    foreach ($line in $probeOutput) {
+        $parts = ([string]$line).Split("=", 2)
+
+        if ($parts.Count -eq 2) {
+            $values[$parts[0]] = $parts[1]
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Local on-demand readiness:" -ForegroundColor Cyan
+    Write-Host ("  Database:        " + $values["database"]) -ForegroundColor DarkGray
+    Write-Host "  Deezer + iTunes: ready (no API key required)" -ForegroundColor Green
+    Write-Host "  yt-dlp:          installed with backend dependencies" -ForegroundColor Green
+
+    if ($values["b2"] -eq "ready") {
+        Write-Host "  B2 publishing:   ready" -ForegroundColor Green
+    }
+    else {
+        Write-Warning (
+            "B2 publishing is not fully configured in backend/.env. " +
+            "Search and temporary on-demand playback can still work, " +
+            "but permanent ingest cannot finish until B2_ENDPOINT, " +
+            "B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET_NAME are set."
+        )
+    }
+
+    if ($values["cookies"] -eq "configured-but-missing") {
+        Write-Warning "YT_DLP_COOKIES_FILE is configured but the file does not exist."
+    }
+    elseif ($values["cookies"] -eq "ready") {
+        Write-Host "  yt-dlp cookies:  ready" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  yt-dlp cookies:  optional / not configured" -ForegroundColor DarkGray
+    }
+
+    if ($values["admin"] -eq "ready") {
+        Write-Host "  Admin setup:     ready" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Admin setup:     existing admins can sign in; creation secret is not set" -ForegroundColor DarkGray
     }
 }
 
@@ -332,6 +419,7 @@ try {
         $nextParameters = @{
             FrontendPort = $FrontendPort
             BackendPort = $BackendPort
+            Branch = $Branch
             NoBrowser = $NoBrowser
             SkipDependencies = $SkipDependencies
             SkipMigrations = $SkipMigrations
@@ -376,6 +464,8 @@ if (-not $SkipDependencies) {
 if (-not $SkipMigrations) {
     Update-DatabaseSchema
 }
+
+Show-OnDemandReadiness
 
 if (Test-Path -LiteralPath $InstallGoScript) {
     & $InstallGoScript -Quiet
