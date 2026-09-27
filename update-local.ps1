@@ -2,7 +2,7 @@
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
-    [string]$Branch = "feature/on-demand-ingestion",
+    [string]$Branch = "fix/production-migration-startup",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations,
