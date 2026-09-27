@@ -293,7 +293,7 @@ export default function ProfilePage({
       <div className="hs-profile-page">
         <OfflineNotice
           title="Go back online to see your profile"
-          description="Your profile stats, followers, Recently Played, and Top Artists sync from HyperSync."
+          description="Your profile stats, followers, Recently Played, and Top Artists sync from HyperSynced."
         />
       </div>
     );
