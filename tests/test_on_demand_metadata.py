@@ -251,3 +251,38 @@ async def test_metadata_search_supports_500_artist_results(
         500,
         500,
     ]
+
+
+def test_artist_mode_rejects_longer_fuzzy_artist_names() -> None:
+    exact = _candidate(
+        provider="deezer",
+        key="exact",
+        title="Exact Song",
+        artist="Morgan Wallen",
+        deezer_id="10",
+    )
+
+    fuzzy = _candidate(
+        provider="itunes",
+        key="fuzzy",
+        title="Tribute Song",
+        artist="Morgan Wallen Tribute Band",
+        apple_id="11",
+    )
+
+    result = rank_catalog_candidates_for_kind(
+        [
+            fuzzy,
+            exact,
+        ],
+        query="Morgan Wallen",
+        kind="artist",
+        limit=10,
+    )
+
+    assert [
+        item.key
+        for item in result
+    ] == [
+        "exact",
+    ]
