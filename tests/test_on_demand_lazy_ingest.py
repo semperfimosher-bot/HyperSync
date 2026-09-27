@@ -1,6 +1,9 @@
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+
+from bot.youtube_source import DownloadedAudio
 
 from backend.app.services import (
     on_demand_ingestion,
@@ -233,6 +236,130 @@ async def test_playlist_warm_registers_500_without_ingest(
     )
 
     assert ingest_calls == 0
+
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+
+@pytest.mark.asyncio
+async def test_played_on_demand_track_enters_recent_history_after_ingest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    candidate = _candidate()
+
+    await on_demand_ingestion.remember_candidates(
+        [
+            candidate,
+        ]
+    )
+
+    session = (
+        await on_demand_ingestion
+        .get_or_create_session(
+            candidate,
+        )
+    )
+
+    session.source = SimpleNamespace(
+        source_id="youtube-test-source",
+    )
+
+    user_id = uuid4()
+    track_id = uuid4()
+
+    session.pending_listener_user_ids.add(
+        user_id,
+    )
+
+    recorded: list[
+        tuple[UUID, UUID]
+    ] = []
+
+    async def fake_download(
+        _source,
+    ) -> DownloadedAudio:
+        return DownloadedAudio(
+            content=b"audio",
+            filename="test.mp3",
+            mime_type="audio/mpeg",
+        )
+
+    async def fake_artwork(
+        _url,
+    ) -> tuple[
+        bytes | None,
+        str | None,
+    ]:
+        return (
+            None,
+            None,
+        )
+
+    async def fake_publish(
+        **_kwargs,
+    ):
+        return SimpleNamespace(
+            track_id=track_id,
+            artist=candidate.artist,
+            title=candidate.title,
+        )
+
+    async def fake_record(
+        recorded_track_id: UUID,
+        recorded_user_id: UUID,
+    ) -> None:
+        recorded.append(
+            (
+                recorded_track_id,
+                recorded_user_id,
+            )
+        )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "download_youtube_audio",
+        fake_download,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_fetch_artwork",
+        fake_artwork,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "publish_authorized_audio",
+        fake_publish,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_record_listening_event",
+        fake_record,
+    )
+
+    await on_demand_ingestion._run_ingest(
+        session,
+    )
+
+    assert session.state == "ready"
+    assert session.track_id == track_id
+    assert session.pending_listener_user_ids == set()
+
+    assert recorded == [
+        (
+            track_id,
+            user_id,
+        )
+    ]
 
     await (
         on_demand_ingestion
