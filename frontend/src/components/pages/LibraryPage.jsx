@@ -3265,74 +3265,76 @@ if (offline) {
           {selectedPlaylist.tracks.length >
           0 ? (
             <div className="hs-playlist-track-search">
-              <label>
-                <Icon
-                  name="search"
-                  size={15}
-                />
+              <div className="hs-playlist-track-search__controls">
+                <label className="hs-playlist-track-search__query">
+                  <Icon
+                    name="search"
+                    size={15}
+                  />
 
-                <input
-                  type="search"
-                  value={
-                    playlistSearchQuery
-                  }
-                  placeholder="Search in playlist"
-                  aria-label={
-                    `Search in ${selectedPlaylist.title}`
-                  }
-                  onChange={(
-                    event,
-                  ) => {
-                    setPlaylistSearchQuery(
-                      event.target.value,
-                    );
-                  }}
-                />
-              </label>
-
-              {presentation.kind ===
-                "liked" &&
-              likedGenreOptions.length >
-                0 ? (
-                <label className="hs-liked-genre-filter">
-                  <span>
-                    Genre
-                  </span>
-
-                  <select
+                  <input
+                    type="search"
                     value={
-                      likedGenreFilter
+                      playlistSearchQuery
                     }
-                    aria-label="Filter Liked Songs by genre"
+                    placeholder="Search in playlist"
+                    aria-label={
+                      `Search in ${selectedPlaylist.title}`
+                    }
                     onChange={(
                       event,
                     ) => {
-                      setLikedGenreFilter(
+                      setPlaylistSearchQuery(
                         event.target.value,
                       );
                     }}
-                  >
-                    <option value="all">
-                      All genres
-                    </option>
-
-                    {likedGenreOptions.map(
-                      (genre) => (
-                        <option
-                          key={
-                            genre
-                          }
-                          value={
-                            genre
-                          }
-                        >
-                          {genre}
-                        </option>
-                      ),
-                    )}
-                  </select>
+                  />
                 </label>
-              ) : null}
+
+                {presentation.kind ===
+                  "liked" &&
+                likedGenreOptions.length >
+                  0 ? (
+                  <label className="hs-liked-genre-filter">
+                    <span>
+                      Genre
+                    </span>
+
+                    <select
+                      value={
+                        likedGenreFilter
+                      }
+                      aria-label="Filter Liked Songs by genre"
+                      onChange={(
+                        event,
+                      ) => {
+                        setLikedGenreFilter(
+                          event.target.value,
+                        );
+                      }}
+                    >
+                      <option value="all">
+                        All genres
+                      </option>
+
+                      {likedGenreOptions.map(
+                        (genre) => (
+                          <option
+                            key={
+                              genre
+                            }
+                            value={
+                              genre
+                            }
+                          >
+                            {genre}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
 
               <div className="hs-playlist-track-search__meta">
                 <span>
