@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAccountPlaybackSyncState,
   getPlaybackDeviceDescriptor,
   resolvePlaybackControlTarget,
 } from "./playbackDevices.js";
@@ -1229,6 +1230,43 @@ test(
     assert.equal(
       stopped.observation,
       null,
+    );
+  },
+);
+
+
+test(
+  "mixed on-demand queues sync the current catalog track safely",
+  () => {
+    const currentId =
+      "9e061d5c-5ae4-4db9-8bb1-ef55bdd7af33";
+
+    assert.deepEqual(
+      buildAccountPlaybackSyncState({
+        trackId:
+          currentId,
+        queueIndex:
+          0,
+        queue: [
+          {
+            id:
+              currentId,
+          },
+          {
+            id:
+              "ondemand:next-song",
+          },
+        ],
+      }),
+      {
+        trackId:
+          currentId,
+        queueTrackIds: [
+          currentId,
+        ],
+        queueIndex:
+          0,
+      },
     );
   },
 );
