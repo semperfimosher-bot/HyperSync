@@ -1,3 +1,8 @@
+import pytest
+
+from backend.app.services import (
+    on_demand_metadata,
+)
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
     merge_catalog_candidates,
@@ -172,4 +177,73 @@ def test_album_mode_orders_tracks_by_album_track_number() -> None:
     assert [item.key for item in result] == [
         "one",
         "two",
+    ]
+
+
+
+@pytest.mark.asyncio
+async def test_metadata_search_supports_500_artist_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidates = [
+        _candidate(
+            provider="deezer",
+            key=f"track-{index}",
+            title=f"Song {index}",
+            artist="Example Artist",
+            deezer_id=str(index),
+        )
+        for index in range(500)
+    ]
+
+    requested_limits: list[int] = []
+
+    async def fake_deezer(
+        query: str,
+        *,
+        limit: int,
+    ) -> list[CatalogTrackCandidate]:
+        assert query == "Example Artist"
+        requested_limits.append(
+            limit,
+        )
+        return candidates
+
+    async def fake_itunes(
+        query: str,
+        *,
+        limit: int,
+    ) -> list[CatalogTrackCandidate]:
+        assert query == "Example Artist"
+        requested_limits.append(
+            limit,
+        )
+        return []
+
+    monkeypatch.setattr(
+        on_demand_metadata,
+        "_search_deezer",
+        fake_deezer,
+    )
+
+    monkeypatch.setattr(
+        on_demand_metadata,
+        "_search_itunes",
+        fake_itunes,
+    )
+
+    result = (
+        await on_demand_metadata
+        .search_catalog_metadata(
+            "Example Artist",
+            limit=500,
+            kind="artist",
+        )
+    )
+
+    assert len(result) == 500
+
+    assert requested_limits == [
+        500,
+        500,
     ]
