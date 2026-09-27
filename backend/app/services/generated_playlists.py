@@ -36,7 +36,7 @@ MIN_GENERATED_TRACKS = 2
 # Artist-generated playlists should include the full published
 # HyperSync catalog for that artist, bounded only to keep a
 # single playlist from growing without limit.
-MAX_GENERATED_TRACKS = 700
+MAX_GENERATED_TRACKS = 500
 
 MAX_SMART_GENERATED_TRACKS = 120
 
