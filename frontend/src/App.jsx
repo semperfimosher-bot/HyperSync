@@ -9796,6 +9796,12 @@ const clearPlaylistToOpen =
         onOpenAuth={
           openSignIn
         }
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
+        }
       />
 
       <PlayerBar
@@ -9872,6 +9878,12 @@ const clearPlaylistToOpen =
             false,
           );
         }}
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
+        }
       />
 
       <MobileBottomNav
