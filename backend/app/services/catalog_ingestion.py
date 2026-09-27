@@ -169,6 +169,8 @@ async def publish_authorized_audio(
     audio_mime_type: str,
     artwork_data: bytes | None = None,
     artwork_mime_type: str | None = None,
+    source_provider: str | None = None,
+    source_id: str | None = None,
 ) -> CatalogPublishResult:
     settings = get_settings()
 
@@ -339,6 +341,23 @@ async def publish_authorized_audio(
                         metadata
                         .release_year
                     )
+                ),
+                isrc=(
+                    metadata.isrc
+                ),
+                deezer_track_id=(
+                    metadata
+                    .deezer_track_id
+                ),
+                apple_track_id=(
+                    metadata
+                    .apple_track_id
+                ),
+                source_provider=(
+                    source_provider
+                ),
+                source_id=(
+                    source_id
                 ),
                 b2_object_key=(
                     audio_object_key
