@@ -430,23 +430,36 @@ useQuietRefresh(
   />
 ) : recentLoading ? (
 
-  <div className="home-empty-state">
+  <div
+    className="home-track-grid home-track-grid--loading"
+    aria-label="Loading recently played"
+    aria-busy="true"
+  >
+    {Array.from(
+      {
+        length:
+          6,
+      },
+      (
+        _,
+        index,
+      ) => (
+        <div
+          className="home-track-card home-track-card--skeleton"
+          key={
+            `recent-loading-${index}`
+          }
+          aria-hidden="true"
+        >
+          <div className="home-track-card__art home-skeleton-block" />
 
-    <div className="home-empty-state__icon">
-      ♫
-    </div>
-
-    <div>
-      <strong>
-        Loading your rotation
-      </strong>
-
-      <p>
-        Syncing your recent listening
-        history.
-      </p>
-    </div>
-
+          <div className="home-track-card__copy">
+            <span className="home-skeleton-line home-skeleton-line--title" />
+            <span className="home-skeleton-line home-skeleton-line--artist" />
+          </div>
+        </div>
+      ),
+    )}
   </div>
 
 ) : recentError ? (
