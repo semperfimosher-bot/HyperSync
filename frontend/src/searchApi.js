@@ -76,6 +76,8 @@ export function searchOnDemandMusic(
     new URLSearchParams({
       q:
         query,
+      limit:
+        "500",
     });
 
   return apiRequest(
@@ -136,7 +138,7 @@ export function warmOnDemandTracks(
     )
       .slice(
         0,
-        16,
+        500,
       );
 
   if (!keys.length) {
