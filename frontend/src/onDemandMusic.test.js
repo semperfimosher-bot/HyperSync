@@ -6,6 +6,7 @@ import {
   inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
+  onDemandPollDelay,
   onDemandTrackId,
 } from "./onDemandMusic.js";
 
@@ -260,6 +261,32 @@ test(
           "Feature",
       ),
       false,
+    );
+  },
+);
+
+
+test(
+  "on-demand status polling backs off after failures",
+  () => {
+    assert.equal(
+      onDemandPollDelay(0),
+      1500,
+    );
+
+    assert.equal(
+      onDemandPollDelay(1),
+      3000,
+    );
+
+    assert.equal(
+      onDemandPollDelay(4),
+      24000,
+    );
+
+    assert.equal(
+      onDemandPollDelay(20),
+      30000,
     );
   },
 );
