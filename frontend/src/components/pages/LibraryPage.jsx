@@ -2961,7 +2961,7 @@ if (offline) {
 
           <p>
             Create playlists, save collections,
-            and keep them synced across HyperSync.
+            and keep them synced across HyperSynced.
           </p>
         </div>
 
