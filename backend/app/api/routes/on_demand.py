@@ -33,6 +33,7 @@ from ...services.on_demand_ingestion import (
     provision_status,
     search_and_remember,
     source_headers,
+    stream_token_matches,
 )
 from ..dependencies import (
     CurrentUser,
@@ -250,6 +251,10 @@ async def get_on_demand_status(
 async def stream_on_demand(
     provision_id: UUID,
     request: Request,
+    token: str = Query(
+        min_length=24,
+        max_length=128,
+    ),
 ):
     session = (
         await get_provision_session(
@@ -264,6 +269,19 @@ async def stream_on_demand(
             ),
             detail=(
                 "Temporary playback session expired."
+            ),
+        )
+
+    if not stream_token_matches(
+        session,
+        token,
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_403_FORBIDDEN
+            ),
+            detail=(
+                "Temporary playback token is invalid."
             ),
         )
 
