@@ -1919,6 +1919,70 @@ attachEvents();
 restorePersistedPlayerState();
 
 
+function handleBackgroundPlaybackLifecycle() {
+  const hidden =
+    globalThis.document
+      ?.visibilityState ===
+      "hidden";
+
+  persistPlayerState({
+    force:
+      true,
+  });
+
+  updateMediaSession(
+    getState(),
+  );
+
+  if (
+    currentTrackId &&
+    !audio.paused
+  ) {
+    void ensureAutoplayQueue()
+      .catch(
+        () => {},
+      );
+
+    if (hidden) {
+      void Promise.resolve(
+        warmCurrentTrackForResume(),
+      ).catch(
+        () => {},
+      );
+    }
+  }
+
+  if (!hidden) {
+    notify();
+  }
+}
+
+
+if (
+  globalThis.document
+    ?.addEventListener
+) {
+  globalThis.document.addEventListener(
+    "visibilitychange",
+    handleBackgroundPlaybackLifecycle,
+  );
+}
+
+if (
+  globalThis.addEventListener
+) {
+  globalThis.addEventListener(
+    "pagehide",
+    handleBackgroundPlaybackLifecycle,
+  );
+
+  globalThis.addEventListener(
+    "pageshow",
+    handleBackgroundPlaybackLifecycle,
+  );
+}
+
+
 function warmCurrentTrackForResume() {
   if (
     !currentTrackId ||
