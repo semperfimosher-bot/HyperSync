@@ -986,3 +986,127 @@ export async function connectPlaybackDeviceLive({
     socket,
   };
 }
+
+
+const PLAYBACK_CATALOG_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+function syncableCatalogTrackId(
+  value,
+) {
+  const id =
+    String(
+      value ?? "",
+    ).trim();
+
+  return (
+    PLAYBACK_CATALOG_ID_PATTERN.test(
+      id,
+    )
+      ? id
+      : null
+  );
+}
+
+
+export function buildAccountPlaybackSyncState(
+  state = {},
+) {
+  const trackId =
+    syncableCatalogTrackId(
+      state?.catalogTrackId,
+    ) ??
+    syncableCatalogTrackId(
+      state?.trackId,
+    );
+
+  if (!trackId) {
+    return {
+      trackId:
+        null,
+      queueTrackIds:
+        [],
+      queueIndex:
+        null,
+    };
+  }
+
+  const queue =
+    Array.isArray(
+      state?.queue,
+    )
+      ? state.queue.slice(
+          0,
+          500,
+        )
+      : [];
+
+  const queueTrackIds =
+    queue.map(
+      (entry) =>
+        syncableCatalogTrackId(
+          entry?.meta
+            ?.catalogTrackId,
+        ) ??
+        syncableCatalogTrackId(
+          entry?.id,
+        ),
+    );
+
+  if (
+    queueTrackIds.some(
+      (id) => !id,
+    )
+  ) {
+    return {
+      trackId,
+      queueTrackIds: [
+        trackId,
+      ],
+      queueIndex:
+        0,
+    };
+  }
+
+  let queueIndex =
+    Number.isInteger(
+      state?.queueIndex,
+    )
+      ? state.queueIndex
+      : queueTrackIds.indexOf(
+          trackId,
+        );
+
+  if (
+    queueIndex < 0 ||
+    queueIndex >=
+      queueTrackIds.length ||
+    queueTrackIds[
+      queueIndex
+    ] !==
+      trackId
+  ) {
+    queueIndex =
+      queueTrackIds.indexOf(
+        trackId,
+      );
+  }
+
+  if (queueIndex < 0) {
+    return {
+      trackId,
+      queueTrackIds: [
+        trackId,
+      ],
+      queueIndex:
+        0,
+    };
+  }
+
+  return {
+    trackId,
+    queueTrackIds,
+    queueIndex,
+  };
+}
