@@ -3530,8 +3530,14 @@ async function downloadOpenedPlaylist() {
                 }
                 role="button"
                 tabIndex={0}
-                {...trackActionMenu.getTriggerProps(
-                  track,
+                {...(
+                  track.source_type ===
+                    "on_demand"
+                    ? {}
+                    : trackActionMenu
+                        .getTriggerProps(
+                          track,
+                        )
                 )}
                 className={[
                   "hs-search-track",
@@ -4095,7 +4101,7 @@ async function downloadOpenedPlaylist() {
 
 
           {showPlaylists &&
-          results.playlists?.length > 0 ? (
+          displayResults.playlists?.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -4113,7 +4119,7 @@ async function downloadOpenedPlaylist() {
 
                 <strong>
                   {
-                    results.counts
+                    combinedResults.counts
                       .playlists
                   }
                 </strong>
@@ -4123,7 +4129,7 @@ async function downloadOpenedPlaylist() {
 
               <div className="hs-search-track-list">
 
-                {results.playlists.map(
+                {displayResults.playlists.map(
                   (
                     playlist,
                     playlistIndex,
@@ -4189,6 +4195,39 @@ async function downloadOpenedPlaylist() {
                               onSelect:
                                 async () => {
                                   try {
+                                    if (
+                                      playlist.transient
+                                    ) {
+                                      const warmKeys =
+                                        (
+                                          playlist.tracks ??
+                                          []
+                                        )
+                                          .map(
+                                            (track) =>
+                                              track?.provision_key ??
+                                              track?.provisionKey ??
+                                              null,
+                                          )
+                                          .filter(
+                                            Boolean,
+                                          );
+
+                                      void warmOnDemandTracks(
+                                        warmKeys,
+                                      ).catch(
+                                        () => {},
+                                      );
+
+                                      playOpenedPlaylist(
+                                        0,
+                                        playlist.tracks ??
+                                          [],
+                                      );
+
+                                      return;
+                                    }
+
                                     const fullPlaylist =
                                       await getPlaylist(
                                         playlist.id,
@@ -4245,12 +4284,21 @@ async function downloadOpenedPlaylist() {
                                   ? "check"
                                   : "download",
                               disabled:
+                                Boolean(
+                                  playlist.transient,
+                                ) ||
                                 rowDownload?.status ===
                                   "downloaded" ||
                                 rowDownload?.status ===
                                   "downloading",
                               onSelect:
                                 async () => {
+                                  if (
+                                    playlist.transient
+                                  ) {
+                                    return;
+                                  }
+
                                   if (!isRegistered) {
                                     onOpenAuth?.();
                                     return;
