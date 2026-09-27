@@ -299,6 +299,22 @@ function waitForOnDemandHistory(
           status?.state ===
             "ready"
         ) {
+          if (
+            status?.track_id &&
+            currentTrackMeta
+              ?.provisionId ===
+              provisionId
+          ) {
+            currentTrackMeta =
+              normalizeTrackMeta({
+                ...currentTrackMeta,
+                catalogTrackId:
+                  status.track_id,
+              });
+
+            notify();
+          }
+
           notifyListeningHistoryChanged();
           return;
         }
@@ -584,6 +600,11 @@ function normalizeTrackMeta(
     provisionId:
       meta.provisionId ??
       meta.provision_id ??
+      null,
+
+    catalogTrackId:
+      meta.catalogTrackId ??
+      meta.catalog_track_id ??
       null,
 
     title:
@@ -1460,6 +1481,10 @@ export function getState() {
 
     durationSeconds:
       currentTrackMeta?.durationSeconds ??
+      null,
+
+    catalogTrackId:
+      currentTrackMeta?.catalogTrackId ??
       null,
 
     queue:
@@ -2488,6 +2513,8 @@ async function resolveOnDemandPlaybackMeta(
     provisionId:
       prepared?.provision_id ??
       null,
+    catalogTrackId:
+      permanentTrackId,
   });
 }
 
