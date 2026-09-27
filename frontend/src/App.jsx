@@ -3101,7 +3101,7 @@ function MainPage({
 
 
   /*
-   * Keep visited pages alive for two hours.
+   * Keep visited pages alive for twelve hours.
    *
    * React Activity preserves their UI and
    * component state while hidden, but cleans
