@@ -112,7 +112,7 @@ export default function MessageNotificationPanel({
                           ? (
                               notification
                                 .actor_username
-                              || "HyperSync"
+                              || "HyperSynced"
                             )
                           : notification
                               .sender_display_name
