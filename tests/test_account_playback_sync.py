@@ -9,6 +9,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from backend.app.api.routes import (
+    users as user_routes,
+)
 from backend.app.database import (
     get_engine,
     get_session_factory,
@@ -188,6 +191,104 @@ async def test_playback_state_syncs_across_devices() -> None:
         assert takeover_payload["paused"] is True
 
         assert takeover_payload["device_id"] == "device-two"
+
+
+@pytest.mark.asyncio
+async def test_listening_history_change_is_broadcast_to_account_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    username = f"history-realtime-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Realtime History Song",
+                artist="HyperSync Devices",
+                album="Shared History",
+                b2_object_key=(
+                    f"audio/history-realtime-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    broadcasts: list[
+        tuple[
+            object,
+            dict,
+        ]
+    ] = []
+
+    async def fake_broadcast(
+        user_id,
+        payload,
+    ) -> None:
+        broadcasts.append(
+            (
+                user_id,
+                payload,
+            )
+        )
+
+    monkeypatch.setattr(
+        user_routes.playback_realtime_hub,
+        "broadcast",
+        fake_broadcast,
+    )
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        response = await client.post(
+            "/api/users/me/listening",
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+            },
+            json={
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+            },
+        )
+
+        assert response.status_code == 201, response.text
+
+        assert len(
+            broadcasts,
+        ) == 1
+
+        _, payload = broadcasts[0]
+
+        assert payload == {
+            "type":
+                "listening_history_changed",
+            "track_id":
+                str(
+                    track_id,
+                ),
+        }
 
 
 @pytest.mark.asyncio
