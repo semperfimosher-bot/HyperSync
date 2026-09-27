@@ -8,6 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yt_dlp
 
@@ -87,6 +88,39 @@ def _normalize(
         re.findall(
             r"\w+",
             text,
+        )
+    )
+
+
+def is_allowed_direct_media_url(
+    value: object,
+) -> bool:
+    if not isinstance(
+        value,
+        str,
+    ):
+        return False
+
+    parsed = urlsplit(
+        value,
+    )
+
+    host = (
+        parsed.hostname
+        or ""
+    ).casefold().rstrip(
+        ".",
+    )
+
+    return (
+        parsed.scheme
+        == "https"
+        and (
+            host
+            == "googlevideo.com"
+            or host.endswith(
+                ".googlevideo.com",
+            )
         )
     )
 
@@ -595,21 +629,12 @@ def _resolve_sync(
         "url",
     )
 
-    if (
-        not isinstance(
-            direct_url,
-            str,
-        )
-        or not direct_url.startswith(
-            (
-                "http://",
-                "https://",
-            )
-        )
+    if not is_allowed_direct_media_url(
+        direct_url,
     ):
         raise RuntimeError(
-            "yt-dlp did not resolve a playable "
-            "audio stream URL."
+            "yt-dlp did not resolve an allowed "
+            "HTTPS YouTube media stream."
         )
 
     raw_headers = info.get(
