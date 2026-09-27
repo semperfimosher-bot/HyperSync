@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from typing import cast
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.routes.admin import (
+    _duplicate_track_groups,
     _find_duplicate_track,
 )
 from backend.app.models.media import (
@@ -147,6 +154,65 @@ def test_duplicate_title_identity_collapses_version_labels() -> None:
         ==
         "sweet dreams (are made of this)"
     )
+
+
+def test_duplicate_groups_keep_oldest_catalog_copy() -> None:
+    older = _track(
+        title="Love Somebody",
+        artist="Morgan Wallen",
+    )
+
+    newer = _track(
+        title="Love Somebody (Remix)",
+        artist="Morgan Wallen",
+    )
+
+    older.id = uuid4()
+    newer.id = uuid4()
+
+    older.created_at = datetime(
+        2026,
+        1,
+        1,
+        tzinfo=UTC,
+    )
+
+    newer.created_at = (
+        older.created_at
+        + timedelta(
+            days=1,
+        )
+    )
+
+    groups = _duplicate_track_groups(
+        [
+            newer,
+            older,
+        ],
+    )
+
+    assert len(groups) == 1
+
+    group = groups[0]
+
+    assert (
+        group["keep_track_id"]
+        == str(
+            older.id,
+        )
+    )
+
+    assert [
+        track["id"]
+        for track in group["tracks"]
+    ] == [
+        str(
+            older.id,
+        ),
+        str(
+            newer.id,
+        ),
+    ]
 
 
 @pytest.mark.asyncio
