@@ -33,6 +33,9 @@ from bot.youtube_source import (
 
 from ..config import get_settings
 from ..database import get_session_factory
+from ..models.account import (
+    ListeningEvent,
+)
 from ..models.media import Track
 from .audio_metadata import (
     normalize_track_identity,
@@ -66,6 +69,12 @@ class ProvisionSession:
     )
     ingest_task: asyncio.Task | None = field(
         default=None,
+        repr=False,
+    )
+    pending_listener_user_ids: set[
+        UUID
+    ] = field(
+        default_factory=set,
         repr=False,
     )
 
@@ -479,6 +488,25 @@ async def _fetch_artwork(
         )
 
 
+async def _record_listening_event(
+    track_id: UUID,
+    user_id: UUID,
+) -> None:
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as db:
+        db.add(
+            ListeningEvent(
+                user_id=user_id,
+                track_id=track_id,
+            )
+        )
+
+        await db.commit()
+
+
 async def _run_ingest(
     session: ProvisionSession,
 ) -> None:
@@ -589,8 +617,30 @@ async def _run_ingest(
 
             session.error = None
 
+            pending_listener_user_ids = (
+                set(
+                    session
+                    .pending_listener_user_ids
+                )
+            )
+
+            session.pending_listener_user_ids.clear()
+
             session.updated_at = (
                 _now()
+            )
+
+        if pending_listener_user_ids:
+            await asyncio.gather(
+                *[
+                    _record_listening_event(
+                        result.track_id,
+                        user_id,
+                    )
+                    for user_id
+                    in pending_listener_user_ids
+                ],
+                return_exceptions=True,
             )
 
         job_completed(
@@ -800,11 +850,74 @@ async def prewarm_candidates(
         )
 
 
+async def warm_candidate_keys(
+    candidate_keys: list[str],
+) -> list[dict[str, Any]]:
+    settings = get_settings()
+
+    clean_keys = list(
+        dict.fromkeys(
+            key.strip()
+            for key in candidate_keys
+            if key
+            and key.strip()
+        )
+    )[
+        :max(
+            0,
+            int(
+                settings
+                .on_demand_prewarm_limit
+            ),
+        )
+    ]
+
+    candidates = [
+        candidate
+        for key in clean_keys
+        for candidate in [
+            await candidate_for_key(
+                key,
+            )
+        ]
+        if candidate is not None
+    ]
+
+    sessions = [
+        await get_or_create_session(
+            candidate,
+        )
+        for candidate
+        in candidates
+    ]
+
+    if sessions:
+        await asyncio.gather(
+            *[
+                _ensure_source(
+                    session,
+                )
+                for session
+                in sessions
+            ],
+            return_exceptions=True,
+        )
+
+    return [
+        _session_snapshot(
+            session,
+        )
+        for session
+        in sessions
+    ]
+
+
 async def search_and_remember(
     query: str,
     *,
     limit: int | None = None,
     kind: str = "song",
+    prewarm: bool = True,
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
@@ -877,9 +990,10 @@ async def search_and_remember(
         missing,
     )
 
-    await prewarm_candidates(
-        missing,
-    )
+    if prewarm:
+        await prewarm_candidates(
+            missing,
+        )
 
     return missing
 
@@ -941,6 +1055,56 @@ async def get_provision_session(
             )
 
         return session
+
+
+async def record_provision_play(
+    provision_id: UUID,
+    user_id: UUID,
+) -> dict[str, Any] | None:
+    session = (
+        await get_provision_session(
+            provision_id,
+        )
+    )
+
+    if session is None:
+        return None
+
+    track_id: UUID | None = None
+
+    async with _lock:
+        track_id = session.track_id
+
+        if track_id is None:
+            session.pending_listener_user_ids.add(
+                user_id,
+            )
+
+            session.updated_at = (
+                _now()
+            )
+
+    if track_id is not None:
+        await _record_listening_event(
+            track_id,
+            user_id,
+        )
+
+    return {
+        "recorded":
+            track_id is not None,
+        "pending":
+            track_id is None,
+        "track_id":
+            (
+                str(
+                    track_id,
+                )
+                if track_id
+                is not None
+                else None
+            ),
+    }
 
 
 async def provision_status(
