@@ -282,6 +282,114 @@ export function getPlaybackDeviceDescriptor(
 }
 
 
+export function resolvePlaybackControlTarget({
+  devices = [],
+  currentDeviceId = null,
+  activeDeviceId = null,
+  controlledDeviceId = null,
+} = {}) {
+  const normalizedDevices =
+    Array.isArray(devices)
+      ? devices
+      : [];
+
+  const currentId =
+    String(currentDeviceId ?? "").trim();
+
+  const activeId =
+    String(activeDeviceId ?? "").trim();
+
+  const controlledId =
+    String(controlledDeviceId ?? "").trim();
+
+  const matchingActive =
+    activeId
+      ? normalizedDevices.find(
+          (device) =>
+            String(
+              device?.device_id ?? "",
+            ) === activeId,
+        ) ?? null
+      : null;
+
+  if (
+    activeId &&
+    (
+      !matchingActive ||
+      matchingActive.is_online
+    )
+  ) {
+    return activeId;
+  }
+
+  const listedActive =
+    normalizedDevices.find(
+      (device) =>
+        device?.is_active &&
+        device?.is_online,
+    );
+
+  if (listedActive?.device_id) {
+    return String(
+      listedActive.device_id,
+    );
+  }
+
+  const currentDevice =
+    currentId
+      ? normalizedDevices.find(
+          (device) =>
+            String(
+              device?.device_id ?? "",
+            ) === currentId,
+        ) ?? null
+      : null;
+
+  if (
+    currentId &&
+    (
+      !currentDevice ||
+      currentDevice.is_online
+    )
+  ) {
+    return currentId;
+  }
+
+  const controlledDevice =
+    controlledId
+      ? normalizedDevices.find(
+          (device) =>
+            String(
+              device?.device_id ?? "",
+            ) === controlledId,
+        ) ?? null
+      : null;
+
+  if (
+    controlledId &&
+    controlledDevice?.is_online
+  ) {
+    return controlledId;
+  }
+
+  const firstOnline =
+    normalizedDevices.find(
+      (device) =>
+        device?.is_online,
+    );
+
+  return firstOnline?.device_id
+    ? String(
+        firstOnline.device_id,
+      )
+    : (
+        currentId ||
+        controlledId ||
+        null
+      );
+}
+
+
 export async function pollPlaybackDevice({
   deviceId,
   name,

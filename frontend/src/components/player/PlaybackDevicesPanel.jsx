@@ -60,11 +60,11 @@ function PlaybackDevicesPanel({
         </span>
 
         <strong>
-          Control another device
+          Choose where HyperSync plays
         </strong>
 
         <small>
-          Devices signed in to this account appear here.
+          The selected player can be controlled from every other signed-in device.
         </small>
       </div>
 
@@ -150,9 +150,17 @@ function PlaybackDevicesPanel({
 
                       <small>
                         {isCurrent
-                          ? "This device"
+                          ? (
+                              device.is_active
+                                ? "This device"
+                                : "This device • Remote control"
+                            )
                           : device.is_online
-                            ? "Online"
+                            ? (
+                                device.is_active
+                                  ? "Remote player"
+                                  : "Online"
+                              )
                             : "Offline"}
 
                         {device.is_active
@@ -205,7 +213,7 @@ function PlaybackDevicesPanel({
           />
 
           <span>
-            Controls target:
+            Active player:
             {" "}
             <strong>
               {selected.name}

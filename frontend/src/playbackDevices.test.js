@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   getPlaybackDeviceDescriptor,
+  resolvePlaybackControlTarget,
 } from "./playbackDevices.js";
 
 import {
@@ -701,6 +702,114 @@ test(
     assert.equal(
       fakePlayer.state.paused,
       false,
+    );
+  },
+);
+
+
+
+test(
+  "active playback owner becomes the control target on every device",
+  () => {
+    const devices = [
+      {
+        device_id: "desktop",
+        is_online: true,
+        is_active: false,
+      },
+      {
+        device_id: "phone",
+        is_online: true,
+        is_active: true,
+      },
+    ];
+
+    assert.equal(
+      resolvePlaybackControlTarget({
+        devices,
+        currentDeviceId: "desktop",
+        activeDeviceId: "phone",
+        controlledDeviceId: "desktop",
+      }),
+      "phone",
+    );
+
+    assert.equal(
+      resolvePlaybackControlTarget({
+        devices,
+        currentDeviceId: "phone",
+        activeDeviceId: "phone",
+        controlledDeviceId: "desktop",
+      }),
+      "phone",
+    );
+  },
+);
+
+
+test(
+  "control target flips symmetrically when playback moves back",
+  () => {
+    const devices = [
+      {
+        device_id: "desktop",
+        is_online: true,
+        is_active: true,
+      },
+      {
+        device_id: "phone",
+        is_online: true,
+        is_active: false,
+      },
+    ];
+
+    assert.equal(
+      resolvePlaybackControlTarget({
+        devices,
+        currentDeviceId: "desktop",
+        activeDeviceId: "desktop",
+        controlledDeviceId: "phone",
+      }),
+      "desktop",
+    );
+
+    assert.equal(
+      resolvePlaybackControlTarget({
+        devices,
+        currentDeviceId: "phone",
+        activeDeviceId: "desktop",
+        controlledDeviceId: "phone",
+      }),
+      "desktop",
+    );
+  },
+);
+
+
+test(
+  "offline former player cannot remain the control target",
+  () => {
+    const devices = [
+      {
+        device_id: "desktop",
+        is_online: true,
+        is_active: false,
+      },
+      {
+        device_id: "phone",
+        is_online: false,
+        is_active: true,
+      },
+    ];
+
+    assert.equal(
+      resolvePlaybackControlTarget({
+        devices,
+        currentDeviceId: "desktop",
+        activeDeviceId: "phone",
+        controlledDeviceId: "phone",
+      }),
+      "desktop",
     );
   },
 );

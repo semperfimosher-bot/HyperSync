@@ -952,6 +952,94 @@ async def test_transfer_moves_authoritative_playback_owner_before_target_poll() 
             "pause",
         ]
 
+        transfer_back = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "computer/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "phone",
+                "action":
+                    "transfer",
+            },
+        )
+
+        assert (
+            transfer_back.status_code
+            == 201
+        ), transfer_back.text
+
+        computer_return_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "computer",
+                "name":
+                    "Computer",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert (
+            computer_return_poll.status_code
+            == 200
+        ), computer_return_poll.text
+
+        return_payload = (
+            computer_return_poll.json()
+        )
+
+        assert (
+            return_payload[
+                "playback_state"
+            ][
+                "device_id"
+            ]
+            == "computer"
+        )
+
+        assert [
+            command["action"]
+            for command in
+            return_payload[
+                "commands"
+            ]
+        ] == [
+            "transfer",
+        ]
+
+        phone_return_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "phone",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert (
+            phone_return_poll.status_code
+            == 200
+        ), phone_return_poll.text
+
+        assert [
+            command["action"]
+            for command in
+            phone_return_poll.json()[
+                "commands"
+            ]
+        ] == [
+            "pause",
+        ]
+
 
 @pytest.mark.asyncio
 async def test_play_track_command_switches_remote_song_and_playback_owner() -> None:

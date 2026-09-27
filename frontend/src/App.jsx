@@ -169,6 +169,7 @@ import {
   connectPlaybackDeviceLive,
   getPlaybackDeviceDescriptor,
   pollPlaybackDevice,
+  resolvePlaybackControlTarget,
   sendPlaybackDeviceCommand,
 } from "./playbackDevices.js";
 
@@ -5491,6 +5492,27 @@ export default function App() {
     useRef(null);
 
 
+  const resolveCurrentPlaybackControlTarget =
+    useCallback(
+      () =>
+        resolvePlaybackControlTarget({
+          devices:
+            playbackDevicesRef.current,
+          currentDeviceId:
+            playbackDeviceIdRef.current,
+          activeDeviceId:
+            accountPlaybackSnapshotRef
+              .current
+              ?.device_id ??
+            null,
+          controlledDeviceId:
+            controlledPlaybackDeviceIdRef
+              .current,
+        }),
+      [],
+    );
+
+
   const sendAccountPlaybackCommand =
     useCallback(
       async (
@@ -5929,8 +5951,7 @@ export default function App() {
       shouldHandle:
         () => {
           const targetId =
-            controlledPlaybackDeviceIdRef
-              .current;
+            resolveCurrentPlaybackControlTarget();
 
           if (
             !targetId ||
@@ -5956,8 +5977,7 @@ export default function App() {
           payload,
         ) => {
           const targetId =
-            controlledPlaybackDeviceIdRef
-              .current;
+            resolveCurrentPlaybackControlTarget();
 
           if (!targetId) {
             return false;
@@ -6065,6 +6085,7 @@ export default function App() {
     };
   }, [
     currentUser?.account_type,
+    resolveCurrentPlaybackControlTarget,
     sendAccountPlaybackCommand,
   ]);
 
@@ -6567,6 +6588,34 @@ export default function App() {
     const deviceDescriptor =
       playbackDeviceDescriptorRef.current;
 
+    const syncControlledPlaybackDevice =
+      (
+        devices,
+        snapshot,
+      ) => {
+        setControlledPlaybackDeviceId(
+          (current) => {
+            const next =
+              resolvePlaybackControlTarget({
+                devices,
+                currentDeviceId:
+                  deviceId,
+                activeDeviceId:
+                  snapshot?.device_id ??
+                  null,
+                controlledDeviceId:
+                  current,
+              });
+
+            controlledPlaybackDeviceIdRef
+              .current =
+                next;
+
+            return next;
+          },
+        );
+      };
+
     const markPublished =
       (state) => {
         playbackLastPublishedRef.current = {
@@ -7055,51 +7104,9 @@ export default function App() {
             snapshot,
           );
 
-          setControlledPlaybackDeviceId(
-            (current) => {
-              const currentStillOnline =
-                current &&
-                devices.some(
-                  (device) =>
-                    device.device_id ===
-                      current &&
-                    device.is_online,
-                );
-
-              const active =
-                devices.find(
-                  (device) =>
-                    device.is_active &&
-                    device.is_online,
-                );
-
-              if (
-                currentStillOnline &&
-                (
-                  current !==
-                    deviceId ||
-                  !active ||
-                  active.device_id ===
-                    deviceId
-                )
-              ) {
-                controlledPlaybackDeviceIdRef
-                  .current =
-                    current;
-
-                return current;
-              }
-
-              const next =
-                active?.device_id ??
-                deviceId;
-
-              controlledPlaybackDeviceIdRef
-                .current =
-                  next;
-
-              return next;
-            },
+          syncControlledPlaybackDevice(
+            devices,
+            snapshot,
           );
 
           await applyRemotePlayback(
@@ -7161,30 +7168,20 @@ export default function App() {
             snapshot,
           );
 
-          const activeId =
-            snapshot.device_id;
-
-          if (
-            activeId &&
-            (
-              !controlledPlaybackDeviceIdRef
-                .current ||
-              controlledPlaybackDeviceIdRef
-                .current ===
-                deviceId
-            )
-          ) {
-            controlledPlaybackDeviceIdRef
-              .current =
-                activeId;
-
-            setControlledPlaybackDeviceId(
-              activeId,
-            );
-          }
+          syncControlledPlaybackDevice(
+            devices ??
+              playbackDevicesRef.current,
+            snapshot,
+          );
 
           await applyRemotePlayback(
             snapshot,
+          );
+        } else if (devices) {
+          syncControlledPlaybackDevice(
+            devices,
+            accountPlaybackSnapshotRef
+              .current,
           );
         }
 
