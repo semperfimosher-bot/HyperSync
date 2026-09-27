@@ -96,6 +96,10 @@ _sessions_by_id: dict[
     ProvisionSession,
 ] = {}
 
+_background_warm_tasks: set[
+    asyncio.Task[Any]
+] = set()
+
 
 def _now() -> float:
     return time.monotonic()
@@ -855,6 +859,49 @@ async def prewarm_candidates(
         )
 
 
+async def _warm_sessions_in_background(
+    sessions: list[ProvisionSession],
+    *,
+    concurrency: int,
+) -> None:
+    semaphore = asyncio.Semaphore(
+        max(
+            1,
+            min(
+                int(
+                    concurrency,
+                ),
+                32,
+            ),
+        )
+    )
+
+    async def warm_one(
+        session: ProvisionSession,
+    ) -> None:
+        async with semaphore:
+            try:
+                await _ensure_source(
+                    session,
+                )
+            except Exception:
+                # Opening a metadata playlist is
+                # speculative. Clicking a track
+                # will retry preparation if needed.
+                return
+
+    await asyncio.gather(
+        *[
+            warm_one(
+                session,
+            )
+            for session
+            in sessions
+        ],
+        return_exceptions=True,
+    )
+
+
 async def warm_candidate_keys(
     candidate_keys: list[str],
 ) -> list[dict[str, Any]]:
@@ -867,15 +914,7 @@ async def warm_candidate_keys(
             if key
             and key.strip()
         )
-    )[
-        :max(
-            0,
-            int(
-                settings
-                .on_demand_prewarm_limit
-            ),
-        )
-    ]
+    )[:500]
 
     candidates = [
         candidate
@@ -897,15 +936,22 @@ async def warm_candidate_keys(
     ]
 
     if sessions:
-        await asyncio.gather(
-            *[
-                _ensure_source(
-                    session,
-                )
-                for session
-                in sessions
-            ],
-            return_exceptions=True,
+        task = asyncio.create_task(
+            _warm_sessions_in_background(
+                sessions,
+                concurrency=(
+                    settings
+                    .on_demand_prewarm_limit
+                ),
+            )
+        )
+
+        _background_warm_tasks.add(
+            task,
+        )
+
+        task.add_done_callback(
+            _background_warm_tasks.discard,
         )
 
     return [
@@ -1217,11 +1263,26 @@ async def reset_transient_state() -> None:
             _sessions_by_id.values()
         )
 
+        background_tasks = list(
+            _background_warm_tasks
+        )
+
         _candidates.clear()
 
         _sessions_by_key.clear()
 
         _sessions_by_id.clear()
+
+        _background_warm_tasks.clear()
+
+    for task in background_tasks:
+        if not task.done():
+            task.cancel()
+
+            with contextlib.suppress(
+                asyncio.CancelledError,
+            ):
+                await task
 
     for session in sessions:
         for task in (
