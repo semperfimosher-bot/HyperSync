@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildOnDemandArtistPlaylist,
+  inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
   onDemandTrackId,
@@ -101,7 +103,141 @@ test(
           null,
         isrc:
           null,
+        track_number:
+          null,
+        disc_number:
+          null,
       },
+    );
+  },
+);
+
+
+test(
+  "infers an exact missing artist from on-demand metadata",
+  () => {
+    assert.equal(
+      inferOnDemandArtistName(
+        "Morgan Wallen",
+        [
+          {
+            artist:
+              "Morgan Wallen",
+          },
+          {
+            artist:
+              "Tate McRae & Morgan Wallen",
+          },
+        ],
+      ),
+      "Morgan Wallen",
+    );
+
+    assert.equal(
+      inferOnDemandArtistName(
+        "songs by Morgan Wallen",
+        [
+          {
+            artist:
+              "Morgan Wallen",
+          },
+        ],
+      ),
+      "Morgan Wallen",
+    );
+  },
+);
+
+
+test(
+  "metadata artist playlist deduplicates and caps at 500 tracks",
+  () => {
+    const onDemandTracks =
+      Array.from(
+        {
+          length:
+            510,
+        },
+        (
+          _,
+          index,
+        ) => ({
+          id:
+            `ondemand:track-${index}`,
+          provision_key:
+            `track-${index}`,
+          source_type:
+            "on_demand",
+          title:
+            `Song ${index}`,
+          artist:
+            "Example Artist",
+          artwork_url:
+            index === 0
+              ? "cover.jpg"
+              : null,
+        }),
+      );
+
+    onDemandTracks.push({
+      id:
+        "ondemand:duplicate",
+      provision_key:
+        "duplicate",
+      source_type:
+        "on_demand",
+      title:
+        "Song 0",
+      artist:
+        "Example Artist",
+    });
+
+    onDemandTracks.push({
+      id:
+        "ondemand:feature",
+      provision_key:
+        "feature",
+      source_type:
+        "on_demand",
+      title:
+        "Feature",
+      artist:
+        "Other Artist & Example Artist",
+    });
+
+    const playlist =
+      buildOnDemandArtistPlaylist({
+        artistName:
+          "Example Artist",
+        onDemandTracks,
+      });
+
+    assert.equal(
+      playlist.transient,
+      true,
+    );
+
+    assert.equal(
+      playlist.tracks.length,
+      500,
+    );
+
+    assert.equal(
+      playlist.tracks.filter(
+        (track) =>
+          track.title ===
+          "Song 0",
+      ).length,
+      1,
+    );
+
+    assert.equal(
+      playlist.tracks.some(
+        (track) =>
+          track.title ===
+          "Feature",
+      ),
+      false,
     );
   },
 );
