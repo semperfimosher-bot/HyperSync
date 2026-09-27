@@ -88,6 +88,60 @@ export function searchOnDemandMusic(
 }
 
 
+export function warmOnDemandTracks(
+  candidateKeys,
+) {
+  const keys =
+    Array.from(
+      new Set(
+        (
+          Array.isArray(
+            candidateKeys,
+          )
+            ? candidateKeys
+            : []
+        )
+          .map(
+            (key) =>
+              String(
+                key ?? "",
+              ).trim(),
+          )
+          .filter(
+            Boolean,
+          ),
+      ),
+    )
+      .slice(
+        0,
+        16,
+      );
+
+  if (!keys.length) {
+    return Promise.resolve({
+      warmed:
+        0,
+      sessions:
+        [],
+    });
+  }
+
+  return apiRequest(
+    "/on-demand/warm",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          candidate_keys:
+            keys,
+        }),
+    },
+  );
+}
+
+
 export function prepareOnDemandTrack(
   candidateKey,
 ) {
