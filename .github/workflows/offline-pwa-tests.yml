@@ -145,8 +145,17 @@ jobs:
       - name: Build production backend image
         run: docker build --file Dockerfile.backend --tag hypersynced-backend-ci .
 
-      - name: Verify yt-dlp and Node runtime
+      - name: Verify yt-dlp, Node, FFmpeg, and migrations
         run: |
           docker run --rm hypersynced-backend-ci python -c "import yt_dlp; print(yt_dlp.version.__version__)"
           docker run --rm hypersynced-backend-ci node --version
           docker run --rm hypersynced-backend-ci ffmpeg -version
+          docker run --rm \
+            -e MIGRATION_DATABASE_URL=postgresql://user:password@localhost/hypersync \
+            --entrypoint sh \
+            hypersynced-backend-ci \
+            -lc 'cd /app/backend && python -m alembic -c /app/alembic.ini upgrade head --sql >/tmp/hypersynced-migrations.sql && test -s /tmp/hypersynced-migrations.sql'
+          docker inspect \
+            --format '{{json .Config.Cmd}}' \
+            hypersynced-backend-ci \
+            | grep -q 'alembic'
