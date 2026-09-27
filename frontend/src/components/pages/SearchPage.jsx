@@ -43,6 +43,7 @@ import {
   inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
+  onDemandPollDelay,
 } from "../../onDemandMusic.js";
 
 import {
@@ -1474,6 +1475,7 @@ useEffect(() => {
       provisionId,
       candidateKey,
       attempts = 0,
+      consecutiveFailures = 0,
     ) => {
       if (
         !provisionId ||
@@ -1490,6 +1492,9 @@ useEffect(() => {
               .delete(
                 timer,
               );
+
+            let nextFailures =
+              consecutiveFailures;
 
             try {
               const status =
@@ -1526,18 +1531,39 @@ useEffect(() => {
                 return;
               }
 
-            } catch {
-              // A later quiet search can still
-              // discover the completed catalog row.
+              nextFailures = 0;
+
+            } catch (error) {
+              const statusCode =
+                Number(
+                  error?.status ??
+                  0,
+                );
+
+              if (
+                statusCode === 404 ||
+                statusCode === 410
+              ) {
+                return;
+              }
+
+              nextFailures =
+                Math.min(
+                  consecutiveFailures + 1,
+                  5,
+                );
             }
 
             pollOnDemandReady(
               provisionId,
               candidateKey,
               attempts + 1,
+              nextFailures,
             );
           },
-          1500,
+          onDemandPollDelay(
+            consecutiveFailures,
+          ),
         );
 
       provisionPollTimersRef
@@ -1546,7 +1572,6 @@ useEffect(() => {
           timer,
         );
     };
-
 
   async function playTrack(
     trackIndex,
