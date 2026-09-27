@@ -26,6 +26,7 @@ import {
 import {
   beginPlaybackSession,
   cancelActivePlaybackSession,
+  canReuseLoadedAudioSource,
   isPlaybackSessionCurrent,
 } from "./player/playbackSession.js";
 
@@ -73,6 +74,9 @@ let lastMediaSessionSignature =
 let activeObjectUrl =
   null;
 
+let loadedAudioTrackId =
+  null;
+
 let warmPlaybackTask =
   null;
 
@@ -95,6 +99,9 @@ let restoredTimeSeconds =
  * the same time.
  */
 let sourcePreparationPromise =
+  null;
+
+let sourcePreparationTrackId =
   null;
 
 
@@ -1689,6 +1696,8 @@ function warmCurrentTrackForResume() {
 
 function loadAudioSource(
   url,
+  trackId =
+    currentTrackId,
 ) {
   if (
     activeObjectUrl &&
@@ -1713,6 +1722,17 @@ function loadAudioSource(
       ? url
       : null;
 
+  loadedAudioTrackId =
+    trackId === null ||
+    trackId === undefined
+      ? null
+      : (
+          String(
+            trackId,
+          ).trim()
+          || null
+        );
+
   audio.src =
     url;
 }
@@ -1724,14 +1744,45 @@ async function ensureCurrentTrackSource() {
    * the source, a fast Play click should
    * wait for that same operation.
    */
+  const currentId =
+    currentTrackId === null ||
+    currentTrackId === undefined
+      ? null
+      : String(
+          currentTrackId,
+        );
+
   if (
-    sourcePreparationPromise
+    sourcePreparationPromise &&
+    sourcePreparationTrackId ===
+      currentId
   ) {
     return sourcePreparationPromise;
   }
 
   if (
-    hasAudioSource() ||
+    sourcePreparationPromise &&
+    sourcePreparationTrackId !==
+      currentId
+  ) {
+    cancelActivePlaybackSession();
+
+    sourcePreparationPromise =
+      null;
+
+    sourcePreparationTrackId =
+      null;
+  }
+
+  if (
+    canReuseLoadedAudioSource({
+      logicalTrackId:
+        currentTrackId,
+      loadedTrackId:
+        loadedAudioTrackId,
+      hasSource:
+        hasAudioSource(),
+    }) ||
     !currentTrackId ||
     !currentTrackMeta
   ) {
@@ -1806,6 +1857,7 @@ async function ensureCurrentTrackSource() {
 
       loadAudioSource(
         url,
+        requestedTrackId,
       );
 
 
@@ -1944,11 +1996,29 @@ async function ensureCurrentTrackSource() {
       notify();
 
       return getState();
-    })()
-      .finally(() => {
-        sourcePreparationPromise =
-          null;
-      });
+    })();
+
+  sourcePreparationTrackId =
+    requestedTrackId;
+
+  const trackedPromise =
+    sourcePreparationPromise;
+
+  sourcePreparationPromise =
+    trackedPromise.finally(
+      () => {
+        if (
+          sourcePreparationTrackId ===
+            requestedTrackId
+        ) {
+          sourcePreparationPromise =
+            null;
+
+          sourcePreparationTrackId =
+            null;
+        }
+      },
+    );
 
 
   return sourcePreparationPromise;
@@ -2277,6 +2347,7 @@ async function playTrackInternal(
 
   loadAudioSource(
     url,
+    trackId,
   );
 
   audio.load();
@@ -2424,8 +2495,18 @@ export async function restoreAccountPlayback(
     restoredTimeSeconds =
       requestedTime;
 
+    const canReuseSource =
+      canReuseLoadedAudioSource({
+        logicalTrackId:
+          trackId,
+        loadedTrackId:
+          loadedAudioTrackId,
+        hasSource:
+          hasAudioSource(),
+      });
+
     if (
-      hasAudioSource()
+      canReuseSource
     ) {
       const duration =
         Number.isFinite(
@@ -2470,6 +2551,29 @@ export async function restoreAccountPlayback(
 
     notify();
 
+    if (!canReuseSource) {
+      cancelActivePlaybackSession();
+
+      audio.removeAttribute(
+        "src",
+      );
+
+      loadedAudioTrackId =
+        null;
+
+      audio.load();
+
+      try {
+        await ensureCurrentTrackSource();
+      } catch {
+        setPlaybackPhase(
+          "paused",
+        );
+
+        notify();
+      }
+    }
+
     void ensureAutoplayQueue({
       force:
         true,
@@ -2487,6 +2591,9 @@ export async function restoreAccountPlayback(
   audio.removeAttribute(
     "src",
   );
+
+  loadedAudioTrackId =
+    null;
 
   audio.load();
 
@@ -2532,21 +2639,20 @@ export async function restoreAccountPlayback(
     () => {},
   );
 
-  void ensureCurrentTrackSource()
-    .catch(
-      () => {
-        if (
-          currentTrackId ===
-            trackId
-        ) {
-          setPlaybackPhase(
-            "paused",
-          );
+  try {
+    await ensureCurrentTrackSource();
+  } catch {
+    if (
+      currentTrackId ===
+        trackId
+    ) {
+      setPlaybackPhase(
+        "paused",
+      );
 
-          notify();
-        }
-      },
-    );
+      notify();
+    }
+  }
 
   return getState();
 }
@@ -2931,6 +3037,7 @@ export async function playUrl(
 
   loadAudioSource(
     mediaUrl,
+    null,
   );
 
   audio.load();
@@ -3315,6 +3422,15 @@ export function stopTrack(
   audio.removeAttribute(
     "src",
   );
+
+  loadedAudioTrackId =
+    null;
+
+  sourcePreparationPromise =
+    null;
+
+  sourcePreparationTrackId =
+    null;
 
   audio.load();
 

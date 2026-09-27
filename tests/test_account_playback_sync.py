@@ -1643,7 +1643,7 @@ async def test_transfer_preserves_exact_position_and_account_queue() -> None:
             json={
                 "track_id":
                     str(
-                        track_ids[1],
+                        track_ids[0],
                     ),
                 "position_seconds":
                     42.0,
@@ -1657,7 +1657,7 @@ async def test_transfer_preserves_exact_position_and_account_queue() -> None:
                     in track_ids
                 ],
                 "queue_index":
-                    1,
+                    0,
                 "device_id":
                     "computer",
             },
@@ -1676,6 +1676,10 @@ async def test_transfer_preserves_exact_position_and_account_queue() -> None:
                     "computer",
                 "action":
                     "transfer",
+                "track_id":
+                    str(
+                        track_ids[1],
+                    ),
                 "position_seconds":
                     47.25,
                 "paused":
@@ -1705,6 +1709,14 @@ async def test_transfer_preserves_exact_position_and_account_queue() -> None:
         assert payload[
             "device_id"
         ] == "phone"
+
+        assert payload[
+            "track"
+        ][
+            "id"
+        ] == str(
+            track_ids[1],
+        )
 
         assert payload[
             "position_seconds"

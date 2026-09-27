@@ -5622,6 +5622,122 @@ export default function App() {
               )
             : null;
 
+        const transferTrackId =
+          action ===
+            "transfer"
+            ? (
+                String(
+                  (
+                    transferFromLocalOwner
+                      ? localState?.trackId
+                      : snapshot?.track?.id
+                  ) ??
+                    "",
+                ).trim()
+                || null
+              )
+            : null;
+
+        const transferQueueEntry =
+          transferFromLocalOwner &&
+          transferTrackId &&
+          Array.isArray(
+            transferQueue,
+          )
+            ? (
+                transferQueue.find(
+                  (entry) =>
+                    String(
+                      entry?.id ??
+                        "",
+                    ) ===
+                    transferTrackId,
+                ) ??
+                null
+              )
+            : null;
+
+        const transferTrackMeta =
+          transferQueueEntry?.meta ??
+          {};
+
+        const transferTrackSnapshot =
+          transferTrackId
+            ? (
+                transferFromLocalOwner
+                  ? {
+                      id:
+                        transferTrackId,
+                      title:
+                        transferTrackMeta.title ??
+                        localState?.title ??
+                        "",
+                      artist:
+                        transferTrackMeta.artist ??
+                        localState?.artist ??
+                        "",
+                      album:
+                        transferTrackMeta.album ??
+                        localState?.album ??
+                        null,
+                      duration_seconds:
+                        transferTrackMeta.durationSeconds ??
+                        localState?.durationSeconds ??
+                        null,
+                      audio_url:
+                        transferTrackMeta.audioUrl ??
+                        null,
+                      artwork_url:
+                        transferTrackMeta.artworkUrl ??
+                        localState?.artworkUrl ??
+                        null,
+                      mime_type:
+                        transferTrackMeta.mimeType ??
+                        localState?.mimeType ??
+                        null,
+                      file_size:
+                        transferTrackMeta.fileSize ??
+                        localState?.fileSize ??
+                        null,
+                      media_version:
+                        transferTrackMeta.mediaVersion ??
+                        localState?.mediaVersion ??
+                        null,
+                      artwork_version:
+                        transferTrackMeta.artworkVersion ??
+                        localState?.artworkVersion ??
+                        null,
+                    }
+                  : snapshot?.track
+              )
+            : null;
+
+        const transferSnapshotQueue =
+          transferFromLocalOwner &&
+          Array.isArray(
+            transferQueue,
+          )
+            ? transferQueue.map(
+                (entry) => ({
+                  id:
+                    String(
+                      entry?.id ??
+                        "",
+                    ),
+                  ...(
+                    entry?.meta ??
+                    {}
+                  ),
+                }),
+              )
+            : (
+                Array.isArray(
+                  snapshot?.queue,
+                )
+                  ? snapshot.queue
+                  : []
+              );
+
         if (transferFromLocalOwner) {
           player.silenceLocalPlayback();
         }
@@ -5750,8 +5866,23 @@ export default function App() {
             ) {
               optimisticSnapshot = {
                 ...snapshot,
+                track:
+                  transferTrackSnapshot ??
+                  snapshot.track,
+                queue:
+                  transferSnapshotQueue,
+                queue_index:
+                  Number.isInteger(
+                    transferQueueIndex,
+                  )
+                    ? transferQueueIndex
+                    : snapshot.queue_index,
                 position_seconds:
+                  transferPosition ??
                   position,
+                paused:
+                  transferPaused ??
+                  snapshot.paused,
                 device_id:
                   targetId,
                 updated_at:
@@ -5901,8 +6032,13 @@ export default function App() {
               action,
               value,
               trackId:
-                options?.trackId ??
-                null,
+                action ===
+                  "transfer"
+                  ? transferTrackId
+                  : (
+                      options?.trackId ??
+                      null
+                    ),
               queueTrackIds,
               queueIndex,
               positionSeconds:
@@ -5937,8 +6073,13 @@ export default function App() {
                 action,
                 value,
                 trackId:
-                  options?.trackId ??
-                  null,
+                  action ===
+                    "transfer"
+                    ? transferTrackId
+                    : (
+                        options?.trackId ??
+                        null
+                      ),
                 queueTrackIds,
                 queueIndex,
                 positionSeconds:

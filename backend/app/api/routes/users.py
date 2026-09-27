@@ -3163,19 +3163,32 @@ async def send_playback_device_command(
                 ),
             )
 
-    elif payload.action == "play_track":
-        value = None
+    elif (
+        payload.action
+        == "play_track"
+        and payload.track_id
+        is None
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Play-track commands require "
+                "a track id."
+            ),
+        )
 
-        if payload.track_id is None:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_400_BAD_REQUEST
-                ),
-                detail=(
-                    "Play-track commands require "
-                    "a track id."
-                ),
-            )
+    elif (
+        payload.action
+        in {
+            "play_track",
+            "transfer",
+        }
+        and payload.track_id
+        is not None
+    ):
+        value = None
 
         track_result = await session.execute(
             select(
@@ -3432,6 +3445,11 @@ async def send_playback_device_command(
         )
 
         if payload.action == "transfer":
+            if selected_track is not None:
+                playback_state_row.playback_track_id = (
+                    selected_track.id
+                )
+
             if payload.position_seconds is not None:
                 playback_state_row.playback_position_seconds = (
                     max(
@@ -3482,7 +3500,20 @@ async def send_playback_device_command(
                         + elapsed
                     )
 
-            if payload.queue_track_ids:
+            if canonical_queue:
+                playback_state_row.playback_queue_track_ids = [
+                    str(
+                        queue_track.id,
+                    )
+                    for queue_track
+                    in canonical_queue
+                ]
+
+                playback_state_row.playback_queue_index = (
+                    canonical_queue_index
+                )
+
+            elif payload.queue_track_ids:
                 transfer_queue_ids = [
                     str(
                         queue_id,
