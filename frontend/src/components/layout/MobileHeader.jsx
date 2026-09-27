@@ -18,6 +18,7 @@ function MobileHeader({
   messageNotifications,
   onOpenMessage,
   onOpenNotification,
+  onDeleteNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -129,6 +130,9 @@ function MobileHeader({
                     notification,
                   );
                 }}
+                onDeleteNotification={
+                  onDeleteNotification
+                }
                 onEnablePush={
                   onEnablePush
                 }
