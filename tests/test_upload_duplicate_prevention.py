@@ -13,6 +13,7 @@ from backend.app.models.media import (
 )
 from backend.app.services.audio_metadata import (
     normalize_track_identity,
+    normalize_track_title_identity,
 )
 
 
@@ -94,6 +95,92 @@ def test_duplicate_identity_normalizes_case_spacing_and_unicode() -> None:
         ==
         "strasse"
     )
+
+
+def test_duplicate_title_identity_collapses_version_labels() -> None:
+    root = normalize_track_title_identity(
+        "Morgan Wallen - Love Somebody",
+    )
+
+    # Artist names are not part of the title normalizer; this
+    # assertion documents the root-title behavior directly.
+    assert root == (
+        "morgan wallen - love somebody"
+    )
+
+    assert (
+        normalize_track_title_identity(
+            "Love Somebody (Remix)",
+        )
+        ==
+        "love somebody"
+    )
+
+    assert (
+        normalize_track_title_identity(
+            "Love Somebody [2026 Remaster]",
+        )
+        ==
+        "love somebody"
+    )
+
+    assert (
+        normalize_track_title_identity(
+            "Love Somebody - Acoustic Version",
+        )
+        ==
+        "love somebody"
+    )
+
+    assert (
+        normalize_track_title_identity(
+            "Love Somebody Sped Up",
+        )
+        ==
+        "love somebody"
+    )
+
+    assert (
+        normalize_track_title_identity(
+            "Sweet Dreams (Are Made of This)",
+        )
+        ==
+        "sweet dreams (are made of this)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_lookup_treats_root_song_versions_as_duplicates() -> None:
+    existing = _track(
+        title="Love Somebody",
+        artist="Morgan Wallen",
+    )
+
+    session = _Session(
+        [
+            existing,
+        ],
+    )
+
+    for version_title in (
+        "Love Somebody (Remix)",
+        "Love Somebody - Acoustic Version",
+        "Love Somebody [Live]",
+        "Love Somebody 2026 Remaster",
+        "Love Somebody Slowed + Reverb",
+    ):
+        duplicate = (
+            await _find_duplicate_track(
+                cast(
+                    AsyncSession,
+                    session,
+                ),
+                title=version_title,
+                artist="Morgan Wallen",
+            )
+        )
+
+        assert duplicate is existing
 
 
 @pytest.mark.asyncio

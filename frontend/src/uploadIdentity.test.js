@@ -6,6 +6,7 @@ import {
   findCatalogDuplicate,
   findQueuedUploadDuplicates,
   normalizeUploadIdentityText,
+  normalizeUploadTitleIdentityText,
 } from "./uploadIdentity.js";
 
 
@@ -32,6 +33,114 @@ test(
         title:
           "blinding lights",
       }),
+    );
+  },
+);
+
+
+test(
+  "upload title identity collapses versions to the same root song",
+  () => {
+    const root =
+      buildUploadIdentity({
+        artist:
+          "Morgan Wallen",
+        title:
+          "Love Somebody",
+      });
+
+    for (const versionTitle of [
+      "Love Somebody (Remix)",
+      "Love Somebody [2026 Remaster]",
+      "Love Somebody - Acoustic Version",
+      "Love Somebody Live",
+      "Love Somebody Sped Up",
+      "Love Somebody Slowed + Reverb",
+    ]) {
+      assert.equal(
+        buildUploadIdentity({
+          artist:
+            "Morgan Wallen",
+          title:
+            versionTitle,
+        }),
+        root,
+      );
+    }
+
+    assert.equal(
+      normalizeUploadTitleIdentityText(
+        "Sweet Dreams (Are Made of This)",
+      ),
+      "sweet dreams (are made of this)",
+    );
+
+    assert.notEqual(
+      buildUploadIdentity({
+        artist:
+          "Different Artist",
+        title:
+          "Love Somebody (Remix)",
+      }),
+      root,
+    );
+  },
+);
+
+
+test(
+  "root song versions are prevented as queued and catalog duplicates",
+  () => {
+    const original = {
+      id:
+        "original",
+      status:
+        "queued",
+      artist:
+        "Morgan Wallen",
+      title:
+        "Love Somebody",
+    };
+
+    const remix = {
+      id:
+        "remix",
+      status:
+        "queued",
+      artist:
+        "Morgan Wallen",
+      title:
+        "Love Somebody (Remix)",
+    };
+
+    const queueDuplicates =
+      findQueuedUploadDuplicates([
+        original,
+        remix,
+      ]);
+
+    assert.equal(
+      queueDuplicates.get(
+        "remix",
+      ),
+      original,
+    );
+
+    assert.equal(
+      findCatalogDuplicate(
+        remix,
+        [
+          {
+            id:
+              "catalog-root",
+            artist:
+              "Morgan Wallen",
+            title:
+              "Love Somebody",
+          },
+        ],
+      )?.id,
+      "catalog-root",
     );
   },
 );

@@ -37,6 +37,7 @@ from ...services.artists import (
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
+    normalize_track_title_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -82,7 +83,7 @@ async def _lock_track_upload_identity(
             artist,
         )
         + "\x1f"
-        + normalize_track_identity(
+        + normalize_track_title_identity(
             title,
         )
     )
@@ -114,7 +115,7 @@ def _duplicate_track_groups(
             normalize_track_identity(
                 track.artist,
             ),
-            normalize_track_identity(
+            normalize_track_title_identity(
                 track.title,
             ),
         )
@@ -195,7 +196,7 @@ async def _find_duplicate_track(
     artist: str,
 ) -> Track | None:
     title_key = (
-        normalize_track_identity(
+        normalize_track_title_identity(
             title,
         )
     )
@@ -220,7 +221,7 @@ async def _find_duplicate_track(
         .all()
     ):
         if (
-            normalize_track_identity(
+            normalize_track_title_identity(
                 track.title,
             )
             == title_key
