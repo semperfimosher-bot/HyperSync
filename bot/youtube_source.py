@@ -566,6 +566,8 @@ def _resolve_sync(
         **_common_options(),
         "format":
             (
+                "bestaudio[ext=m4a][acodec^=mp4a]/"
+                "bestaudio[ext=m4a]/"
                 "bestaudio[acodec!=none]/"
                 "bestaudio/best"
             ),
@@ -748,6 +750,8 @@ def _download_sync(
             **_common_options(),
             "format":
                 (
+                    "bestaudio[ext=m4a][acodec^=mp4a]/"
+                    "bestaudio[ext=m4a]/"
                     "bestaudio[acodec!=none]/"
                     "bestaudio/best"
                 ),
