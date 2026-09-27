@@ -74,3 +74,26 @@ test(
     );
   },
 );
+
+
+test(
+  "API-prefixed media URLs do not duplicate the API base",
+  () => {
+    const url =
+      resolveMediaUrl(
+        "/api/on-demand/session-id/stream?token=test-token",
+      );
+
+    assert.equal(
+      url,
+      "https://api.hypersynced.app/api/on-demand/session-id/stream?token=test-token",
+    );
+
+    assert.equal(
+      url.includes(
+        "/api/api/",
+      ),
+      false,
+    );
+  },
+);
