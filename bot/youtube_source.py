@@ -262,14 +262,15 @@ def score_source_candidate(
     )
 
     if requested_versions:
-        matched_requested_version =
-          any(
-              _normalize(
-                  term,
-              )
-              in normalized_title
-              for term in requested_versions
-          )
+        matched_requested_version = (
+            any(
+                _normalize(
+                    term,
+                )
+                in normalized_title
+                for term in requested_versions
+            )
+        )
 
         score += (
             24.0
