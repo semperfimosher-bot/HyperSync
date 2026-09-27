@@ -115,6 +115,10 @@ import {
 } from "./catalogStore.js";
 
 import {
+  duplicateTrackIdsToDelete,
+} from "./duplicateCleanup.js";
+
+import {
   addTrackGroupSelection,
   getTrackGroupSelectionState,
   pruneTrackSelection,
@@ -1709,6 +1713,11 @@ function AdminDashboardPage({
   ] = useState(false);
 
   const [
+    duplicateDeleteBusy,
+    setDuplicateDeleteBusy,
+  ] = useState(false);
+
+  const [
     userQuery,
     setUserQuery,
   ] = useState("");
@@ -1951,6 +1960,128 @@ function AdminDashboardPage({
         }
       },
       [],
+    );
+
+
+  const duplicateDeleteTrackIds =
+    useMemo(
+      () =>
+        duplicateTrackIdsToDelete(
+          duplicates,
+        ),
+      [
+        duplicates,
+      ],
+    );
+
+
+  const deleteFoundDuplicates =
+    useCallback(
+      async () => {
+        if (
+          duplicateDeleteBusy ||
+          duplicateDeleteTrackIds
+            .length === 0
+        ) {
+          return;
+        }
+
+        const confirmed =
+          window.confirm(
+            "Delete " +
+            duplicateDeleteTrackIds.length +
+            " duplicate track" +
+            (
+              duplicateDeleteTrackIds.length ===
+                1
+                ? ""
+                : "s"
+            ) +
+            "? HyperSynced will keep the oldest catalog copy in each duplicate group and permanently delete the extra database rows and B2 files.",
+          );
+
+        if (!confirmed) {
+          return;
+        }
+
+        setDuplicateDeleteBusy(
+          true,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await deleteCatalogTracks(
+              duplicateDeleteTrackIds,
+            );
+
+          await loadDashboard();
+
+          await runDuplicateCheck();
+
+          const deletedCount =
+            Number(
+              result
+                ?.deleted_count ??
+              result
+                ?.deleted_track_ids
+                ?.length ??
+              0,
+            );
+
+          const failedCount =
+            Array.isArray(
+              result?.failed,
+            )
+              ? result.failed.length
+              : 0;
+
+          setMessage(
+            failedCount > 0
+              ? (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  ". " +
+                  failedCount +
+                  " could not be deleted and remain in the catalog."
+                )
+              : (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  " and kept one canonical copy per group."
+                ),
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to delete duplicates.",
+          );
+        } finally {
+          setDuplicateDeleteBusy(
+            false,
+          );
+        }
+      },
+      [
+        duplicateDeleteBusy,
+        duplicateDeleteTrackIds,
+        loadDashboard,
+        runDuplicateCheck,
+      ],
     );
 
 
@@ -2566,9 +2697,11 @@ function AdminDashboardPage({
               duplicateCount === 0
             }
             status={
-              duplicateBusy
-                ? "SCANNING"
-                : duplicates
+              duplicateDeleteBusy
+                ? "DELETING"
+                : duplicateBusy
+                  ? "SCANNING"
+                  : duplicates
                   ? (
                       duplicateCount === 0
                         ? "CLEAN"
@@ -2605,20 +2738,46 @@ function AdminDashboardPage({
             <h3>Duplicate Check</h3>
           </div>
 
-          <button
-            type="button"
-            className="secondary-admin-button admin-inline-button"
-            disabled={
-              duplicateBusy
-            }
-            onClick={() => {
-              void runDuplicateCheck();
-            }}
-          >
-            {duplicateBusy
-              ? "Scanning..."
-              : "Scan Catalog"}
-          </button>
+          <div className="admin-duplicate-actions">
+            {duplicateDeleteTrackIds.length >
+              0 ? (
+              <button
+                type="button"
+                className="danger-button admin-inline-button"
+                disabled={
+                  duplicateBusy ||
+                  duplicateDeleteBusy
+                }
+                onClick={() => {
+                  void deleteFoundDuplicates();
+                }}
+              >
+                {duplicateDeleteBusy
+                  ? "Deleting duplicates..."
+                  : (
+                      "Delete duplicates (" +
+                      duplicateDeleteTrackIds.length +
+                      ")"
+                    )}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="secondary-admin-button admin-inline-button"
+              disabled={
+                duplicateBusy ||
+                duplicateDeleteBusy
+              }
+              onClick={() => {
+                void runDuplicateCheck();
+              }}
+            >
+              {duplicateBusy
+                ? "Scanning..."
+                : "Scan Catalog"}
+            </button>
+          </div>
         </div>
 
         {duplicates === null ? (
