@@ -196,6 +196,10 @@ import {
   sharedMusicSearchQuery,
 } from "./sharedMusicNavigation.js";
 
+import {
+  notifyListeningHistoryChanged,
+} from "./homeRecentlyPlayed.js";
+
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
@@ -8634,6 +8638,13 @@ export default function App() {
               accountPlaybackSnapshotRef
                 .current,
           );
+        }
+
+        if (
+          event.type ===
+            "listening_history_changed"
+        ) {
+          notifyListeningHistoryChanged();
         }
 
         if (
