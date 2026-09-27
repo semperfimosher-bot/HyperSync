@@ -23,7 +23,12 @@ if (-not (Test-Path -LiteralPath $ScriptPath)) {
 
 Write-Host ""
 Write-Host "=== HyperSync Genre + Release Year Backfill ===" -ForegroundColor Cyan
-Write-Host "Only missing genre/release_year fields are changed." -ForegroundColor DarkGray
+if ($args -contains "--repair-genres") {
+    Write-Host "Genre repair mode can replace existing genre values after provider revalidation." -ForegroundColor DarkGray
+}
+else {
+    Write-Host "Only missing genre/release_year fields are changed." -ForegroundColor DarkGray
+}
 Write-Host ""
 
 & $Python $ScriptPath @args

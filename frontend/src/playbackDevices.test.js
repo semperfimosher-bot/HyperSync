@@ -8,6 +8,7 @@ import {
 
 import {
   applyPlaybackRemoteCommand,
+  shouldApplyPlaybackRemoteCommand,
 } from "./playbackRemoteCommands.js";
 
 
@@ -959,6 +960,73 @@ test(
         ],
         "play",
       ],
+    );
+  },
+);
+
+
+
+test(
+  "stale pause is ignored after playback ownership moved to another device",
+  () => {
+    assert.equal(
+      shouldApplyPlaybackRemoteCommand(
+        {
+          action:
+            "pause",
+        },
+        {
+          snapshot: {
+            device_id:
+              "phone",
+          },
+          deviceId:
+            "computer",
+        },
+      ),
+      false,
+    );
+
+    assert.equal(
+      shouldApplyPlaybackRemoteCommand(
+        {
+          action:
+            "pause",
+        },
+        {
+          snapshot: {
+            device_id:
+              "computer",
+          },
+          deviceId:
+            "computer",
+        },
+      ),
+      true,
+    );
+  },
+);
+
+
+test(
+  "transfer still applies when it establishes playback ownership",
+  () => {
+    assert.equal(
+      shouldApplyPlaybackRemoteCommand(
+        {
+          action:
+            "transfer",
+        },
+        {
+          snapshot: {
+            device_id:
+              "phone",
+          },
+          deviceId:
+            "computer",
+        },
+      ),
+      true,
     );
   },
 );

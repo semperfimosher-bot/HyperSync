@@ -175,6 +175,7 @@ import {
 
 import {
   applyPlaybackRemoteCommand,
+  shouldApplyPlaybackRemoteCommand,
 } from "./playbackRemoteCommands.js";
 
 import {
@@ -7196,6 +7197,26 @@ export default function App() {
                 commandId,
               )
           ) {
+            continue;
+          }
+
+          if (
+            !shouldApplyPlaybackRemoteCommand(
+              command,
+              {
+                snapshot,
+                deviceId,
+              },
+            )
+          ) {
+            if (commandId) {
+              playbackSeenCommandIdsRef
+                .current
+                .add(
+                  commandId,
+                );
+            }
+
             continue;
           }
 

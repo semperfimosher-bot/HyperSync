@@ -1,3 +1,60 @@
+export function shouldApplyPlaybackRemoteCommand(
+  command,
+  {
+    snapshot = null,
+    deviceId = null,
+  } = {},
+) {
+  const action =
+    String(
+      command?.action ??
+        "",
+    );
+
+  if (
+    action === "transfer" ||
+    action === "play_track"
+  ) {
+    return true;
+  }
+
+  if (
+    ![
+      "play",
+      "pause",
+      "next",
+      "previous",
+      "seek",
+      "volume",
+      "stop",
+    ].includes(
+      action,
+    )
+  ) {
+    return true;
+  }
+
+  const ownerId =
+    String(
+      snapshot?.device_id ??
+        "",
+    ).trim();
+
+  const currentId =
+    String(
+      deviceId ??
+        "",
+    ).trim();
+
+  return (
+    !ownerId ||
+    !currentId ||
+    ownerId ===
+      currentId
+  );
+}
+
+
 export async function applyPlaybackRemoteCommand(
   command,
   {

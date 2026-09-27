@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from backend.app.services.music_metadata import (
+    _merge_external_metadata,
     lookup_apple_track_metadata,
     lookup_external_track_metadata,
     lookup_lastfm_track_metadata,
@@ -520,3 +521,72 @@ async def test_apple_lookup_rejects_wrong_duration_or_weak_artist_match() -> Non
         )
 
     assert result is None
+
+
+
+def test_apple_catalog_genre_overrides_conflicting_lastfm_tag() -> None:
+    result = _merge_external_metadata(
+        {
+            "source":
+                "lastfm",
+            "recording_id":
+                None,
+            "genre":
+                "Pop",
+            "release_year":
+                2023,
+            "confidence":
+                0.97,
+        },
+        {
+            "source":
+                "apple",
+            "recording_id":
+                "12345",
+            "genre":
+                "Country",
+            "release_year":
+                2023,
+            "confidence":
+                0.99,
+        },
+        prefer_fallback_genre=True,
+    )
+
+    assert result is not None
+    assert result["genre"] == "Country"
+    assert result["release_year"] == 2023
+    assert result["source"] == "lastfm+apple"
+
+
+def test_lastfm_genre_remains_when_apple_has_no_genre() -> None:
+    result = _merge_external_metadata(
+        {
+            "source":
+                "lastfm",
+            "recording_id":
+                None,
+            "genre":
+                "Country",
+            "release_year":
+                2023,
+            "confidence":
+                0.96,
+        },
+        {
+            "source":
+                "apple",
+            "recording_id":
+                "12345",
+            "genre":
+                None,
+            "release_year":
+                2023,
+            "confidence":
+                0.99,
+        },
+        prefer_fallback_genre=True,
+    )
+
+    assert result is not None
+    assert result["genre"] == "Country"

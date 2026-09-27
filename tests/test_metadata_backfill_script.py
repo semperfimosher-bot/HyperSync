@@ -6,6 +6,7 @@ import pytest
 from scripts.backfill_track_metadata import (
     acceptable_metadata,
     apply_missing_metadata,
+    apply_repaired_genre,
     load_completed_dry_run_report,
     missing_metadata,
     report_metadata,
@@ -276,3 +277,35 @@ def test_report_replay_rejects_incomplete_report(tmp_path) -> None:
         load_completed_dry_run_report(
             report_path,
         )
+
+
+
+def test_apply_repaired_genre_replaces_existing_genre_only() -> None:
+    item = track(
+        genre="Pop",
+        release_year=2023,
+    )
+
+    changed, genre_changed, year_changed = (
+        apply_repaired_genre(
+            item,
+            {
+                "source":
+                    "lastfm+apple",
+                "recording_id":
+                    "123",
+                "genre":
+                    "Country",
+                "release_year":
+                    2024,
+                "confidence":
+                    0.99,
+            },
+        )
+    )
+
+    assert changed is True
+    assert genre_changed is True
+    assert year_changed is False
+    assert item.genre == "Country"
+    assert item.release_year == 2023

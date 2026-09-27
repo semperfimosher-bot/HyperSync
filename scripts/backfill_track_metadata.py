@@ -46,9 +46,9 @@ DEFAULT_MIN_CONFIDENCE = 0.90
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Fill missing HyperSync track genre and "
+            "Fill or repair HyperSync track genre and "
             "release-year metadata using the same "
-            "Last.fm -> Apple -> MusicBrainz provider "
+            "Last.fm + Apple + MusicBrainz provider "
             "chain used by new uploads."
         ),
     )
@@ -70,6 +70,36 @@ def build_parser() -> argparse.ArgumentParser:
             "Apply accepted metadata from a completed "
             "--dry-run JSONL report without repeating "
             "external provider lookups."
+        ),
+    )
+
+    parser.add_argument(
+        "--repair-genres",
+        action="store_true",
+        help=(
+            "Re-check and replace existing genre values "
+            "using the current provider confidence/priority "
+            "rules. Release years are left unchanged."
+        ),
+    )
+
+    parser.add_argument(
+        "--artist",
+        type=str,
+        default=None,
+        help=(
+            "Only process tracks whose artist credit contains "
+            "this text (case-insensitive)."
+        ),
+    )
+
+    parser.add_argument(
+        "--genre",
+        type=str,
+        default=None,
+        help=(
+            "With --repair-genres, only process tracks whose "
+            "current genre exactly matches this value."
         ),
     )
 
@@ -144,6 +174,65 @@ def missing_metadata(
         ).strip()
         or track.release_year
         is None
+    )
+
+
+def apply_repaired_genre(
+    track: Track,
+    metadata: ExternalTrackMetadata,
+) -> tuple[
+    bool,
+    bool,
+    bool,
+]:
+    raw_genre = metadata.get(
+        "genre",
+    )
+
+    if not raw_genre:
+        return (
+            False,
+            False,
+            False,
+        )
+
+    new_genre = (
+        str(
+            raw_genre,
+        )
+        .strip()[:120]
+    )
+
+    if not new_genre:
+        return (
+            False,
+            False,
+            False,
+        )
+
+    old_genre = (
+        track.genre
+        or ""
+    ).strip()
+
+    if (
+        old_genre.casefold()
+        == new_genre.casefold()
+    ):
+        return (
+            False,
+            False,
+            False,
+        )
+
+    track.genre = (
+        new_genre
+    )
+
+    return (
+        True,
+        True,
+        False,
     )
 
 
@@ -954,11 +1043,22 @@ async def run_backfill(
     )
 
     async with session_factory() as session:
-        statement = (
-            select(
-                Track,
+        conditions = []
+
+        if args.repair_genres:
+            conditions.extend(
+                [
+                    Track.genre.is_not(
+                        None,
+                    ),
+                    func.trim(
+                        Track.genre,
+                    )
+                    != "",
+                ]
             )
-            .where(
+        else:
+            conditions.append(
                 or_(
                     Track.genre.is_(
                         None,
@@ -971,7 +1071,55 @@ async def run_backfill(
                     .is_(
                         None,
                     ),
-                ),
+                )
+            )
+
+        artist_filter = (
+            str(
+                args.artist
+                or "",
+            )
+            .strip()
+            .casefold()
+        )
+
+        if artist_filter:
+            conditions.append(
+                func.lower(
+                    Track.artist,
+                ).contains(
+                    artist_filter,
+                )
+            )
+
+        genre_filter = (
+            str(
+                args.genre
+                or "",
+            )
+            .strip()
+            .casefold()
+        )
+
+        if (
+            args.repair_genres
+            and genre_filter
+        ):
+            conditions.append(
+                func.lower(
+                    func.trim(
+                        Track.genre,
+                    )
+                )
+                == genre_filter
+            )
+
+        statement = (
+            select(
+                Track,
+            )
+            .where(
+                *conditions,
             )
             .order_by(
                 Track.created_at.asc(),
@@ -1010,13 +1158,22 @@ async def run_backfill(
                 + str(
                     total,
                 )
-                + " track(s) need genre and/or release year."
+                + (
+                    " track(s) selected for genre repair."
+                    if args.repair_genres
+                    else " track(s) need genre and/or release year."
+                )
             )
         )
 
         if args.dry_run:
             print(
                 "DRY RUN: database writes are disabled.",
+            )
+        elif args.repair_genres:
+            print(
+                "GENRE REPAIR MODE: differing high-confidence "
+                "genres will replace the current genre.",
             )
         else:
             print(
@@ -1028,7 +1185,8 @@ async def run_backfill(
             .strip()
         ):
             print(
-                "Providers: Last.fm -> Apple/iTunes -> MusicBrainz",
+                "Providers: Last.fm + Apple/iTunes -> MusicBrainz "
+                "(Apple catalog genre wins conflicts)",
             )
         else:
             print(
@@ -1156,7 +1314,12 @@ async def run_backfill(
                             genre_changed,
                             year_changed,
                         ) = (
-                            apply_missing_metadata(
+                            apply_repaired_genre(
+                                track,
+                                metadata,
+                            )
+                            if args.repair_genres
+                            else apply_missing_metadata(
                                 track,
                                 metadata,
                             )
@@ -1229,7 +1392,9 @@ async def run_backfill(
 
                         else:
                             status = (
-                                "matched_no_missing_value"
+                                "matched_no_change"
+                                if args.repair_genres
+                                else "matched_no_missing_value"
                             )
 
                     line = (
@@ -1411,6 +1576,22 @@ async def async_main() -> int:
     ):
         parser.error(
             "--apply-report cannot be combined with --dry-run.",
+        )
+
+    if (
+        args.apply_report is not None
+        and args.repair_genres
+    ):
+        parser.error(
+            "--apply-report cannot be combined with --repair-genres.",
+        )
+
+    if (
+        args.genre is not None
+        and not args.repair_genres
+    ):
+        parser.error(
+            "--genre requires --repair-genres.",
         )
 
     try:

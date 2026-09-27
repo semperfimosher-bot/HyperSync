@@ -3713,23 +3713,32 @@ async def send_playback_device_command(
         # Tell the previous audio owner to go silent before the
         # new owner is notified. That ordering avoids a short
         # two-device overlap during handoff.
-        await playback_realtime_hub.send_to(
-            user.id,
-            previous_pause_command
-            .target_device_id,
-            {
-                "type":
-                    "command",
-                "command":
-                    previous_response.model_dump(
-                        mode="json",
-                    ),
-                "playback_state":
-                    playback_state.model_dump(
-                        mode="json",
-                    ),
-            },
+        previous_pause_delivered = (
+            await playback_realtime_hub.send_to(
+                user.id,
+                previous_pause_command
+                .target_device_id,
+                {
+                    "type":
+                        "command",
+                    "command":
+                        previous_response.model_dump(
+                            mode="json",
+                        ),
+                    "playback_state":
+                        playback_state.model_dump(
+                            mode="json",
+                        ),
+                },
+            )
         )
+
+        if previous_pause_delivered:
+            previous_pause_command.consumed_at = (
+                datetime.now(
+                    UTC,
+                )
+            )
 
     if broadcast_playback_state:
         await playback_realtime_hub.broadcast(
@@ -3744,21 +3753,42 @@ async def send_playback_device_command(
             },
         )
 
-    await playback_realtime_hub.send_to(
-        user.id,
-        target_device_id,
-        {
-            "type": "command",
-            "command":
-                command_response.model_dump(
-                    mode="json",
-                ),
-            "playback_state":
-                playback_state.model_dump(
-                    mode="json",
-                ),
-        },
+    command_delivered = (
+        await playback_realtime_hub.send_to(
+            user.id,
+            target_device_id,
+            {
+                "type": "command",
+                "command":
+                    command_response.model_dump(
+                        mode="json",
+                    ),
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            },
+        )
     )
+
+    if command_delivered:
+        command.consumed_at = (
+            datetime.now(
+                UTC,
+            )
+        )
+
+    if (
+        command_delivered
+        or (
+            previous_pause_command
+            is not None
+            and previous_pause_command
+            .consumed_at
+            is not None
+        )
+    ):
+        await session.commit()
 
     return command_response
 
