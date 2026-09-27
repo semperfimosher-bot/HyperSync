@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import mimetypes
+import secrets
 import time
 from dataclasses import (
     asdict,
@@ -53,6 +55,7 @@ class ProvisionSession:
     state: str
     created_at: float
     updated_at: float
+    stream_token: str
     source: YouTubeSource | None = None
     track_id: UUID | None = None
     error: str | None = None
@@ -115,6 +118,8 @@ def _session_snapshot(
             (
                 "/api/on-demand/"
                 f"{session.id}/stream"
+                "?token="
+                f"{session.stream_token}"
                 if (
                     session.source
                     is not None
@@ -683,6 +688,11 @@ async def get_or_create_session(
             state="queued",
             created_at=now,
             updated_at=now,
+            stream_token=(
+                secrets.token_urlsafe(
+                    32,
+                )
+            ),
         )
 
         _sessions_by_key[
@@ -932,6 +942,16 @@ async def active_provisions() -> list[
             :50
         ]
     ]
+
+
+def stream_token_matches(
+    session: ProvisionSession,
+    token: str,
+) -> bool:
+    return hmac.compare_digest(
+        session.stream_token,
+        token,
+    )
 
 
 def source_headers(
