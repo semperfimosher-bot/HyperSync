@@ -2709,6 +2709,16 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  const provisional =
+    isOnDemandTrackId(
+      trackId,
+    )
+    || Boolean(
+      meta?.onDemand ??
+      meta?.on_demand ??
+      false,
+    );
+
   const remoteQueue = [
     {
       id:
@@ -2723,6 +2733,7 @@ export async function playTrack(
   ];
 
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
