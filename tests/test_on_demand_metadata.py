@@ -202,8 +202,10 @@ async def test_metadata_search_supports_500_artist_results(
         query: str,
         *,
         limit: int,
+        artist_only: bool = False,
     ) -> list[CatalogTrackCandidate]:
         assert query == "Example Artist"
+        assert artist_only is True
         requested_limits.append(
             limit,
         )
@@ -213,8 +215,10 @@ async def test_metadata_search_supports_500_artist_results(
         query: str,
         *,
         limit: int,
+        artist_only: bool = False,
     ) -> list[CatalogTrackCandidate]:
         assert query == "Example Artist"
+        assert artist_only is True
         requested_limits.append(
             limit,
         )
