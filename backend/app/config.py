@@ -195,11 +195,27 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [
+        origins = [
             origin.strip().rstrip("/")
             for origin in self.frontend_origins.split(",")
             if origin.strip()
         ]
+
+        public_origin = (
+            self.frontend_public_url
+            .strip()
+            .rstrip("/")
+        )
+
+        if (
+            public_origin
+            and public_origin not in origins
+        ):
+            origins.append(
+                public_origin,
+            )
+
+        return origins
 
     @property
     def push_allowed_host_suffixes(
