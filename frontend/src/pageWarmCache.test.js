@@ -32,7 +32,7 @@ test(
 
 
 test(
-  "warm pages survive until two hours after leaving",
+  "warm pages survive until twelve hours after leaving",
   () => {
     const ownerKey =
       "user:1";
