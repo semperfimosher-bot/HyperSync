@@ -1140,6 +1140,74 @@ def _match_for_track(
     if direct_match.score > 0:
         return direct_match
 
+    normalized_term = normalize_text(
+        parsed.term,
+    )
+
+    raw_artist = normalize_text(
+        track.artist,
+    )
+
+    primary_artist_normalized = (
+        normalize_text(
+            primary_artist,
+        )
+    )
+
+    clean_title = (
+        _title_without_feature_credit(
+            track.title,
+        )
+    )
+
+    raw_title = normalize_text(
+        track.title,
+    )
+
+    clean_title_normalized = (
+        normalize_text(
+            clean_title,
+        )
+    )
+
+    secondary_artist_only_match = (
+        bool(
+            normalized_term,
+        )
+        and normalized_term
+        in raw_artist
+        and normalized_term
+        not in primary_artist_normalized
+    )
+
+    feature_credit_only_match = (
+        bool(
+            normalized_term,
+        )
+        and normalized_term
+        in raw_title
+        and normalized_term
+        not in clean_title_normalized
+        and any(
+            score_artist(
+                featured_artist,
+                parsed,
+            ).score
+            > 0
+            for featured_artist in (
+                extract_featured_artists(
+                    track.title,
+                )
+            )
+        )
+    )
+
+    if (
+        secondary_artist_only_match
+        or feature_credit_only_match
+    ):
+        return direct_match
+
     smart_score = smart_track_score(
         track,
         parsed.raw,
