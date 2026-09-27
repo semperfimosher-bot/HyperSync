@@ -9671,6 +9671,13 @@ const checkDownloadedGeneratedPlaylistUpdates =
           return;
         }
 
+        if (
+          notification.type ===
+            "admin_account_notification"
+        ) {
+          return;
+        }
+
         const notificationKey =
           notification.type ===
             "admin_activity"
@@ -9793,7 +9800,11 @@ const checkDownloadedGeneratedPlaylistUpdates =
       (
         notification,
       ) => {
-        if (!notification) {
+        if (
+          !notification ||
+          notification.type ===
+            "admin_account_notification"
+        ) {
           return;
         }
 
