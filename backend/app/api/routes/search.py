@@ -157,6 +157,37 @@ def _artist_field_credits(
     )
 
 
+def _primary_artist_credit(
+    artist: str | None,
+) -> str:
+    if not artist:
+        return ""
+
+    raw = str(
+        artist,
+    ).strip()
+
+    if not raw:
+        return ""
+
+    parts = [
+        part.strip()
+        for part in (
+            _ARTIST_CREDIT_SPLIT_PATTERN
+            .split(
+                raw,
+            )
+        )
+        if part.strip()
+    ]
+
+    return (
+        parts[0]
+        if parts
+        else raw
+    )
+
+
 def _track_credits_artist(
     track: Track,
     artist_name: str,
@@ -1974,13 +2005,19 @@ def _artist_results(
             parsed,
         )
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         primary_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
         primary_key = normalize_text(
-            track.artist,
+            primary_artist,
         )
 
         if primary_key and (primary_match.score > 0 or direct_context):
@@ -1988,7 +2025,7 @@ def _artist_results(
 
             if primary_key not in artists:
                 artists[primary_key] = SearchArtistResult(
-                    name=(track.artist),
+                    name=(primary_artist),
                     track_count=1,
                     artwork_url=(track.artwork_url),
                     match_label=(primary_label),
