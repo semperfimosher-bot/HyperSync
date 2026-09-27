@@ -889,6 +889,10 @@ useEffect(() => {
     if (!quietRefresh) {
       setLoading(true);
       setSearchError("");
+
+      setOnDemandTracks(
+        [],
+      );
     }
 
     const setLocalResults =
@@ -944,6 +948,10 @@ useEffect(() => {
 
               setLocalResults(
                 localTracks,
+              );
+
+              setOnDemandTracks(
+                [],
               );
 
               setSearchError(
@@ -3625,7 +3633,8 @@ async function downloadOpenedPlaylist() {
                   <strong>
                     {filterCount(
                       filter,
-                      results.counts,
+                      combinedResults
+                        .counts,
                     )}
                   </strong>
                 </button>
@@ -4428,7 +4437,7 @@ displayResults.tracks.length > 0 ? (
                                         " + ",
                                       )
                                       .toUpperCase()
-                                    : "DEE ZER + ITUNES"
+                                    : "DEEZER + ITUNES"
                                 )
                               : (
                                   `${track.global_play_count} plays`
