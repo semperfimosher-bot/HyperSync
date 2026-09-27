@@ -31,9 +31,11 @@ from ...services.on_demand_ingestion import (
     get_provision_session,
     prepare_candidate,
     provision_status,
+    record_provision_play,
     search_and_remember,
     source_headers,
     stream_token_matches,
+    warm_candidate_keys,
 )
 from ..dependencies import (
     CurrentUser,
@@ -51,6 +53,15 @@ class PrepareOnDemandRequest(
     candidate_key: str = Field(
         min_length=1,
         max_length=160,
+    )
+
+
+class WarmOnDemandRequest(
+    BaseModel,
+):
+    candidate_keys: list[str] = Field(
+        min_length=1,
+        max_length=16,
     )
 
 
@@ -83,7 +94,7 @@ async def search_on_demand(
     limit: int | None = Query(
         default=None,
         ge=1,
-        le=15,
+        le=500,
     ),
 ):
     _require_registered(
@@ -138,6 +149,118 @@ async def search_on_demand(
             for candidate
             in candidates
         ],
+    }
+
+
+@router.get("/artist")
+async def search_on_demand_artist(
+    request: Request,
+    user: CurrentUser,
+    name: str = Query(
+        min_length=2,
+        max_length=180,
+    ),
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=500,
+    ),
+):
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-search",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_search_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    candidates = (
+        await search_and_remember(
+            name,
+            limit=limit,
+            kind="artist",
+            prewarm=False,
+        )
+    )
+
+    return {
+        "artist":
+            name.strip(),
+        "tracks": [
+            {
+                **candidate.as_dict(),
+                "source_type":
+                    "on_demand",
+                "provision_key":
+                    candidate.key,
+                "match_label":
+                    "AVAILABLE ON DEMAND",
+                "matched_field":
+                    "external",
+                "user_play_count":
+                    0,
+                "global_play_count":
+                    0,
+            }
+            for candidate
+            in candidates
+        ],
+    }
+
+
+@router.post("/warm")
+async def warm_on_demand(
+    payload: WarmOnDemandRequest,
+    request: Request,
+    user: CurrentUser,
+):
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-warm",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_prepare_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    sessions = await warm_candidate_keys(
+        payload.candidate_keys,
+    )
+
+    return {
+        "warmed":
+            len(sessions),
+        "sessions":
+            sessions,
     }
 
 
@@ -211,6 +334,35 @@ async def prepare_on_demand(
                     "error",
                 )
                 or "Unable to prepare this recording."
+            ),
+        )
+
+    return result
+
+
+@router.post(
+    "/{provision_id}/played",
+)
+async def mark_on_demand_played(
+    provision_id: UUID,
+    user: CurrentUser,
+):
+    _require_registered(
+        user,
+    )
+
+    result = await record_provision_play(
+        provision_id,
+        user.id,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail=(
+                "Provisioning session not found."
             ),
         )
 
