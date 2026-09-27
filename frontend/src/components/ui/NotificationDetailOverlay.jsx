@@ -102,7 +102,7 @@ export default function NotificationDetailOverlay({
             .sender_display_name
           || notification
             .sender_username
-          || "HyperSync user"
+          || "HyperSynced user"
         );
 
   const identity =
@@ -110,14 +110,14 @@ export default function NotificationDetailOverlay({
       ? (
           notification
             .actor_username
-          || "HyperSync"
+          || "HyperSynced"
         )
       : (
           notification
             .sender_display_name
           || notification
             .sender_username
-          || "HyperSync user"
+          || "HyperSynced user"
         );
 
   return (
