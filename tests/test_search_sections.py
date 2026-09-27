@@ -176,6 +176,77 @@ def test_artist_results_only_include_relevant_artists() -> None:
     ]
 
 
+def test_artist_results_collapse_multi_artist_credit_to_main_artist() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Solo Song",
+            artist="Morgan Wallen",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+    ]
+
+    artists = _artist_results(
+        tracks,
+        parsed,
+    )
+
+    assert [
+        artist.name
+        for artist in artists
+    ] == [
+        "Morgan Wallen",
+    ]
+
+    assert (
+        artists[0].track_count
+        == 2
+    )
+
+
+def test_secondary_artist_does_not_become_artist_result_for_main_artist_search() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Collaboration Album",
+            matched_field="artist",
+        ),
+    ]
+
+    artists = _artist_results(
+        tracks,
+        parsed,
+    )
+
+    assert [
+        artist.name
+        for artist in artists
+    ] == [
+        "Morgan Wallen",
+    ]
+
+    assert all(
+        "Tate McRae"
+        not in artist.name
+        for artist in artists
+    )
+
+
 def test_direct_song_match_returns_related_album() -> None:
     parsed = parse_search_query(
         "peaches",
