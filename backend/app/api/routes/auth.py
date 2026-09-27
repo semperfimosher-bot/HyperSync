@@ -1096,7 +1096,7 @@ async def request_password_recovery(
                 recipient_email=user.email,
                 username=(
                     user.username
-                    or "HyperSync user"
+                    or "HyperSynced user"
                 ),
                 otp_code=otp_code,
                 reset_token=reset_token,
