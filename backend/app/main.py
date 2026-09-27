@@ -27,6 +27,8 @@ from .security.tokens import (
 )
 
 DATABASE_KEEPALIVE_SECONDS = 240.0
+DATABASE_STARTUP_ATTEMPTS = 6
+DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
@@ -193,6 +195,31 @@ def _request_actor_user_id(
 
 
 
+async def wait_for_database_ready() -> None:
+    for attempt in range(
+        1,
+        DATABASE_STARTUP_ATTEMPTS + 1,
+    ):
+        try:
+            await check_database()
+            return
+        except Exception:
+            if (
+                attempt
+                >= DATABASE_STARTUP_ATTEMPTS
+            ):
+                raise
+
+            await asyncio.sleep(
+                min(
+                    float(
+                        2 ** (attempt - 1)
+                    ),
+                    DATABASE_STARTUP_MAX_DELAY_SECONDS,
+                )
+            )
+
+
 async def keep_database_warm() -> None:
     while True:
         await asyncio.sleep(
@@ -226,7 +253,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     # Pay any database wake-up/connection cost
     # during backend startup instead of login.
-    await check_database()
+    # Retry transient database wake-up/network
+    # failures instead of crashing the container.
+    await wait_for_database_ready()
 
     keepalive_task = asyncio.create_task(
         keep_database_warm(),
