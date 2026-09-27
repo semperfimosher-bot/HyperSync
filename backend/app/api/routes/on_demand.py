@@ -61,7 +61,7 @@ class WarmOnDemandRequest(
 ):
     candidate_keys: list[str] = Field(
         min_length=1,
-        max_length=16,
+        max_length=500,
     )
 
 
@@ -91,8 +91,8 @@ async def search_on_demand(
         min_length=2,
         max_length=180,
     ),
-    limit: int | None = Query(
-        default=None,
+    limit: int = Query(
+        default=500,
         ge=1,
         le=500,
     ),
