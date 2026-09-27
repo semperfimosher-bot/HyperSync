@@ -1274,7 +1274,9 @@ def test_general_artist_search_uses_only_main_artist_credit() -> None:
     assert primary_match.score > 0
     assert primary_match.field == "artist"
     assert secondary_match.score == 0
+    assert secondary_match.field == ""
     assert featured_match.score == 0
+    assert featured_match.field == ""
 
 
 def test_album_results_collapse_multi_artist_credit_to_main_artist() -> None:
