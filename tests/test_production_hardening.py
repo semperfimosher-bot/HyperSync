@@ -8,6 +8,12 @@ from httpx import ASGITransport, AsyncClient
 from backend.app.api.routes.audio import (
     resolve_local_audio_fallback,
 )
+from backend.app.api.routes.auth import (
+    set_refresh_cookie,
+)
+from backend.app.config import (
+    get_settings,
+)
 from backend.app.database import get_engine
 from backend.app.main import app
 from backend.app.models.base import Base
@@ -281,3 +287,110 @@ async def test_api_docs_are_not_public_by_default_and_headers_are_present() -> N
         ]
         == "strict-origin-when-cross-origin"
     )
+
+
+def test_refresh_cookie_ignores_untrusted_forwarded_proto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "ENVIRONMENT",
+        "development",
+    )
+
+    get_settings.cache_clear()
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/auth/login",
+            "raw_path": b"/api/auth/login",
+            "query_string": b"",
+            "headers": [
+                (
+                    b"x-forwarded-proto",
+                    b"https",
+                ),
+            ],
+            "client": (
+                "203.0.113.44",
+                443,
+            ),
+            "server": (
+                "api.hypersynced.app",
+                443,
+            ),
+        }
+    )
+
+    from fastapi import Response
+
+    response = Response()
+
+    set_refresh_cookie(
+        response,
+        "test-refresh-token",
+        request,
+    )
+
+    cookie = response.headers[
+        "set-cookie"
+    ]
+
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+    assert "Secure" not in cookie
+
+    get_settings.cache_clear()
+
+
+def test_refresh_cookie_is_always_secure_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "ENVIRONMENT",
+        "production",
+    )
+
+    get_settings.cache_clear()
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/auth/login",
+            "raw_path": b"/api/auth/login",
+            "query_string": b"",
+            "headers": [],
+            "client": (
+                "127.0.0.1",
+                443,
+            ),
+            "server": (
+                "api.hypersynced.app",
+                443,
+            ),
+        }
+    )
+
+    from fastapi import Response
+
+    response = Response()
+
+    set_refresh_cookie(
+        response,
+        "test-refresh-token",
+        request,
+    )
+
+    cookie = response.headers[
+        "set-cookie"
+    ]
+
+    assert "Secure" in cookie
+
+    get_settings.cache_clear()
