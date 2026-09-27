@@ -56,6 +56,35 @@ class Track(
         index=True,
     )
 
+    isrc: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        index=True,
+    )
+
+    deezer_track_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    apple_track_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    source_provider: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+    )
+
+    source_id: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        index=True,
+    )
+
     b2_object_key: Mapped[str] = mapped_column(
         Text,
         nullable=False,
