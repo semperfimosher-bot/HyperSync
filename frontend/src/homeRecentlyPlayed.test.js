@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   getHomeRecentlyPlayed,
+  notifyListeningHistoryChanged,
+  subscribeListeningHistoryChanged,
 } from "./homeRecentlyPlayed.js";
 
 
@@ -58,6 +60,48 @@ test(
     assert.deepEqual(
       getHomeRecentlyPlayed({}),
       [],
+    );
+  },
+);
+
+
+test(
+  "notifies active Home listeners when listening history changes",
+  () => {
+    const target =
+      new EventTarget();
+
+    let calls = 0;
+
+    const unsubscribe =
+      subscribeListeningHistoryChanged(
+        () => {
+          calls += 1;
+        },
+        target,
+      );
+
+    assert.equal(
+      notifyListeningHistoryChanged(
+        target,
+      ),
+      true,
+    );
+
+    assert.equal(
+      calls,
+      1,
+    );
+
+    unsubscribe();
+
+    notifyListeningHistoryChanged(
+      target,
+    );
+
+    assert.equal(
+      calls,
+      1,
     );
   },
 );

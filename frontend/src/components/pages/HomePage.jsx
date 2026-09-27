@@ -42,6 +42,7 @@ import {
 
 import {
   getHomeRecentlyPlayed,
+  subscribeListeningHistoryChanged,
 } from "../../homeRecentlyPlayed.js";
 
 import {
@@ -292,6 +293,22 @@ useEffect(() => {
 }, [
   loadRecentlyPlayed,
 ]);
+
+
+useEffect(
+  () =>
+    subscribeListeningHistoryChanged(
+      () => {
+        void loadRecentlyPlayed({
+          quiet:
+            true,
+        });
+      },
+    ),
+  [
+    loadRecentlyPlayed,
+  ],
+);
 
 
 useQuietRefresh(
