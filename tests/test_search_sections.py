@@ -1095,20 +1095,25 @@ def test_direct_genre_prefers_exact_over_related_family() -> None:
 
 
 
-def test_track_credits_artist_includes_primary_and_featured_appearances() -> None:
+def test_track_credits_artist_requires_primary_artist() -> None:
     primary = SimpleNamespace(
         title="Primary Song",
         artist="Justin Bieber",
     )
 
+    primary_collaboration = SimpleNamespace(
+        title="Collab Song",
+        artist="Justin Bieber & Post Malone",
+    )
+
+    secondary_collaboration = SimpleNamespace(
+        title="Collab Song",
+        artist="Post Malone & Justin Bieber",
+    )
+
     featured = SimpleNamespace(
         title="Collab Song (feat. Justin Bieber)",
         artist="Post Malone",
-    )
-
-    unrelated_title_mention = SimpleNamespace(
-        title="Justin Bieber Tribute",
-        artist="Other Artist",
     )
 
     assert search_route._track_credits_artist(
@@ -1117,18 +1122,23 @@ def test_track_credits_artist_includes_primary_and_featured_appearances() -> Non
     )
 
     assert search_route._track_credits_artist(
-        featured,
+        primary_collaboration,
         "Justin Bieber",
     )
 
     assert not search_route._track_credits_artist(
-        unrelated_title_mention,
+        secondary_collaboration,
+        "Justin Bieber",
+    )
+
+    assert not search_route._track_credits_artist(
+        featured,
         "Justin Bieber",
     )
 
 
 @pytest.mark.asyncio
-async def test_artist_catalog_candidates_include_all_primary_and_featured_tracks() -> None:
+async def test_artist_catalog_candidates_keep_only_primary_artist_tracks() -> None:
     artist_name = "Justin Bieber"
 
     tracks = [
@@ -1139,18 +1149,18 @@ async def test_artist_catalog_candidates_include_all_primary_and_featured_tracks
         ),
         SimpleNamespace(
             id=uuid4(),
+            title="Primary Collaboration",
+            artist="Justin Bieber & Post Malone",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Secondary Collaboration",
+            artist="Post Malone & Justin Bieber",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
             title="Deja Vu (feat. Justin Bieber)",
             artist="Post Malone",
-        ),
-        SimpleNamespace(
-            id=uuid4(),
-            title="Another Song (ft. Justin Bieber)",
-            artist="Different Artist",
-        ),
-        SimpleNamespace(
-            id=uuid4(),
-            title="Justin Bieber Tribute",
-            artist="Unrelated Artist",
         ),
     ]
 
@@ -1181,12 +1191,11 @@ async def test_artist_catalog_candidates_include_all_primary_and_featured_tracks
         for track in results
     ] == [
         "Ghost",
-        "Deja Vu (feat. Justin Bieber)",
-        "Another Song (ft. Justin Bieber)",
+        "Primary Collaboration",
     ]
 
 
-def test_songs_by_artist_scores_featured_tracks_as_artist_matches() -> None:
+def test_songs_by_artist_requires_primary_artist_match() -> None:
     parsed = parse_search_query(
         "songs by Justin Bieber",
     )
@@ -1198,14 +1207,97 @@ def test_songs_by_artist_scores_featured_tracks_as_artist_matches() -> None:
         genre="Pop",
     )
 
-    match = search_route._match_for_track(
+    primary_collaboration = SimpleNamespace(
+        title="Shared Song",
+        artist="Justin Bieber & Post Malone",
+        album="Shared",
+        genre="Pop",
+    )
+
+    featured_match = search_route._match_for_track(
         featured_track,
         parsed,
     )
 
-    assert match.score > 0
-    assert match.field == "artist"
+    primary_match = search_route._match_for_track(
+        primary_collaboration,
+        parsed,
+    )
 
+    assert featured_match.score == 0
+    assert primary_match.score > 0
+    assert primary_match.field == "artist"
+
+
+
+def test_general_artist_search_uses_only_main_artist_credit() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    primary_collaboration = SimpleNamespace(
+        title="Primary Collaboration",
+        artist="Morgan Wallen & Tate McRae",
+        album="Shared Album",
+        genre="Country",
+    )
+
+    secondary_collaboration = SimpleNamespace(
+        title="Secondary Collaboration",
+        artist="Tate McRae & Morgan Wallen",
+        album="Shared Album",
+        genre="Pop",
+    )
+
+    featured_only = SimpleNamespace(
+        title="Feature Song (feat. Morgan Wallen)",
+        artist="Tate McRae",
+        album="Feature Album",
+        genre="Pop",
+    )
+
+    primary_match = search_route._match_for_track(
+        primary_collaboration,
+        parsed,
+    )
+
+    secondary_match = search_route._match_for_track(
+        secondary_collaboration,
+        parsed,
+    )
+
+    featured_match = search_route._match_for_track(
+        featured_only,
+        parsed,
+    )
+
+    assert primary_match.score > 0
+    assert primary_match.field == "artist"
+    assert secondary_match.score == 0
+    assert featured_match.score == 0
+
+
+def test_album_results_collapse_multi_artist_credit_to_main_artist() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+    ]
+
+    albums = _album_results(
+        tracks,
+        parsed,
+    )
+
+    assert len(albums) == 1
+    assert albums[0].artist == "Morgan Wallen"
 
 
 def test_artist_credit_resolution_expands_unique_prefix_but_not_ambiguous_prefix() -> None:
