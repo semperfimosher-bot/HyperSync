@@ -3741,9 +3741,12 @@ async def send_playback_device_command(
             )
         )
 
-        # Tell the previous audio owner to go silent before the
-        # new owner is notified. That ordering avoids a short
-        # two-device overlap during handoff.
+        # Notify the previous owner of the ownership change
+        # before the target command is delivered. Current clients
+        # use the attached playback state as the handoff start,
+        # keep the old audio alive until the target publishes its
+        # applied state, then overlap for one additional second.
+        # The pause command remains a backward-compatible fallback.
         previous_pause_delivered = (
             await playback_realtime_hub.send_to(
                 user.id,

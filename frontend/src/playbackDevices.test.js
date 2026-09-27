@@ -7,6 +7,7 @@ import {
 } from "./playbackDevices.js";
 
 import {
+  advanceOutgoingHandoffObservation,
   applyPlaybackRemoteCommand,
   shouldApplyPlaybackRemoteCommand,
   shouldOverlapOutgoingHandoff,
@@ -1107,6 +1108,127 @@ test(
         },
       }),
       false,
+    );
+  },
+);
+
+
+
+test(
+  "outgoing handoff waits for target playback confirmation",
+  () => {
+    const input = {
+      snapshot: {
+        device_id:
+          "phone",
+        paused:
+          false,
+        track: {
+          id:
+            "track-1",
+        },
+      },
+      deviceId:
+        "desktop",
+      localState: {
+        trackId:
+          "track-1",
+        paused:
+          false,
+      },
+    };
+
+    const first =
+      advanceOutgoingHandoffObservation({
+        ...input,
+        updatedAtMs:
+          1000,
+      });
+
+    assert.equal(
+      first.phase,
+      "waiting",
+    );
+
+    assert.equal(
+      first.justConfirmed,
+      false,
+    );
+
+    const duplicate =
+      advanceOutgoingHandoffObservation({
+        ...input,
+        previousObservation:
+          first.observation,
+        updatedAtMs:
+          1000,
+      });
+
+    assert.equal(
+      duplicate.phase,
+      "waiting",
+    );
+
+    const confirmed =
+      advanceOutgoingHandoffObservation({
+        ...input,
+        previousObservation:
+          duplicate.observation,
+        updatedAtMs:
+          1001,
+      });
+
+    assert.equal(
+      confirmed.phase,
+      "confirmed",
+    );
+
+    assert.equal(
+      confirmed.justConfirmed,
+      true,
+    );
+
+    const later =
+      advanceOutgoingHandoffObservation({
+        ...input,
+        previousObservation:
+          confirmed.observation,
+        updatedAtMs:
+          2000,
+      });
+
+    assert.equal(
+      later.phase,
+      "confirmed",
+    );
+
+    assert.equal(
+      later.justConfirmed,
+      false,
+    );
+
+    const stopped =
+      advanceOutgoingHandoffObservation({
+        ...input,
+        snapshot: {
+          ...input.snapshot,
+          paused:
+            true,
+        },
+        previousObservation:
+          confirmed.observation,
+        updatedAtMs:
+          2001,
+      });
+
+    assert.equal(
+      stopped.phase,
+      "none",
+    );
+
+    assert.equal(
+      stopped.observation,
+      null,
     );
   },
 );

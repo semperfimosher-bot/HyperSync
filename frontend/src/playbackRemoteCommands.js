@@ -44,6 +44,135 @@ export function shouldOverlapOutgoingHandoff({
 }
 
 
+export function advanceOutgoingHandoffObservation({
+  snapshot = null,
+  deviceId = null,
+  localState = null,
+  previousObservation = null,
+  updatedAtMs = 0,
+} = {}) {
+  if (
+    !shouldOverlapOutgoingHandoff({
+      snapshot,
+      deviceId,
+      localState,
+    })
+  ) {
+    return {
+      phase:
+        "none",
+      justConfirmed:
+        false,
+      observation:
+        null,
+    };
+  }
+
+  const targetDeviceId =
+    String(
+      snapshot?.device_id ??
+        "",
+    ).trim();
+
+  const trackId =
+    String(
+      snapshot?.track?.id ??
+        "",
+    ).trim();
+
+  const normalizedUpdatedAtMs =
+    Math.max(
+      Number(
+        updatedAtMs,
+      ) || 0,
+      0,
+    );
+
+  const sameHandoff =
+    previousObservation &&
+    String(
+      previousObservation
+        .targetDeviceId ??
+        "",
+    ) ===
+      targetDeviceId &&
+    String(
+      previousObservation
+        .trackId ??
+        "",
+    ) ===
+      trackId;
+
+  if (!sameHandoff) {
+    return {
+      phase:
+        "waiting",
+      justConfirmed:
+        false,
+      observation: {
+        targetDeviceId,
+        trackId,
+        updatedAtMs:
+          normalizedUpdatedAtMs,
+        confirmed:
+          false,
+      },
+    };
+  }
+
+  if (
+    previousObservation
+      .confirmed
+  ) {
+    return {
+      phase:
+        "confirmed",
+      justConfirmed:
+        false,
+      observation:
+        previousObservation,
+    };
+  }
+
+  const previousUpdatedAtMs =
+    Math.max(
+      Number(
+        previousObservation
+          .updatedAtMs,
+      ) || 0,
+      0,
+    );
+
+  if (
+    normalizedUpdatedAtMs >
+      previousUpdatedAtMs
+  ) {
+    return {
+      phase:
+        "confirmed",
+      justConfirmed:
+        true,
+      observation: {
+        ...previousObservation,
+        updatedAtMs:
+          normalizedUpdatedAtMs,
+        confirmed:
+          true,
+      },
+    };
+  }
+
+  return {
+    phase:
+      "waiting",
+    justConfirmed:
+      false,
+    observation:
+      previousObservation,
+  };
+}
+
+
 export function shouldApplyPlaybackRemoteCommand(
   command,
   {

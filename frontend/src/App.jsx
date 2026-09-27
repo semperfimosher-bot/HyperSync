@@ -174,9 +174,9 @@ import {
 } from "./playbackDevices.js";
 
 import {
+  advanceOutgoingHandoffObservation,
   applyPlaybackRemoteCommand,
   shouldApplyPlaybackRemoteCommand,
-  shouldOverlapOutgoingHandoff,
 } from "./playbackRemoteCommands.js";
 
 import {
@@ -201,6 +201,12 @@ const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
   5000;
+
+const PLAYBACK_HANDOFF_OVERLAP_MS =
+  1000;
+
+const PLAYBACK_HANDOFF_CONFIRMATION_TIMEOUT_MS =
+  6000;
 
 const ACCOUNT_PLAYBACK_DEVICE_KEY =
   "hypersync:playback-device-id";
@@ -5498,6 +5504,9 @@ export default function App() {
   const playbackHandoffSilenceTimerRef =
     useRef(null);
 
+  const playbackOutgoingHandoffObservationRef =
+    useRef(null);
+
 
   const cancelPlaybackHandoffSilence =
     useCallback(
@@ -5522,7 +5531,10 @@ export default function App() {
 
   const schedulePlaybackHandoffSilence =
     useCallback(
-      () => {
+      (
+        delayMs =
+          PLAYBACK_HANDOFF_OVERLAP_MS,
+      ) => {
         if (
           playbackHandoffSilenceTimerRef
             .current !== null
@@ -5530,10 +5542,22 @@ export default function App() {
           return;
         }
 
+        const safeDelayMs =
+          Math.max(
+            Number(
+              delayMs,
+            ) || 0,
+            0,
+          );
+
         playbackHandoffSilenceTimerRef.current =
           globalThis.setTimeout(
             () => {
               playbackHandoffSilenceTimerRef
+                .current =
+                  null;
+
+              playbackOutgoingHandoffObservationRef
                 .current =
                   null;
 
@@ -5561,7 +5585,7 @@ export default function App() {
                 player.silenceLocalPlayback();
               }
             },
-            1000,
+            safeDelayMs,
           );
       },
       [],
@@ -5570,6 +5594,10 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      playbackOutgoingHandoffObservationRef
+        .current =
+          null;
+
       cancelPlaybackHandoffSilence();
     };
   }, [
@@ -6181,15 +6209,12 @@ export default function App() {
            * and control is transferred back
            * to this browser, apply the handoff
            * locally after the HTTP fallback.
+           *
+           * Outgoing audio is not silenced from
+           * this request ACK. The old device waits
+           * for the target to publish playback after
+           * its audio.play() has actually succeeded.
            */
-          if (
-            transferFromLocalOwner &&
-            action ===
-              "transfer"
-          ) {
-            schedulePlaybackHandoffSilence();
-          }
-
           if (
             !usedRealtime &&
             targetId ===
@@ -6243,7 +6268,6 @@ export default function App() {
       },
       [
         currentUser?.account_type,
-        schedulePlaybackHandoffSilence,
       ],
     );
 
@@ -7360,16 +7384,61 @@ export default function App() {
             const localState =
               player.getState();
 
-            const overlapHandoff =
-              shouldOverlapOutgoingHandoff({
+            const handoff =
+              advanceOutgoingHandoffObservation({
                 snapshot,
                 deviceId,
                 localState,
+                previousObservation:
+                  playbackOutgoingHandoffObservationRef
+                    .current,
+                updatedAtMs:
+                  updatedAt,
               });
 
-            if (overlapHandoff) {
-              schedulePlaybackHandoffSilence();
+            playbackOutgoingHandoffObservationRef
+              .current =
+                handoff.observation;
+
+            if (
+              handoff.phase ===
+                "confirmed"
+            ) {
+              /*
+               * The target publishes playback only
+               * after its transfer command finishes.
+               * For a playing transfer that means
+               * audio.play() resolved on the target.
+               * Keep this outgoing speaker alive for
+               * one additional second from that point.
+               */
+              if (
+                handoff.justConfirmed
+              ) {
+                cancelPlaybackHandoffSilence();
+              }
+
+              schedulePlaybackHandoffSilence(
+                PLAYBACK_HANDOFF_OVERLAP_MS,
+              );
+            } else if (
+              handoff.phase ===
+                "waiting"
+            ) {
+              /*
+               * A bounded fallback prevents a failed
+               * target from leaving two devices audible
+               * forever, while still giving slow/offline
+               * polling handoffs time to confirm.
+               */
+              schedulePlaybackHandoffSilence(
+                PLAYBACK_HANDOFF_CONFIRMATION_TIMEOUT_MS,
+              );
             } else {
+              playbackOutgoingHandoffObservationRef
+                .current =
+                  null;
+
               cancelPlaybackHandoffSilence();
 
               player.silenceLocalPlayback();
@@ -7381,6 +7450,10 @@ export default function App() {
 
             return;
           }
+
+          playbackOutgoingHandoffObservationRef
+            .current =
+              null;
 
           cancelPlaybackHandoffSilence();
 
