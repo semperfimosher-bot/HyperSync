@@ -520,6 +520,13 @@ async def _run_ingest(
                 artwork_mime_type=(
                     artwork_type
                 ),
+                source_provider=(
+                    "youtube"
+                ),
+                source_id=(
+                    source.source_id
+                    or None
+                ),
             )
         )
 
