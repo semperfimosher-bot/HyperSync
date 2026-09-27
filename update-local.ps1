@@ -27,6 +27,7 @@ $PackageJson = Join-Path $FrontendRoot "package.json"
 $PackageLock = Join-Path $FrontendRoot "package-lock.json"
 $RebootScript = Join-Path $RepoRoot "reboot-local.ps1"
 $InstallGoScript = Join-Path $RepoRoot "install-go.ps1"
+$ReadinessScript = Join-Path $RepoRoot "scripts\local_on_demand_readiness.py"
 
 function Invoke-CheckedCommand {
     param(
@@ -172,38 +173,19 @@ function Update-FrontendDependencies {
     }
 }
 
-function Show-OnDemandReadiness {
-    $probeScript = @'
-from pathlib import Path
-from backend.app.config import get_settings
-
-settings = get_settings()
-
-database_mode = "remote PostgreSQL" if settings.database_url.strip() else "local SQLite"
-b2_ready = all(
-    value.strip()
-    for value in (
-        settings.b2_endpoint,
-        settings.b2_key_id,
-        settings.b2_application_key,
-        settings.b2_bucket_name,
-    )
-)
-cookies_path = settings.yt_dlp_cookies_file.strip()
-cookies_ready = bool(cookies_path and Path(cookies_path).expanduser().is_file())
-admin_ready = bool(settings.admin_account_creation_password.strip())
-
-print("database=" + database_mode)
-print("b2=" + ("ready" if b2_ready else "missing"))
-print("cookies=" + ("ready" if cookies_ready else ("configured-but-missing" if cookies_path else "optional-not-set")))
-print("admin=" + ("ready" if admin_ready else "not-set"))
-'@
+function Get-OnDemandReadinessValues {
+    if (-not (Test-Path -LiteralPath $ReadinessScript)) {
+        throw (
+            "Local readiness helper was not found at " +
+            $ReadinessScript
+        )
+    }
 
     Push-Location $RepoRoot
 
     try {
         $probeOutput = @(
-            & $PythonPath -c $probeScript
+            & $PythonPath $ReadinessScript
         )
 
         if ($LASTEXITCODE -ne 0) {
@@ -223,6 +205,12 @@ print("admin=" + ("ready" if admin_ready else "not-set"))
             $values[$parts[0]] = $parts[1]
         }
     }
+
+    return $values
+}
+
+function Show-OnDemandReadiness {
+    $values = Get-OnDemandReadinessValues
 
     Write-Host ""
     Write-Host "Local on-demand readiness:" -ForegroundColor Cyan
