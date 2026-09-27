@@ -247,7 +247,7 @@ export default function PublicProfilePage({
       <div className="hs-profile-page">
         <OfflineNotice
           title="Go back online to see this profile"
-          description="Public profiles, follow state, and listening activity sync from HyperSync."
+          description="Public profiles, follow state, and listening activity sync from HyperSynced."
         />
       </div>
     );
