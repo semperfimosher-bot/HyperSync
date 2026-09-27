@@ -285,8 +285,6 @@ if (-not (Test-Path -LiteralPath $PackageJson)) {
     throw "frontend/package.json was not found."
 }
 
-Assert-OnDemandRuntime
-
 $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
 
 if ($null -eq $npmCommand) {
@@ -311,6 +309,8 @@ if ($StopOnly) {
     Write-Host "Old HyperSync local servers are stopped." -ForegroundColor Green
     return
 }
+
+Assert-OnDemandRuntime
 
 if ($BackendPort -gt 0) {
     if (Test-PortInUse -Port $BackendPort) {
