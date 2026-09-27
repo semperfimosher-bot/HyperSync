@@ -226,28 +226,32 @@ export async function applyPlaybackRemoteCommand(
             );
 
           const queueMatches =
-            Array.isArray(
-              current?.queue,
-            ) &&
-            current.queue.length ===
-              remoteQueue.length &&
-            current.queue.every(
-              (entry, index) =>
-                String(
-                  entry?.id ??
-                    "",
-                ) ===
-                String(
-                  remoteQueue[
-                    index
-                  ]?.id ??
-                    "",
-                ),
-            ) &&
-            Number(
-              current?.queueIndex,
-            ) ===
-              remoteQueueIndex;
+            remoteQueue.length ===
+              0 ||
+            (
+              Array.isArray(
+                current?.queue,
+              ) &&
+              current.queue.length ===
+                remoteQueue.length &&
+              current.queue.every(
+                (entry, index) =>
+                  String(
+                    entry?.id ??
+                      "",
+                  ) ===
+                  String(
+                    remoteQueue[
+                      index
+                    ]?.id ??
+                      "",
+                  ),
+              ) &&
+              Number(
+                current?.queueIndex,
+              ) ===
+                remoteQueueIndex
+            );
 
           if (
             !alreadyMatching ||
