@@ -78,8 +78,8 @@ router = APIRouter(
     tags=["search"],
 )
 
-TRACK_CANDIDATE_LIMIT = 80
-TRACK_RESULT_LIMIT = 40
+TRACK_CANDIDATE_LIMIT = 500
+TRACK_RESULT_LIMIT = 500
 
 PEOPLE_CANDIDATE_LIMIT = 40
 PEOPLE_RESULT_LIMIT = 20
@@ -91,6 +91,211 @@ TOP_ENTITY_LIMIT = 20
 NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
 SMART_VIBE_CANDIDATE_LIMIT = 500
+
+_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
+    (
+        r"\s+"
+        r"(?:&|\band\b|\bx\b|\bwith\b|"
+        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
+        r"\s+"
+    ),
+    flags=re.IGNORECASE,
+)
+
+
+def _artist_field_credits(
+    artist: str | None,
+) -> tuple[str, ...]:
+    if not artist:
+        return ()
+
+    raw = str(
+        artist,
+    ).strip()
+
+    if not raw:
+        return ()
+
+    credits = [
+        raw,
+        *(
+            part.strip()
+            for part in (
+                _ARTIST_CREDIT_SPLIT_PATTERN
+                .split(
+                    raw,
+                )
+            )
+            if part.strip()
+        ),
+    ]
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    for credit in credits:
+        normalized = normalize_text(
+            credit,
+        )
+
+        if (
+            not normalized
+            or normalized in seen
+        ):
+            continue
+
+        seen.add(
+            normalized,
+        )
+
+        found.append(
+            credit,
+        )
+
+    return tuple(
+        found,
+    )
+
+
+def _primary_artist_credit(
+    artist: str | None,
+) -> str:
+    if not artist:
+        return ""
+
+    raw = str(
+        artist,
+    ).strip()
+
+    if not raw:
+        return ""
+
+    parts = [
+        part.strip()
+        for part in (
+            _ARTIST_CREDIT_SPLIT_PATTERN
+            .split(
+                raw,
+            )
+        )
+        if part.strip()
+    ]
+
+    return (
+        parts[0]
+        if parts
+        else raw
+    )
+
+
+def _track_credits_artist(
+    track: Track,
+    artist_name: str,
+) -> bool:
+    target = normalize_text(
+        artist_name,
+    )
+
+    if not target:
+        return False
+
+    return (
+        normalize_text(
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+        == target
+    )
+
+
+def _exact_artist_credit_in_tracks(
+    tracks: list[Track],
+    artist_name: str,
+) -> str | None:
+    target = normalize_text(
+        artist_name,
+    )
+
+    if not target:
+        return None
+
+    prefix_matches: dict[
+        str,
+        str,
+    ] = {}
+
+    for track in tracks:
+        credit = _primary_artist_credit(
+            track.artist,
+        )
+
+        normalized = normalize_text(
+            credit,
+        )
+
+        if normalized == target:
+            return credit
+
+        if normalized.startswith(
+            target,
+        ):
+            prefix_matches.setdefault(
+                normalized,
+                credit,
+            )
+
+    if len(prefix_matches) == 1:
+        return next(
+            iter(
+                prefix_matches.values(),
+            )
+        )
+
+    return None
+
+
+async def _load_artist_catalog_candidates(
+    session: AsyncSession,
+    artist_name: str,
+) -> list[Track]:
+    pattern = (
+        "%"
+        + artist_name
+        + "%"
+    )
+
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            Track.artist.ilike(
+                pattern,
+            ),
+        )
+        .order_by(
+            Track.artist.asc(),
+            Track.title.asc(),
+        )
+    )
+
+    matches = [
+        track
+        for track in result.scalars().all()
+        if _track_credits_artist(
+            track,
+            artist_name,
+        )
+    ]
+
+    return matches[
+        :TRACK_CANDIDATE_LIMIT
+    ]
+
 
 class SearchPlaylistResult(
     BaseModel,
@@ -496,6 +701,17 @@ async def _load_track_candidates(
     if not term:
         return []
 
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
+        return (
+            await _load_artist_catalog_candidates(
+                session,
+                term,
+            )
+        )
+
     if is_direct_genre_query(
         parsed.raw,
     ):
@@ -628,6 +844,24 @@ async def _load_track_candidates(
         )
 
         if direct:
+            exact_artist_name = (
+                _exact_artist_credit_in_tracks(
+                    direct,
+                    term,
+                )
+            )
+
+            if exact_artist_name:
+                expanded = (
+                    await _load_artist_catalog_candidates(
+                        session,
+                        exact_artist_name,
+                    )
+                )
+
+                if expanded:
+                    return expanded
+
             return direct
 
     if not used_postgresql_similarity:
@@ -664,6 +898,24 @@ async def _load_track_candidates(
         )
 
         if direct:
+            exact_artist_name = (
+                _exact_artist_credit_in_tracks(
+                    direct,
+                    term,
+                )
+            )
+
+            if exact_artist_name:
+                expanded = (
+                    await _load_artist_catalog_candidates(
+                        session,
+                        exact_artist_name,
+                    )
+                )
+
+                if expanded:
+                    return expanded
+
             return direct
 
     if not smart_query_has_semantic_signal(
@@ -856,9 +1108,26 @@ def _match_for_track(
                 field="genre",
             )
 
+    primary_artist = (
+        _primary_artist_credit(
+            track.artist,
+        )
+    )
+
+    if (
+        parsed.field_hint
+        == "artist"
+    ):
+        return score_artist(
+            primary_artist,
+            parsed,
+        )
+
     direct_match = score_track(
-        track.title,
-        track.artist,
+        _title_without_feature_credit(
+            track.title,
+        ),
+        primary_artist,
         track.album,
         parsed,
         getattr(
@@ -869,6 +1138,74 @@ def _match_for_track(
     )
 
     if direct_match.score > 0:
+        return direct_match
+
+    normalized_term = normalize_text(
+        parsed.term,
+    )
+
+    raw_artist = normalize_text(
+        track.artist,
+    )
+
+    primary_artist_normalized = (
+        normalize_text(
+            primary_artist,
+        )
+    )
+
+    clean_title = (
+        _title_without_feature_credit(
+            track.title,
+        )
+    )
+
+    raw_title = normalize_text(
+        track.title,
+    )
+
+    clean_title_normalized = (
+        normalize_text(
+            clean_title,
+        )
+    )
+
+    secondary_artist_only_match = (
+        bool(
+            normalized_term,
+        )
+        and normalized_term
+        in raw_artist
+        and normalized_term
+        not in primary_artist_normalized
+    )
+
+    feature_credit_only_match = (
+        bool(
+            normalized_term,
+        )
+        and normalized_term
+        in raw_title
+        and normalized_term
+        not in clean_title_normalized
+        and any(
+            score_artist(
+                featured_artist,
+                parsed,
+            ).score
+            > 0
+            for featured_artist in (
+                extract_featured_artists(
+                    track.title,
+                )
+            )
+        )
+    )
+
+    if (
+        secondary_artist_only_match
+        or feature_credit_only_match
+    ):
         return direct_match
 
     smart_score = smart_track_score(
@@ -1012,7 +1349,9 @@ async def _build_track_rows(
         parsed.intent == "recent"
         and not parsed.term
     ):
-        return sorted_rows
+        return sorted_rows[
+            :TRACK_RESULT_LIMIT
+        ]
 
     if is_direct_genre_query(
         parsed.raw,
@@ -1190,9 +1529,13 @@ async def _build_track_rows(
                 )
             )
 
-        return diversified
+        return diversified[
+            :TRACK_RESULT_LIMIT
+        ]
 
-    return sorted_rows[:TRACK_RESULT_LIMIT]
+    return sorted_rows[
+        :TRACK_RESULT_LIMIT
+    ]
 
 
 async def _search_people(
@@ -1684,13 +2027,19 @@ def _artist_results(
             parsed,
         )
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         primary_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
         primary_key = normalize_text(
-            track.artist,
+            primary_artist,
         )
 
         if primary_key and (primary_match.score > 0 or direct_context):
@@ -1698,7 +2047,7 @@ def _artist_results(
 
             if primary_key not in artists:
                 artists[primary_key] = SearchArtistResult(
-                    name=(track.artist),
+                    name=(primary_artist),
                     track_count=1,
                     artwork_url=(track.artwork_url),
                     match_label=(primary_label),
@@ -1817,8 +2166,14 @@ def _collaboration_results(
         if not featured_artists:
             continue
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         primary_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
@@ -1854,7 +2209,7 @@ def _collaboration_results(
         # artist becomes a collaboration.
         if matching_features:
             add_collaboration(
-                track.artist,
+                primary_artist,
                 track,
             )
 
@@ -1936,8 +2291,14 @@ def _album_results(
             parsed,
         )
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         artist_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
@@ -1960,7 +2321,7 @@ def _album_results(
 
         key = (
             normalize_text(
-                track.artist,
+                primary_artist,
             ),
             normalize_text(
                 track.album,
@@ -1970,7 +2331,7 @@ def _album_results(
         if key not in albums:
             albums[key] = SearchAlbumResult(
                 title=(track.album),
-                artist=(track.artist),
+                artist=(primary_artist),
                 track_count=1,
                 artwork_url=(track.artwork_url),
                 match_label=(match_label),

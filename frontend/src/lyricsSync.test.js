@@ -182,3 +182,166 @@ test(
     );
   },
 );
+
+
+
+test(
+  "controller lyrics use the advancing account playback clock",
+  async () => {
+    const lyrics =
+      await loadLyricsModule();
+
+    const state =
+      lyrics.getEffectiveLyricsPlaybackState({
+        localState: {
+          trackId:
+            "old-local-track",
+          currentTime:
+            12,
+          paused:
+            true,
+        },
+        accountSnapshot: {
+          device_id:
+            "phone",
+          track: {
+            id:
+              "remote-track",
+            title:
+              "Remote Song",
+            artist:
+              "Remote Artist",
+            duration_seconds:
+              240,
+          },
+          position_seconds:
+            30,
+          paused:
+            false,
+          updated_at:
+            "2026-09-27T03:00:00.000Z",
+        },
+        currentPlaybackDeviceId:
+          "desktop",
+        nowMs:
+          Date.parse(
+            "2026-09-27T03:00:02.500Z",
+          ),
+      });
+
+    assert.equal(
+      state.controllingRemote,
+      true,
+    );
+
+    assert.equal(
+      state.trackId,
+      "remote-track",
+    );
+
+    assert.equal(
+      state.currentTime,
+      32.5,
+    );
+
+    assert.equal(
+      state.paused,
+      false,
+    );
+  },
+);
+
+
+test(
+  "paused remote lyrics stay locked to the account position",
+  async () => {
+    const lyrics =
+      await loadLyricsModule();
+
+    const state =
+      lyrics.getEffectiveLyricsPlaybackState({
+        localState: {
+          currentTime:
+            80,
+        },
+        accountSnapshot: {
+          device_id:
+            "phone",
+          track: {
+            id:
+              "remote-track",
+          },
+          position_seconds:
+            47.25,
+          paused:
+            true,
+          updated_at:
+            "2026-09-27T03:00:00.000Z",
+        },
+        currentPlaybackDeviceId:
+          "desktop",
+        nowMs:
+          Date.parse(
+            "2026-09-27T03:01:00.000Z",
+          ),
+      });
+
+    assert.equal(
+      state.currentTime,
+      47.25,
+    );
+  },
+);
+
+
+test(
+  "lyrics use local audio clock on the active playback device",
+  async () => {
+    const lyrics =
+      await loadLyricsModule();
+
+    const localState = {
+      trackId:
+        "same-track",
+      currentTime:
+        91,
+      paused:
+        false,
+    };
+
+    const state =
+      lyrics.getEffectiveLyricsPlaybackState({
+        localState,
+        accountSnapshot: {
+          device_id:
+            "desktop",
+          track: {
+            id:
+              "same-track",
+          },
+          position_seconds:
+            40,
+          paused:
+            false,
+          updated_at:
+            "2026-09-27T03:00:00.000Z",
+        },
+        currentPlaybackDeviceId:
+          "desktop",
+        nowMs:
+          Date.parse(
+            "2026-09-27T03:00:10.000Z",
+          ),
+      });
+
+    assert.equal(
+      state.controllingRemote,
+      false,
+    );
+
+    assert.equal(
+      state.currentTime,
+      91,
+    );
+  },
+);

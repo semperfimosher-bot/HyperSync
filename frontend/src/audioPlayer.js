@@ -26,6 +26,7 @@ import {
 import {
   beginPlaybackSession,
   cancelActivePlaybackSession,
+  canReuseLoadedAudioSource,
   isPlaybackSessionCurrent,
 } from "./player/playbackSession.js";
 
@@ -73,6 +74,9 @@ let lastMediaSessionSignature =
 let activeObjectUrl =
   null;
 
+let loadedAudioTrackId =
+  null;
+
 let warmPlaybackTask =
   null;
 
@@ -97,6 +101,9 @@ let restoredTimeSeconds =
 let sourcePreparationPromise =
   null;
 
+let sourcePreparationTrackId =
+  null;
+
 
 /*
  * timeupdate can fire many times per
@@ -116,10 +123,10 @@ let recentTrackIds =
   [];
 
 const AUTOPLAY_REFILL_THRESHOLD =
-  2;
+  4;
 
 const AUTOPLAY_BATCH_SIZE =
-  8;
+  12;
 
 const AUTOPLAY_CONTEXT_SIZE =
   12;
@@ -130,11 +137,129 @@ let queueRevision =
 let autoplayFill =
   null;
 
+let nextTrackTransitionPromise =
+  null;
+
 let playbackPhase =
   "idle";
 
 let playbackError =
   null;
+
+let remotePlaybackController =
+  null;
+
+let forceLocalPlaybackDepth =
+  0;
+
+
+export function setRemotePlaybackController(
+  controller,
+) {
+  remotePlaybackController =
+    controller &&
+    typeof controller ===
+      "object"
+      ? controller
+      : null;
+}
+
+
+export async function runWithLocalPlaybackControl(
+  callback,
+) {
+  forceLocalPlaybackDepth +=
+    1;
+
+  try {
+    return await callback();
+  } finally {
+    forceLocalPlaybackDepth =
+      Math.max(
+        forceLocalPlaybackDepth -
+          1,
+        0,
+      );
+  }
+}
+
+
+function shouldRoutePlaybackRemotely() {
+  if (
+    forceLocalPlaybackDepth >
+      0 ||
+    !remotePlaybackController
+  ) {
+    return false;
+  }
+
+  try {
+    return Boolean(
+      remotePlaybackController
+        .shouldHandle?.(),
+    );
+  } catch {
+    return false;
+  }
+}
+
+
+async function dispatchRemotePlayback(
+  action,
+  payload = null,
+) {
+  if (
+    !shouldRoutePlaybackRemotely()
+  ) {
+    return false;
+  }
+
+  try {
+    await remotePlaybackController
+      .dispatch?.(
+        action,
+        payload,
+      );
+  } catch {
+    /*
+     * Never fall through to local audio
+     * after a remote-control failure.
+     * The selected playback device remains
+     * authoritative until the user changes it.
+     */
+  }
+
+  return true;
+}
+
+
+function dispatchRemotePlaybackInBackground(
+  action,
+  payload = null,
+) {
+  if (
+    !shouldRoutePlaybackRemotely()
+  ) {
+    return false;
+  }
+
+  try {
+    void Promise.resolve(
+      remotePlaybackController
+        .dispatch?.(
+          action,
+          payload,
+        ),
+    ).catch(
+      () => {},
+    );
+  } catch {
+    // Keep the local speaker silent.
+  }
+
+  return true;
+}
+
 
 function beginListeningEvent(
   trackId,
@@ -308,6 +433,96 @@ function normalizeTrackMeta(
       meta.album ??
       "",
   };
+}
+
+
+function applyRemoteSelectionShadow(
+  trackId,
+  meta = {},
+  queue = null,
+  queueIndex = 0,
+) {
+  if (!trackId) {
+    return;
+  }
+
+  const normalizedMeta =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  currentTrackId =
+    String(
+      trackId,
+    );
+
+  currentTrackMeta =
+    normalizedMeta;
+
+  currentArtworkUrl =
+    normalizedMeta.artworkUrl;
+
+  currentTrackTitle =
+    normalizedMeta.title;
+
+  currentTrackArtist =
+    normalizedMeta.artist;
+
+  if (
+    Array.isArray(
+      queue,
+    ) &&
+    queue.length > 0
+  ) {
+    currentQueue =
+      queue.map(
+        (entry) => ({
+          id:
+            String(
+              entry.id,
+            ),
+          meta: {
+            ...entry.meta,
+          },
+        }),
+      );
+
+    currentQueueIndex =
+      Math.min(
+        Math.max(
+          Number.isInteger(
+            queueIndex,
+          )
+            ? queueIndex
+            : 0,
+          0,
+        ),
+        currentQueue.length - 1,
+      );
+  } else {
+    currentQueue = [
+      {
+        id:
+          String(
+            trackId,
+          ),
+        meta:
+          normalizedMeta,
+      },
+    ];
+
+    currentQueueIndex =
+      0;
+  }
+
+  queueRevision +=
+    1;
+
+  rememberAutoplayTrack(
+    currentTrackId,
+  );
+
+  notify();
 }
 
 
@@ -781,6 +996,37 @@ async function ensureAutoplayQueue({
   return requestPromise;
 }
 
+function isExpectedPlayInterruption(
+  error,
+) {
+  if (!error) {
+    return false;
+  }
+
+  if (
+    error.name ===
+      "AbortError"
+  ) {
+    return true;
+  }
+
+  const message =
+    String(
+      error.message ??
+        error,
+    ).toLowerCase();
+
+  return (
+    message.includes(
+      "play() request was interrupted",
+    ) ||
+    message.includes(
+      "interrupted by a new load request",
+    )
+  );
+}
+
+
 function setPlaybackPhase(
   phase,
   error = null,
@@ -1042,74 +1288,117 @@ export function getState() {
 
 
 async function playNextQueueTrack() {
-  let nextIndex =
-    getNextQueueIndex(
-      currentQueue,
-      currentQueueIndex,
-    );
-
-
-  /*
-   * Safety net.
-   *
-   * Normally recommendations are already
-   * waiting before the final song ends.
-   * If they are not, fetch them now.
-   */
   if (
-    nextIndex === -1
+    nextTrackTransitionPromise
   ) {
-    await ensureAutoplayQueue({
-      force:
-        true,
-    });
+    return nextTrackTransitionPromise;
+  }
 
-    nextIndex =
-      getNextQueueIndex(
-        currentQueue,
-        currentQueueIndex,
+  let transitionPromise;
+
+  transitionPromise =
+    (async () => {
+      let nextIndex =
+        getNextQueueIndex(
+          currentQueue,
+          currentQueueIndex,
+        );
+
+
+      /*
+       * Autoplay is normally filled while
+       * the current song is still playing.
+       * This forced refill is only the
+       * final safety net for a brand-new
+       * single-track playback context.
+       */
+      if (
+        nextIndex === -1
+      ) {
+        await ensureAutoplayQueue({
+          force:
+            true,
+        });
+
+        nextIndex =
+          getNextQueueIndex(
+            currentQueue,
+            currentQueueIndex,
+          );
+      }
+
+
+      if (
+        nextIndex === -1
+      ) {
+        notify();
+
+        return false;
+      }
+
+
+      currentQueueIndex =
+        nextIndex;
+
+
+      const nextTrack =
+        currentQueue[
+          nextIndex
+        ];
+
+
+      try {
+        const state =
+          await playTrackInternal(
+            nextTrack.id,
+            nextTrack.meta,
+            true,
+          );
+
+        /*
+         * Keep several songs ready ahead of
+         * the active one. That makes the
+         * natural ended -> next transition
+         * immediate regardless of which page
+         * originally started playback.
+         */
+        void ensureAutoplayQueue()
+          .catch(
+            () => {},
+          );
+
+        return Boolean(
+          state,
+        );
+
+      } catch (error) {
+        if (
+          !isExpectedPlayInterruption(
+            error,
+          )
+        ) {
+          notify();
+        }
+
+        return false;
+      }
+    })()
+      .finally(
+        () => {
+          if (
+            nextTrackTransitionPromise ===
+              transitionPromise
+          ) {
+            nextTrackTransitionPromise =
+              null;
+          }
+        },
       );
-  }
 
+  nextTrackTransitionPromise =
+    transitionPromise;
 
-  if (
-    nextIndex === -1
-  ) {
-    notify();
-
-    return;
-  }
-
-
-  currentQueueIndex =
-    nextIndex;
-
-
-  const nextTrack =
-    currentQueue[
-      nextIndex
-    ];
-
-
-  try {
-    await playTrackInternal(
-      nextTrack.id,
-      nextTrack.meta,
-      true,
-    );
-
-
-    /*
-     * Refill BEFORE we hit the end.
-     */
-    void ensureAutoplayQueue()
-      .catch(
-        () => {},
-      );
-
-  } catch {
-    notify();
-  }
+  return transitionPromise;
 }
 
 
@@ -1291,7 +1580,10 @@ function attachEvents() {
         : getSafeCurrentTime(),
     );
 
-    void playNextQueueTrack();
+    void playNextQueueTrack()
+      .catch(
+        () => {},
+      );
   },
 );
 }
@@ -1404,6 +1696,8 @@ function warmCurrentTrackForResume() {
 
 function loadAudioSource(
   url,
+  trackId =
+    currentTrackId,
 ) {
   if (
     activeObjectUrl &&
@@ -1428,6 +1722,17 @@ function loadAudioSource(
       ? url
       : null;
 
+  loadedAudioTrackId =
+    trackId === null ||
+    trackId === undefined
+      ? null
+      : (
+          String(
+            trackId,
+          ).trim()
+          || null
+        );
+
   audio.src =
     url;
 }
@@ -1439,14 +1744,45 @@ async function ensureCurrentTrackSource() {
    * the source, a fast Play click should
    * wait for that same operation.
    */
+  const currentId =
+    currentTrackId === null ||
+    currentTrackId === undefined
+      ? null
+      : String(
+          currentTrackId,
+        );
+
   if (
-    sourcePreparationPromise
+    sourcePreparationPromise &&
+    sourcePreparationTrackId ===
+      currentId
   ) {
     return sourcePreparationPromise;
   }
 
   if (
-    hasAudioSource() ||
+    sourcePreparationPromise &&
+    sourcePreparationTrackId !==
+      currentId
+  ) {
+    cancelActivePlaybackSession();
+
+    sourcePreparationPromise =
+      null;
+
+    sourcePreparationTrackId =
+      null;
+  }
+
+  if (
+    canReuseLoadedAudioSource({
+      logicalTrackId:
+        currentTrackId,
+      loadedTrackId:
+        loadedAudioTrackId,
+      hasSource:
+        hasAudioSource(),
+    }) ||
     !currentTrackId ||
     !currentTrackMeta
   ) {
@@ -1521,6 +1857,7 @@ async function ensureCurrentTrackSource() {
 
       loadAudioSource(
         url,
+        requestedTrackId,
       );
 
 
@@ -1659,11 +1996,29 @@ async function ensureCurrentTrackSource() {
       notify();
 
       return getState();
-    })()
-      .finally(() => {
-        sourcePreparationPromise =
-          null;
-      });
+    })();
+
+  sourcePreparationTrackId =
+    requestedTrackId;
+
+  const trackedPromise =
+    sourcePreparationPromise;
+
+  sourcePreparationPromise =
+    trackedPromise.finally(
+      () => {
+        if (
+          sourcePreparationTrackId ===
+            requestedTrackId
+        ) {
+          sourcePreparationPromise =
+            null;
+
+          sourcePreparationTrackId =
+            null;
+        }
+      },
+    );
 
 
   return sourcePreparationPromise;
@@ -1992,6 +2347,7 @@ async function playTrackInternal(
 
   loadAudioSource(
     url,
+    trackId,
   );
 
   audio.load();
@@ -2012,6 +2368,9 @@ async function playTrackInternal(
     if (
       !isPlaybackSessionCurrent(
         session,
+      ) ||
+      isExpectedPlayInterruption(
+        error,
       )
     ) {
       return null;
@@ -2136,8 +2495,18 @@ export async function restoreAccountPlayback(
     restoredTimeSeconds =
       requestedTime;
 
+    const canReuseSource =
+      canReuseLoadedAudioSource({
+        logicalTrackId:
+          trackId,
+        loadedTrackId:
+          loadedAudioTrackId,
+        hasSource:
+          hasAudioSource(),
+      });
+
     if (
-      hasAudioSource()
+      canReuseSource
     ) {
       const duration =
         Number.isFinite(
@@ -2182,6 +2551,29 @@ export async function restoreAccountPlayback(
 
     notify();
 
+    if (!canReuseSource) {
+      cancelActivePlaybackSession();
+
+      audio.removeAttribute(
+        "src",
+      );
+
+      loadedAudioTrackId =
+        null;
+
+      audio.load();
+
+      try {
+        await ensureCurrentTrackSource();
+      } catch {
+        setPlaybackPhase(
+          "paused",
+        );
+
+        notify();
+      }
+    }
+
     void ensureAutoplayQueue({
       force:
         true,
@@ -2199,6 +2591,9 @@ export async function restoreAccountPlayback(
   audio.removeAttribute(
     "src",
   );
+
+  loadedAudioTrackId =
+    null;
 
   audio.load();
 
@@ -2244,21 +2639,20 @@ export async function restoreAccountPlayback(
     () => {},
   );
 
-  void ensureCurrentTrackSource()
-    .catch(
-      () => {
-        if (
-          currentTrackId ===
-            trackId
-        ) {
-          setPlaybackPhase(
-            "paused",
-          );
+  try {
+    await ensureCurrentTrackSource();
+  } catch {
+    if (
+      currentTrackId ===
+        trackId
+    ) {
+      setPlaybackPhase(
+        "paused",
+      );
 
-          notify();
-        }
-      },
-    );
+      notify();
+    }
+  }
 
   return getState();
 }
@@ -2268,6 +2662,42 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  const remoteQueue = [
+    {
+      id:
+        String(
+          trackId,
+        ),
+      meta:
+        normalizeTrackMeta(
+          meta,
+        ),
+    },
+  ];
+
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId,
+        meta,
+        queue:
+          remoteQueue,
+        queueIndex:
+          0,
+      },
+    )
+  ) {
+    applyRemoteSelectionShadow(
+      trackId,
+      meta,
+      remoteQueue,
+      0,
+    );
+
+    return getState();
+  }
+
   finishListeningEvent(
   "skipped",
   getSafeCurrentTime(),
@@ -2294,10 +2724,6 @@ export async function playTrack(
 export async function playQueueIndex(
   index,
 ) {
-  finishListeningEvent(
-  "skipped",
-  getSafeCurrentTime(),
-);
   const track =
     getQueueTrackAtIndex(
       currentQueue,
@@ -2307,6 +2733,36 @@ export async function playQueueIndex(
   if (!track) {
     return false;
   }
+
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId:
+          track.id,
+        meta:
+          track.meta,
+        queue:
+          currentQueue,
+        queueIndex:
+          index,
+      },
+    )
+  ) {
+    applyRemoteSelectionShadow(
+      track.id,
+      track.meta,
+      currentQueue,
+      index,
+    );
+
+    return getState();
+  }
+
+  finishListeningEvent(
+  "skipped",
+  getSafeCurrentTime(),
+);
 
 
   currentQueueIndex =
@@ -2345,10 +2801,6 @@ export async function playTrackQueue(
   tracks,
   startIndex = 0,
 ) {
-  finishListeningEvent(
-  "skipped",
-  getSafeCurrentTime(),
-);
   const queue =
     buildTrackQueue(
       tracks,
@@ -2400,6 +2852,36 @@ export async function playTrackQueue(
     currentQueue[
       currentQueueIndex
     ];
+
+  if (
+    await dispatchRemotePlayback(
+      "play_track",
+      {
+        trackId:
+          track.id,
+        meta:
+          track.meta,
+        queue:
+          currentQueue,
+        queueIndex:
+          currentQueueIndex,
+      },
+    )
+  ) {
+    applyRemoteSelectionShadow(
+      track.id,
+      track.meta,
+      currentQueue,
+      currentQueueIndex,
+    );
+
+    return getState();
+  }
+
+  finishListeningEvent(
+    "skipped",
+    getSafeCurrentTime(),
+  );
 
 
   const state =
@@ -2477,6 +2959,18 @@ export async function playUrl(
   url,
   meta = {},
 ) {
+  if (
+    await dispatchRemotePlayback(
+      "play_url",
+      {
+        url,
+        meta,
+      },
+    )
+  ) {
+    return getState();
+  }
+
   if (!url) {
     return null;
   }
@@ -2543,6 +3037,7 @@ export async function playUrl(
 
   loadAudioSource(
     mediaUrl,
+    null,
   );
 
   audio.load();
@@ -2554,6 +3049,9 @@ export async function playUrl(
     if (
       !isPlaybackSessionCurrent(
         session,
+      ) ||
+      isExpectedPlayInterruption(
+        error,
       )
     ) {
       return null;
@@ -2586,6 +3084,14 @@ export async function playUrl(
 
 
 export async function togglePlay() {
+  if (
+    await dispatchRemotePlayback(
+      "toggle",
+    )
+  ) {
+    return getState();
+  }
+
   if (audio.paused) {
     /*
      * Normally this has already been
@@ -2611,7 +3117,19 @@ export async function togglePlay() {
 
     notify();
 
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (error) {
+      if (
+        !isExpectedPlayInterruption(
+          error,
+        )
+      ) {
+        throw error;
+      }
+
+      return getState();
+    }
 
   } else {
     audio.pause();
@@ -2629,7 +3147,202 @@ export async function togglePlay() {
 }
 
 
+export async function restoreAccountPlaybackQueue(
+  queue,
+  queueIndex = 0,
+  positionSeconds = 0,
+) {
+  const builtQueue =
+    buildTrackQueue(
+      Array.isArray(
+        queue,
+      )
+        ? queue
+        : [],
+    );
+
+  if (!builtQueue.length) {
+    return getState();
+  }
+
+  const safeIndex =
+    Math.min(
+      Math.max(
+        Number.isInteger(
+          queueIndex,
+        )
+          ? queueIndex
+          : 0,
+        0,
+      ),
+      builtQueue.length - 1,
+    );
+
+  const selected =
+    builtQueue[
+      safeIndex
+    ];
+
+  await restoreAccountPlayback(
+    {
+      id:
+        selected.id,
+      ...selected.meta,
+    },
+    positionSeconds,
+  );
+
+  queueRevision +=
+    1;
+
+  currentQueue =
+    builtQueue;
+
+  currentQueueIndex =
+    safeIndex;
+
+  notify();
+
+  return getState();
+}
+
+
+export function syncAccountPlaybackShadow(
+  snapshot,
+) {
+  const queue =
+    buildTrackQueue(
+      Array.isArray(
+        snapshot?.queue,
+      )
+        ? snapshot.queue
+        : [],
+    );
+
+  if (!queue.length) {
+    queueRevision +=
+      1;
+
+    currentQueue =
+      [];
+
+    currentQueueIndex =
+      -1;
+
+    if (!snapshot?.track?.id) {
+      currentTrackId =
+        null;
+
+      currentTrackMeta =
+        null;
+
+      currentArtworkUrl =
+        null;
+
+      currentTrackTitle =
+        "";
+
+      currentTrackArtist =
+        "";
+    }
+
+    notify();
+
+    return getState();
+  }
+
+  const requestedIndex =
+    Number(
+      snapshot?.queue_index,
+    );
+
+  let safeIndex =
+    Number.isInteger(
+      requestedIndex,
+    )
+      ? Math.min(
+          Math.max(
+            requestedIndex,
+            0,
+          ),
+          queue.length - 1,
+        )
+      : 0;
+
+  const trackId =
+    String(
+      snapshot?.track?.id ??
+        "",
+    );
+
+  const matchingIndex =
+    trackId
+      ? queue.findIndex(
+          (entry) =>
+            String(
+              entry.id,
+            ) === trackId,
+        )
+      : -1;
+
+  if (matchingIndex >= 0) {
+    safeIndex =
+      matchingIndex;
+  }
+
+  const selected =
+    queue[
+      safeIndex
+    ];
+
+  queueRevision +=
+    1;
+
+  currentQueue =
+    queue;
+
+  currentQueueIndex =
+    safeIndex;
+
+  currentTrackId =
+    String(
+      selected.id,
+    );
+
+  currentTrackMeta =
+    normalizeTrackMeta(
+      selected.meta,
+    );
+
+  currentArtworkUrl =
+    currentTrackMeta.artworkUrl;
+
+  currentTrackTitle =
+    currentTrackMeta.title;
+
+  currentTrackArtist =
+    currentTrackMeta.artist;
+
+  notify();
+
+  return getState();
+}
+
+
 export function pausePlayback() {
+  if (
+    dispatchRemotePlaybackInBackground(
+      "pause",
+    )
+  ) {
+    return getState();
+  }
+
+  return silenceLocalPlayback();
+}
+
+
+export function silenceLocalPlayback() {
   if (
     !audio.paused
   ) {
@@ -2672,6 +3385,17 @@ export function stopTrack(
   trackId = null,
 ) {
   if (
+    dispatchRemotePlaybackInBackground(
+      "stop",
+      {
+        trackId,
+      },
+    )
+  ) {
+    return true;
+  }
+
+  if (
     trackId &&
     String(trackId) !==
       currentTrackId
@@ -2698,6 +3422,15 @@ export function stopTrack(
   audio.removeAttribute(
     "src",
   );
+
+  loadedAudioTrackId =
+    null;
+
+  sourcePreparationPromise =
+    null;
+
+  sourcePreparationTrackId =
+    null;
 
   audio.load();
 
@@ -2748,6 +3481,18 @@ export function seekTo(
     return;
   }
 
+  if (
+    dispatchRemotePlaybackInBackground(
+      "seek",
+      {
+        value:
+          timeSeconds,
+      },
+    )
+  ) {
+    return;
+  }
+
 
   audio.currentTime =
     Math.max(
@@ -2771,6 +3516,17 @@ export function seekTo(
 export function setVolume(
   value,
 ) {
+  if (
+    dispatchRemotePlaybackInBackground(
+      "volume",
+      {
+        value,
+      },
+    )
+  ) {
+    return;
+  }
+
   audio.volume =
     Math.max(
       0,
@@ -2802,6 +3558,11 @@ if (
   window.__HYPERSYNC_PLAYER = {
     playTrack,
     restoreAccountPlayback,
+    restoreAccountPlaybackQueue,
+    syncAccountPlaybackShadow,
+    runWithLocalPlaybackControl,
+    setRemotePlaybackController,
+    silenceLocalPlayback,
     playTrackQueue,
     playTrackNext,
     addTrackToQueue,
@@ -2821,6 +3582,14 @@ if (
 }
 
 export async function skipToNext() {
+  if (
+    await dispatchRemotePlayback(
+      "next",
+    )
+  ) {
+    return true;
+  }
+
   if (!currentTrackId) {
     return false;
   }
@@ -2843,6 +3612,14 @@ export async function skipToNext() {
 
 
 export async function skipToPrevious() {
+  if (
+    await dispatchRemotePlayback(
+      "previous",
+    )
+  ) {
+    return true;
+  }
+
   if (!currentTrackId) {
     return false;
   }

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     Uuid,
@@ -570,6 +571,18 @@ class UserAppState(
 
     playback_device_id: Mapped[str | None] = mapped_column(
         String(64),
+        nullable=True,
+    )
+
+    playback_queue_track_ids: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+
+    playback_queue_index: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )
 

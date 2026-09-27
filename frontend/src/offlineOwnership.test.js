@@ -1269,3 +1269,194 @@ test(
     );
   },
 );
+
+
+test(
+  "logout cleanup removes only the signed-out owner's offline pins and jobs",
+  async () => {
+    const mediaStore =
+      await import(
+        "./mediaStore.js"
+      );
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerA =
+      "logout-owner-a-" +
+      suffix;
+
+    const ownerB =
+      "logout-owner-b-" +
+      suffix;
+
+    const trackId =
+      "logout-track-" +
+      suffix;
+
+    const mediaVersion =
+      "v1";
+
+    const record =
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType:
+          "audio/mpeg",
+        fileSize:
+          1,
+        state:
+          "PINNED",
+      });
+
+    record.cachedBytes =
+      1;
+
+    record.title =
+      "Logout privacy track";
+
+    record.artworkValidatedAt =
+      Date.now();
+
+    record.pinRefs = [
+      offline.getManualDownloadPinRef(
+        ownerA,
+      ),
+      offline.getManualDownloadPinRef(
+        ownerB,
+      ),
+    ];
+
+    await mediaStore.saveMediaRecord(
+      record,
+    );
+
+    await mediaStore.saveDownloadJob({
+      id:
+        "logout-job-" +
+        suffix,
+      ownerKey:
+        ownerA,
+      state:
+        "complete",
+      trackKeys: [
+        record.key,
+      ],
+    });
+
+    const result =
+      await offline.removeAllOfflineDownloadsForOwner(
+        ownerA,
+      );
+
+    assert.ok(
+      result.removedPinReferences >=
+        1,
+    );
+
+    assert.ok(
+      result.removedJobs >=
+        1,
+    );
+
+    assert.equal(
+      (
+        await offline.getDownloadedTracks(
+          ownerA,
+        )
+      ).some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      false,
+    );
+
+    assert.equal(
+      (
+        await offline.getDownloadedTracks(
+          ownerB,
+        )
+      ).some(
+        (track) =>
+          String(
+            track.id,
+          ) ===
+          trackId,
+      ),
+      true,
+    );
+
+    const jobs =
+      await mediaStore.getDownloadJobs();
+
+    assert.equal(
+      jobs.some(
+        (job) =>
+          job.ownerKey ===
+          ownerA,
+      ),
+      false,
+    );
+  },
+);
+
+
+test(
+  "logout cleanup removes the account-scoped library cache",
+  async () => {
+    const cache =
+      await import(
+        "./libraryCache.js"
+      );
+
+    const owner =
+      "library-logout-owner";
+
+    cache.setCachedLibrary(
+      owner,
+      {
+        tracks: [
+          {
+            id:
+              "private-library-track",
+          },
+        ],
+      },
+    );
+
+    cache.setCachedPlaylist(
+      owner,
+      {
+        id:
+          "private-playlist",
+        title:
+          "Private playlist",
+      },
+    );
+
+    cache.clearCachedLibraryScope(
+      owner,
+    );
+
+    assert.equal(
+      cache.getCachedLibrary(
+        owner,
+      ),
+      null,
+    );
+
+    assert.equal(
+      cache.getCachedPlaylist(
+        owner,
+        "private-playlist",
+      ),
+      null,
+    );
+  },
+);

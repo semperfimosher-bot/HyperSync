@@ -158,7 +158,7 @@ def _activity_description(
 
     return (
         "activity",
-        "HyperSync activity",
+        "HyperSynced activity",
     )
 
 

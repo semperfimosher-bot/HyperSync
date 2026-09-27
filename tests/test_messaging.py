@@ -29,8 +29,50 @@ from backend.app.models.messaging import (
     Message,
     PushSubscription,
 )
+from backend.app.services.web_push import (
+    validate_push_endpoint,
+)
 
 
+
+
+def test_push_endpoints_are_restricted_to_known_https_services() -> None:
+    assert (
+        validate_push_endpoint(
+            "https://fcm.googleapis.com/fcm/send/example"
+        )
+        == "https://fcm.googleapis.com/fcm/send/example"
+    )
+
+    for endpoint in (
+        "http://fcm.googleapis.com/fcm/send/example",
+        "https://127.0.0.1/push",
+        "https://localhost/push",
+        "https://attacker.example/push",
+        "https://user:password@fcm.googleapis.com/push",
+        "https://fcm.googleapis.com:8443/push",
+    ):
+        with pytest.raises(
+            ValueError,
+        ):
+            validate_push_endpoint(
+                endpoint,
+            )
+
+
+def test_admin_message_activity_does_not_copy_private_content() -> None:
+    details = (
+        message_routes
+        ._admin_message_details(
+            sender_username="alice",
+            recipient_username="bob",
+        )
+    )
+
+    assert "@alice" in details
+    assert "@bob" in details
+    assert "contents are not copied" in details
+    assert "super-secret-message" not in details
 
 
 @pytest.mark.asyncio
@@ -141,6 +183,13 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
             admin,
             session,
         )
+
+        assert (
+            await session.get(
+                AdminNotification,
+                notification.id,
+            )
+        ) is None
 
         cleared_feed = (
             await message_routes.message_notifications(
@@ -256,6 +305,22 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
             )
         )
 
+        notification_row = (
+            await session.execute(
+                select(
+                    AdminNotification,
+                ).where(
+                    AdminNotification.recipient_id
+                    == recipient.id,
+                    AdminNotification.kind
+                    == message_routes
+                    .DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification.source_message_id
+                    == message.id,
+                )
+            )
+        ).scalar_one()
+
         assert feed.unread_count == 1
         assert len(
             feed.notifications,
@@ -287,6 +352,26 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
             message.id,
             recipient,
             session,
+        )
+
+        assert (
+            await session.get(
+                AdminNotification,
+                notification_row.id,
+            )
+        ) is None
+
+        preserved_message = (
+            await session.get(
+                Message,
+                message.id,
+            )
+        )
+
+        assert preserved_message is not None
+        assert (
+            preserved_message.viewed_at
+            is not None
         )
 
         cleared = (

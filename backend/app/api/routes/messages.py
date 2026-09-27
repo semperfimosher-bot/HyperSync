@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from datetime import (
     UTC,
     datetime,
@@ -48,6 +50,7 @@ from ...services.message_retention import (
 from ...services.web_push import (
     PushSubscriptionData,
     deliver_message_push,
+    validate_push_endpoint,
     web_push_enabled,
 )
 from ..dependencies import (
@@ -67,6 +70,10 @@ SharedMusicKind = Literal[
     "artist",
     "playlist",
 ]
+
+DIRECT_MESSAGE_NOTIFICATION_KIND = (
+    "direct_message"
+)
 
 
 class SharedMusicItem(BaseModel):
@@ -289,11 +296,38 @@ def _admin_message_details(
     *,
     sender_username: str,
     recipient_username: str,
+) -> str:
+    return (
+        "@"
+        + (
+            sender_username
+            or "unknown"
+        )
+        + " sent a private message to @"
+        + (
+            recipient_username
+            or "unknown"
+        )
+        + ". Message contents are not copied "
+        + "to administrator notifications."
+    )
+
+
+def _legacy_admin_message_details(
+    *,
+    sender_username: str,
+    recipient_username: str,
     body: str,
     shared_kind: str | None = None,
     shared_title: str | None = None,
     shared_subtitle: str | None = None,
 ) -> str:
+    """
+    Reconstruct the pre-hardening notification body only so deleting an
+    old message can remove legacy admin copies that were stored without a
+    source_message_id. New notifications never use this content.
+    """
+
     details = (
         "@"
         + (
@@ -568,6 +602,16 @@ async def get_conversation(
 
     viewed_at = datetime.now(UTC)
 
+    incoming_message_ids = (
+        select(
+            Message.id,
+        )
+        .where(
+            Message.sender_id == target.id,
+            Message.recipient_id == user.id,
+        )
+    )
+
     await session.execute(
         update(Message)
         .where(
@@ -577,6 +621,21 @@ async def get_conversation(
         )
         .values(
             viewed_at=viewed_at,
+        )
+    )
+
+    await session.execute(
+        delete(
+            AdminNotification,
+        ).where(
+            AdminNotification.recipient_id
+            == user.id,
+            AdminNotification.kind
+            == DIRECT_MESSAGE_NOTIFICATION_KIND,
+            AdminNotification.source_message_id
+            .in_(
+                incoming_message_ids,
+            ),
         )
     )
 
@@ -645,10 +704,11 @@ async def send_message(
 ) -> MessageResponse:
     settings = get_settings()
 
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request,
         scope="message-send",
         identity=str(user.id),
+        include_client=False,
         limit=settings.message_send_rate_limit,
         window_seconds=(
             settings.message_send_rate_window_seconds
@@ -719,6 +779,23 @@ async def send_message(
     session.add(message)
     await session.flush()
 
+    session.add(
+        AdminNotification(
+            recipient_id=target.id,
+            kind=(
+                DIRECT_MESSAGE_NOTIFICATION_KIND
+            ),
+            title="New message",
+            body="",
+            actor_username=(
+                user.username
+            ),
+            source_message_id=(
+                message.id
+            ),
+        )
+    )
+
     subscription_result = await session.execute(
         select(PushSubscription).where(
             PushSubscription.user_id == target.id,
@@ -754,22 +831,6 @@ async def send_message(
             recipient_username=(
                 target.username
                 or ""
-            ),
-            body=body,
-            shared_kind=(
-                shared_music.kind
-                if shared_music
-                else None
-            ),
-            shared_title=(
-                shared_music.title
-                if shared_music
-                else None
-            ),
-            shared_subtitle=(
-                shared_music.subtitle
-                if shared_music
-                else None
             ),
         )
     )
@@ -827,7 +888,7 @@ async def delete_sent_message(
     )
 
     legacy_details = (
-        _admin_message_details(
+        _legacy_admin_message_details(
             sender_username=(
                 user.username
                 or ""
@@ -907,23 +968,154 @@ async def message_notifications(
 ) -> NotificationResponse:
     await _cleanup_expired(session)
 
-    result = await session.execute(
-        select(Message)
+    unread_result = await session.execute(
+        select(
+            Message,
+        )
         .where(
-            Message.recipient_id == user.id,
-            Message.viewed_at.is_(None),
+            Message.recipient_id
+            == user.id,
+            Message.viewed_at.is_(
+                None,
+            ),
         )
         .order_by(
             Message.created_at.desc(),
         )
-        .limit(20)
+        .limit(50)
     )
 
-    unread = result.scalars().all()
+    unread_messages = list(
+        unread_result
+        .scalars()
+        .all()
+    )
+
+    unread_ids = [
+        message.id
+        for message in unread_messages
+    ]
+
+    if unread_ids:
+        existing_result = (
+            await session.execute(
+                select(
+                    AdminNotification
+                    .source_message_id,
+                ).where(
+                    AdminNotification
+                    .recipient_id
+                    == user.id,
+                    AdminNotification.kind
+                    == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification
+                    .source_message_id
+                    .in_(
+                        unread_ids,
+                    ),
+                )
+            )
+        )
+
+        existing_ids = {
+            source_id
+            for source_id in
+            existing_result
+            .scalars()
+            .all()
+            if source_id is not None
+        }
+
+        for message in unread_messages:
+            if message.id in existing_ids:
+                continue
+
+            session.add(
+                AdminNotification(
+                    recipient_id=user.id,
+                    kind=(
+                        DIRECT_MESSAGE_NOTIFICATION_KIND
+                    ),
+                    title="New message",
+                    body="",
+                    source_message_id=(
+                        message.id
+                    ),
+                )
+            )
+
+        await session.flush()
+
+    direct_notification_result = (
+        await session.execute(
+            select(
+                AdminNotification,
+            )
+            .where(
+                AdminNotification.recipient_id
+                == user.id,
+                AdminNotification.kind
+                == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                AdminNotification
+                .source_message_id
+                .is_not(
+                    None,
+                ),
+            )
+            .order_by(
+                AdminNotification
+                .created_at
+                .desc(),
+            )
+            .limit(20)
+        )
+    )
+
+    direct_notifications = list(
+        direct_notification_result
+        .scalars()
+        .all()
+    )
+
+    direct_message_ids = [
+        notification.source_message_id
+        for notification
+        in direct_notifications
+        if notification.source_message_id
+        is not None
+    ]
+
+    direct_messages_result = (
+        await session.execute(
+            select(
+                Message,
+            ).where(
+                Message.id.in_(
+                    direct_message_ids,
+                )
+            )
+        )
+        if direct_message_ids
+        else None
+    )
+
+    direct_messages = {
+        message.id:
+            message
+        for message in (
+            direct_messages_result
+            .scalars()
+            .all()
+            if direct_messages_result
+            is not None
+            else []
+        )
+    }
 
     sender_ids = {
         message.sender_id
-        for message in unread
+        for message in
+        direct_messages.values()
     }
 
     users = await _load_users(
@@ -931,25 +1123,24 @@ async def message_notifications(
         sender_ids,
     )
 
-    count_result = await session.execute(
-        select(
-            func.count(Message.id),
-        ).where(
-            Message.recipient_id == user.id,
-            Message.viewed_at.is_(None),
+    notifications: list[
+        MessageNotification
+        | AdminActivityNotification
+    ] = []
+
+    for notification in direct_notifications:
+        message = direct_messages.get(
+            notification
+            .source_message_id,
         )
-    )
 
-    total = int(
-        count_result.scalar_one()
-        or 0
-    )
+        if (
+            message is None
+            or message.recipient_id
+            != user.id
+        ):
+            continue
 
-    await session.commit()
-
-    notifications: list[MessageNotification] = []
-
-    for message in unread:
         sender = users.get(
             message.sender_id,
         )
@@ -957,12 +1148,16 @@ async def message_notifications(
         if sender is None:
             continue
 
-        summary = _message_user(sender)
+        summary = _message_user(
+            sender,
+        )
 
         notifications.append(
             MessageNotification(
                 message_id=message.id,
-                sender_username=summary.username,
+                sender_username=(
+                    summary.username
+                ),
                 sender_display_name=(
                     summary.display_name
                 ),
@@ -984,11 +1179,12 @@ async def message_notifications(
                         message,
                     )
                 ),
-                created_at=message.created_at,
+                created_at=(
+                    notification
+                    .created_at
+                ),
             )
         )
-
-    admin_total = 0
 
     if user.role == UserRole.ADMIN:
         admin_result = await session.execute(
@@ -998,8 +1194,12 @@ async def message_notifications(
             .where(
                 AdminNotification.recipient_id
                 == user.id,
+                AdminNotification.kind
+                != DIRECT_MESSAGE_NOTIFICATION_KIND,
                 AdminNotification.viewed_at
-                .is_(None),
+                .is_(
+                    None,
+                ),
             )
             .order_by(
                 AdminNotification.created_at.desc(),
@@ -1007,28 +1207,10 @@ async def message_notifications(
             .limit(20)
         )
 
-        admin_unread = (
+        admin_unread = list(
             admin_result
             .scalars()
             .all()
-        )
-
-        admin_count_result = await session.execute(
-            select(
-                func.count(
-                    AdminNotification.id,
-                ),
-            ).where(
-                AdminNotification.recipient_id
-                == user.id,
-                AdminNotification.viewed_at
-                .is_(None),
-            )
-        )
-
-        admin_total = int(
-            admin_count_result.scalar_one()
-            or 0
         )
 
         notifications.extend(
@@ -1060,12 +1242,63 @@ async def message_notifications(
         reverse=True,
     )
 
+    direct_count_result = (
+        await session.execute(
+            select(
+                func.count(
+                    AdminNotification.id,
+                ),
+            ).where(
+                AdminNotification.recipient_id
+                == user.id,
+                AdminNotification.kind
+                == DIRECT_MESSAGE_NOTIFICATION_KIND,
+            )
+        )
+    )
+
+    direct_total = int(
+        direct_count_result.scalar_one()
+        or 0
+    )
+
+    admin_total = 0
+
+    if user.role == UserRole.ADMIN:
+        admin_count_result = (
+            await session.execute(
+                select(
+                    func.count(
+                        AdminNotification.id,
+                    ),
+                ).where(
+                    AdminNotification.recipient_id
+                    == user.id,
+                    AdminNotification.kind
+                    != DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification.viewed_at
+                    .is_(
+                        None,
+                    ),
+                )
+            )
+        )
+
+        admin_total = int(
+            admin_count_result.scalar_one()
+            or 0
+        )
+
+    await session.commit()
+
     return NotificationResponse(
         unread_count=(
-            total
+            direct_total
             + admin_total
         ),
-        notifications=notifications[:20],
+        notifications=(
+            notifications[:20]
+        ),
     )
 
 
@@ -1103,7 +1336,21 @@ async def read_message_notification(
         message.viewed_at = datetime.now(
             UTC,
         )
-        await session.commit()
+
+    await session.execute(
+        delete(
+            AdminNotification,
+        ).where(
+            AdminNotification.recipient_id
+            == user.id,
+            AdminNotification.kind
+            == DIRECT_MESSAGE_NOTIFICATION_KIND,
+            AdminNotification.source_message_id
+            == message.id,
+        )
+    )
+
+    await session.commit()
 
 
 @router.post(
@@ -1131,6 +1378,8 @@ async def read_admin_notification(
             == notification_id,
             AdminNotification.recipient_id
             == user.id,
+            AdminNotification.kind
+            != DIRECT_MESSAGE_NOTIFICATION_KIND,
         )
     )
 
@@ -1146,13 +1395,11 @@ async def read_admin_notification(
             ),
         )
 
-    if notification.viewed_at is None:
-        notification.viewed_at = (
-            datetime.now(
-                UTC,
-            )
-        )
-        await session.commit()
+    await session.delete(
+        notification,
+    )
+
+    await session.commit()
 
 
 @router.get(
@@ -1187,10 +1434,22 @@ async def subscribe_push(
     user: CurrentUser,
     session: DatabaseSession,
 ) -> None:
+    try:
+        endpoint = validate_push_endpoint(
+            payload.endpoint,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=str(exc),
+        ) from exc
+
     result = await session.execute(
         select(PushSubscription).where(
             PushSubscription.endpoint
-            == payload.endpoint,
+            == endpoint,
         )
     )
 
@@ -1199,7 +1458,7 @@ async def subscribe_push(
     if subscription is None:
         subscription = PushSubscription(
             user_id=user.id,
-            endpoint=payload.endpoint,
+            endpoint=endpoint,
             p256dh=payload.keys.p256dh,
             auth=payload.keys.auth,
             user_agent=request.headers.get(
@@ -1208,6 +1467,32 @@ async def subscribe_push(
         )
         session.add(subscription)
     else:
+        same_keys = (
+            hmac.compare_digest(
+                subscription.p256dh,
+                payload.keys.p256dh,
+            )
+            and hmac.compare_digest(
+                subscription.auth,
+                payload.keys.auth,
+            )
+        )
+
+        if (
+            subscription.user_id
+            != user.id
+            and not same_keys
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "That push subscription is already "
+                    "registered to another account."
+                ),
+            )
+
         subscription.user_id = user.id
         subscription.p256dh = payload.keys.p256dh
         subscription.auth = payload.keys.auth

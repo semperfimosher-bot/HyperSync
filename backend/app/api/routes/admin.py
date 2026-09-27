@@ -37,6 +37,7 @@ from ...services.artists import (
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
+    normalize_track_title_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -82,7 +83,7 @@ async def _lock_track_upload_identity(
             artist,
         )
         + "\x1f"
-        + normalize_track_identity(
+        + normalize_track_title_identity(
             title,
         )
     )
@@ -114,7 +115,7 @@ def _duplicate_track_groups(
             normalize_track_identity(
                 track.artist,
             ),
-            normalize_track_identity(
+            normalize_track_title_identity(
                 track.title,
             ),
         )
@@ -135,7 +136,27 @@ def _duplicate_track_groups(
         if len(grouped_tracks) < 2:
             continue
 
-        first = grouped_tracks[0]
+        ordered_tracks = sorted(
+            grouped_tracks,
+            key=lambda item: (
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                )
+                is None,
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                ),
+                str(
+                    item.id,
+                ),
+            ),
+        )
+
+        first = ordered_tracks[0]
 
         duplicates.append(
             {
@@ -149,7 +170,11 @@ def _duplicate_track_groups(
                     first.title,
                 "count":
                     len(
-                        grouped_tracks,
+                        ordered_tracks,
+                    ),
+                "keep_track_id":
+                    str(
+                        first.id,
                     ),
                 "tracks": [
                     {
@@ -166,7 +191,7 @@ def _duplicate_track_groups(
                         "b2_object_key":
                             item.b2_object_key,
                     }
-                    for item in grouped_tracks
+                    for item in ordered_tracks
                 ],
             }
         )
@@ -195,7 +220,7 @@ async def _find_duplicate_track(
     artist: str,
 ) -> Track | None:
     title_key = (
-        normalize_track_identity(
+        normalize_track_title_identity(
             title,
         )
     )
@@ -220,7 +245,7 @@ async def _find_duplicate_track(
         .all()
     ):
         if (
-            normalize_track_identity(
+            normalize_track_title_identity(
                 track.title,
             )
             == title_key

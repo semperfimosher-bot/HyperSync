@@ -4,6 +4,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Integer,
+    String,
     func,
 )
 from sqlalchemy.orm import (
@@ -45,4 +46,50 @@ class SystemResetState(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class RateLimitBucket(Base):
+    __tablename__ = (
+        "rate_limit_buckets"
+    )
+
+    key: Mapped[str] = (
+        mapped_column(
+            String(
+                160,
+            ),
+            primary_key=True,
+        )
+    )
+
+    window_started_at: Mapped[
+        datetime
+    ] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    request_count: Mapped[int] = (
+        mapped_column(
+            Integer,
+            nullable=False,
+            default=0,
+            server_default="0",
+        )
+    )
+
+    updated_at: Mapped[
+        datetime
+    ] = mapped_column(
+        DateTime(
+            timezone=True,
+        ),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        index=True,
     )

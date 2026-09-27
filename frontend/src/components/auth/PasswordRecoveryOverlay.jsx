@@ -87,9 +87,19 @@ export function readPasswordResetTokenFromLocation() {
     return "";
   }
 
+  const hash =
+    window.location.hash
+      .startsWith(
+        "#?",
+      )
+      ? window.location.hash.slice(
+          2,
+        )
+      : "";
+
   return (
     new URLSearchParams(
-      window.location.search,
+      hash,
     )
       .get(
         "token",
@@ -533,7 +543,7 @@ export default function PasswordRecoveryOverlay({
       : isReset
         ? (
             "Choose a new password for your " +
-            "HyperSync account."
+            "HyperSynced account."
           )
         : isOtp
           ? (
@@ -818,8 +828,8 @@ export default function PasswordRecoveryOverlay({
         ) : null}
 
         <p className="auth-legal">
-          Recovery codes and reset links expire
-          automatically for account security.
+          Recovery codes and reset links expire 
+          after 15 minutes for account security.
         </p>
       </div>
     </div>

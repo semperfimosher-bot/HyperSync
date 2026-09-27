@@ -34,25 +34,13 @@ DatabaseSession = Annotated[
 ]
 
 
-async def get_current_user(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Depends(bearer_scheme),
-    ],
-    session: DatabaseSession,
+async def authenticate_access_token(
+    session: AsyncSession,
+    token: str,
 ) -> User:
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required.",
-            headers={
-                "WWW-Authenticate": "Bearer",
-            },
-        )
-
     try:
         claims = decode_access_token(
-            credentials.credentials,
+            token,
         )
     except InvalidAccessTokenError as exc:
         raise HTTPException(
@@ -149,6 +137,28 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(bearer_scheme),
+    ],
+    session: DatabaseSession,
+) -> User:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    return await authenticate_access_token(
+        session,
+        credentials.credentials,
+    )
 
 
 CurrentUser = Annotated[

@@ -89,14 +89,32 @@ async def send_password_recovery_email(
         .rstrip("/")
     )
 
-    if not frontend_url:
-        raise EmailDeliveryError(
-            "Frontend public URL is not configured."
+    local_frontend = (
+        frontend_url.startswith(
+            "http://localhost"
+        )
+        or frontend_url.startswith(
+            "https://localhost"
+        )
+        or frontend_url.startswith(
+            "http://127.0.0.1"
+        )
+        or frontend_url.startswith(
+            "https://127.0.0.1"
+        )
+    )
+
+    if (
+        not frontend_url
+        or local_frontend
+    ):
+        frontend_url = (
+            "https://hypersynced.app"
         )
 
     reset_url = (
         frontend_url
-        + "/reset-password?"
+        + "/reset-password#?"
         + urlencode(
             {
                 "token": reset_token,
@@ -117,7 +135,7 @@ async def send_password_recovery_email(
 
     message = EmailMessage()
     message["Subject"] = (
-        "Your HyperSync account recovery code"
+        "Your HyperSynced account recovery code"
     )
     message["From"] = formataddr(
         (
@@ -134,7 +152,7 @@ async def send_password_recovery_email(
                 f"Hi {username},",
                 "",
                 (
-                    "Your HyperSync recovery code is "
+                    "Your HyperSynced recovery code is "
                     f"{otp_code}."
                 ),
                 (
@@ -143,7 +161,7 @@ async def send_password_recovery_email(
                 ),
                 "",
                 (
-                    "Open HyperSync with the recovery code "
+                    "Open HyperSynced with the recovery code "
                     "already filled in:"
                 ),
                 use_code_url,
@@ -178,12 +196,12 @@ async def send_password_recovery_email(
 <html>
   <body style="font-family:Arial,sans-serif;background:#071018;color:#eaf7ff;padding:24px">
     <div style="max-width:560px;margin:auto;background:#0b1720;border:1px solid #1ea7e1;border-radius:14px;padding:24px">
-      <h2 style="margin-top:0">HyperSync account recovery</h2>
+      <h2 style="margin-top:0">HyperSynced account recovery</h2>
       <p>Hi {safe_username},</p>
       <p>Your 6-digit recovery code is:</p>
       <div style="font-size:30px;letter-spacing:8px;font-weight:700;padding:14px 18px;background:#071018;border:1px solid #274657;border-radius:10px;text-align:center;user-select:all">{otp_code}</div>
       <p>This code expires in {expires_minutes} minutes.</p>
-      <p>Use the button below to open HyperSync with the code already filled in.</p>
+      <p>Use the button below to open HyperSynced with the code already filled in.</p>
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:18px 0">
         <tr>
           <td bgcolor="#0aa9ef" style="border-radius:10px">

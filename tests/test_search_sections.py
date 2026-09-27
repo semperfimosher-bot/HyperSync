@@ -176,6 +176,77 @@ def test_artist_results_only_include_relevant_artists() -> None:
     ]
 
 
+def test_artist_results_collapse_multi_artist_credit_to_main_artist() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Solo Song",
+            artist="Morgan Wallen",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+    ]
+
+    artists = _artist_results(
+        tracks,
+        parsed,
+    )
+
+    assert [
+        artist.name
+        for artist in artists
+    ] == [
+        "Morgan Wallen",
+    ]
+
+    assert (
+        artists[0].track_count
+        == 2
+    )
+
+
+def test_secondary_artist_does_not_become_artist_result_for_main_artist_search() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Collaboration Album",
+            matched_field="artist",
+        ),
+    ]
+
+    artists = _artist_results(
+        tracks,
+        parsed,
+    )
+
+    assert [
+        artist.name
+        for artist in artists
+    ] == [
+        "Morgan Wallen",
+    ]
+
+    assert all(
+        "Tate McRae"
+        not in artist.name
+        for artist in artists
+    )
+
+
 def test_direct_song_match_returns_related_album() -> None:
     parsed = parse_search_query(
         "peaches",
@@ -731,7 +802,7 @@ async def test_recent_track_rows_return_full_history_newest_first(
 
 
 @pytest.mark.asyncio
-async def test_direct_genre_rows_are_not_limited_to_search_cap(
+async def test_direct_genre_rows_are_capped_at_500(
     monkeypatch,
 ):
     base_time = datetime(
@@ -810,13 +881,17 @@ async def test_direct_genre_rows_are_not_limited_to_search_cap(
         "smart",
     )
 
-    assert len(rows) == len(
-        country_tracks,
+    assert (
+        search_route.TRACK_RESULT_LIMIT
+        == 500
     )
 
-    assert len(rows) > (
-        search_route.TRACK_RESULT_LIMIT
+    assert (
+        search_route.TRACK_CANDIDATE_LIMIT
+        == 500
     )
+
+    assert len(rows) == 500
 
     assert all(
         row["track"].genre
@@ -1016,4 +1091,252 @@ def test_direct_genre_prefers_exact_over_related_family() -> None:
         > subgenre_score
         > related_score
         > 0
+    )
+
+
+
+def test_track_credits_artist_requires_primary_artist() -> None:
+    primary = SimpleNamespace(
+        title="Primary Song",
+        artist="Justin Bieber",
+    )
+
+    primary_collaboration = SimpleNamespace(
+        title="Collab Song",
+        artist="Justin Bieber & Post Malone",
+    )
+
+    secondary_collaboration = SimpleNamespace(
+        title="Collab Song",
+        artist="Post Malone & Justin Bieber",
+    )
+
+    featured = SimpleNamespace(
+        title="Collab Song (feat. Justin Bieber)",
+        artist="Post Malone",
+    )
+
+    assert search_route._track_credits_artist(
+        primary,
+        "Justin Bieber",
+    )
+
+    assert search_route._track_credits_artist(
+        primary_collaboration,
+        "Justin Bieber",
+    )
+
+    assert not search_route._track_credits_artist(
+        secondary_collaboration,
+        "Justin Bieber",
+    )
+
+    assert not search_route._track_credits_artist(
+        featured,
+        "Justin Bieber",
+    )
+
+
+@pytest.mark.asyncio
+async def test_artist_catalog_candidates_keep_only_primary_artist_tracks() -> None:
+    artist_name = "Justin Bieber"
+
+    tracks = [
+        SimpleNamespace(
+            id=uuid4(),
+            title="Ghost",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Primary Collaboration",
+            artist="Justin Bieber & Post Malone",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Secondary Collaboration",
+            artist="Post Malone & Justin Bieber",
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            title="Deja Vu (feat. Justin Bieber)",
+            artist="Post Malone",
+        ),
+    ]
+
+    class FakeScalars:
+        def all(self):
+            return tracks
+
+    class FakeResult:
+        def scalars(self):
+            return FakeScalars()
+
+    session = cast(
+        AsyncSession,
+        SimpleNamespace(
+            execute=AsyncMock(
+                return_value=FakeResult(),
+            ),
+        ),
+    )
+
+    results = await search_route._load_artist_catalog_candidates(
+        session,
+        artist_name,
+    )
+
+    assert [
+        track.title
+        for track in results
+    ] == [
+        "Ghost",
+        "Primary Collaboration",
+    ]
+
+
+def test_songs_by_artist_requires_primary_artist_match() -> None:
+    parsed = parse_search_query(
+        "songs by Justin Bieber",
+    )
+
+    featured_track = SimpleNamespace(
+        title="Deja Vu (feat. Justin Bieber)",
+        artist="Post Malone",
+        album="Stoney",
+        genre="Pop",
+    )
+
+    primary_collaboration = SimpleNamespace(
+        title="Shared Song",
+        artist="Justin Bieber & Post Malone",
+        album="Shared",
+        genre="Pop",
+    )
+
+    featured_match = search_route._match_for_track(
+        featured_track,
+        parsed,
+    )
+
+    primary_match = search_route._match_for_track(
+        primary_collaboration,
+        parsed,
+    )
+
+    assert featured_match.score == 0
+    assert primary_match.score > 0
+    assert primary_match.field == "artist"
+
+
+
+def test_general_artist_search_uses_only_main_artist_credit() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    primary_collaboration = SimpleNamespace(
+        title="Primary Collaboration",
+        artist="Morgan Wallen & Tate McRae",
+        album="Shared Album",
+        genre="Country",
+    )
+
+    secondary_collaboration = SimpleNamespace(
+        title="Secondary Collaboration",
+        artist="Tate McRae & Morgan Wallen",
+        album="Shared Album",
+        genre="Pop",
+    )
+
+    featured_only = SimpleNamespace(
+        title="Feature Song (feat. Morgan Wallen)",
+        artist="Tate McRae",
+        album="Feature Album",
+        genre="Pop",
+    )
+
+    primary_match = search_route._match_for_track(
+        primary_collaboration,
+        parsed,
+    )
+
+    secondary_match = search_route._match_for_track(
+        secondary_collaboration,
+        parsed,
+    )
+
+    featured_match = search_route._match_for_track(
+        featured_only,
+        parsed,
+    )
+
+    assert primary_match.score > 0
+    assert primary_match.field == "artist"
+    assert secondary_match.score == 0
+    assert secondary_match.field == ""
+    assert featured_match.score == 0
+    assert featured_match.field == ""
+
+
+def test_album_results_collapse_multi_artist_credit_to_main_artist() -> None:
+    parsed = parse_search_query(
+        "morgan",
+    )
+
+    tracks = [
+        _track(
+            title="Collaboration Song",
+            artist="Morgan Wallen & Tate McRae",
+            album="Morgan Album",
+            matched_field="artist",
+        ),
+    ]
+
+    albums = _album_results(
+        tracks,
+        parsed,
+    )
+
+    assert len(albums) == 1
+    assert albums[0].artist == "Morgan Wallen"
+
+
+def test_artist_credit_resolution_expands_unique_prefix_but_not_ambiguous_prefix() -> None:
+    unique_tracks = [
+        SimpleNamespace(
+            title="Ghost",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            title="Deja Vu (feat. Justin Bieber)",
+            artist="Post Malone",
+        ),
+    ]
+
+    assert (
+        search_route._exact_artist_credit_in_tracks(
+            unique_tracks,
+            "Justin",
+        )
+        == "Justin Bieber"
+    )
+
+    ambiguous_tracks = [
+        SimpleNamespace(
+            title="One",
+            artist="Justin Bieber",
+        ),
+        SimpleNamespace(
+            title="Two",
+            artist="Justin Timberlake",
+        ),
+    ]
+
+    assert (
+        search_route._exact_artist_credit_in_tracks(
+            ambiguous_tracks,
+            "Justin",
+        )
+        is None
     )

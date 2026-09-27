@@ -79,3 +79,31 @@ export function _resetPlaybackSessionsForTests() {
   nextSessionId =
     0;
 }
+
+
+
+export function canReuseLoadedAudioSource({
+  logicalTrackId = null,
+  loadedTrackId = null,
+  hasSource = false,
+} = {}) {
+  const logical =
+    String(
+      logicalTrackId ??
+        "",
+    ).trim();
+
+  const loaded =
+    String(
+      loadedTrackId ??
+        "",
+    ).trim();
+
+  return Boolean(
+    hasSource &&
+    logical &&
+    loaded &&
+    logical ===
+      loaded
+  );
+}

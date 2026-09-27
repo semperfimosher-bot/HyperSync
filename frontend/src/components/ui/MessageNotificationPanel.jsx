@@ -40,6 +40,7 @@ function notificationTime(
 export default function MessageNotificationPanel({
   data,
   onOpenNotification,
+  onDeleteNotification,
   onEnablePush,
   pushBusy = false,
   pushEnabled = false,
@@ -80,8 +81,8 @@ export default function MessageNotificationPanel({
                 "admin_activity";
 
               return (
-                <button
-                  type="button"
+                <div
+                  className="message-notification-row"
                   key={
                     adminActivity
                       ? notification
@@ -89,54 +90,76 @@ export default function MessageNotificationPanel({
                       : notification
                           .message_id
                   }
-                  onClick={() => {
-                    onOpenNotification?.(
-                      notification,
-                    );
-                  }}
                 >
-                  <Avatar
-                    src={
-                      adminActivity
-                        ? null
-                        : notification
-                            .sender_avatar_url
-                    }
-                    name={
-                      adminActivity
-                        ? (
-                            notification
-                              .actor_username
-                            || "HyperSync"
-                          )
-                        : notification
-                            .sender_display_name
-                    }
-                    size="small"
-                  />
+                  <button
+                    className="message-notification-row__open"
+                    type="button"
+                    onClick={() => {
+                      onOpenNotification?.(
+                        notification,
+                      );
+                    }}
+                  >
+                    <Avatar
+                      src={
+                        adminActivity
+                          ? null
+                          : notification
+                              .sender_avatar_url
+                      }
+                      name={
+                        adminActivity
+                          ? (
+                              notification
+                                .actor_username
+                              || "HyperSynced"
+                            )
+                          : notification
+                              .sender_display_name
+                      }
+                      size="small"
+                    />
 
-                  <span>
-                    <strong>
-                      {adminActivity
-                        ? notification.title
-                        : notification
-                            .sender_display_name}
-                    </strong>
+                    <span>
+                      <strong>
+                        {adminActivity
+                          ? notification.title
+                          : notification
+                              .sender_display_name}
+                      </strong>
 
-                    <em>
-                      {adminActivity
-                        ? notification.body
-                        : notification.preview}
-                    </em>
-                  </span>
+                      <em>
+                        {adminActivity
+                          ? notification.body
+                          : notification.preview}
+                      </em>
+                    </span>
 
-                  <small>
-                    {notificationTime(
-                      notification
-                        .created_at,
-                    )}
-                  </small>
-                </button>
+                    <small>
+                      {notificationTime(
+                        notification
+                          .created_at,
+                      )}
+                    </small>
+                  </button>
+
+                  <button
+                    className="message-notification-row__delete"
+                    type="button"
+                    aria-label="Delete notification"
+                    title="Delete notification"
+                    onClick={() => {
+                      onDeleteNotification?.(
+                        notification,
+                      );
+                    }}
+                  >
+                    <Icon
+                      name="close"
+                      size={13}
+                    />
+                  </button>
+                </div>
               );
             },
           )}

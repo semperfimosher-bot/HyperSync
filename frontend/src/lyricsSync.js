@@ -184,3 +184,134 @@ export function getActiveLyricIndex(
 
   return activeIndex;
 }
+
+
+
+export function getRemoteLyricsPosition(
+  snapshot,
+  nowMs = Date.now(),
+) {
+  const basePosition =
+    Math.max(
+      Number(
+        snapshot?.position_seconds ??
+          0,
+      ) || 0,
+      0,
+    );
+
+  if (
+    snapshot?.paused ||
+    !snapshot?.track?.id
+  ) {
+    return basePosition;
+  }
+
+  const updatedAtMs =
+    Date.parse(
+      String(
+        snapshot?.updated_at ??
+          "",
+      ),
+    );
+
+  if (
+    !Number.isFinite(
+      updatedAtMs,
+    )
+  ) {
+    return basePosition;
+  }
+
+  return (
+    basePosition +
+    Math.max(
+      (
+        Number(
+          nowMs,
+        ) -
+        updatedAtMs
+      ) / 1000,
+      0,
+    )
+  );
+}
+
+
+export function getEffectiveLyricsPlaybackState({
+  localState = {},
+  accountSnapshot = null,
+  currentPlaybackDeviceId = null,
+  nowMs = Date.now(),
+} = {}) {
+  const currentDeviceId =
+    String(
+      currentPlaybackDeviceId ??
+        "",
+    ).trim();
+
+  const ownerDeviceId =
+    String(
+      accountSnapshot?.device_id ??
+        "",
+    ).trim();
+
+  const controllingRemote =
+    Boolean(
+      accountSnapshot?.track?.id &&
+      ownerDeviceId &&
+      currentDeviceId &&
+      ownerDeviceId !==
+        currentDeviceId
+    );
+
+  if (!controllingRemote) {
+    return {
+      ...localState,
+      controllingRemote:
+        false,
+    };
+  }
+
+  const remoteTrack =
+    accountSnapshot.track;
+
+  return {
+    ...localState,
+    trackId:
+      String(
+        remoteTrack.id,
+      ),
+    title:
+      remoteTrack.title ??
+      "",
+    artist:
+      remoteTrack.artist ??
+      "",
+    album:
+      remoteTrack.album ??
+      "",
+    artworkUrl:
+      remoteTrack.artwork_url ??
+      null,
+    duration:
+      Math.max(
+        Number(
+          remoteTrack.duration_seconds ??
+            0,
+        ) || 0,
+        0,
+      ),
+    currentTime:
+      getRemoteLyricsPosition(
+        accountSnapshot,
+        nowMs,
+      ),
+    paused:
+      Boolean(
+        accountSnapshot.paused,
+      ),
+    controllingRemote:
+      true,
+  };
+}

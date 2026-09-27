@@ -9,6 +9,7 @@ import {
   _resetPlaybackSessionsForTests,
   beginPlaybackSession,
   cancelActivePlaybackSession,
+  canReuseLoadedAudioSource,
   getActivePlaybackSession,
   isPlaybackSessionCurrent,
 } from "./playbackSession.js";
@@ -123,6 +124,49 @@ test(
     assert.equal(
       getActivePlaybackSession(),
       null,
+    );
+  },
+);
+
+
+
+test(
+  "loaded audio source is reusable only for the same logical track",
+  () => {
+    assert.equal(
+      canReuseLoadedAudioSource({
+        logicalTrackId:
+          "track-b",
+        loadedTrackId:
+          "track-a",
+        hasSource:
+          true,
+      }),
+      false,
+    );
+
+    assert.equal(
+      canReuseLoadedAudioSource({
+        logicalTrackId:
+          "track-b",
+        loadedTrackId:
+          "track-b",
+        hasSource:
+          true,
+      }),
+      true,
+    );
+
+    assert.equal(
+      canReuseLoadedAudioSource({
+        logicalTrackId:
+          "track-b",
+        loadedTrackId:
+          "track-b",
+        hasSource:
+          false,
+      }),
+      false,
     );
   },
 );

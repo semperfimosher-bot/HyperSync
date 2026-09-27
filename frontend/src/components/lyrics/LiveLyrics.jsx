@@ -14,6 +14,7 @@ import * as player
 
 import {
   getActiveLyricIndex,
+  getEffectiveLyricsPlaybackState,
   parseSyncedLyrics,
 } from "../../lyricsSync.js";
 
@@ -23,12 +24,22 @@ import {
 } from "../../mediaStore.js";
 
 
-function LiveLyrics() {
+function LiveLyrics({
+  accountPlaybackSnapshot = null,
+  currentPlaybackDeviceId = null,
+}) {
   const [
-    playerState,
-    setPlayerState,
+    localPlayerState,
+    setLocalPlayerState,
   ] = useState(
     () => player.getState(),
+  );
+
+  const [
+    remoteClock,
+    setRemoteClock,
+  ] = useState(
+    () => Date.now(),
   );
 
   const [
@@ -50,15 +61,77 @@ function LiveLyrics() {
     useRef([]);
 
 
-  /*
-   * Use HyperSync's real audio
-   * player as our timing clock.
-   */
   useEffect(() => {
     return player.subscribe(
-      setPlayerState,
+      setLocalPlayerState,
     );
   }, []);
+
+
+  const playerState =
+    getEffectiveLyricsPlaybackState({
+      localState:
+        localPlayerState,
+      accountSnapshot:
+        accountPlaybackSnapshot,
+      currentPlaybackDeviceId,
+      nowMs:
+        remoteClock,
+    });
+
+
+  useEffect(() => {
+    if (
+      !playerState
+        .controllingRemote ||
+      playerState.paused ||
+      !playerState.trackId
+    ) {
+      return undefined;
+    }
+
+    const intervalId =
+      window.setInterval(
+        () => {
+          setRemoteClock(
+            Date.now(),
+          );
+        },
+        100,
+      );
+
+    return () => {
+      window.clearInterval(
+        intervalId,
+      );
+    };
+  }, [
+    playerState
+      .controllingRemote,
+    playerState.paused,
+    playerState.trackId,
+    accountPlaybackSnapshot
+      ?.updated_at,
+  ]);
+
+
+  useEffect(() => {
+    setRemoteClock(
+      Date.now(),
+    );
+  }, [
+    accountPlaybackSnapshot
+      ?.track?.id,
+    accountPlaybackSnapshot
+      ?.position_seconds,
+    accountPlaybackSnapshot
+      ?.paused,
+    accountPlaybackSnapshot
+      ?.updated_at,
+    accountPlaybackSnapshot
+      ?.device_id,
+    currentPlaybackDeviceId,
+  ]);
 
 
   /*

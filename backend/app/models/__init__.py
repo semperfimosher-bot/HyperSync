@@ -30,7 +30,10 @@ from .playlist import (
     PlaylistTrack,
     SavedPlaylist,
 )
-from .system import SystemResetState
+from .system import (
+    RateLimitBucket,
+    SystemResetState,
+)
 
 __all__ = [
     "AccountType",
@@ -55,5 +58,6 @@ __all__ = [
     "Playlist",
     "PlaylistTrack",
     "SavedPlaylist",
+    "RateLimitBucket",
     "SystemResetState",
 ]

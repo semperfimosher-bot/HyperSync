@@ -18,14 +18,23 @@ from fastapi import (
     File,
     HTTPException,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import (
     BaseModel,
     Field,
+    ValidationError,
 )
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import (
+    insert as postgresql_insert,
+)
+from sqlalchemy.dialects.sqlite import (
+    insert as sqlite_insert,
+)
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -47,10 +56,14 @@ from ...services.b2 import (
     delete_all_object_versions,
     get_b2_bucket,
 )
+from ...services.playback_realtime import (
+    playback_realtime_hub,
+)
 from ..dependencies import (
     CurrentUser,
     DatabaseSession,
     OptionalCurrentUser,
+    authenticate_access_token,
 )
 from .audio import stream_b2_file
 from .catalog import (
@@ -68,7 +81,7 @@ router = APIRouter(
 
 
 PLAYBACK_DEVICE_ONLINE_TTL = timedelta(
-    seconds=90,
+    seconds=5,
 )
 
 PLAYBACK_DEVICE_LIST_LIMIT = 20
@@ -188,6 +201,14 @@ class PlaybackStateResponse(
 
     device_id: str | None = None
 
+    queue: list[
+        PlaybackTrackResponse
+    ] = Field(
+        default_factory=list,
+    )
+
+    queue_index: int | None = None
+
     updated_at: datetime | None = None
 
 
@@ -203,6 +224,19 @@ class PlaybackStateUpdateRequest(
     )
 
     paused: bool = True
+
+    queue_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+
+    queue_index: int | None = Field(
+        default=None,
+        ge=0,
+        le=499,
+    )
 
     device_id: str = Field(
         min_length=1,
@@ -260,6 +294,8 @@ PlaybackRemoteAction = Literal[
     "seek",
     "volume",
     "transfer",
+    "play_track",
+    "stop",
 ]
 
 
@@ -275,6 +311,29 @@ class PlaybackRemoteCommandRequest(
 
     value: float | None = None
 
+    track_id: UUID | None = None
+
+    queue_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+
+    queue_index: int | None = Field(
+        default=None,
+        ge=0,
+        le=499,
+    )
+
+    position_seconds: float | None = Field(
+        default=None,
+        ge=0,
+        le=86_400,
+    )
+
+    paused: bool | None = None
+
 
 class PlaybackRemoteCommandResponse(
     BaseModel,
@@ -288,6 +347,14 @@ class PlaybackRemoteCommandResponse(
     action: PlaybackRemoteAction
 
     value: float | None = None
+
+    queue: list[
+        PlaybackTrackResponse
+    ] = Field(
+        default_factory=list,
+    )
+
+    queue_index: int | None = None
 
     created_at: datetime
 
@@ -620,6 +687,192 @@ def playback_track_response(
     )
 
 
+def playback_queue_track_response(
+    track: Track,
+) -> PlaybackTrackResponse:
+    return PlaybackTrackResponse(
+        id=track.id,
+        title=track.title,
+        artist=track.artist,
+        album=track.album,
+        genre=getattr(
+            track,
+            "genre",
+            None,
+        ),
+        release_year=getattr(
+            track,
+            "release_year",
+            None,
+        ),
+        duration_seconds=(
+            track.duration_seconds
+        ),
+        audio_url=(
+            f"/api/audio/{track.id}"
+        ),
+        artwork_url=(
+            (
+                "/api/catalog/tracks/"
+                f"{track.id}/artwork"
+            )
+            if track.artwork_object_key
+            else None
+        ),
+        mime_type=track.mime_type,
+        file_size=track.file_size,
+        media_version=(
+            _track_media_version(
+                track,
+            )
+        ),
+        artwork_version=(
+            _track_artwork_version(
+                track,
+            )
+        ),
+    )
+
+
+async def build_account_playback_queue(
+    session: DatabaseSession,
+    state: UserAppState | None,
+    selected_track_id: UUID | None,
+) -> tuple[
+    list[PlaybackTrackResponse],
+    int | None,
+]:
+    if state is None:
+        return [], None
+
+    raw_ids = (
+        state.playback_queue_track_ids
+        if isinstance(
+            state.playback_queue_track_ids,
+            list,
+        )
+        else []
+    )
+
+    queue_ids: list[UUID] = []
+
+    for raw_id in raw_ids[:500]:
+        try:
+            queue_ids.append(
+                UUID(
+                    str(
+                        raw_id,
+                    )
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+    if (
+        not queue_ids
+        and selected_track_id
+        is not None
+    ):
+        queue_ids = [
+            selected_track_id,
+        ]
+
+    if not queue_ids:
+        return [], None
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                set(
+                    queue_ids,
+                )
+            ),
+            Track.is_published.is_(
+                True,
+            ),
+        )
+    )
+
+    by_id = {
+        track.id:
+            track
+        for track in result.scalars().all()
+    }
+
+    queue: list[
+        PlaybackTrackResponse
+    ] = []
+
+    requested_index = (
+        state.playback_queue_index
+        if isinstance(
+            state.playback_queue_index,
+            int,
+        )
+        else None
+    )
+
+    canonical_index: int | None = None
+
+    for original_index, queue_id in enumerate(
+        queue_ids,
+    ):
+        track = by_id.get(
+            queue_id,
+        )
+
+        if track is None:
+            continue
+
+        if (
+            requested_index
+            == original_index
+        ):
+            canonical_index = len(
+                queue,
+            )
+
+        queue.append(
+            playback_queue_track_response(
+                track,
+            )
+        )
+
+    if selected_track_id is not None:
+        selected_index = next(
+            (
+                index
+                for index, item in enumerate(
+                    queue,
+                )
+                if item.id
+                == selected_track_id
+            ),
+            None,
+        )
+
+        if selected_index is not None:
+            canonical_index = (
+                selected_index
+            )
+
+    if (
+        canonical_index is None
+        and queue
+    ):
+        canonical_index = 0
+
+    return (
+        queue,
+        canonical_index,
+    )
+
+
 async def build_playback_state(
     session: DatabaseSession,
     user: User,
@@ -654,6 +907,14 @@ async def build_playback_state(
         state.playback_track_id,
     )
 
+    queue, queue_index = (
+        await build_account_playback_queue(
+            session,
+            state,
+            state.playback_track_id,
+        )
+    )
+
     if (
         track is None
         or not track.is_published
@@ -686,9 +947,60 @@ async def build_playback_state(
         device_id=(
             state.playback_device_id
         ),
+        queue=queue,
+        queue_index=queue_index,
         updated_at=(
             state.playback_updated_at
         ),
+    )
+
+
+def playback_command_response(
+    command: PlaybackCommand,
+    *,
+    queue: list[
+        PlaybackTrackResponse
+    ] | None = None,
+    queue_index: int | None = None,
+) -> PlaybackRemoteCommandResponse:
+    return PlaybackRemoteCommandResponse(
+        id=command.id,
+        source_device_id=(
+            command.source_device_id
+        ),
+        target_device_id=(
+            command.target_device_id
+        ),
+        action=cast(
+            PlaybackRemoteAction,
+            command.action,
+        ),
+        value=command.value,
+        queue=(
+            queue
+            if queue is not None
+            else []
+        ),
+        queue_index=queue_index,
+        created_at=(
+            command.created_at
+        ),
+    )
+
+
+def _as_utc_playback_time(
+    value: datetime | None,
+) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
     )
 
 
@@ -722,6 +1034,106 @@ def playback_device_is_online(
     )
 
 
+async def touch_playback_device(
+    session: DatabaseSession,
+    user: User,
+    *,
+    device_id: str,
+    name: str,
+    device_type: PlaybackDeviceKind,
+    now: datetime | None = None,
+) -> None:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    values = {
+        "user_id":
+            user.id,
+        "device_id":
+            device_id,
+        "name":
+            name,
+        "device_type":
+            device_type,
+        "last_seen_at":
+            reference,
+    }
+
+    dialect_name = (
+        session
+        .get_bind()
+        .dialect
+        .name
+    )
+
+    if dialect_name == "postgresql":
+        statement = (
+            postgresql_insert(
+                PlaybackDevice,
+            )
+            .values(
+                **values,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    PlaybackDevice.user_id,
+                    PlaybackDevice.device_id,
+                ],
+                set_={
+                    "name":
+                        name,
+                    "device_type":
+                        device_type,
+                    "last_seen_at":
+                        reference,
+                },
+            )
+        )
+    elif dialect_name == "sqlite":
+        statement = (
+            sqlite_insert(
+                PlaybackDevice,
+            )
+            .values(
+                **values,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    PlaybackDevice.user_id,
+                    PlaybackDevice.device_id,
+                ],
+                set_={
+                    "name":
+                        name,
+                    "device_type":
+                        device_type,
+                    "last_seen_at":
+                        reference,
+                },
+            )
+        )
+    else:
+        raise RuntimeError(
+            "Unsupported database dialect "
+            "for playback device presence: "
+            f"{dialect_name}"
+        )
+
+    # Presence is written with one database statement instead of
+    # loading an ORM row and mutating it. The HTTP poll and live
+    # WebSocket heartbeat can arrive at the same time, and stale
+    # cleanup may also be running. An upsert makes all three cases
+    # safe without an ORM UPDATE expecting a row that was deleted.
+    await session.execute(
+        statement,
+    )
+
+
 async def prune_offline_playback_devices(
     session: DatabaseSession,
     user: User,
@@ -742,13 +1154,17 @@ async def prune_offline_playback_devices(
     )
 
     stale_result = await session.execute(
-        select(
-            PlaybackDevice.device_id,
-        ).where(
+        delete(
+            PlaybackDevice,
+        )
+        .where(
             PlaybackDevice.user_id
             == user.id,
             PlaybackDevice.last_seen_at
             < cutoff,
+        )
+        .returning(
+            PlaybackDevice.device_id,
         )
     )
 
@@ -775,17 +1191,19 @@ async def prune_offline_playback_devices(
         )
     )
 
-    await session.execute(
-        delete(
-            PlaybackDevice,
-        ).where(
-            PlaybackDevice.user_id
-            == user.id,
-            PlaybackDevice.device_id.in_(
-                stale_device_ids,
-            ),
-        )
+    state = await session.get(
+        UserAppState,
+        user.id,
     )
+
+    if (
+        state is not None
+        and state.playback_device_id
+        in stale_device_ids
+    ):
+        state.playback_paused = True
+        state.playback_device_id = None
+        state.playback_updated_at = reference
 
     return stale_device_ids
 
@@ -1887,6 +2305,34 @@ async def update_my_playback_state(
             state,
         )
 
+    elif (
+        state.playback_device_id
+        and state.playback_device_id
+        != payload.device_id
+    ):
+        active_device = await session.get(
+            PlaybackDevice,
+            (
+                user.id,
+                state.playback_device_id,
+            ),
+        )
+
+        if (
+            active_device is not None
+            and playback_device_is_online(
+                active_device.last_seen_at,
+            )
+        ):
+            # Another live device currently owns audio output.
+            # Ignore stale progress/pause writes from the old
+            # controller so a completed handoff cannot be
+            # stolen back.
+            return await build_playback_state(
+                session,
+                user,
+            )
+
     position = max(
         float(
             payload.position_seconds
@@ -1930,6 +2376,71 @@ async def update_my_playback_state(
         payload.device_id
     )
 
+    queue_ids = [
+        str(
+            queue_id,
+        )
+        for queue_id
+        in payload.queue_track_ids[:500]
+    ]
+
+    queue_index = (
+        payload.queue_index
+        if (
+            payload.queue_index
+            is not None
+            and payload.queue_index
+            < len(
+                queue_ids,
+            )
+        )
+        else None
+    )
+
+    if track is None:
+        queue_ids = []
+        queue_index = None
+    else:
+        track_id_value = str(
+            track.id,
+        )
+
+        if not queue_ids:
+            queue_ids = [
+                track_id_value,
+            ]
+            queue_index = 0
+        elif (
+            queue_index is None
+            or queue_ids[
+                queue_index
+            ]
+            != track_id_value
+        ):
+            try:
+                queue_index = (
+                    queue_ids.index(
+                        track_id_value,
+                    )
+                )
+            except ValueError:
+                queue_ids.insert(
+                    0,
+                    track_id_value,
+                )
+                queue_ids = (
+                    queue_ids[:500]
+                )
+                queue_index = 0
+
+    state.playback_queue_track_ids = (
+        queue_ids
+    )
+
+    state.playback_queue_index = (
+        queue_index
+    )
+
     state.playback_updated_at = (
         datetime.now(
             UTC,
@@ -1938,10 +2449,25 @@ async def update_my_playback_state(
 
     await session.commit()
 
-    return await build_playback_state(
-        session,
-        user,
+    playback_state = (
+        await build_playback_state(
+            session,
+            user,
+        )
     )
+
+    await playback_realtime_hub.broadcast(
+        user.id,
+        {
+            "type": "playback_state",
+            "playback_state":
+                playback_state.model_dump(
+                    mode="json",
+                ),
+        },
+    )
+
+    return playback_state
 
 
 @router.post(
@@ -1961,37 +2487,18 @@ async def poll_my_playback_device(
         UTC,
     )
 
-    device = await session.get(
-        PlaybackDevice,
-        (
-            user.id,
-            payload.device_id,
+    await touch_playback_device(
+        session,
+        user,
+        device_id=(
+            payload.device_id
         ),
-    )
-
-    if device is None:
-        device = PlaybackDevice(
-            user_id=user.id,
-            device_id=(
-                payload.device_id
-            ),
-            name=payload.name,
-            device_type=(
-                payload.device_type
-            ),
-            last_seen_at=now,
-        )
-
-        session.add(
-            device,
-        )
-
-    else:
-        device.name = payload.name
-        device.device_type = (
+        name=payload.name,
+        device_type=(
             payload.device_type
-        )
-        device.last_seen_at = now
+        ),
+        now=now,
+    )
 
     await prune_offline_playback_devices(
         session,
@@ -2052,22 +2559,8 @@ async def poll_my_playback_device(
     return PlaybackDevicePollResponse(
         devices=devices,
         commands=[
-            PlaybackRemoteCommandResponse(
-                id=command.id,
-                source_device_id=(
-                    command.source_device_id
-                ),
-                target_device_id=(
-                    command.target_device_id
-                ),
-                action=cast(
-                    PlaybackRemoteAction,
-                    command.action,
-                ),
-                value=command.value,
-                created_at=(
-                    command.created_at
-                ),
+            playback_command_response(
+                command,
             )
             for command in commands
         ],
@@ -2075,6 +2568,488 @@ async def poll_my_playback_device(
             playback_state
         ),
     )
+
+
+@router.websocket(
+    "/me/playback-devices/live",
+)
+async def live_playback_device(
+    websocket: WebSocket,
+):
+    await websocket.accept()
+
+    user: User | None = None
+    device_id = ""
+    registered_socket = False
+
+    try:
+        try:
+            auth_message = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=5,
+            )
+        except TimeoutError:
+            await websocket.close(
+                code=4408,
+            )
+            return
+
+        if (
+            not isinstance(
+                auth_message,
+                dict,
+            )
+            or auth_message.get(
+                "type",
+            ) != "authenticate"
+        ):
+            await websocket.close(
+                code=4401,
+            )
+            return
+
+        token = str(
+            auth_message.get(
+                "access_token",
+                "",
+            )
+        ).strip()
+
+        device_id = str(
+            auth_message.get(
+                "device_id",
+                "",
+            )
+        ).strip()
+
+        name = str(
+            auth_message.get(
+                "name",
+                "",
+            )
+        ).strip()
+
+        device_type = str(
+            auth_message.get(
+                "device_type",
+                "browser",
+            )
+        ).strip()
+
+        if (
+            not token
+            or not device_id
+            or len(
+                device_id,
+            ) > 64
+            or not name
+            or len(
+                name,
+            ) > 120
+            or device_type
+            not in {
+                "desktop",
+                "mobile",
+                "tablet",
+                "browser",
+            }
+        ):
+            await websocket.close(
+                code=4401,
+            )
+            return
+
+        session_factory = (
+            get_session_factory()
+        )
+
+        async with session_factory() as session:
+            try:
+                user = (
+                    await authenticate_access_token(
+                        session,
+                        token,
+                    )
+                )
+            except HTTPException:
+                await websocket.close(
+                    code=4401,
+                )
+                return
+
+            try:
+                require_registered_playback_user(
+                    user,
+                )
+            except HTTPException:
+                await websocket.close(
+                    code=4403,
+                )
+                return
+
+            now = datetime.now(
+                UTC,
+            )
+
+            await touch_playback_device(
+                session,
+                user,
+                device_id=device_id,
+                name=name,
+                device_type=cast(
+                    PlaybackDeviceKind,
+                    device_type,
+                ),
+                now=now,
+            )
+
+            await prune_offline_playback_devices(
+                session,
+                user,
+                now=now,
+            )
+
+            await session.commit()
+
+            playback_state = (
+                await build_playback_state(
+                    session,
+                    user,
+                )
+            )
+
+            devices = (
+                await list_playback_devices(
+                    session,
+                    user,
+                    active_device_id=(
+                        playback_state
+                        .device_id
+                    ),
+                    now=now,
+                )
+            )
+
+        await playback_realtime_hub.connect(
+            user.id,
+            device_id,
+            websocket,
+        )
+
+        registered_socket = True
+
+        await websocket.send_json(
+            {
+                "type": "ready",
+                "devices": [
+                    device.model_dump(
+                        mode="json",
+                    )
+                    for device in devices
+                ],
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            }
+        )
+
+        await playback_realtime_hub.broadcast(
+            user.id,
+            {
+                "type":
+                    "presence_changed",
+            },
+            exclude_device_id=(
+                device_id
+            ),
+        )
+
+        while True:
+            try:
+                message = (
+                    await asyncio.wait_for(
+                        websocket.receive_json(),
+                        timeout=5,
+                    )
+                )
+            except TimeoutError:
+                await websocket.close(
+                    code=4000,
+                )
+                break
+
+            if not isinstance(
+                message,
+                dict,
+            ):
+                continue
+
+            message_type = str(
+                message.get(
+                    "type",
+                    "",
+                )
+            ).strip()
+
+            if message_type == "command":
+                request_id = str(
+                    message.get(
+                        "request_id",
+                        "",
+                    )
+                ).strip()[:96]
+
+                target_device_id = str(
+                    message.get(
+                        "target_device_id",
+                        "",
+                    )
+                ).strip()
+
+                try:
+                    if (
+                        not request_id
+                        or not target_device_id
+                        or len(
+                            target_device_id,
+                        ) > 64
+                    ):
+                        raise ValueError(
+                            "Invalid realtime playback command.",
+                        )
+
+                    command_payload = (
+                        PlaybackRemoteCommandRequest(
+                            source_device_id=(
+                                device_id
+                            ),
+                            action=message.get(
+                                "action",
+                            ),
+                            value=message.get(
+                                "value",
+                            ),
+                            track_id=message.get(
+                                "track_id",
+                            ),
+                            queue_track_ids=(
+                                message.get(
+                                    "queue_track_ids",
+                                )
+                                or []
+                            ),
+                            queue_index=message.get(
+                                "queue_index",
+                            ),
+                            position_seconds=message.get(
+                                "position_seconds",
+                            ),
+                            paused=message.get(
+                                "paused",
+                            ),
+                        )
+                    )
+
+                    async with session_factory() as session:
+                        command_response = (
+                            await send_playback_device_command(
+                                target_device_id,
+                                command_payload,
+                                user,
+                                session,
+                            )
+                        )
+
+                    await websocket.send_json(
+                        {
+                            "type":
+                                "command_ack",
+                            "request_id":
+                                request_id,
+                            "command":
+                                command_response.model_dump(
+                                    mode="json",
+                                ),
+                        }
+                    )
+
+                except ValidationError as exc:
+                    await websocket.send_json(
+                        {
+                            "type":
+                                "command_error",
+                            "request_id":
+                                request_id,
+                            "status":
+                                400,
+                            "detail":
+                                "Invalid playback command.",
+                        }
+                    )
+
+                    logger.debug(
+                        "Rejected realtime playback command: %s",
+                        exc,
+                    )
+
+                except HTTPException as exc:
+                    await websocket.send_json(
+                        {
+                            "type":
+                                "command_error",
+                            "request_id":
+                                request_id,
+                            "status":
+                                exc.status_code,
+                            "detail":
+                                str(
+                                    exc.detail,
+                                ),
+                        }
+                    )
+
+                except ValueError as exc:
+                    await websocket.send_json(
+                        {
+                            "type":
+                                "command_error",
+                            "request_id":
+                                request_id,
+                            "status":
+                                400,
+                            "detail":
+                                str(
+                                    exc,
+                                ),
+                        }
+                    )
+
+                continue
+
+            if message_type == "playback_state":
+                try:
+                    state_payload = (
+                        PlaybackStateUpdateRequest(
+                            track_id=message.get(
+                                "track_id",
+                            ),
+                            position_seconds=message.get(
+                                "position_seconds",
+                                0,
+                            ),
+                            paused=message.get(
+                                "paused",
+                                True,
+                            ),
+                            queue_track_ids=(
+                                message.get(
+                                    "queue_track_ids",
+                                )
+                                or []
+                            ),
+                            queue_index=message.get(
+                                "queue_index",
+                            ),
+                            device_id=device_id,
+                        )
+                    )
+
+                    async with session_factory() as session:
+                        await update_my_playback_state(
+                            state_payload,
+                            user,
+                            session,
+                        )
+
+                except ValidationError:
+                    logger.debug(
+                        "Rejected invalid realtime playback state for %s",
+                        device_id,
+                    )
+
+                except HTTPException:
+                    logger.debug(
+                        "Rejected realtime playback state for %s",
+                        device_id,
+                    )
+
+                continue
+
+            if message_type not in {
+                "heartbeat",
+                "presence",
+            }:
+                continue
+
+            async with session_factory() as session:
+                now = datetime.now(
+                    UTC,
+                )
+
+                await touch_playback_device(
+                    session,
+                    user,
+                    device_id=device_id,
+                    name=name,
+                    device_type=cast(
+                        PlaybackDeviceKind,
+                        device_type,
+                    ),
+                    now=now,
+                )
+
+                await prune_offline_playback_devices(
+                    session,
+                    user,
+                    now=now,
+                )
+
+                await session.commit()
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        should_cleanup = (
+            user is not None
+            and registered_socket
+            and bool(
+                device_id,
+            )
+        )
+
+        is_current_socket = False
+
+        if should_cleanup:
+            is_current_socket = (
+                await playback_realtime_hub.disconnect(
+                    user.id,
+                    device_id,
+                    websocket,
+                )
+            )
+
+        if (
+            should_cleanup
+            and is_current_socket
+        ):
+            # A socket close can be temporary: Vite reloads,
+            # Wi-Fi changes, mobile backgrounding, and normal
+            # reconnects all create short disconnect windows.
+            #
+            # Do not delete the shared playback_devices row here.
+            # HTTP polling may already be refreshing that same
+            # device, which previously raced this DELETE and
+            # produced SQLAlchemy StaleDataError. The existing
+            # five-second presence TTL removes truly offline
+            # devices and releases playback ownership instead.
+            await playback_realtime_hub.broadcast(
+                user.id,
+                {
+                    "type":
+                        "presence_changed",
+                },
+            )
 
 
 @router.post(
@@ -2145,6 +3120,15 @@ async def send_playback_device_command(
         )
 
     value = payload.value
+    selected_track = None
+
+    canonical_queue: list[
+        PlaybackTrackResponse
+    ] = []
+
+    canonical_queue_index: int | None = (
+        None
+    )
 
     if payload.action == "seek":
         if (
@@ -2179,8 +3163,239 @@ async def send_playback_device_command(
                 ),
             )
 
+    elif (
+        payload.action
+        == "play_track"
+        and payload.track_id
+        is None
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Play-track commands require "
+                "a track id."
+            ),
+        )
+
+    elif (
+        payload.action
+        in {
+            "play_track",
+            "transfer",
+        }
+        and payload.track_id
+        is not None
+    ):
+        value = None
+
+        track_result = await session.execute(
+            select(
+                Track,
+            ).where(
+                Track.id
+                == payload.track_id,
+                Track.is_published.is_(
+                    True,
+                ),
+            )
+        )
+
+        selected_track = (
+            track_result
+            .scalar_one_or_none()
+        )
+
+        if selected_track is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_404_NOT_FOUND
+                ),
+                detail="Track not found.",
+            )
+
+        requested_queue_ids = list(
+            payload.queue_track_ids
+        )
+
+        requested_queue_index = (
+            payload.queue_index
+        )
+
+        if (
+            requested_queue_index
+            is None
+            or requested_queue_index
+            >= len(
+                requested_queue_ids,
+            )
+            or requested_queue_ids[
+                requested_queue_index
+            ]
+            != payload.track_id
+        ):
+            requested_queue_index = (
+                next(
+                    (
+                        index
+                        for (
+                            index,
+                            queue_track_id,
+                        )
+                        in enumerate(
+                            requested_queue_ids
+                        )
+                        if queue_track_id
+                        == payload.track_id
+                    ),
+                    None,
+                )
+            )
+
+        if not requested_queue_ids:
+            requested_queue_ids = [
+                payload.track_id,
+            ]
+
+            requested_queue_index = 0
+
+        queue_track_result = (
+            await session.execute(
+                select(
+                    Track,
+                ).where(
+                    Track.id.in_(
+                        set(
+                            requested_queue_ids,
+                        )
+                    ),
+                    Track.is_published.is_(
+                        True,
+                    ),
+                )
+            )
+        )
+
+        queue_track_by_id = {
+            track.id:
+                track
+            for track
+            in queue_track_result.scalars().all()
+        }
+
+        canonical_queue = []
+
+        for (
+            original_index,
+            queue_track_id,
+        ) in enumerate(
+            requested_queue_ids,
+        ):
+            queue_track = (
+                queue_track_by_id.get(
+                    queue_track_id,
+                )
+            )
+
+            if queue_track is None:
+                continue
+
+            if (
+                requested_queue_index
+                == original_index
+            ):
+                canonical_queue_index = (
+                    len(
+                        canonical_queue,
+                    )
+                )
+
+            canonical_queue.append(
+                playback_queue_track_response(
+                    queue_track,
+                )
+            )
+
+        if (
+            canonical_queue_index
+            is None
+        ):
+            for (
+                index,
+                queue_track,
+            ) in enumerate(
+                canonical_queue,
+            ):
+                if (
+                    queue_track.id
+                    == payload.track_id
+                ):
+                    canonical_queue_index = (
+                        index
+                    )
+
+                    break
+
+        if (
+            canonical_queue_index
+            is None
+        ):
+            canonical_queue.insert(
+                0,
+                playback_queue_track_response(
+                    selected_track,
+                ),
+            )
+
+            canonical_queue_index = 0
+
     else:
         value = None
+
+    if payload.action in {
+        "transfer",
+        "play_track",
+    }:
+        # A fresh handoff/song choice supersedes every
+        # unconsumed command that targeted that device.
+        await session.execute(
+            delete(
+                PlaybackCommand,
+            ).where(
+                PlaybackCommand.user_id
+                == user.id,
+                PlaybackCommand.target_device_id
+                == target_device_id,
+                PlaybackCommand.consumed_at
+                .is_(
+                    None,
+                ),
+            )
+        )
+
+    elif payload.action in {
+        "seek",
+        "volume",
+    }:
+        # Rapid scrubbing/volume changes should never build
+        # a stale command backlog. Only the newest value matters.
+        await session.execute(
+            delete(
+                PlaybackCommand,
+            ).where(
+                PlaybackCommand.user_id
+                == user.id,
+                PlaybackCommand.target_device_id
+                == target_device_id,
+                PlaybackCommand.action
+                == payload.action,
+                PlaybackCommand.consumed_at
+                .is_(
+                    None,
+                ),
+            )
+        )
 
     command = PlaybackCommand(
         user_id=user.id,
@@ -2198,28 +3413,175 @@ async def send_playback_device_command(
         command,
     )
 
-    if payload.action == "transfer":
-        playback_state = (
+    previous_pause_command = None
+    playback_state_row = None
+    broadcast_playback_state = False
+
+    if payload.action in {
+        "transfer",
+        "play_track",
+    }:
+        playback_state_row = (
             await session.get(
                 UserAppState,
                 user.id,
             )
         )
 
+        if playback_state_row is None:
+            playback_state_row = (
+                UserAppState(
+                    user_id=user.id,
+                )
+            )
+
+            session.add(
+                playback_state_row,
+            )
+
         previous_device_id = (
-            playback_state
-                .playback_device_id
-            if playback_state
-            is not None
-            else None
+            playback_state_row
+            .playback_device_id
         )
+
+        if payload.action == "transfer":
+            if selected_track is not None:
+                playback_state_row.playback_track_id = (
+                    selected_track.id
+                )
+
+            if payload.position_seconds is not None:
+                playback_state_row.playback_position_seconds = (
+                    max(
+                        float(
+                            payload.position_seconds,
+                        ),
+                        0.0,
+                    )
+                )
+
+                if payload.paused is not None:
+                    playback_state_row.playback_paused = (
+                        bool(
+                            payload.paused,
+                        )
+                    )
+            else:
+                updated_at = (
+                    _as_utc_playback_time(
+                        playback_state_row
+                        .playback_updated_at,
+                    )
+                )
+
+                if (
+                    not playback_state_row
+                    .playback_paused
+                    and updated_at
+                    is not None
+                ):
+                    elapsed = max(
+                        (
+                            now -
+                            updated_at
+                        ).total_seconds(),
+                        0.0,
+                    )
+
+                    playback_state_row.playback_position_seconds = (
+                        max(
+                            float(
+                                playback_state_row
+                                .playback_position_seconds
+                                or 0.0
+                            ),
+                            0.0,
+                        )
+                        + elapsed
+                    )
+
+            if canonical_queue:
+                playback_state_row.playback_queue_track_ids = [
+                    str(
+                        queue_track.id,
+                    )
+                    for queue_track
+                    in canonical_queue
+                ]
+
+                playback_state_row.playback_queue_index = (
+                    canonical_queue_index
+                )
+
+            elif payload.queue_track_ids:
+                transfer_queue_ids = [
+                    str(
+                        queue_id,
+                    )
+                    for queue_id
+                    in payload.queue_track_ids[:500]
+                ]
+
+                playback_state_row.playback_queue_track_ids = (
+                    transfer_queue_ids
+                )
+
+                playback_state_row.playback_queue_index = (
+                    payload.queue_index
+                    if (
+                        payload.queue_index
+                        is not None
+                        and payload.queue_index
+                        < len(
+                            transfer_queue_ids,
+                        )
+                    )
+                    else None
+                )
+        else:
+            playback_state_row.playback_track_id = (
+                selected_track.id
+                if selected_track
+                is not None
+                else None
+            )
+
+            playback_state_row.playback_position_seconds = (
+                0.0
+            )
+
+            playback_state_row.playback_paused = (
+                False
+            )
+
+            playback_state_row.playback_queue_track_ids = [
+                str(
+                    queue_track.id,
+                )
+                for queue_track
+                in canonical_queue
+            ]
+
+            playback_state_row.playback_queue_index = (
+                canonical_queue_index
+            )
+
+        playback_state_row.playback_device_id = (
+            target_device_id
+        )
+
+        playback_state_row.playback_updated_at = (
+            now
+        )
+
+        broadcast_playback_state = True
 
         if (
             previous_device_id
             and previous_device_id
             != target_device_id
         ):
-            session.add(
+            previous_pause_command = (
                 PlaybackCommand(
                     user_id=user.id,
                     target_device_id=(
@@ -2227,11 +3589,114 @@ async def send_playback_device_command(
                     ),
                     source_device_id=(
                         payload
-                            .source_device_id
+                        .source_device_id
                     ),
                     action="pause",
                 )
             )
+
+            session.add(
+                previous_pause_command,
+            )
+
+    if payload.action in {
+        "play",
+        "pause",
+        "seek",
+        "stop",
+    }:
+        if playback_state_row is None:
+            playback_state_row = (
+                await session.get(
+                    UserAppState,
+                    user.id,
+                )
+            )
+
+        if (
+            playback_state_row is not None
+            and playback_state_row.playback_device_id
+            == target_device_id
+        ):
+            updated_at = (
+                _as_utc_playback_time(
+                    playback_state_row
+                    .playback_updated_at,
+                )
+            )
+
+            if (
+                not playback_state_row
+                    .playback_paused
+                and updated_at is not None
+            ):
+                elapsed = max(
+                    (
+                        now -
+                        updated_at
+                    ).total_seconds(),
+                    0.0,
+                )
+
+                playback_state_row.playback_position_seconds = (
+                    max(
+                        float(
+                            playback_state_row
+                            .playback_position_seconds
+                            or 0.0
+                        ),
+                        0.0,
+                    )
+                    + elapsed
+                )
+
+            if payload.action == "play":
+                playback_state_row.playback_paused = (
+                    False
+                )
+
+            elif payload.action == "pause":
+                playback_state_row.playback_paused = (
+                    True
+                )
+
+            elif payload.action == "seek":
+                playback_state_row.playback_position_seconds = (
+                    max(
+                        float(
+                            value
+                            or 0.0
+                        ),
+                        0.0,
+                    )
+                )
+
+            elif payload.action == "stop":
+                playback_state_row.playback_track_id = (
+                    None
+                )
+
+                playback_state_row.playback_position_seconds = (
+                    0.0
+                )
+
+                playback_state_row.playback_paused = (
+                    True
+                )
+
+                playback_state_row.playback_queue_track_ids = (
+                    []
+                )
+
+                playback_state_row.playback_queue_index = (
+                    None
+                )
+
+            playback_state_row.playback_updated_at = (
+                now
+            )
+
+            broadcast_playback_state = True
 
     await session.commit()
 
@@ -2239,23 +3704,127 @@ async def send_playback_device_command(
         command,
     )
 
-    return PlaybackRemoteCommandResponse(
-        id=command.id,
-        source_device_id=(
-            command.source_device_id
-        ),
-        target_device_id=(
-            command.target_device_id
-        ),
-        action=cast(
-            PlaybackRemoteAction,
-            command.action,
-        ),
-        value=command.value,
-        created_at=(
-            command.created_at
-        ),
+    if previous_pause_command is not None:
+        await session.refresh(
+            previous_pause_command,
+        )
+
+    command_response = (
+        playback_command_response(
+            command,
+            queue=(
+                canonical_queue
+                if payload.action
+                == "play_track"
+                else None
+            ),
+            queue_index=(
+                canonical_queue_index
+                if payload.action
+                == "play_track"
+                else None
+            ),
+        )
     )
+
+    playback_state = (
+        await build_playback_state(
+            session,
+            user,
+        )
+    )
+
+    if previous_pause_command is not None:
+        previous_response = (
+            playback_command_response(
+                previous_pause_command,
+            )
+        )
+
+        # Notify the previous owner of the ownership change
+        # before the target command is delivered. Current clients
+        # use the attached playback state as the handoff start,
+        # keep the old audio alive until the target publishes its
+        # applied state, then overlap for one additional second.
+        # The pause command remains a backward-compatible fallback.
+        previous_pause_delivered = (
+            await playback_realtime_hub.send_to(
+                user.id,
+                previous_pause_command
+                .target_device_id,
+                {
+                    "type":
+                        "command",
+                    "command":
+                        previous_response.model_dump(
+                            mode="json",
+                        ),
+                    "playback_state":
+                        playback_state.model_dump(
+                            mode="json",
+                        ),
+                },
+            )
+        )
+
+        if previous_pause_delivered:
+            previous_pause_command.consumed_at = (
+                datetime.now(
+                    UTC,
+                )
+            )
+
+    if broadcast_playback_state:
+        await playback_realtime_hub.broadcast(
+            user.id,
+            {
+                "type":
+                    "playback_state",
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            },
+        )
+
+    command_delivered = (
+        await playback_realtime_hub.send_to(
+            user.id,
+            target_device_id,
+            {
+                "type": "command",
+                "command":
+                    command_response.model_dump(
+                        mode="json",
+                    ),
+                "playback_state":
+                    playback_state.model_dump(
+                        mode="json",
+                    ),
+            },
+        )
+    )
+
+    if command_delivered:
+        command.consumed_at = (
+            datetime.now(
+                UTC,
+            )
+        )
+
+    if (
+        command_delivered
+        or (
+            previous_pause_command
+            is not None
+            and previous_pause_command
+            .consumed_at
+            is not None
+        )
+    ):
+        await session.commit()
+
+    return command_response
 
 
 @router.get(

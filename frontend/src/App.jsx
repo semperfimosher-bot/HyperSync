@@ -115,6 +115,10 @@ import {
 } from "./catalogStore.js";
 
 import {
+  duplicateTrackIdsToDelete,
+} from "./duplicateCleanup.js";
+
+import {
   addTrackGroupSelection,
   getTrackGroupSelectionState,
   pruneTrackSelection,
@@ -130,6 +134,7 @@ import {
   getPlaylistDownloadJobId,
   reconcileDownloadedPlaylistMembership,
   recoverInterruptedDownloadJobs,
+  removeAllOfflineDownloadsForOwner,
   removePlaylistFromOffline,
   startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
@@ -137,6 +142,10 @@ import {
 import {
   getPlaylist,
 } from "./playlistApi.js";
+
+import {
+  clearCachedLibraryScope,
+} from "./libraryCache.js";
 
 import {
   findMissingPlaylistTracks,
@@ -161,13 +170,17 @@ import {
 } from "./pwaInstall.js";
 
 import {
+  connectPlaybackDeviceLive,
   getPlaybackDeviceDescriptor,
   pollPlaybackDevice,
+  resolvePlaybackControlTarget,
   sendPlaybackDeviceCommand,
 } from "./playbackDevices.js";
 
 import {
+  advanceOutgoingHandoffObservation,
   applyPlaybackRemoteCommand,
+  shouldApplyPlaybackRemoteCommand,
 } from "./playbackRemoteCommands.js";
 
 import {
@@ -182,13 +195,22 @@ import {
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
-  3000;
+  750;
 
 const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
-  1500;
+  1000;
+
+const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
+  750;
 
 const ACCOUNT_PLAYBACK_STALE_PLAYING_MS =
-  15000;
+  5000;
+
+const PLAYBACK_HANDOFF_OVERLAP_MS =
+  1000;
+
+const PLAYBACK_HANDOFF_CONFIRMATION_TIMEOUT_MS =
+  6000;
 
 const ACCOUNT_PLAYBACK_DEVICE_KEY =
   "hypersync:playback-device-id";
@@ -1691,6 +1713,11 @@ function AdminDashboardPage({
   ] = useState(false);
 
   const [
+    duplicateDeleteBusy,
+    setDuplicateDeleteBusy,
+  ] = useState(false);
+
+  const [
     userQuery,
     setUserQuery,
   ] = useState("");
@@ -1933,6 +1960,128 @@ function AdminDashboardPage({
         }
       },
       [],
+    );
+
+
+  const duplicateDeleteTrackIds =
+    useMemo(
+      () =>
+        duplicateTrackIdsToDelete(
+          duplicates,
+        ),
+      [
+        duplicates,
+      ],
+    );
+
+
+  const deleteFoundDuplicates =
+    useCallback(
+      async () => {
+        if (
+          duplicateDeleteBusy ||
+          duplicateDeleteTrackIds
+            .length === 0
+        ) {
+          return;
+        }
+
+        const confirmed =
+          window.confirm(
+            "Delete " +
+            duplicateDeleteTrackIds.length +
+            " duplicate track" +
+            (
+              duplicateDeleteTrackIds.length ===
+                1
+                ? ""
+                : "s"
+            ) +
+            "? HyperSynced will keep the oldest catalog copy in each duplicate group and permanently delete the extra database rows and B2 files.",
+          );
+
+        if (!confirmed) {
+          return;
+        }
+
+        setDuplicateDeleteBusy(
+          true,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await deleteCatalogTracks(
+              duplicateDeleteTrackIds,
+            );
+
+          await loadDashboard();
+
+          await runDuplicateCheck();
+
+          const deletedCount =
+            Number(
+              result
+                ?.deleted_count ??
+              result
+                ?.deleted_track_ids
+                ?.length ??
+              0,
+            );
+
+          const failedCount =
+            Array.isArray(
+              result?.failed,
+            )
+              ? result.failed.length
+              : 0;
+
+          setMessage(
+            failedCount > 0
+              ? (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  ". " +
+                  failedCount +
+                  " could not be deleted and remain in the catalog."
+                )
+              : (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  " and kept one canonical copy per group."
+                ),
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to delete duplicates.",
+          );
+        } finally {
+          setDuplicateDeleteBusy(
+            false,
+          );
+        }
+      },
+      [
+        duplicateDeleteBusy,
+        duplicateDeleteTrackIds,
+        loadDashboard,
+        runDuplicateCheck,
+      ],
     );
 
 
@@ -2548,9 +2697,11 @@ function AdminDashboardPage({
               duplicateCount === 0
             }
             status={
-              duplicateBusy
-                ? "SCANNING"
-                : duplicates
+              duplicateDeleteBusy
+                ? "DELETING"
+                : duplicateBusy
+                  ? "SCANNING"
+                  : duplicates
                   ? (
                       duplicateCount === 0
                         ? "CLEAN"
@@ -2587,20 +2738,46 @@ function AdminDashboardPage({
             <h3>Duplicate Check</h3>
           </div>
 
-          <button
-            type="button"
-            className="secondary-admin-button admin-inline-button"
-            disabled={
-              duplicateBusy
-            }
-            onClick={() => {
-              void runDuplicateCheck();
-            }}
-          >
-            {duplicateBusy
-              ? "Scanning..."
-              : "Scan Catalog"}
-          </button>
+          <div className="admin-duplicate-actions">
+            {duplicateDeleteTrackIds.length >
+              0 ? (
+              <button
+                type="button"
+                className="danger-button admin-inline-button"
+                disabled={
+                  duplicateBusy ||
+                  duplicateDeleteBusy
+                }
+                onClick={() => {
+                  void deleteFoundDuplicates();
+                }}
+              >
+                {duplicateDeleteBusy
+                  ? "Deleting duplicates..."
+                  : (
+                      "Delete duplicates (" +
+                      duplicateDeleteTrackIds.length +
+                      ")"
+                    )}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="secondary-admin-button admin-inline-button"
+              disabled={
+                duplicateBusy ||
+                duplicateDeleteBusy
+              }
+              onClick={() => {
+                void runDuplicateCheck();
+              }}
+            >
+              {duplicateBusy
+                ? "Scanning..."
+                : "Scan Catalog"}
+            </button>
+          </div>
         </div>
 
         {duplicates === null ? (
@@ -3083,7 +3260,7 @@ function MainPage({
 
 
   /*
-   * Keep visited pages alive for two hours.
+   * Keep visited pages alive for twelve hours.
    *
    * React Activity preserves their UI and
    * component state while hidden, but cleans
@@ -3612,6 +3789,7 @@ function PlayerBar({
   messageNotifications,
   onOpenMessage,
   onOpenNotification,
+  onDeleteNotification,
   onEnablePush,
   pushBusy,
   pushEnabled,
@@ -3720,7 +3898,7 @@ function PlayerBar({
             Date.now(),
           );
         },
-        500,
+        100,
       );
 
     return () => {
@@ -4076,7 +4254,7 @@ function PlayerBar({
               value,
             );
           },
-          180,
+          40,
         );
     };
 
@@ -4597,6 +4775,9 @@ function PlayerBar({
                     notification,
                   );
                 }}
+                onDeleteNotification={
+                  onDeleteNotification
+                }
                 onEnablePush={
                   onEnablePush
                 }
@@ -5407,6 +5588,46 @@ export default function App() {
     setControlledPlaybackDeviceId,
   ] = useState(null);
 
+  const playbackDevicesRef =
+    useRef([]);
+
+  const accountPlaybackSnapshotRef =
+    useRef(null);
+
+  const controlledPlaybackDeviceIdRef =
+    useRef(null);
+
+  const playbackLiveConnectionRef =
+    useRef(null);
+
+  const playbackSeenCommandIdsRef =
+    useRef(
+      new Set(),
+    );
+
+  const selectControlledPlaybackDevice =
+    useCallback(
+      (
+        deviceId,
+      ) => {
+        const normalized =
+          String(
+            deviceId ??
+              "",
+          ).trim() ||
+          null;
+
+        controlledPlaybackDeviceIdRef.current =
+          normalized;
+
+        setControlledPlaybackDeviceId(
+          normalized,
+        );
+      },
+      [],
+    );
+
+
   const playbackDeviceIdRef =
     useRef(
       getAccountPlaybackDeviceId(),
@@ -5433,6 +5654,8 @@ export default function App() {
         0,
       at:
         0,
+      queueSignature:
+        "",
     });
 
   const playbackWriteInFlightRef =
@@ -5441,6 +5664,130 @@ export default function App() {
   const playbackPendingWriteRef =
     useRef(null);
 
+  const playbackHandoffSilenceTimerRef =
+    useRef(null);
+
+  const playbackOutgoingHandoffObservationRef =
+    useRef(null);
+
+
+  const cancelPlaybackHandoffSilence =
+    useCallback(
+      () => {
+        if (
+          playbackHandoffSilenceTimerRef
+            .current !== null
+        ) {
+          globalThis.clearTimeout(
+            playbackHandoffSilenceTimerRef
+              .current,
+          );
+
+          playbackHandoffSilenceTimerRef
+            .current =
+              null;
+        }
+      },
+      [],
+    );
+
+
+  const schedulePlaybackHandoffSilence =
+    useCallback(
+      (
+        delayMs =
+          PLAYBACK_HANDOFF_OVERLAP_MS,
+      ) => {
+        if (
+          playbackHandoffSilenceTimerRef
+            .current !== null
+        ) {
+          return;
+        }
+
+        const safeDelayMs =
+          Math.max(
+            Number(
+              delayMs,
+            ) || 0,
+            0,
+          );
+
+        playbackHandoffSilenceTimerRef.current =
+          globalThis.setTimeout(
+            () => {
+              playbackHandoffSilenceTimerRef
+                .current =
+                  null;
+
+              playbackOutgoingHandoffObservationRef
+                .current =
+                  null;
+
+              const activeDeviceId =
+                String(
+                  accountPlaybackSnapshotRef
+                    .current
+                    ?.device_id ??
+                    "",
+                ).trim();
+
+              const currentDeviceId =
+                String(
+                  playbackDeviceIdRef
+                    .current ??
+                    "",
+                ).trim();
+
+              if (
+                activeDeviceId &&
+                currentDeviceId &&
+                activeDeviceId !==
+                  currentDeviceId
+              ) {
+                player.silenceLocalPlayback();
+              }
+            },
+            safeDelayMs,
+          );
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    return () => {
+      playbackOutgoingHandoffObservationRef
+        .current =
+          null;
+
+      cancelPlaybackHandoffSilence();
+    };
+  }, [
+    cancelPlaybackHandoffSilence,
+  ]);
+
+
+  const resolveCurrentPlaybackControlTarget =
+    useCallback(
+      () =>
+        resolvePlaybackControlTarget({
+          devices:
+            playbackDevicesRef.current,
+          currentDeviceId:
+            playbackDeviceIdRef.current,
+          activeDeviceId:
+            accountPlaybackSnapshotRef
+              .current
+              ?.device_id ??
+            null,
+          controlledDeviceId:
+            controlledPlaybackDeviceIdRef
+              .current,
+        }),
+      [],
+    );
+
 
   const sendAccountPlaybackCommand =
     useCallback(
@@ -5448,6 +5795,7 @@ export default function App() {
         targetDeviceId,
         action,
         value = null,
+        options = {},
       ) => {
         if (
           currentUser?.account_type !==
@@ -5469,10 +5817,214 @@ export default function App() {
         const currentDeviceId =
           playbackDeviceIdRef.current;
 
+        const snapshot =
+          accountPlaybackSnapshotRef
+            .current;
+
+        const localState =
+          player.getState();
+
+        const transferFromLocalOwner =
+          action ===
+            "transfer" &&
+          snapshot?.device_id ===
+            currentDeviceId;
+
+        const transferPosition =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? Math.max(
+                      Number(
+                        localState?.currentTime ??
+                          0,
+                      ) || 0,
+                      0,
+                    )
+                  : accountPlaybackPosition(
+                      snapshot,
+                    )
+              )
+            : null;
+
+        const transferPaused =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? Boolean(
+                      localState?.paused,
+                    )
+                  : Boolean(
+                      snapshot?.paused ??
+                        true,
+                    )
+              )
+            : null;
+
+        const transferQueue =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? (
+                      Array.isArray(
+                        localState?.queue,
+                      )
+                        ? localState.queue
+                        : []
+                    )
+                  : (
+                      Array.isArray(
+                        snapshot?.queue,
+                      )
+                        ? snapshot.queue
+                        : []
+                    )
+              )
+            : [];
+
+        const transferQueueIndex =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? localState?.queueIndex
+                  : snapshot?.queue_index
+              )
+            : null;
+
+        const transferTrackId =
+          action ===
+            "transfer"
+            ? (
+                String(
+                  (
+                    transferFromLocalOwner
+                      ? localState?.trackId
+                      : snapshot?.track?.id
+                  ) ??
+                    "",
+                ).trim()
+                || null
+              )
+            : null;
+
+        const transferQueueEntry =
+          transferFromLocalOwner &&
+          transferTrackId &&
+          Array.isArray(
+            transferQueue,
+          )
+            ? (
+                transferQueue.find(
+                  (entry) =>
+                    String(
+                      entry?.id ??
+                        "",
+                    ) ===
+                    transferTrackId,
+                ) ??
+                null
+              )
+            : null;
+
+        const transferTrackMeta =
+          transferQueueEntry?.meta ??
+          {};
+
+        const transferTrackSnapshot =
+          transferTrackId
+            ? (
+                transferFromLocalOwner
+                  ? {
+                      id:
+                        transferTrackId,
+                      title:
+                        transferTrackMeta.title ??
+                        localState?.title ??
+                        "",
+                      artist:
+                        transferTrackMeta.artist ??
+                        localState?.artist ??
+                        "",
+                      album:
+                        transferTrackMeta.album ??
+                        localState?.album ??
+                        null,
+                      duration_seconds:
+                        transferTrackMeta.durationSeconds ??
+                        localState?.durationSeconds ??
+                        null,
+                      audio_url:
+                        transferTrackMeta.audioUrl ??
+                        null,
+                      artwork_url:
+                        transferTrackMeta.artworkUrl ??
+                        localState?.artworkUrl ??
+                        null,
+                      mime_type:
+                        transferTrackMeta.mimeType ??
+                        localState?.mimeType ??
+                        null,
+                      file_size:
+                        transferTrackMeta.fileSize ??
+                        localState?.fileSize ??
+                        null,
+                      media_version:
+                        transferTrackMeta.mediaVersion ??
+                        localState?.mediaVersion ??
+                        null,
+                      artwork_version:
+                        transferTrackMeta.artworkVersion ??
+                        localState?.artworkVersion ??
+                        null,
+                    }
+                  : snapshot?.track
+              )
+            : null;
+
+        const transferSnapshotQueue =
+          transferFromLocalOwner &&
+          Array.isArray(
+            transferQueue,
+          )
+            ? transferQueue.map(
+                (entry) => ({
+                  id:
+                    String(
+                      entry?.id ??
+                        "",
+                    ),
+                  ...(
+                    entry?.meta ??
+                    {}
+                  ),
+                }),
+              )
+            : (
+                Array.isArray(
+                  snapshot?.queue,
+                )
+                  ? snapshot.queue
+                  : []
+              );
+
+        /*
+         * Keep the outgoing player audible until
+         * the transfer is accepted. The account
+         * ownership update schedules a short
+         * overlap instead of creating a gap.
+         */
         try {
           if (
             targetId ===
-            currentDeviceId
+              currentDeviceId &&
+            action !==
+              "transfer" &&
+            action !==
+              "play_track"
           ) {
             const result =
               await applyPlaybackRemoteCommand(
@@ -5482,14 +6034,17 @@ export default function App() {
                 },
                 {
                   player,
-                  snapshot:
-                    accountPlaybackSnapshot,
+                  snapshot,
                   snapshotPosition:
                     accountPlaybackPosition,
                 },
               );
 
             if (result) {
+              controlledPlaybackDeviceIdRef
+                .current =
+                  currentDeviceId;
+
               setControlledPlaybackDeviceId(
                 currentDeviceId,
               );
@@ -5500,29 +6055,563 @@ export default function App() {
             );
           }
 
-          await sendPlaybackDeviceCommand({
-            targetDeviceId:
-              targetId,
-            sourceDeviceId:
-              currentDeviceId,
-            action,
-            value,
-          });
+          /*
+           * Update the controller immediately.
+           * The realtime command follows in the
+           * same tick, while the authoritative
+           * server/target state catches up.
+           */
+          controlledPlaybackDeviceIdRef
+            .current =
+              targetId;
 
           setControlledPlaybackDeviceId(
             targetId,
           );
 
+          let optimisticSnapshot =
+            snapshot;
+
+          if (snapshot) {
+            const nowIso =
+              new Date()
+                .toISOString();
+
+            const position =
+              accountPlaybackPosition(
+                snapshot,
+              );
+
+            if (
+              action ===
+                "play"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                paused:
+                  false,
+                position_seconds:
+                  position,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "pause"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                paused:
+                  true,
+                position_seconds:
+                  position,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "seek" &&
+              Number.isFinite(
+                Number(
+                  value,
+                ),
+              )
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                position_seconds:
+                  Math.max(
+                    Number(
+                      value,
+                    ),
+                    0,
+                  ),
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "transfer"
+            ) {
+              optimisticSnapshot = {
+                ...snapshot,
+                track:
+                  transferTrackSnapshot ??
+                  snapshot.track,
+                queue:
+                  transferSnapshotQueue,
+                queue_index:
+                  Number.isInteger(
+                    transferQueueIndex,
+                  )
+                    ? transferQueueIndex
+                    : snapshot.queue_index,
+                position_seconds:
+                  transferPosition ??
+                  position,
+                paused:
+                  transferPaused ??
+                  snapshot.paused,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            } else if (
+              action ===
+                "play_track" &&
+              options?.trackId
+            ) {
+              const meta =
+                options?.trackMeta ??
+                {};
+
+              optimisticSnapshot = {
+                ...snapshot,
+                track: {
+                  id:
+                    String(
+                      options.trackId,
+                    ),
+                  title:
+                    meta.title ??
+                    "",
+                  artist:
+                    meta.artist ??
+                    "",
+                  album:
+                    meta.album ??
+                    null,
+                  duration_seconds:
+                    meta.durationSeconds ??
+                    meta.duration_seconds ??
+                    null,
+                  audio_url:
+                    meta.audioUrl ??
+                    meta.audio_url ??
+                    null,
+                  artwork_url:
+                    meta.artworkUrl ??
+                    meta.artwork_url ??
+                    null,
+                  mime_type:
+                    meta.mimeType ??
+                    meta.mime_type ??
+                    null,
+                  file_size:
+                    meta.fileSize ??
+                    meta.file_size ??
+                    null,
+                  media_version:
+                    meta.mediaVersion ??
+                    meta.media_version ??
+                    null,
+                  artwork_version:
+                    meta.artworkVersion ??
+                    meta.artwork_version ??
+                    null,
+                },
+                paused:
+                  false,
+                position_seconds:
+                  0,
+                device_id:
+                  targetId,
+                updated_at:
+                  nowIso,
+              };
+            }
+          }
+
+          if (
+            optimisticSnapshot !==
+              snapshot
+          ) {
+            accountPlaybackSnapshotRef
+              .current =
+                optimisticSnapshot;
+
+            setAccountPlaybackSnapshot(
+              optimisticSnapshot,
+            );
+          }
+
+          const queueEntries =
+            action ===
+              "transfer"
+              ? transferQueue.slice(
+                  0,
+                  500,
+                )
+              : (
+                  Array.isArray(
+                    options?.queue,
+                  )
+                    ? options.queue.slice(
+                        0,
+                        500,
+                      )
+                    : []
+                );
+
+          const queueTrackIds =
+            queueEntries
+              .map(
+                (entry) =>
+                  String(
+                    entry?.id ??
+                      "",
+                  ).trim(),
+              )
+              .filter(
+                Boolean,
+              );
+
+          const requestedQueueIndex =
+            action ===
+              "transfer"
+              ? transferQueueIndex
+              : options?.queueIndex;
+
+          const queueIndex =
+            Number.isInteger(
+              requestedQueueIndex,
+            )
+              ? Math.min(
+                  Math.max(
+                    requestedQueueIndex,
+                    0,
+                  ),
+                  Math.max(
+                    queueTrackIds.length -
+                      1,
+                    0,
+                  ),
+                )
+              : null;
+
+          const liveConnection =
+            playbackLiveConnectionRef
+              .current;
+
+          const realtimeRequest =
+            liveConnection?.sendCommand?.({
+              targetDeviceId:
+                targetId,
+              action,
+              value,
+              trackId:
+                action ===
+                  "transfer"
+                  ? transferTrackId
+                  : (
+                      options?.trackId ??
+                      null
+                    ),
+              queueTrackIds,
+              queueIndex,
+              positionSeconds:
+                transferPosition,
+              paused:
+                transferPaused,
+            }) ??
+            null;
+
+          let usedRealtime =
+            Boolean(
+              realtimeRequest,
+            );
+
+          let response =
+            null;
+
+          if (realtimeRequest) {
+            const ack =
+              await realtimeRequest;
+
+            response =
+              ack?.command ??
+              null;
+          } else {
+            response =
+              await sendPlaybackDeviceCommand({
+                targetDeviceId:
+                  targetId,
+                sourceDeviceId:
+                  currentDeviceId,
+                action,
+                value,
+                trackId:
+                  action ===
+                    "transfer"
+                    ? transferTrackId
+                    : (
+                        options?.trackId ??
+                        null
+                      ),
+                queueTrackIds,
+                queueIndex,
+                positionSeconds:
+                  transferPosition,
+                paused:
+                  transferPaused,
+              });
+
+            usedRealtime =
+              false;
+          }
+
+          /*
+           * If the realtime channel is down
+           * and control is transferred back
+           * to this browser, apply the handoff
+           * locally after the HTTP fallback.
+           *
+           * Outgoing audio is not silenced from
+           * this request ACK. The old device waits
+           * for the target to publish playback after
+           * its audio.play() has actually succeeded.
+           */
+          if (
+            !usedRealtime &&
+            targetId ===
+              currentDeviceId &&
+            action ===
+              "transfer"
+          ) {
+            await applyPlaybackRemoteCommand(
+              {
+                ...response,
+                action:
+                  "transfer",
+              },
+              {
+                player,
+                snapshot:
+                  accountPlaybackSnapshotRef
+                    .current ??
+                  snapshot,
+                snapshotPosition:
+                  accountPlaybackPosition,
+              },
+            );
+          }
+
           return true;
         } catch {
+          if (
+            snapshot
+          ) {
+            accountPlaybackSnapshotRef
+              .current =
+                snapshot;
+
+            setAccountPlaybackSnapshot(
+              snapshot,
+            );
+          }
+
+          if (
+            targetId ===
+              currentDeviceId &&
+            action ===
+              "transfer"
+          ) {
+            player.silenceLocalPlayback();
+          }
+
           return false;
         }
       },
       [
-        accountPlaybackSnapshot,
         currentUser?.account_type,
       ],
     );
+
+
+  useEffect(() => {
+    playbackDevicesRef.current =
+      playbackDevices;
+  }, [
+    playbackDevices,
+  ]);
+
+
+  useEffect(() => {
+    accountPlaybackSnapshotRef.current =
+      accountPlaybackSnapshot;
+  }, [
+    accountPlaybackSnapshot,
+  ]);
+
+
+  useEffect(() => {
+    controlledPlaybackDeviceIdRef.current =
+      controlledPlaybackDeviceId;
+  }, [
+    controlledPlaybackDeviceId,
+  ]);
+
+
+  useEffect(() => {
+    if (
+      currentUser?.account_type !==
+        "registered"
+    ) {
+      player.setRemotePlaybackController(
+        null,
+      );
+
+      return undefined;
+    }
+
+    player.setRemotePlaybackController({
+      shouldHandle:
+        () => {
+          const targetId =
+            resolveCurrentPlaybackControlTarget();
+
+          if (
+            !targetId ||
+            targetId ===
+              playbackDeviceIdRef.current
+          ) {
+            return false;
+          }
+
+          return playbackDevicesRef
+            .current
+            .some(
+              (device) =>
+                device.device_id ===
+                  targetId &&
+                device.is_online,
+            );
+        },
+
+      dispatch:
+        async (
+          action,
+          payload,
+        ) => {
+          const targetId =
+            resolveCurrentPlaybackControlTarget();
+
+          if (!targetId) {
+            return false;
+          }
+
+          if (
+            action ===
+              "play_track"
+          ) {
+            const trackId =
+              String(
+                payload?.trackId ??
+                "",
+              ).trim();
+
+            if (!trackId) {
+              return false;
+            }
+
+            return sendAccountPlaybackCommand(
+              targetId,
+              "play_track",
+              null,
+              {
+                trackId,
+                trackMeta:
+                  payload?.meta ??
+                  null,
+                queue:
+                  payload?.queue ??
+                  null,
+                queueIndex:
+                  payload?.queueIndex ??
+                  null,
+              },
+            );
+          }
+
+          if (
+            action ===
+              "play_url"
+          ) {
+            /*
+             * Arbitrary URL playback has no
+             * cross-device catalog identity.
+             * Suppress local audio instead of
+             * leaking sound from the controller.
+             */
+            return false;
+          }
+
+          if (
+            action ===
+              "toggle"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              accountPlaybackSnapshotRef
+                .current
+                ?.paused
+                ? "play"
+                : "pause",
+            );
+          }
+
+          if (
+            action ===
+              "seek" ||
+            action ===
+              "volume"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              action,
+              Number(
+                payload?.value,
+              ),
+            );
+          }
+
+          if (
+            action ===
+              "pause" ||
+            action ===
+              "next" ||
+            action ===
+              "previous" ||
+            action ===
+              "stop"
+          ) {
+            return sendAccountPlaybackCommand(
+              targetId,
+              action,
+            );
+          }
+
+          return false;
+        },
+    });
+
+    return () => {
+      player.setRemotePlaybackController(
+        null,
+      );
+    };
+  }, [
+    currentUser?.account_type,
+    resolveCurrentPlaybackControlTarget,
+    sendAccountPlaybackCommand,
+  ]);
 
 
   useEffect(() => {
@@ -5966,6 +7055,24 @@ export default function App() {
       playbackPendingWriteRef.current =
         null;
 
+      playbackDevicesRef.current =
+        [];
+
+      accountPlaybackSnapshotRef.current =
+        null;
+
+      controlledPlaybackDeviceIdRef.current =
+        null;
+
+      playbackLiveConnectionRef.current
+        ?.close?.();
+
+      playbackLiveConnectionRef.current =
+        null;
+
+      playbackSeenCommandIdsRef.current
+        .clear();
+
       setPlaybackDevices(
         [],
       );
@@ -5993,11 +7100,45 @@ export default function App() {
     let pollInFlight =
       false;
 
+    let liveConnection =
+      null;
+
+    let liveReconnectTimer =
+      null;
+
     const deviceId =
       playbackDeviceIdRef.current;
 
     const deviceDescriptor =
       playbackDeviceDescriptorRef.current;
+
+    const syncControlledPlaybackDevice =
+      (
+        devices,
+        snapshot,
+      ) => {
+        setControlledPlaybackDeviceId(
+          (current) => {
+            const next =
+              resolvePlaybackControlTarget({
+                devices,
+                currentDeviceId:
+                  deviceId,
+                activeDeviceId:
+                  snapshot?.device_id ??
+                  null,
+                controlledDeviceId:
+                  current,
+              });
+
+            controlledPlaybackDeviceIdRef
+              .current =
+                next;
+
+            return next;
+          },
+        );
+      };
 
     const markPublished =
       (state) => {
@@ -6023,6 +7164,36 @@ export default function App() {
             ),
           at:
             Date.now(),
+          queueSignature:
+            (
+              Array.isArray(
+                state?.queue,
+              )
+                ? state.queue
+                    .slice(
+                      0,
+                      500,
+                    )
+                    .map(
+                      (entry) =>
+                        String(
+                          entry?.id ??
+                            "",
+                        ),
+                    )
+                    .join(
+                      "\u001f",
+                    )
+                : ""
+            ) +
+            "|" +
+            String(
+              Number.isInteger(
+                state?.queueIndex,
+              )
+                ? state.queueIndex
+                : -1,
+            ),
         };
       };
 
@@ -6039,6 +7210,85 @@ export default function App() {
             false
         ) {
           return null;
+        }
+
+        const activeDeviceId =
+          accountPlaybackSnapshotRef
+            .current
+            ?.device_id;
+
+        if (
+          activeDeviceId &&
+          activeDeviceId !==
+            deviceId
+        ) {
+          /*
+           * A controller is never allowed to
+           * steal playback merely because its
+           * local Audio element changed state.
+           */
+          return null;
+        }
+
+        const liveConnection =
+          playbackLiveConnectionRef
+            .current;
+
+        const sentRealtime =
+          liveConnection
+            ?.sendPlaybackState?.({
+              trackId:
+                state?.trackId ??
+                null,
+              positionSeconds:
+                Math.max(
+                  Number(
+                    state?.currentTime ??
+                    0,
+                  ) || 0,
+                  0,
+                ),
+              paused:
+                state?.trackId
+                  ? Boolean(
+                      state.paused,
+                    )
+                  : true,
+              queueTrackIds:
+                Array.isArray(
+                  state?.queue,
+                )
+                  ? state.queue
+                      .slice(
+                        0,
+                        500,
+                      )
+                      .map(
+                        (entry) =>
+                          String(
+                            entry?.id ??
+                              "",
+                          ),
+                      )
+                      .filter(
+                        Boolean,
+                      )
+                  : [],
+              queueIndex:
+                Number.isInteger(
+                  state?.queueIndex,
+                )
+                  ? state.queueIndex
+                  : null,
+            }) ??
+          false;
+
+        if (sentRealtime) {
+          markPublished(
+            state,
+          );
+
+          return state;
         }
 
         if (
@@ -6084,6 +7334,34 @@ export default function App() {
                           )
                         : true,
 
+                    queue_track_ids:
+                      Array.isArray(
+                        state?.queue,
+                      )
+                        ? state.queue
+                            .slice(
+                              0,
+                              500,
+                            )
+                            .map(
+                              (entry) =>
+                                String(
+                                  entry?.id ??
+                                    "",
+                                ),
+                            )
+                            .filter(
+                              Boolean,
+                            )
+                        : [],
+
+                    queue_index:
+                      Number.isInteger(
+                        state?.queueIndex,
+                      )
+                        ? state.queueIndex
+                        : null,
+
                     device_id:
                       deviceId,
                   }),
@@ -6104,6 +7382,9 @@ export default function App() {
                     ?.updated_at,
                 ),
               );
+
+          accountPlaybackSnapshotRef.current =
+            response;
 
           setAccountPlaybackSnapshot(
             response,
@@ -6143,6 +7424,13 @@ export default function App() {
 
     const shouldPublish =
       (state) => {
+        if (
+          state?.phase ===
+            "loading"
+        ) {
+          return false;
+        }
+
         const previous =
           playbackLastPublishedRef
             .current;
@@ -6169,6 +7457,37 @@ export default function App() {
               true,
           );
 
+        const queueSignature =
+          (
+            Array.isArray(
+              state?.queue,
+            )
+              ? state.queue
+                  .slice(
+                    0,
+                    500,
+                  )
+                  .map(
+                    (entry) =>
+                      String(
+                        entry?.id ??
+                          "",
+                      ),
+                  )
+                  .join(
+                    "\u001f",
+                  )
+              : ""
+          ) +
+          "|" +
+          String(
+            Number.isInteger(
+              state?.queueIndex,
+            )
+              ? state.queueIndex
+              : -1,
+          );
+
         const now =
           Date.now();
 
@@ -6177,6 +7496,8 @@ export default function App() {
             previous.trackId ||
           paused !==
             previous.paused ||
+          queueSignature !==
+            previous.queueSignature ||
           Math.abs(
             position -
               previous.position,
@@ -6211,34 +7532,112 @@ export default function App() {
         playbackLastServerUpdateRef.current =
           updatedAt;
 
-        if (
-          snapshot?.device_id ===
-            deviceId
-        ) {
-          return;
-        }
+        accountPlaybackSnapshotRef.current =
+          snapshot;
 
         playbackApplyingRemoteRef.current =
           true;
 
         try {
-          if (
-            snapshot?.track?.id
-          ) {
-            await player
-              .restoreAccountPlayback(
-                snapshot.track,
-                accountPlaybackPosition(
-                  snapshot,
-                ),
+          const ownsPlayback =
+            snapshot?.device_id ===
+              deviceId;
+
+          if (!ownsPlayback) {
+            const localState =
+              player.getState();
+
+            const handoff =
+              advanceOutgoingHandoffObservation({
+                snapshot,
+                deviceId,
+                localState,
+                previousObservation:
+                  playbackOutgoingHandoffObservationRef
+                    .current,
+                updatedAtMs:
+                  updatedAt,
+              });
+
+            playbackOutgoingHandoffObservationRef
+              .current =
+                handoff.observation;
+
+            if (
+              handoff.phase ===
+                "confirmed"
+            ) {
+              /*
+               * The target publishes playback only
+               * after its transfer command finishes.
+               * For a playing transfer that means
+               * audio.play() resolved on the target.
+               * Keep this outgoing speaker alive for
+               * one additional second from that point.
+               */
+              if (
+                handoff.justConfirmed
+              ) {
+                cancelPlaybackHandoffSilence();
+              }
+
+              schedulePlaybackHandoffSilence(
+                PLAYBACK_HANDOFF_OVERLAP_MS,
               );
-          } else {
-            player.stopTrack();
+            } else if (
+              handoff.phase ===
+                "waiting"
+            ) {
+              /*
+               * A bounded fallback prevents a failed
+               * target from leaving two devices audible
+               * forever, while still giving slow/offline
+               * polling handoffs time to confirm.
+               */
+              schedulePlaybackHandoffSilence(
+                PLAYBACK_HANDOFF_CONFIRMATION_TIMEOUT_MS,
+              );
+            } else {
+              playbackOutgoingHandoffObservationRef
+                .current =
+                  null;
+
+              cancelPlaybackHandoffSilence();
+
+              player.silenceLocalPlayback();
+            }
+
+            player.syncAccountPlaybackShadow?.(
+              snapshot,
+            );
+
+            return;
           }
 
+          playbackOutgoingHandoffObservationRef
+            .current =
+              null;
+
+          cancelPlaybackHandoffSilence();
+
+          /*
+           * Never restore an account-state
+           * broadcast back into the browser
+           * that already owns playback.
+           *
+           * The active player is the source
+           * of that state. Re-loading it here
+           * can interrupt its in-flight
+           * play() while advancing tracks.
+           * Remote transfer/play-track
+           * commands still restore through
+           * applyPendingCommands below.
+           */
           markPublished(
             player.getState(),
           );
+
+          return;
         } finally {
           playbackApplyingRemoteRef.current =
             false;
@@ -6263,6 +7662,43 @@ export default function App() {
         ) {
           if (cancelled) {
             return;
+          }
+
+          const commandId =
+            String(
+              command?.id ??
+              "",
+            );
+
+          if (
+            commandId &&
+            playbackSeenCommandIdsRef
+              .current
+              .has(
+                commandId,
+              )
+          ) {
+            continue;
+          }
+
+          if (
+            !shouldApplyPlaybackRemoteCommand(
+              command,
+              {
+                snapshot,
+                deviceId,
+              },
+            )
+          ) {
+            if (commandId) {
+              playbackSeenCommandIdsRef
+                .current
+                .add(
+                  commandId,
+                );
+            }
+
+            continue;
           }
 
           let applied =
@@ -6295,6 +7731,36 @@ export default function App() {
           } finally {
             playbackApplyingRemoteRef.current =
               false;
+          }
+
+          if (
+            applied &&
+            commandId
+          ) {
+            playbackSeenCommandIdsRef
+              .current
+              .add(
+                commandId,
+              );
+
+            if (
+              playbackSeenCommandIdsRef
+                .current.size >
+                256
+            ) {
+              const oldest =
+                playbackSeenCommandIdsRef
+                  .current
+                  .values()
+                  .next()
+                  .value;
+
+              playbackSeenCommandIdsRef
+                .current
+                .delete(
+                  oldest,
+                );
+            }
           }
 
           if (
@@ -6349,6 +7815,12 @@ export default function App() {
               ?.playback_state ??
             null;
 
+          playbackDevicesRef.current =
+            devices;
+
+          accountPlaybackSnapshotRef.current =
+            snapshot;
+
           setPlaybackDevices(
             devices,
           );
@@ -6357,35 +7829,9 @@ export default function App() {
             snapshot,
           );
 
-          setControlledPlaybackDeviceId(
-            (current) => {
-              const currentStillOnline =
-                current &&
-                devices.some(
-                  (device) =>
-                    device.device_id ===
-                      current &&
-                    device.is_online,
-                );
-
-              if (
-                currentStillOnline
-              ) {
-                return current;
-              }
-
-              const active =
-                devices.find(
-                  (device) =>
-                    device.is_active &&
-                    device.is_online,
-                );
-
-              return (
-                active?.device_id ??
-                deviceId
-              );
-            },
+          syncControlledPlaybackDevice(
+            devices,
+            snapshot,
           );
 
           await applyRemotePlayback(
@@ -6406,6 +7852,177 @@ export default function App() {
         }
       };
 
+    const handleLiveEvent =
+      async (
+        event,
+      ) => {
+        if (
+          cancelled ||
+          !event ||
+          typeof event !==
+            "object"
+        ) {
+          return;
+        }
+
+        const devices =
+          Array.isArray(
+            event.devices,
+          )
+            ? event.devices
+            : null;
+
+        if (devices) {
+          playbackDevicesRef.current =
+            devices;
+
+          setPlaybackDevices(
+            devices,
+          );
+        }
+
+        const snapshot =
+          event.playback_state ??
+          null;
+
+        if (snapshot) {
+          accountPlaybackSnapshotRef.current =
+            snapshot;
+
+          setAccountPlaybackSnapshot(
+            snapshot,
+          );
+
+          syncControlledPlaybackDevice(
+            devices ??
+              playbackDevicesRef.current,
+            snapshot,
+          );
+
+          await applyRemotePlayback(
+            snapshot,
+          );
+        } else if (devices) {
+          syncControlledPlaybackDevice(
+            devices,
+            accountPlaybackSnapshotRef
+              .current,
+          );
+        }
+
+        if (
+          event.type ===
+            "command" &&
+          event.command
+        ) {
+          await applyPendingCommands(
+            [
+              event.command,
+            ],
+            snapshot ??
+              accountPlaybackSnapshotRef
+                .current,
+          );
+        }
+
+        if (
+          event.type ===
+            "presence_changed"
+        ) {
+          void pollDevice();
+        }
+      };
+
+
+    const scheduleLiveReconnect =
+      () => {
+        if (
+          cancelled ||
+          liveReconnectTimer
+        ) {
+          return;
+        }
+
+        liveReconnectTimer =
+          window.setTimeout(
+            () => {
+              liveReconnectTimer =
+                null;
+
+              void connectLive();
+            },
+            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+          );
+      };
+
+
+    const connectLive =
+      async () => {
+        if (
+          cancelled ||
+          liveConnection ||
+          globalThis.navigator
+            ?.onLine ===
+            false
+        ) {
+          return;
+        }
+
+        try {
+          const connection =
+            await connectPlaybackDeviceLive({
+              deviceId,
+              name:
+                deviceDescriptor.name,
+              deviceType:
+                deviceDescriptor.deviceType,
+
+              onEvent:
+                (event) => {
+                  void handleLiveEvent(
+                    event,
+                  ).catch(
+                    () => {},
+                  );
+                },
+
+              onClose:
+                () => {
+                  liveConnection =
+                    null;
+
+                  playbackLiveConnectionRef.current =
+                    null;
+
+                  if (!cancelled) {
+                    void pollDevice();
+                    scheduleLiveReconnect();
+                  }
+                },
+            });
+
+          if (
+            cancelled
+          ) {
+            connection?.close?.();
+            return;
+          }
+
+          liveConnection =
+            connection;
+
+          playbackLiveConnectionRef.current =
+            connection;
+
+          if (!connection) {
+            scheduleLiveReconnect();
+          }
+        } catch {
+          scheduleLiveReconnect();
+        }
+      };
+
+
     const bootstrap =
       async () => {
         const remote =
@@ -6414,6 +8031,8 @@ export default function App() {
         if (cancelled) {
           return;
         }
+
+        void connectLive();
 
         const local =
           player.getState();
@@ -6477,6 +8096,7 @@ export default function App() {
     const handleFocus =
       () => {
         void pollDevice();
+        void connectLive();
       };
 
     const handleVisibility =
@@ -6516,6 +8136,23 @@ export default function App() {
         );
       }
 
+      if (liveReconnectTimer) {
+        window.clearTimeout(
+          liveReconnectTimer,
+        );
+
+        liveReconnectTimer =
+          null;
+      }
+
+      liveConnection?.close?.();
+
+      liveConnection =
+        null;
+
+      playbackLiveConnectionRef.current =
+        null;
+
       playbackPendingWriteRef.current =
         null;
 
@@ -6535,8 +8172,10 @@ export default function App() {
       );
     };
   }, [
+    cancelPlaybackHandoffSilence,
     currentUser?.account_type,
     currentUser?.id,
+    schedulePlaybackHandoffSilence,
   ]);
 
 
@@ -7290,6 +8929,109 @@ const checkDownloadedGeneratedPlaylistUpdates =
   );
 
 
+  const consumeNotification =
+    useCallback(
+      async (
+        notification,
+      ) => {
+        if (!notification) {
+          return;
+        }
+
+        const notificationKey =
+          notification.type ===
+            "admin_activity"
+            ? String(
+                notification
+                  .notification_id ??
+                  "",
+              )
+            : String(
+                notification
+                  .message_id ??
+                  "",
+              );
+
+        setMessageNotifications(
+          (current) => {
+            const currentItems =
+              Array.isArray(
+                current?.notifications,
+              )
+                ? current.notifications
+                : [];
+
+            const nextItems =
+              currentItems.filter(
+                (item) => {
+                  const itemKey =
+                    item.type ===
+                      "admin_activity"
+                      ? String(
+                          item
+                            .notification_id ??
+                            "",
+                        )
+                      : String(
+                          item
+                            .message_id ??
+                            "",
+                        );
+
+                  return (
+                    item.type !==
+                      notification.type ||
+                    itemKey !==
+                      notificationKey
+                  );
+                },
+              );
+
+            return {
+              unread_count:
+                Math.max(
+                  (
+                    Number(
+                      current
+                        ?.unread_count ??
+                        currentItems.length,
+                    ) || 0
+                  ) - 1,
+                  0,
+                ),
+              notifications:
+                nextItems,
+            };
+          },
+        );
+
+        try {
+          if (
+            notification.type ===
+              "admin_activity"
+          ) {
+            await markAdminNotificationRead(
+              notification
+                .notification_id,
+            );
+          } else {
+            await markMessageNotificationRead(
+              notification
+                .message_id,
+            );
+          }
+        } catch {
+          // Refresh restores the item if deletion failed.
+        } finally {
+          await refreshMessageNotifications();
+        }
+      },
+      [
+        refreshMessageNotifications,
+      ],
+    );
+
+
   const openNotificationDetail =
     useCallback(
       (
@@ -7303,34 +9045,31 @@ const checkDownloadedGeneratedPlaylistUpdates =
           notification,
         );
 
-        void (
-          async () => {
-            try {
-              if (
-                notification.type ===
-                "admin_activity"
-              ) {
-                await markAdminNotificationRead(
-                  notification
-                    .notification_id,
-                );
-              } else {
-                await markMessageNotificationRead(
-                  notification
-                    .message_id,
-                );
-              }
-            } catch {
-              // The detail overlay can still show the
-              // locally received notification payload.
-            } finally {
-              await refreshMessageNotifications();
-            }
-          }
-        )();
+        void consumeNotification(
+          notification,
+        );
       },
       [
-        refreshMessageNotifications,
+        consumeNotification,
+      ],
+    );
+
+
+  const deleteNotification =
+    useCallback(
+      (
+        notification,
+      ) => {
+        if (!notification) {
+          return;
+        }
+
+        void consumeNotification(
+          notification,
+        );
+      },
+      [
+        consumeNotification,
       ],
     );
 
@@ -7375,6 +9114,23 @@ const persistAppView =
    * account logs out.
    */
   player.pausePlayback();
+
+  const offlineOwnerKey =
+    getOfflineOwnerKey(
+      currentUser,
+    );
+
+  if (offlineOwnerKey) {
+    clearCachedLibraryScope(
+      offlineOwnerKey,
+    );
+
+    void removeAllOfflineDownloadsForOwner(
+      offlineOwnerKey,
+    ).catch(
+      () => {},
+    );
+  }
 
   logoutSession();
 
@@ -8348,6 +10104,9 @@ const clearPlaylistToOpen =
     onOpenNotification={
       openNotificationDetail
     }
+    onDeleteNotification={
+      deleteNotification
+    }
     onEnablePush={() => {
       void handleEnablePush();
     }}
@@ -8466,7 +10225,7 @@ const clearPlaylistToOpen =
               controlledPlaybackDeviceId
             }
             onSelectPlaybackDevice={
-              setControlledPlaybackDeviceId
+              selectControlledPlaybackDevice
             }
             onPlaybackDeviceCommand={
               sendAccountPlaybackCommand
@@ -8481,6 +10240,12 @@ const clearPlaylistToOpen =
         }
         onOpenAuth={
           openSignIn
+        }
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
         }
       />
 
@@ -8508,6 +10273,9 @@ const clearPlaylistToOpen =
         }
         onOpenNotification={
           openNotificationDetail
+        }
+        onDeleteNotification={
+          deleteNotification
         }
         onEnablePush={() => {
           void handleEnablePush();
@@ -8537,7 +10305,7 @@ const clearPlaylistToOpen =
           accountPlaybackSnapshot
         }
         onSelectPlaybackDevice={
-          setControlledPlaybackDeviceId
+          selectControlledPlaybackDevice
         }
         onPlaybackDeviceCommand={
           sendAccountPlaybackCommand
@@ -8558,6 +10326,12 @@ const clearPlaylistToOpen =
             false,
           );
         }}
+        accountPlaybackSnapshot={
+          accountPlaybackSnapshot
+        }
+        currentPlaybackDeviceId={
+          playbackDeviceIdRef.current
+        }
       />
 
       <MobileBottomNav

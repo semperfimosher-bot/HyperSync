@@ -1084,7 +1084,7 @@ globalThis.self?.addEventListener?.(
               }
 
               return new Response(
-                "HyperSync is offline.",
+                "HyperSynced is offline.",
                 {
                   status: 503,
 
@@ -1182,7 +1182,7 @@ globalThis.self?.addEventListener?.(
     const title =
       String(
         payload.title ??
-        "HyperSync",
+        "HyperSynced",
       );
 
     const body =

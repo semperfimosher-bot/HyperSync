@@ -1963,6 +1963,8 @@ async def lookup_lastfm_track_metadata(
 def _merge_external_metadata(
     primary: ExternalTrackMetadata | None,
     fallback: ExternalTrackMetadata | None,
+    *,
+    prefer_fallback_genre: bool = False,
 ) -> ExternalTrackMetadata | None:
     if primary is None:
         return fallback
@@ -1970,11 +1972,38 @@ def _merge_external_metadata(
     if fallback is None:
         return primary
 
+    fallback_genre_used = (
+        bool(
+            fallback[
+                "genre"
+            ]
+        )
+        and (
+            not primary[
+                "genre"
+            ]
+            or (
+                prefer_fallback_genre
+                and _normalize(
+                    fallback[
+                        "genre"
+                    ]
+                )
+                != _normalize(
+                    primary[
+                        "genre"
+                    ]
+                )
+            )
+        )
+    )
+
     genre = (
-        primary[
+        fallback[
             "genre"
         ]
-        or fallback[
+        if fallback_genre_used
+        else primary[
             "genre"
         ]
     )
@@ -1999,14 +2028,7 @@ def _merge_external_metadata(
     )
 
     if (
-        (
-            not primary[
-                "genre"
-            ]
-            and fallback[
-                "genre"
-            ]
-        )
+        fallback_genre_used
         or (
             primary[
                 "release_year"
@@ -2093,21 +2115,12 @@ async def lookup_external_track_metadata(
         )
     )
 
-    if (
-        lastfm is not None
-        and lastfm[
-            "genre"
-        ]
-        and lastfm[
-            "release_year"
-        ]
-        is not None
-    ):
-        return lastfm
-
-    # Apple is the second pass because it
-    # is especially useful for release
-    # date/year and primary genre.
+    # Apple is always consulted when available.
+    # Its catalog primary genre is more stable
+    # than community/user tags, so it is allowed
+    # to override a conflicting Last.fm genre.
+    # Last.fm still fills fields Apple does not
+    # provide.
     apple = (
         await lookup_apple_track_metadata(
             title=title,
@@ -2123,6 +2136,7 @@ async def lookup_external_track_metadata(
         _merge_external_metadata(
             lastfm,
             apple,
+            prefer_fallback_genre=True,
         )
     )
 

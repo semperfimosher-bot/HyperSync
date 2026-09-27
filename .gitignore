@@ -23,3 +23,7 @@ Desktop.ini
 local_dev.db
 *.sqlite
 *.sqlite3
+
+# Never commit local merge/conflict recovery copies.
+*.conflict-backup
+*.conflict-backup-*

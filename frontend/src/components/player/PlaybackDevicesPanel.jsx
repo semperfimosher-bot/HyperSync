@@ -56,15 +56,15 @@ function PlaybackDevicesPanel({
     >
       <div className="playback-devices-panel__heading">
         <span>
-          HYPERSYNC CONNECT
+          HYPERSYNCED CONNECT
         </span>
 
         <strong>
-          Control another device
+          Choose where HyperSynced plays
         </strong>
 
         <small>
-          Devices signed in to this account appear here.
+          The selected player can be controlled from every other signed-in device.
         </small>
       </div>
 
@@ -122,6 +122,15 @@ function PlaybackDevicesPanel({
                       onSelectDevice?.(
                         device.device_id,
                       );
+
+                      if (
+                        device.is_online &&
+                        !device.is_active
+                      ) {
+                        onTransferToDevice?.(
+                          device.device_id,
+                        );
+                      }
                     }}
                   >
                     <Icon
@@ -141,9 +150,17 @@ function PlaybackDevicesPanel({
 
                       <small>
                         {isCurrent
-                          ? "This device"
+                          ? (
+                              device.is_active
+                                ? "This device"
+                                : "This device • Remote control"
+                            )
                           : device.is_online
-                            ? "Online"
+                            ? (
+                                device.is_active
+                                  ? "Remote player"
+                                  : "Online"
+                              )
                             : "Offline"}
 
                         {device.is_active
@@ -196,7 +213,7 @@ function PlaybackDevicesPanel({
           />
 
           <span>
-            Controls target:
+            Active player:
             {" "}
             <strong>
               {selected.name}

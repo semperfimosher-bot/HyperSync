@@ -133,6 +133,8 @@ export default defineConfig({
           apiTarget,
         changeOrigin:
           true,
+        ws:
+          true,
       },
     },
   },

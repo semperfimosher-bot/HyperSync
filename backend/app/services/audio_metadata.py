@@ -53,6 +53,168 @@ def normalize_track_identity(
     )
 
 
+_VERSION_QUALIFIER_RE = re.compile(
+    r"""
+    \b(
+        remix(?:ed)?
+        | remaster(?:ed)?
+        | acoustic
+        | live
+        | radio\s+(?:edit|version|mix)
+        | edit
+        | extended(?:\s+(?:mix|version))?
+        | club\s+mix
+        | dance\s+mix
+        | original\s+mix
+        | alternate(?:\s+version)?
+        | alt(?:\s+version)?
+        | version
+        | instrumental
+        | karaoke
+        | demo
+        | mono
+        | stereo
+        | clean
+        | explicit
+        | sped\s*[- ]?\s*up
+        | slowed(?:\s*(?:\+|and)\s*reverb)?
+        | reverb
+        | nightcore
+        | rework
+        | re[- ]?record(?:ed|ing)?
+        | anniversary
+        | deluxe
+    )\b
+    """,
+    re.IGNORECASE
+    | re.VERBOSE,
+)
+
+
+_BARE_VERSION_SUFFIX_RE = re.compile(
+    r"""
+    \s+
+    (?:
+        remix(?:ed)?
+        | (?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?
+        | acoustic(?:\s+version)?
+        | live(?:\s+version)?
+        | radio\s+(?:edit|version|mix)
+        | edit
+        | extended(?:\s+(?:mix|version))?
+        | club\s+mix
+        | dance\s+mix
+        | original\s+mix
+        | alternate(?:\s+version)?
+        | alt(?:\s+version)?
+        | version
+        | instrumental(?:\s+version)?
+        | karaoke(?:\s+version)?
+        | demo(?:\s+version)?
+        | mono(?:\s+version)?
+        | stereo(?:\s+version)?
+        | clean(?:\s+version)?
+        | explicit(?:\s+version)?
+        | sped\s*[- ]?\s*up
+        | slowed(?:\s*(?:\+|and)\s*reverb)?
+        | nightcore
+        | rework
+        | re[- ]?record(?:ed|ing)?
+        | anniversary(?:\s+edition)?
+        | deluxe(?:\s+version)?
+        | single\s+version
+        | album\s+version
+    )
+    \s*$
+    """,
+    re.IGNORECASE
+    | re.VERBOSE,
+)
+
+
+_TRAILING_BRACKET_RE = re.compile(
+    r"\s*[\(\[\{]([^()\[\]{}]+)[\)\]\}]\s*$",
+)
+
+
+_TRAILING_SEPARATOR_RE = re.compile(
+    r"^(.*)\s+[-–—:]\s+(.+)$",
+)
+
+
+def normalize_track_title_identity(
+    value: object,
+) -> str:
+    """
+    Normalize a track title to its root-song identity.
+
+    Duplicate prevention should treat alternate releases of the
+    same song as one catalog identity. Only explicit version
+    qualifiers are removed, so meaningful subtitles such as
+    "Sweet Dreams (Are Made of This)" remain distinct.
+    """
+
+    normalized = normalize_track_identity(
+        value,
+    )
+
+    if not normalized:
+        return ""
+
+    root = normalized
+
+    while root:
+        previous = root
+
+        bracket = _TRAILING_BRACKET_RE.search(
+            root,
+        )
+
+        if (
+            bracket is not None
+            and _VERSION_QUALIFIER_RE.search(
+                bracket.group(
+                    1,
+                )
+            )
+        ):
+            root = (
+                root[
+                    : bracket.start()
+                ]
+                .strip()
+            )
+
+        separator = _TRAILING_SEPARATOR_RE.match(
+            root,
+        )
+
+        if (
+            separator is not None
+            and _VERSION_QUALIFIER_RE.search(
+                separator.group(
+                    2,
+                )
+            )
+        ):
+            root = (
+                separator.group(
+                    1,
+                )
+                .strip()
+            )
+
+        root = _BARE_VERSION_SUFFIX_RE.sub(
+            "",
+            root,
+        ).strip()
+
+        if root == previous:
+            break
+
+    return root or normalized
+
+
 def _clean_text(
     value: object,
 ) -> str | None:

@@ -46,14 +46,14 @@ def _prepare_asyncpg_url(value: str) -> str:
 
 
 class Settings(BaseSettings):
-    app_name: str = "Hypersync"
+    app_name: str = "Hypersynced"
     app_version: str = "0.1.0"
     environment: Literal["development", "test", "production"] = "development"
 
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    frontend_public_url: str = "http://localhost:5173"
+    frontend_public_url: str = "https://hypersynced.app"
     api_docs_enabled: bool = False
 
     database_url: str = ""
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from_email: str = ""
-    smtp_from_name: str = "HyperSync"
+    smtp_from_name: str = "HyperSynced"
     smtp_starttls: bool = True
     smtp_use_ssl: bool = False
 
@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     web_push_vapid_public_key: str = ""
     web_push_vapid_private_key: str = ""
     web_push_vapid_subject: str = ""
+    web_push_allowed_host_suffixes: str = (
+        "fcm.googleapis.com,"
+        "android.googleapis.com,"
+        "push.services.mozilla.com,"
+        "push.apple.com,"
+        "notify.windows.com"
+    )
 
     admin_database_delete_password: str = ""
 
@@ -177,6 +184,23 @@ class Settings(BaseSettings):
             for origin in self.frontend_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def push_allowed_host_suffixes(
+        self,
+    ) -> tuple[str, ...]:
+        return tuple(
+            item
+            .strip()
+            .lower()
+            .lstrip(".")
+            for item in (
+                self
+                .web_push_allowed_host_suffixes
+                .split(",")
+            )
+            if item.strip()
+        )
 
     @property
     def sqlalchemy_database_url(self) -> str:
