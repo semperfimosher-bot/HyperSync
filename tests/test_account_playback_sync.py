@@ -622,6 +622,100 @@ async def test_offline_playback_devices_are_removed_from_database() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_playback_device_can_refresh_itself_without_stale_update() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-refresh-{run_id}"
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        first_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "returning-device",
+                "name":
+                    "Desktop",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert first_poll.status_code == 200, first_poll.text
+
+        session_factory = get_session_factory()
+
+        async with session_factory() as session:
+            user = (
+                await session.execute(
+                    select(User).where(
+                        User.username
+                        == username,
+                    )
+                )
+            ).scalar_one()
+
+            device = await session.get(
+                PlaybackDevice,
+                (
+                    user.id,
+                    "returning-device",
+                ),
+            )
+
+            assert device is not None
+
+            device.last_seen_at = (
+                datetime.now(UTC)
+                - timedelta(
+                    seconds=6,
+                )
+            )
+
+            await session.commit()
+
+        refreshed = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "returning-device",
+                "name":
+                    "Desktop",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert refreshed.status_code == 200, refreshed.text
+
+        assert [
+            device["device_id"]
+            for device in refreshed.json()[
+                "devices"
+            ]
+        ] == [
+            "returning-device",
+        ]
+
+
+@pytest.mark.asyncio
 async def test_playback_device_expires_after_five_seconds_and_releases_audio_owner() -> None:
     run_id = uuid4().hex[:8]
     username = f"device-five-second-{run_id}"

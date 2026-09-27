@@ -29,6 +29,12 @@ from pydantic import (
     ValidationError,
 )
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import (
+    insert as postgresql_insert,
+)
+from sqlalchemy.dialects.sqlite import (
+    insert as sqlite_insert,
+)
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -1028,6 +1034,106 @@ def playback_device_is_online(
     )
 
 
+async def touch_playback_device(
+    session: DatabaseSession,
+    user: User,
+    *,
+    device_id: str,
+    name: str,
+    device_type: PlaybackDeviceKind,
+    now: datetime | None = None,
+) -> None:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    values = {
+        "user_id":
+            user.id,
+        "device_id":
+            device_id,
+        "name":
+            name,
+        "device_type":
+            device_type,
+        "last_seen_at":
+            reference,
+    }
+
+    dialect_name = (
+        session
+        .get_bind()
+        .dialect
+        .name
+    )
+
+    if dialect_name == "postgresql":
+        statement = (
+            postgresql_insert(
+                PlaybackDevice,
+            )
+            .values(
+                **values,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    PlaybackDevice.user_id,
+                    PlaybackDevice.device_id,
+                ],
+                set_={
+                    "name":
+                        name,
+                    "device_type":
+                        device_type,
+                    "last_seen_at":
+                        reference,
+                },
+            )
+        )
+    elif dialect_name == "sqlite":
+        statement = (
+            sqlite_insert(
+                PlaybackDevice,
+            )
+            .values(
+                **values,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    PlaybackDevice.user_id,
+                    PlaybackDevice.device_id,
+                ],
+                set_={
+                    "name":
+                        name,
+                    "device_type":
+                        device_type,
+                    "last_seen_at":
+                        reference,
+                },
+            )
+        )
+    else:
+        raise RuntimeError(
+            "Unsupported database dialect "
+            "for playback device presence: "
+            f"{dialect_name}"
+        )
+
+    # Presence is written with one database statement instead of
+    # loading an ORM row and mutating it. The HTTP poll and live
+    # WebSocket heartbeat can arrive at the same time, and stale
+    # cleanup may also be running. An upsert makes all three cases
+    # safe without an ORM UPDATE expecting a row that was deleted.
+    await session.execute(
+        statement,
+    )
+
+
 async def prune_offline_playback_devices(
     session: DatabaseSession,
     user: User,
@@ -1048,13 +1154,17 @@ async def prune_offline_playback_devices(
     )
 
     stale_result = await session.execute(
-        select(
-            PlaybackDevice.device_id,
-        ).where(
+        delete(
+            PlaybackDevice,
+        )
+        .where(
             PlaybackDevice.user_id
             == user.id,
             PlaybackDevice.last_seen_at
             < cutoff,
+        )
+        .returning(
+            PlaybackDevice.device_id,
         )
     )
 
@@ -1076,18 +1186,6 @@ async def prune_offline_playback_devices(
             PlaybackCommand.user_id
             == user.id,
             PlaybackCommand.target_device_id.in_(
-                stale_device_ids,
-            ),
-        )
-    )
-
-    await session.execute(
-        delete(
-            PlaybackDevice,
-        ).where(
-            PlaybackDevice.user_id
-            == user.id,
-            PlaybackDevice.device_id.in_(
                 stale_device_ids,
             ),
         )
@@ -2389,37 +2487,18 @@ async def poll_my_playback_device(
         UTC,
     )
 
-    device = await session.get(
-        PlaybackDevice,
-        (
-            user.id,
-            payload.device_id,
+    await touch_playback_device(
+        session,
+        user,
+        device_id=(
+            payload.device_id
         ),
-    )
-
-    if device is None:
-        device = PlaybackDevice(
-            user_id=user.id,
-            device_id=(
-                payload.device_id
-            ),
-            name=payload.name,
-            device_type=(
-                payload.device_type
-            ),
-            last_seen_at=now,
-        )
-
-        session.add(
-            device,
-        )
-
-    else:
-        device.name = payload.name
-        device.device_type = (
+        name=payload.name,
+        device_type=(
             payload.device_type
-        )
-        device.last_seen_at = now
+        ),
+        now=now,
+    )
 
     await prune_offline_playback_devices(
         session,
@@ -2612,32 +2691,17 @@ async def live_playback_device(
                 UTC,
             )
 
-            device = await session.get(
-                PlaybackDevice,
-                (
-                    user.id,
-                    device_id,
+            await touch_playback_device(
+                session,
+                user,
+                device_id=device_id,
+                name=name,
+                device_type=cast(
+                    PlaybackDeviceKind,
+                    device_type,
                 ),
+                now=now,
             )
-
-            if device is None:
-                device = PlaybackDevice(
-                    user_id=user.id,
-                    device_id=device_id,
-                    name=name,
-                    device_type=device_type,
-                    last_seen_at=now,
-                )
-
-                session.add(
-                    device,
-                )
-            else:
-                device.name = name
-                device.device_type = (
-                    device_type
-                )
-                device.last_seen_at = now
 
             await prune_offline_playback_devices(
                 session,
@@ -2919,23 +2983,20 @@ async def live_playback_device(
                 continue
 
             async with session_factory() as session:
-                live_device = await session.get(
-                    PlaybackDevice,
-                    (
-                        user.id,
-                        device_id,
-                    ),
-                )
-
-                if live_device is None:
-                    break
-
                 now = datetime.now(
                     UTC,
                 )
 
-                live_device.last_seen_at = (
-                    now
+                await touch_playback_device(
+                    session,
+                    user,
+                    device_id=device_id,
+                    name=name,
+                    device_type=cast(
+                        PlaybackDeviceKind,
+                        device_type,
+                    ),
+                    now=now,
                 )
 
                 await prune_offline_playback_devices(
@@ -2972,64 +3033,16 @@ async def live_playback_device(
             should_cleanup
             and is_current_socket
         ):
-            session_factory = (
-                get_session_factory()
-            )
-
-            playback_state = None
-
-            async with session_factory() as session:
-                await session.execute(
-                    delete(
-                        PlaybackCommand,
-                    ).where(
-                        PlaybackCommand.user_id
-                        == user.id,
-                        PlaybackCommand.target_device_id
-                        == device_id,
-                    )
-                )
-
-                live_device = await session.get(
-                    PlaybackDevice,
-                    (
-                        user.id,
-                        device_id,
-                    ),
-                )
-
-                if live_device is not None:
-                    await session.delete(
-                        live_device,
-                    )
-
-                state = await session.get(
-                    UserAppState,
-                    user.id,
-                )
-
-                if (
-                    state is not None
-                    and state.playback_device_id
-                    == device_id
-                ):
-                    state.playback_paused = True
-                    state.playback_device_id = None
-                    state.playback_updated_at = (
-                        datetime.now(
-                            UTC,
-                        )
-                    )
-
-                await session.commit()
-
-                playback_state = (
-                    await build_playback_state(
-                        session,
-                        user,
-                    )
-                )
-
+            # A socket close can be temporary: Vite reloads,
+            # Wi-Fi changes, mobile backgrounding, and normal
+            # reconnects all create short disconnect windows.
+            #
+            # Do not delete the shared playback_devices row here.
+            # HTTP polling may already be refreshing that same
+            # device, which previously raced this DELETE and
+            # produced SQLAlchemy StaleDataError. The existing
+            # five-second presence TTL removes truly offline
+            # devices and releases playback ownership instead.
             await playback_realtime_hub.broadcast(
                 user.id,
                 {
@@ -3037,19 +3050,6 @@ async def live_playback_device(
                         "presence_changed",
                 },
             )
-
-            if playback_state is not None:
-                await playback_realtime_hub.broadcast(
-                    user.id,
-                    {
-                        "type":
-                            "playback_state",
-                        "playback_state":
-                            playback_state.model_dump(
-                                mode="json",
-                            ),
-                    },
-                )
 
 
 @router.post(
