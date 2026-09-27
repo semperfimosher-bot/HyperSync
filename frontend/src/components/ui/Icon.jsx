@@ -454,6 +454,14 @@ downloaded: (
       <path d="m5 12 4 4L19 6" />
     ),
 
+    pin: (
+      <>
+        <path d="M8 4h8" />
+        <path d="m9 4 1 6-3 3h10l-3-3 1-6" />
+        <path d="M12 13v8" />
+      </>
+    ),
+
     close: (
       <>
         <path d="m6 6 12 12" />
