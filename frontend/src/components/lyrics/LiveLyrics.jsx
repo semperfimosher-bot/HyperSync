@@ -13,6 +13,7 @@ import * as player
   from "../../audioPlayer.js";
 
 import {
+  catalogLyricsTrackId,
   getActiveLyricIndex,
   getEffectiveLyricsPlaybackState,
   parseSyncedLyrics,
@@ -145,6 +146,13 @@ function LiveLyrics({
     const trackId =
       playerState.trackId;
 
+    const lyricsTrackId =
+      catalogLyricsTrackId(
+        playerState
+          .catalogTrackId ??
+        trackId,
+      );
+
     if (!trackId) {
       setLyricsData(
         null,
@@ -156,6 +164,25 @@ function LiveLyrics({
 
       setError(
         "",
+      );
+
+      lineRefs.current =
+        [];
+
+      return undefined;
+    }
+
+    if (!lyricsTrackId) {
+      setLyricsData(
+        null,
+      );
+
+      setLoading(
+        false,
+      );
+
+      setError(
+        "Lyrics will load automatically once this on-demand track finishes publishing.",
       );
 
       lineRefs.current =
@@ -192,7 +219,7 @@ function LiveLyrics({
       try {
         cachedLyrics =
           await getLyrics(
-            trackId,
+            lyricsTrackId,
           );
 
         if (
@@ -239,7 +266,7 @@ function LiveLyrics({
             (
               "/catalog/tracks/" +
               `${encodeURIComponent(
-                trackId,
+                lyricsTrackId,
               )}/lyrics`
             ),
             {
@@ -262,7 +289,7 @@ function LiveLyrics({
         );
 
         void saveLyrics(
-          trackId,
+          lyricsTrackId,
           result,
         ).catch(
           () => null,
@@ -306,6 +333,7 @@ function LiveLyrics({
     };
   }, [
     playerState.trackId,
+    playerState.catalogTrackId,
   ]);
 
 
