@@ -152,6 +152,62 @@ export function insertQueueEntryAsNext(
 }
 
 
+export function appendQueueEntry(
+  queue,
+  currentIndex,
+  entry,
+) {
+  const source =
+    Array.isArray(queue)
+      ? queue
+      : [];
+
+  if (!entry?.id) {
+    return source;
+  }
+
+  const safeCurrentIndex =
+    Number.isInteger(
+      currentIndex,
+    )
+      ? Math.min(
+          Math.max(
+            currentIndex,
+            -1,
+          ),
+          source.length - 1,
+        )
+      : -1;
+
+  const currentAndPast =
+    source.slice(
+      0,
+      safeCurrentIndex + 1,
+    );
+
+  const upcoming =
+    source
+      .slice(
+        safeCurrentIndex + 1,
+      )
+      .filter(
+        (item) =>
+          String(
+            item?.id ?? "",
+          ) !==
+          String(
+            entry.id,
+          ),
+      );
+
+  return [
+    ...currentAndPast,
+    ...upcoming,
+    entry,
+  ];
+}
+
+
 export function getNextQueueIndex(
   queue,
   currentIndex,
