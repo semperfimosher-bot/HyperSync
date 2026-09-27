@@ -7127,3 +7127,23 @@ button:disabled {
     padding: 0 10px;
   }
 }
+
+
+.admin-duplicate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 620px) {
+  .admin-duplicate-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .admin-duplicate-actions > button {
+    flex: 1 1 auto;
+  }
+}
