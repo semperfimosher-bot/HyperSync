@@ -120,13 +120,6 @@ export default function NotificationDetailOverlay({
           || "HyperSync user"
         );
 
-  const detailId =
-    adminActivity
-      ? notification
-          .notification_id
-      : notification
-          .message_id;
-
   return (
     <div
       className="notification-detail-overlay"
@@ -294,16 +287,17 @@ export default function NotificationDetailOverlay({
             </div>
           ) : null}
 
-          <div className="notification-detail-grid__wide notification-detail-meta">
-            <span>
-              {adminActivity
-                ? "Notification ID"
-                : "Message ID"}
-            </span>
-            <code>
-              {detailId}
-            </code>
-          </div>
+          {adminActivity ? (
+            <div className="notification-detail-grid__wide notification-detail-meta">
+              <span>
+                Notification ID
+              </span>
+              <code>
+                {notification
+                  .notification_id}
+              </code>
+            </div>
+          ) : null}
         </div>
 
         <div className="notification-detail-actions">
