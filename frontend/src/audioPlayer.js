@@ -11,6 +11,7 @@ import {
 } from "./mediaCache.js";
 
 import {
+  appendQueueEntry,
   buildTrackQueue,
   getNextQueueIndex,
   getQueueTrackAtIndex,
@@ -3525,9 +3526,33 @@ export function playTrackNext(
 export function addTrackToQueue(
   track,
 ) {
-  return playTrackNext(
-    track,
-  );
+  const entries =
+    buildTrackQueue([
+      track,
+    ]);
+
+  const entry =
+    entries[0];
+
+  if (!entry) {
+    return false;
+  }
+
+  ensureCurrentTrackInQueue();
+
+  currentQueue =
+    appendQueueEntry(
+      currentQueue,
+      currentQueueIndex,
+      entry,
+    );
+
+  queueRevision +=
+    1;
+
+  notify();
+
+  return true;
 }
 
 export async function playUrl(
