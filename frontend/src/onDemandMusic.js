@@ -188,9 +188,8 @@ function primaryArtistCredit(
 }
 
 
-export function inferOnDemandArtistName(
+export function onDemandArtistLookupQuery(
   query,
-  tracks = [],
 ) {
   const cleanQuery =
     String(
@@ -200,7 +199,29 @@ export function inferOnDemandArtistName(
       .replace(
         /^songs\s+by\s+/i,
         "",
-      );
+      )
+      .replace(
+        /\s+/g,
+        " ",
+      )
+      .trim();
+
+  return (
+    cleanQuery.length >= 2
+      ? cleanQuery
+      : null
+  );
+}
+
+
+export function inferOnDemandArtistName(
+  query,
+  tracks = [],
+) {
+  const cleanQuery =
+    onDemandArtistLookupQuery(
+      query,
+    ) ?? "";
 
   const wanted =
     normalizedWords(
