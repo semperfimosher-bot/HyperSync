@@ -28,10 +28,18 @@ import {
 } from "../../offlineDownloads.js";
 
 import {
+  getOnDemandStatus,
   getSearchPreferences,
+  prepareOnDemandTrack,
   saveSearchPreferences,
   searchHypersync,
+  searchOnDemandMusic,
 } from "../../searchApi.js";
+
+import {
+  isOnDemandTrackId,
+  normalizeOnDemandTrack,
+} from "../../onDemandMusic.js";
 
 import {
   SEARCH_QUICK_COMMANDS,
@@ -628,6 +636,21 @@ useEffect(() => {
     setSearchError,
   ] = useState("");
 
+  const [
+    onDemandTracks,
+    setOnDemandTracks,
+  ] = useState([]);
+
+  const [
+    preparingOnDemandKey,
+    setPreparingOnDemandKey,
+  ] = useState("");
+
+  const provisionPollTimersRef =
+    useRef(
+      new Set(),
+    );
+
   const searchInputRef =
   useRef(null);
 
@@ -638,6 +661,26 @@ useEffect(() => {
     quietSearchVersion,
     setQuietSearchVersion,
   ] = useState(0);
+
+
+  useEffect(
+    () => () => {
+      for (
+        const timer
+        of provisionPollTimersRef
+          .current
+      ) {
+        window.clearTimeout(
+          timer,
+        );
+      }
+
+      provisionPollTimersRef
+        .current
+        .clear();
+    },
+    [],
+  );
 
 
   useQuietRefresh(
@@ -811,6 +854,10 @@ useEffect(() => {
         EMPTY_RESULTS,
       );
 
+      setOnDemandTracks(
+        [],
+      );
+
       setLoading(false);
       setSearchError("");
 
@@ -930,6 +977,28 @@ useEffect(() => {
           }
 
           try {
+            const shouldLoadOnDemand =
+              isRegistered &&
+              normalizedQuery.length >= 3 &&
+              !looksLikeSmartPlaylistQuery(
+                normalizedQuery,
+              );
+
+            const onDemandPromise =
+              shouldLoadOnDemand
+                ? searchOnDemandMusic(
+                    normalizedQuery,
+                    {
+                      signal:
+                        controller.signal,
+                    },
+                  ).catch(
+                    () => null,
+                  )
+                : Promise.resolve(
+                    null,
+                  );
+
             const data =
               await searchHypersync(
                 normalizedQuery,
@@ -986,6 +1055,33 @@ useEffect(() => {
 
             setSearchError(
               "",
+            );
+
+            const remoteData =
+              await onDemandPromise;
+
+            if (
+              controller.signal
+                .aborted
+            ) {
+              return;
+            }
+
+            const remoteTracks =
+              Array.isArray(
+                remoteData?.tracks,
+              )
+                ? remoteData.tracks
+                    .map(
+                      normalizeOnDemandTrack,
+                    )
+                    .filter(
+                      Boolean,
+                    )
+                : [];
+
+            setOnDemandTracks(
+              remoteTracks,
             );
           } catch (error) {
             if (
@@ -1059,6 +1155,7 @@ useEffect(() => {
     };
 
   }, [
+    isRegistered,
     normalizedQuery,
     offlineOwnerKey,
     preferenceReady,
@@ -1066,13 +1163,47 @@ useEffect(() => {
     sortMode,
   ]);
 
+  const combinedResults =
+    useMemo(
+      () => ({
+        ...results,
+
+        counts: {
+          ...results.counts,
+          tracks:
+            Number(
+              results.counts
+                ?.tracks ??
+              0,
+            )
+            + onDemandTracks.length,
+        },
+
+        tracks: [
+          ...(
+            Array.isArray(
+              results.tracks,
+            )
+              ? results.tracks
+              : []
+          ),
+          ...onDemandTracks,
+        ],
+      }),
+      [
+        onDemandTracks,
+        results,
+      ],
+    );
+
+
   const displayResults =
   useMemo(
     () =>
       orderSearchResultsForDisplay(
-        results,
+        combinedResults,
       ),
-    [results],
+    [combinedResults],
   );
 
 
@@ -1080,9 +1211,11 @@ useEffect(() => {
     useMemo(
       () =>
         totalCount(
-          results.counts,
+          combinedResults.counts,
         ),
-      [results.counts],
+      [
+        combinedResults.counts,
+      ],
     );
 
   const filteredOpenedPlaylistTracks =
@@ -1124,75 +1257,335 @@ useEffect(() => {
 
 }
 
-  /*
-   * IMPORTANT:
-   *
-   * No extra request happens
-   * when play is pressed.
-   *
-   * The signed B2 audio_url from
-   * /api/search is placed directly
-   * into the queue.
-   */
-  function playTrack(
+  const pollOnDemandReady =
+    (
+      provisionId,
+      candidateKey,
+      attempts = 0,
+    ) => {
+      if (
+        !provisionId ||
+        attempts >= 80
+      ) {
+        return;
+      }
+
+      const timer =
+        window.setTimeout(
+          async () => {
+            provisionPollTimersRef
+              .current
+              .delete(
+                timer,
+              );
+
+            try {
+              const status =
+                await getOnDemandStatus(
+                  provisionId,
+                );
+
+              if (
+                status?.state ===
+                  "ready" &&
+                status?.track_id
+              ) {
+                setOnDemandTracks(
+                  (current) =>
+                    current.filter(
+                      (track) =>
+                        track.provision_key !==
+                          candidateKey,
+                    ),
+                );
+
+                setQuietSearchVersion(
+                  (current) =>
+                    current + 1,
+                );
+
+                return;
+              }
+
+              if (
+                status?.state ===
+                  "failed"
+              ) {
+                return;
+              }
+
+            } catch {
+              // A later quiet search can still
+              // discover the completed catalog row.
+            }
+
+            pollOnDemandReady(
+              provisionId,
+              candidateKey,
+              attempts + 1,
+            );
+          },
+          1500,
+        );
+
+      provisionPollTimersRef
+        .current
+        .add(
+          timer,
+        );
+    };
+
+
+  async function playTrack(
     trackIndex,
   ) {
+    const selected =
+      displayResults.tracks[
+        trackIndex
+      ];
+
+    if (!selected) {
+      return;
+    }
+
+    if (
+      selected.source_type ===
+        "on_demand" ||
+      isOnDemandTrackId(
+        selected.id,
+      )
+    ) {
+      if (
+        !isRegistered
+      ) {
+        onOpenAuth?.();
+
+        return;
+      }
+
+      const candidateKey =
+        selected.provision_key;
+
+      if (
+        !candidateKey ||
+        preparingOnDemandKey ===
+          candidateKey
+      ) {
+        return;
+      }
+
+      setPreparingOnDemandKey(
+        candidateKey,
+      );
+
+      setSearchError(
+        "",
+      );
+
+      try {
+        const prepared =
+          await prepareOnDemandTrack(
+            candidateKey,
+          );
+
+        const permanentTrackId =
+          prepared?.track_id ??
+          null;
+
+        const playbackId =
+          permanentTrackId
+          || (
+            "ondemand:"
+            + String(
+                prepared
+                  ?.provision_id ??
+                candidateKey,
+              )
+          );
+
+        const streamPath =
+          permanentTrackId
+            ? (
+                "/api/audio/"
+                + encodeURIComponent(
+                    permanentTrackId,
+                  )
+              )
+            : prepared?.stream_url;
+
+        if (!streamPath) {
+          throw new Error(
+            "Audio is still preparing. Try again in a moment.",
+          );
+        }
+
+        const audioUrl =
+          streamPath.startsWith(
+            "http",
+          )
+            ? streamPath
+            : (
+                API_BASE
+                + streamPath
+              );
+
+        await player.playTrack(
+          playbackId,
+          {
+            audioUrl,
+
+            artworkUrl:
+              resolveArtworkUrl(
+                selected
+                  .artwork_url,
+              ),
+
+            title:
+              selected.title,
+
+            artist:
+              selected.artist,
+
+            album:
+              selected.album ??
+              "",
+
+            genre:
+              selected.genre ??
+              "",
+
+            releaseYear:
+              selected
+                .release_year ??
+              null,
+
+            durationSeconds:
+              selected
+                .duration_seconds ??
+              null,
+
+            onDemand:
+              !permanentTrackId,
+          },
+        );
+
+        if (
+          prepared?.provision_id &&
+          !permanentTrackId
+        ) {
+          pollOnDemandReady(
+            prepared
+              .provision_id,
+            candidateKey,
+          );
+        } else {
+          setQuietSearchVersion(
+            (current) =>
+              current + 1,
+          );
+        }
+
+      } catch (error) {
+        setSearchError(
+          error instanceof Error
+            ? error.message
+            : "Unable to prepare this song.",
+        );
+
+      } finally {
+        setPreparingOnDemandKey(
+          "",
+        );
+      }
+
+      return;
+    }
+
+    const localTracks =
+      displayResults.tracks
+        .filter(
+          (track) =>
+            track.source_type !==
+              "on_demand" &&
+            !isOnDemandTrackId(
+              track.id,
+            ),
+        );
+
+    const localIndex =
+      localTracks.findIndex(
+        (track) =>
+          String(
+            track.id,
+          )
+          ===
+          String(
+            selected.id,
+          ),
+      );
+
+    if (localIndex < 0) {
+      return;
+    }
+
     const queue =
-  displayResults.tracks.map(
-    (track) => ({
-      id:
-        track.id,
+      localTracks.map(
+        (track) => ({
+          id:
+            track.id,
 
-      audioUrl:
-        track.audio_url,
+          audioUrl:
+            track.audio_url,
 
-      artworkUrl:
-        resolveArtworkUrl(
-          track.artwork_url,
-        ),
+          artworkUrl:
+            resolveArtworkUrl(
+              track.artwork_url,
+            ),
 
-      mimeType:
-        track.mime_type ??
-        null,
+          mimeType:
+            track.mime_type ??
+            null,
 
-      fileSize:
-        track.file_size ??
-        null,
+          fileSize:
+            track.file_size ??
+            null,
 
-      mediaVersion:
-        track.media_version ??
-        null,
+          mediaVersion:
+            track.media_version ??
+            null,
 
-      title:
-        track.title,
+          title:
+            track.title,
 
-      artist:
-        track.artist,
+          artist:
+            track.artist,
 
-      album:
-        track.album ??
-        "",
+          album:
+            track.album ??
+            "",
 
-      genre:
-        track.genre ??
-        "",
+          genre:
+            track.genre ??
+            "",
 
-      releaseYear:
-        track.release_year ??
-        null,
+          releaseYear:
+            track.release_year ??
+            null,
 
-      durationSeconds:
-        track.duration_seconds ??
-        null,
-    }),
-  );
+          durationSeconds:
+            track.duration_seconds ??
+            null,
+        }),
+      );
 
     void player
       .playTrackQueue(
         queue,
-        trackIndex,
+        localIndex,
       )
-      .catch(() => {});
+      .catch(
+        () => {},
+      );
   }
 
   function activateTopSignal() {
