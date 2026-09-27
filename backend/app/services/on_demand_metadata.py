@@ -756,6 +756,14 @@ async def _search_deezer(
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
+    requested_limit = max(
+        1,
+        min(
+            int(limit),
+            500,
+        ),
+    )
+
     async with httpx.AsyncClient(
         base_url=(
             settings
@@ -776,63 +784,101 @@ async def _search_deezer(
                 .musicbrainz_user_agent,
         },
     ) as client:
-        try:
-            response = await client.get(
-                "/search/track",
-                params={
-                    "q":
-                        query,
-                    "limit":
-                        max(
-                            1,
-                            min(
-                                limit,
-                                25,
-                            ),
-                        ),
-                },
+        candidates: list[
+            CatalogTrackCandidate
+        ] = []
+
+        index = 0
+
+        while (
+            len(candidates)
+            < requested_limit
+        ):
+            page_limit = min(
+                100,
+                requested_limit
+                - len(candidates),
             )
 
-            response.raise_for_status()
-
-            payload = response.json()
-
-        except (
-            httpx.HTTPError,
-            ValueError,
-        ):
-            return []
-
-        if not isinstance(
-            payload,
-            dict,
-        ):
-            return []
-
-        raw_items = payload.get(
-            "data",
-        )
-
-        if not isinstance(
-            raw_items,
-            list,
-        ):
-            return []
-
-        candidates = [
-            candidate
-            for item in raw_items
-            if isinstance(
-                item,
-                dict,
-            )
-            for candidate in [
-                _deezer_candidate(
-                    item,
-                    query=query,
+            try:
+                response = await client.get(
+                    "/search/track",
+                    params={
+                        "q":
+                            query,
+                        "limit":
+                            page_limit,
+                        "index":
+                            index,
+                    },
                 )
+
+                response.raise_for_status()
+
+                payload = response.json()
+
+            except (
+                httpx.HTTPError,
+                ValueError,
+            ):
+                break
+
+            if not isinstance(
+                payload,
+                dict,
+            ):
+                break
+
+            raw_items = payload.get(
+                "data",
+            )
+
+            if (
+                not isinstance(
+                    raw_items,
+                    list,
+                )
+                or not raw_items
+            ):
+                break
+
+            page_candidates = [
+                candidate
+                for item in raw_items
+                if isinstance(
+                    item,
+                    dict,
+                )
+                for candidate in [
+                    _deezer_candidate(
+                        item,
+                        query=query,
+                    )
+                ]
+                if candidate is not None
             ]
-            if candidate is not None
+
+            candidates.extend(
+                page_candidates,
+            )
+
+            index += len(
+                raw_items,
+            )
+
+            if (
+                not payload.get(
+                    "next",
+                )
+                or len(
+                    raw_items,
+                )
+                < page_limit
+            ):
+                break
+
+        candidates = candidates[
+            :requested_limit
         ]
 
         detail_count = min(
@@ -917,7 +963,7 @@ async def _search_itunes(
                             1,
                             min(
                                 limit,
-                                25,
+                                200,
                             ),
                         ),
                     "explicit":
@@ -1406,16 +1452,16 @@ async def search_catalog_metadata(
             int(
                 limit,
             ),
-            25,
+            500,
         ),
     )
 
     provider_limit = min(
         max(
-            requested_limit * 2,
+            requested_limit,
             8,
         ),
-        25,
+        500,
     )
 
     deezer, itunes = await asyncio.gather(
