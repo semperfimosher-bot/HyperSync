@@ -543,7 +543,7 @@ export default function PasswordRecoveryOverlay({
       : isReset
         ? (
             "Choose a new password for your " +
-            "HyperSync account."
+            "HyperSynced account."
           )
         : isOtp
           ? (
