@@ -150,3 +150,91 @@ async def test_admin_prepare_can_still_start_ingest(
     )
 
     assert ingest_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_playlist_warm_registers_500_without_ingest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    candidates = [
+        CatalogTrackCandidate(
+            key=f"metadata:warm-{index}",
+            title=f"Warm Track {index}",
+            artist="Warm Artist",
+            album="Warm Album",
+            duration_seconds=180,
+            artwork_url=None,
+            genre=None,
+            release_year=2026,
+            explicit=False,
+            track_number=index + 1,
+            disc_number=1,
+            isrc=None,
+            deezer_track_id=str(
+                10_000 + index,
+            ),
+            apple_track_id=None,
+            provider="deezer",
+            confidence=0.95,
+        )
+        for index in range(500)
+    ]
+
+    await on_demand_ingestion.remember_candidates(
+        candidates,
+    )
+
+    ingest_calls = 0
+
+    async def fake_ensure_source(
+        session,
+    ) -> None:
+        session.state = "stream-ready"
+
+    async def fake_ensure_ingest(
+        session,
+    ) -> None:
+        nonlocal ingest_calls
+        ingest_calls += 1
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_ensure_source",
+        fake_ensure_source,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_ensure_ingest",
+        fake_ensure_ingest,
+    )
+
+    warmed = (
+        await on_demand_ingestion
+        .warm_candidate_keys(
+            [
+                candidate.key
+                for candidate
+                in candidates
+            ]
+        )
+    )
+
+    assert len(warmed) == 500
+
+    assert all(
+        item["track_id"] is None
+        for item in warmed
+    )
+
+    assert ingest_calls == 0
+
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
