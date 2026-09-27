@@ -233,6 +233,25 @@ export function warmOnDemandTracks(
 }
 
 
+export function queueOnDemandTrack(
+  candidateKey,
+) {
+  return apiRequest(
+    "/on-demand/queue",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          candidate_key:
+            candidateKey,
+        }),
+    },
+  );
+}
+
+
 export function prepareOnDemandTrack(
   candidateKey,
 ) {
