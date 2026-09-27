@@ -97,6 +97,29 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend scripts
 
+      - name: Validate local on-demand readiness helper
+        shell: pwsh
+        run: |
+          $output = @(
+            python scripts/local_on_demand_readiness.py
+          )
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Local readiness helper failed."
+          }
+
+          foreach ($required in @(
+            "database_kind=",
+            "database=",
+            "b2=",
+            "cookies=",
+            "admin="
+          )) {
+            if (-not ($output | Where-Object { $_.StartsWith($required) })) {
+              throw ("Missing readiness field: " + $required)
+            }
+          }
+
       - name: Validate Alembic migration chain
         env:
           MIGRATION_DATABASE_URL: postgresql://user:password@localhost/hypersync
