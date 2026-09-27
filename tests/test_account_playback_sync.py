@@ -1553,3 +1553,181 @@ async def test_remote_play_pause_and_seek_update_shared_state_immediately() -> N
         assert playing_state.status_code == 200, playing_state.text
         assert playing_state.json()["paused"] is False
         assert playing_state.json()["device_id"] == "phone"
+
+
+
+@pytest.mark.asyncio
+async def test_transfer_preserves_exact_position_and_account_queue() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"queue-transfer-{run_id}"
+    track_ids = [
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    ]
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                Track(
+                    id=track_id,
+                    title=f"Queue Song {index}",
+                    artist="HyperSync Queue",
+                    album="Shared Queue",
+                    b2_object_key=(
+                        f"audio/queue-{run_id}-{index}.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    file_size=4096,
+                    duration_seconds=240,
+                    is_published=True,
+                )
+                for index, track_id
+                in enumerate(
+                    track_ids,
+                    start=1,
+                )
+            ]
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        for device_id, device_type in (
+            (
+                "computer",
+                "desktop",
+            ),
+            (
+                "phone",
+                "mobile",
+            ),
+        ):
+            poll = await client.post(
+                "/api/users/me/playback-devices/poll",
+                headers=headers,
+                json={
+                    "device_id":
+                        device_id,
+                    "name":
+                        device_id.title(),
+                    "device_type":
+                        device_type,
+                },
+            )
+
+            assert poll.status_code == 200, poll.text
+
+        initial = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(
+                        track_ids[1],
+                    ),
+                "position_seconds":
+                    42.0,
+                "paused":
+                    False,
+                "queue_track_ids": [
+                    str(
+                        track_id,
+                    )
+                    for track_id
+                    in track_ids
+                ],
+                "queue_index":
+                    1,
+                "device_id":
+                    "computer",
+            },
+        )
+
+        assert initial.status_code == 200, initial.text
+
+        transfer = await client.post(
+            (
+                "/api/users/me/playback-devices/"
+                "phone/commands"
+            ),
+            headers=headers,
+            json={
+                "source_device_id":
+                    "computer",
+                "action":
+                    "transfer",
+                "position_seconds":
+                    47.25,
+                "paused":
+                    False,
+                "queue_track_ids": [
+                    str(
+                        track_id,
+                    )
+                    for track_id
+                    in track_ids
+                ],
+                "queue_index":
+                    1,
+            },
+        )
+
+        assert transfer.status_code == 201, transfer.text
+
+        state = await client.get(
+            "/api/users/me/playback-state",
+            headers=headers,
+        )
+
+        assert state.status_code == 200, state.text
+        payload = state.json()
+
+        assert payload[
+            "device_id"
+        ] == "phone"
+
+        assert payload[
+            "position_seconds"
+        ] == pytest.approx(
+            47.25,
+            abs=0.05,
+        )
+
+        assert payload[
+            "queue_index"
+        ] == 1
+
+        assert [
+            item[
+                "id"
+            ]
+            for item in payload[
+                "queue"
+            ]
+        ] == [
+            str(
+                track_id,
+            )
+            for track_id
+            in track_ids
+        ]

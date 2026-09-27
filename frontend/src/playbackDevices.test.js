@@ -813,3 +813,152 @@ test(
     );
   },
 );
+
+
+
+test(
+  "transfer restores the shared queue at the exact playback position",
+  async () => {
+    const calls = [];
+
+    const fakePlayer = {
+      state: {
+        trackId: "old",
+        paused: true,
+        queue: [],
+        queueIndex: -1,
+      },
+
+      getState() {
+        return this.state;
+      },
+
+      async runWithLocalPlaybackControl(
+        callback,
+      ) {
+        return callback();
+      },
+
+      async restoreAccountPlaybackQueue(
+        queue,
+        index,
+        position,
+      ) {
+        calls.push([
+          "restore-queue",
+          queue.map(
+            (track) =>
+              track.id,
+          ),
+          index,
+          position,
+        ]);
+
+        this.state = {
+          trackId:
+            queue[index].id,
+          paused:
+            true,
+          queue:
+            queue.map(
+              (track) => ({
+                id:
+                  track.id,
+              }),
+            ),
+          queueIndex:
+            index,
+        };
+      },
+
+      async togglePlay() {
+        calls.push(
+          "play",
+        );
+
+        this.state = {
+          ...this.state,
+          paused:
+            false,
+        };
+      },
+
+      pausePlayback() {
+        this.state = {
+          ...this.state,
+          paused:
+            true,
+        };
+      },
+    };
+
+    await applyPlaybackRemoteCommand(
+      {
+        action:
+          "transfer",
+      },
+      {
+        player:
+          fakePlayer,
+        snapshot: {
+          track: {
+            id:
+              "two",
+          },
+          queue: [
+            {
+              id:
+                "one",
+              title:
+                "One",
+              artist:
+                "Artist",
+            },
+            {
+              id:
+                "two",
+              title:
+                "Two",
+              artist:
+                "Artist",
+            },
+            {
+              id:
+                "three",
+              title:
+                "Three",
+              artist:
+                "Artist",
+            },
+          ],
+          queue_index:
+            1,
+          position_seconds:
+            47.25,
+          paused:
+            false,
+        },
+        snapshotPosition:
+          (snapshot) =>
+            snapshot.position_seconds,
+      },
+    );
+
+    assert.deepEqual(
+      calls,
+      [
+        [
+          "restore-queue",
+          [
+            "one",
+            "two",
+            "three",
+          ],
+          1,
+          47.25,
+        ],
+        "play",
+      ],
+    );
+  },
+);

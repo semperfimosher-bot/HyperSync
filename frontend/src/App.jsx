@@ -5483,6 +5483,8 @@ export default function App() {
         0,
       at:
         0,
+      queueSignature:
+        "",
     });
 
   const playbackWriteInFlightRef =
@@ -5544,6 +5546,84 @@ export default function App() {
         const snapshot =
           accountPlaybackSnapshotRef
             .current;
+
+        const localState =
+          player.getState();
+
+        const transferFromLocalOwner =
+          action ===
+            "transfer" &&
+          snapshot?.device_id ===
+            currentDeviceId;
+
+        const transferPosition =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? Math.max(
+                      Number(
+                        localState?.currentTime ??
+                          0,
+                      ) || 0,
+                      0,
+                    )
+                  : accountPlaybackPosition(
+                      snapshot,
+                    )
+              )
+            : null;
+
+        const transferPaused =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? Boolean(
+                      localState?.paused,
+                    )
+                  : Boolean(
+                      snapshot?.paused ??
+                        true,
+                    )
+              )
+            : null;
+
+        const transferQueue =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? (
+                      Array.isArray(
+                        localState?.queue,
+                      )
+                        ? localState.queue
+                        : []
+                    )
+                  : (
+                      Array.isArray(
+                        snapshot?.queue,
+                      )
+                        ? snapshot.queue
+                        : []
+                    )
+              )
+            : [];
+
+        const transferQueueIndex =
+          action ===
+            "transfer"
+            ? (
+                transferFromLocalOwner
+                  ? localState?.queueIndex
+                  : snapshot?.queue_index
+              )
+            : null;
+
+        if (transferFromLocalOwner) {
+          player.silenceLocalPlayback();
+        }
 
         try {
           if (
@@ -5756,14 +5836,22 @@ export default function App() {
           }
 
           const queueEntries =
-            Array.isArray(
-              options?.queue,
-            )
-              ? options.queue.slice(
+            action ===
+              "transfer"
+              ? transferQueue.slice(
                   0,
                   500,
                 )
-              : [];
+              : (
+                  Array.isArray(
+                    options?.queue,
+                  )
+                    ? options.queue.slice(
+                        0,
+                        500,
+                      )
+                    : []
+                );
 
           const queueTrackIds =
             queueEntries
@@ -5778,13 +5866,19 @@ export default function App() {
                 Boolean,
               );
 
+          const requestedQueueIndex =
+            action ===
+              "transfer"
+              ? transferQueueIndex
+              : options?.queueIndex;
+
           const queueIndex =
             Number.isInteger(
-              options?.queueIndex,
+              requestedQueueIndex,
             )
               ? Math.min(
                   Math.max(
-                    options.queueIndex,
+                    requestedQueueIndex,
                     0,
                   ),
                   Math.max(
@@ -5810,6 +5904,10 @@ export default function App() {
                 null,
               queueTrackIds,
               queueIndex,
+              positionSeconds:
+                transferPosition,
+              paused:
+                transferPaused,
             }) ??
             null;
 
@@ -5842,6 +5940,10 @@ export default function App() {
                   null,
                 queueTrackIds,
                 queueIndex,
+                positionSeconds:
+                  transferPosition,
+                paused:
+                  transferPaused,
               });
 
             usedRealtime =
@@ -6640,6 +6742,36 @@ export default function App() {
             ),
           at:
             Date.now(),
+          queueSignature:
+            (
+              Array.isArray(
+                state?.queue,
+              )
+                ? state.queue
+                    .slice(
+                      0,
+                      500,
+                    )
+                    .map(
+                      (entry) =>
+                        String(
+                          entry?.id ??
+                            "",
+                        ),
+                    )
+                    .join(
+                      "\u001f",
+                    )
+                : ""
+            ) +
+            "|" +
+            String(
+              Number.isInteger(
+                state?.queueIndex,
+              )
+                ? state.queueIndex
+                : -1,
+            ),
         };
       };
 
@@ -6700,6 +6832,32 @@ export default function App() {
                       state.paused,
                     )
                   : true,
+              queueTrackIds:
+                Array.isArray(
+                  state?.queue,
+                )
+                  ? state.queue
+                      .slice(
+                        0,
+                        500,
+                      )
+                      .map(
+                        (entry) =>
+                          String(
+                            entry?.id ??
+                              "",
+                          ),
+                      )
+                      .filter(
+                        Boolean,
+                      )
+                  : [],
+              queueIndex:
+                Number.isInteger(
+                  state?.queueIndex,
+                )
+                  ? state.queueIndex
+                  : null,
             }) ??
           false;
 
@@ -6753,6 +6911,34 @@ export default function App() {
                             state.paused,
                           )
                         : true,
+
+                    queue_track_ids:
+                      Array.isArray(
+                        state?.queue,
+                      )
+                        ? state.queue
+                            .slice(
+                              0,
+                              500,
+                            )
+                            .map(
+                              (entry) =>
+                                String(
+                                  entry?.id ??
+                                    "",
+                                ),
+                            )
+                            .filter(
+                              Boolean,
+                            )
+                        : [],
+
+                    queue_index:
+                      Number.isInteger(
+                        state?.queueIndex,
+                      )
+                        ? state.queueIndex
+                        : null,
 
                     device_id:
                       deviceId,
@@ -6849,6 +7035,37 @@ export default function App() {
               true,
           );
 
+        const queueSignature =
+          (
+            Array.isArray(
+              state?.queue,
+            )
+              ? state.queue
+                  .slice(
+                    0,
+                    500,
+                  )
+                  .map(
+                    (entry) =>
+                      String(
+                        entry?.id ??
+                          "",
+                      ),
+                  )
+                  .join(
+                    "\u001f",
+                  )
+              : ""
+          ) +
+          "|" +
+          String(
+            Number.isInteger(
+              state?.queueIndex,
+            )
+              ? state.queueIndex
+              : -1,
+          );
+
         const now =
           Date.now();
 
@@ -6857,6 +7074,8 @@ export default function App() {
             previous.trackId ||
           paused !==
             previous.paused ||
+          queueSignature !==
+            previous.queueSignature ||
           Math.abs(
             position -
               previous.position,
@@ -6911,6 +7130,10 @@ export default function App() {
              * playing a moment earlier.
              */
             player.silenceLocalPlayback();
+
+            player.syncAccountPlaybackShadow?.(
+              snapshot,
+            );
 
             return;
           }

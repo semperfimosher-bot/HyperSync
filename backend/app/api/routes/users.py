@@ -195,6 +195,14 @@ class PlaybackStateResponse(
 
     device_id: str | None = None
 
+    queue: list[
+        PlaybackTrackResponse
+    ] = Field(
+        default_factory=list,
+    )
+
+    queue_index: int | None = None
+
     updated_at: datetime | None = None
 
 
@@ -210,6 +218,19 @@ class PlaybackStateUpdateRequest(
     )
 
     paused: bool = True
+
+    queue_track_ids: list[
+        UUID
+    ] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+
+    queue_index: int | None = Field(
+        default=None,
+        ge=0,
+        le=499,
+    )
 
     device_id: str = Field(
         min_length=1,
@@ -298,6 +319,14 @@ class PlaybackRemoteCommandRequest(
         ge=0,
         le=499,
     )
+
+    position_seconds: float | None = Field(
+        default=None,
+        ge=0,
+        le=86_400,
+    )
+
+    paused: bool | None = None
 
 
 class PlaybackRemoteCommandResponse(
@@ -699,6 +728,145 @@ def playback_queue_track_response(
     )
 
 
+async def build_account_playback_queue(
+    session: DatabaseSession,
+    state: UserAppState | None,
+    selected_track_id: UUID | None,
+) -> tuple[
+    list[PlaybackTrackResponse],
+    int | None,
+]:
+    if state is None:
+        return [], None
+
+    raw_ids = (
+        state.playback_queue_track_ids
+        if isinstance(
+            state.playback_queue_track_ids,
+            list,
+        )
+        else []
+    )
+
+    queue_ids: list[UUID] = []
+
+    for raw_id in raw_ids[:500]:
+        try:
+            queue_ids.append(
+                UUID(
+                    str(
+                        raw_id,
+                    )
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            continue
+
+    if (
+        not queue_ids
+        and selected_track_id
+        is not None
+    ):
+        queue_ids = [
+            selected_track_id,
+        ]
+
+    if not queue_ids:
+        return [], None
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                set(
+                    queue_ids,
+                )
+            ),
+            Track.is_published.is_(
+                True,
+            ),
+        )
+    )
+
+    by_id = {
+        track.id:
+            track
+        for track in result.scalars().all()
+    }
+
+    queue: list[
+        PlaybackTrackResponse
+    ] = []
+
+    requested_index = (
+        state.playback_queue_index
+        if isinstance(
+            state.playback_queue_index,
+            int,
+        )
+        else None
+    )
+
+    canonical_index: int | None = None
+
+    for original_index, queue_id in enumerate(
+        queue_ids,
+    ):
+        track = by_id.get(
+            queue_id,
+        )
+
+        if track is None:
+            continue
+
+        if (
+            requested_index
+            == original_index
+        ):
+            canonical_index = len(
+                queue,
+            )
+
+        queue.append(
+            playback_queue_track_response(
+                track,
+            )
+        )
+
+    if selected_track_id is not None:
+        selected_index = next(
+            (
+                index
+                for index, item in enumerate(
+                    queue,
+                )
+                if item.id
+                == selected_track_id
+            ),
+            None,
+        )
+
+        if selected_index is not None:
+            canonical_index = (
+                selected_index
+            )
+
+    if (
+        canonical_index is None
+        and queue
+    ):
+        canonical_index = 0
+
+    return (
+        queue,
+        canonical_index,
+    )
+
+
 async def build_playback_state(
     session: DatabaseSession,
     user: User,
@@ -733,6 +901,14 @@ async def build_playback_state(
         state.playback_track_id,
     )
 
+    queue, queue_index = (
+        await build_account_playback_queue(
+            session,
+            state,
+            state.playback_track_id,
+        )
+    )
+
     if (
         track is None
         or not track.is_published
@@ -765,6 +941,8 @@ async def build_playback_state(
         device_id=(
             state.playback_device_id
         ),
+        queue=queue,
+        queue_index=queue_index,
         updated_at=(
             state.playback_updated_at
         ),
@@ -2100,6 +2278,71 @@ async def update_my_playback_state(
         payload.device_id
     )
 
+    queue_ids = [
+        str(
+            queue_id,
+        )
+        for queue_id
+        in payload.queue_track_ids[:500]
+    ]
+
+    queue_index = (
+        payload.queue_index
+        if (
+            payload.queue_index
+            is not None
+            and payload.queue_index
+            < len(
+                queue_ids,
+            )
+        )
+        else None
+    )
+
+    if track is None:
+        queue_ids = []
+        queue_index = None
+    else:
+        track_id_value = str(
+            track.id,
+        )
+
+        if not queue_ids:
+            queue_ids = [
+                track_id_value,
+            ]
+            queue_index = 0
+        elif (
+            queue_index is None
+            or queue_ids[
+                queue_index
+            ]
+            != track_id_value
+        ):
+            try:
+                queue_index = (
+                    queue_ids.index(
+                        track_id_value,
+                    )
+                )
+            except ValueError:
+                queue_ids.insert(
+                    0,
+                    track_id_value,
+                )
+                queue_ids = (
+                    queue_ids[:500]
+                )
+                queue_index = 0
+
+    state.playback_queue_track_ids = (
+        queue_ids
+    )
+
+    state.playback_queue_index = (
+        queue_index
+    )
+
     state.playback_updated_at = (
         datetime.now(
             UTC,
@@ -2535,6 +2778,12 @@ async def live_playback_device(
                             queue_index=message.get(
                                 "queue_index",
                             ),
+                            position_seconds=message.get(
+                                "position_seconds",
+                            ),
+                            paused=message.get(
+                                "paused",
+                            ),
                         )
                     )
 
@@ -2628,6 +2877,15 @@ async def live_playback_device(
                             paused=message.get(
                                 "paused",
                                 True,
+                            ),
+                            queue_track_ids=(
+                                message.get(
+                                    "queue_track_ids",
+                                )
+                                or []
+                            ),
+                            queue_index=message.get(
+                                "queue_index",
                             ),
                             device_id=device_id,
                         )
@@ -3174,37 +3432,80 @@ async def send_playback_device_command(
         )
 
         if payload.action == "transfer":
-            updated_at = (
-                _as_utc_playback_time(
-                    playback_state_row
-                    .playback_updated_at,
-                )
-            )
-
-            if (
-                not playback_state_row
-                .playback_paused
-                and updated_at
-                is not None
-            ):
-                elapsed = max(
-                    (
-                        now -
-                        updated_at
-                    ).total_seconds(),
-                    0.0,
-                )
-
+            if payload.position_seconds is not None:
                 playback_state_row.playback_position_seconds = (
                     max(
                         float(
-                            playback_state_row
-                            .playback_position_seconds
-                            or 0.0
+                            payload.position_seconds,
                         ),
                         0.0,
                     )
-                    + elapsed
+                )
+
+                if payload.paused is not None:
+                    playback_state_row.playback_paused = (
+                        bool(
+                            payload.paused,
+                        )
+                    )
+            else:
+                updated_at = (
+                    _as_utc_playback_time(
+                        playback_state_row
+                        .playback_updated_at,
+                    )
+                )
+
+                if (
+                    not playback_state_row
+                    .playback_paused
+                    and updated_at
+                    is not None
+                ):
+                    elapsed = max(
+                        (
+                            now -
+                            updated_at
+                        ).total_seconds(),
+                        0.0,
+                    )
+
+                    playback_state_row.playback_position_seconds = (
+                        max(
+                            float(
+                                playback_state_row
+                                .playback_position_seconds
+                                or 0.0
+                            ),
+                            0.0,
+                        )
+                        + elapsed
+                    )
+
+            if payload.queue_track_ids:
+                transfer_queue_ids = [
+                    str(
+                        queue_id,
+                    )
+                    for queue_id
+                    in payload.queue_track_ids[:500]
+                ]
+
+                playback_state_row.playback_queue_track_ids = (
+                    transfer_queue_ids
+                )
+
+                playback_state_row.playback_queue_index = (
+                    payload.queue_index
+                    if (
+                        payload.queue_index
+                        is not None
+                        and payload.queue_index
+                        < len(
+                            transfer_queue_ids,
+                        )
+                    )
+                    else None
                 )
         else:
             playback_state_row.playback_track_id = (
@@ -3220,6 +3521,18 @@ async def send_playback_device_command(
 
             playback_state_row.playback_paused = (
                 False
+            )
+
+            playback_state_row.playback_queue_track_ids = [
+                str(
+                    queue_track.id,
+                )
+                for queue_track
+                in canonical_queue
+            ]
+
+            playback_state_row.playback_queue_index = (
+                canonical_queue_index
             )
 
         playback_state_row.playback_device_id = (
@@ -3338,6 +3651,14 @@ async def send_playback_device_command(
 
                 playback_state_row.playback_paused = (
                     True
+                )
+
+                playback_state_row.playback_queue_track_ids = (
+                    []
+                )
+
+                playback_state_row.playback_queue_index = (
+                    None
                 )
 
             playback_state_row.playback_updated_at = (

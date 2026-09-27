@@ -213,13 +213,71 @@ export async function applyPlaybackRemoteCommand(
               snapshot.paused,
             );
 
-          if (!alreadyMatching) {
-            await player.restoreAccountPlayback(
-              snapshot.track,
-              snapshotPosition(
-                snapshot,
-              ),
+          const remoteQueue =
+            Array.isArray(
+              snapshot?.queue,
+            )
+              ? snapshot.queue
+              : [];
+
+          const remoteQueueIndex =
+            Number(
+              snapshot?.queue_index,
             );
+
+          const queueMatches =
+            Array.isArray(
+              current?.queue,
+            ) &&
+            current.queue.length ===
+              remoteQueue.length &&
+            current.queue.every(
+              (entry, index) =>
+                String(
+                  entry?.id ??
+                    "",
+                ) ===
+                String(
+                  remoteQueue[
+                    index
+                  ]?.id ??
+                    "",
+                ),
+            ) &&
+            Number(
+              current?.queueIndex,
+            ) ===
+              remoteQueueIndex;
+
+          if (
+            !alreadyMatching ||
+            !queueMatches
+          ) {
+            if (
+              remoteQueue.length > 0 &&
+              typeof player
+                .restoreAccountPlaybackQueue ===
+                "function"
+            ) {
+              await player.restoreAccountPlaybackQueue(
+                remoteQueue,
+                Number.isInteger(
+                  remoteQueueIndex,
+                )
+                  ? remoteQueueIndex
+                  : 0,
+                snapshotPosition(
+                  snapshot,
+                ),
+              );
+            } else {
+              await player.restoreAccountPlayback(
+                snapshot.track,
+                snapshotPosition(
+                  snapshot,
+                ),
+              );
+            }
 
             if (
               snapshot.paused

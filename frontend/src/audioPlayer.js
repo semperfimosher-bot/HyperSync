@@ -3040,6 +3040,188 @@ export async function togglePlay() {
 }
 
 
+export async function restoreAccountPlaybackQueue(
+  queue,
+  queueIndex = 0,
+  positionSeconds = 0,
+) {
+  const builtQueue =
+    buildTrackQueue(
+      Array.isArray(
+        queue,
+      )
+        ? queue
+        : [],
+    );
+
+  if (!builtQueue.length) {
+    return getState();
+  }
+
+  const safeIndex =
+    Math.min(
+      Math.max(
+        Number.isInteger(
+          queueIndex,
+        )
+          ? queueIndex
+          : 0,
+        0,
+      ),
+      builtQueue.length - 1,
+    );
+
+  const selected =
+    builtQueue[
+      safeIndex
+    ];
+
+  await restoreAccountPlayback(
+    {
+      id:
+        selected.id,
+      ...selected.meta,
+    },
+    positionSeconds,
+  );
+
+  queueRevision +=
+    1;
+
+  currentQueue =
+    builtQueue;
+
+  currentQueueIndex =
+    safeIndex;
+
+  notify();
+
+  return getState();
+}
+
+
+export function syncAccountPlaybackShadow(
+  snapshot,
+) {
+  const queue =
+    buildTrackQueue(
+      Array.isArray(
+        snapshot?.queue,
+      )
+        ? snapshot.queue
+        : [],
+    );
+
+  if (!queue.length) {
+    queueRevision +=
+      1;
+
+    currentQueue =
+      [];
+
+    currentQueueIndex =
+      -1;
+
+    if (!snapshot?.track?.id) {
+      currentTrackId =
+        null;
+
+      currentTrackMeta =
+        null;
+
+      currentArtworkUrl =
+        null;
+
+      currentTrackTitle =
+        "";
+
+      currentTrackArtist =
+        "";
+    }
+
+    notify();
+
+    return getState();
+  }
+
+  const requestedIndex =
+    Number(
+      snapshot?.queue_index,
+    );
+
+  let safeIndex =
+    Number.isInteger(
+      requestedIndex,
+    )
+      ? Math.min(
+          Math.max(
+            requestedIndex,
+            0,
+          ),
+          queue.length - 1,
+        )
+      : 0;
+
+  const trackId =
+    String(
+      snapshot?.track?.id ??
+        "",
+    );
+
+  const matchingIndex =
+    trackId
+      ? queue.findIndex(
+          (entry) =>
+            String(
+              entry.id,
+            ) === trackId,
+        )
+      : -1;
+
+  if (matchingIndex >= 0) {
+    safeIndex =
+      matchingIndex;
+  }
+
+  const selected =
+    queue[
+      safeIndex
+    ];
+
+  queueRevision +=
+    1;
+
+  currentQueue =
+    queue;
+
+  currentQueueIndex =
+    safeIndex;
+
+  currentTrackId =
+    String(
+      selected.id,
+    );
+
+  currentTrackMeta =
+    normalizeTrackMeta(
+      selected.meta,
+    );
+
+  currentArtworkUrl =
+    currentTrackMeta.artworkUrl;
+
+  currentTrackTitle =
+    currentTrackMeta.title;
+
+  currentTrackArtist =
+    currentTrackMeta.artist;
+
+  notify();
+
+  return getState();
+}
+
+
 export function pausePlayback() {
   if (
     dispatchRemotePlaybackInBackground(
@@ -3260,6 +3442,8 @@ if (
   window.__HYPERSYNC_PLAYER = {
     playTrack,
     restoreAccountPlayback,
+    restoreAccountPlaybackQueue,
+    syncAccountPlaybackShadow,
     runWithLocalPlaybackControl,
     setRemotePlaybackController,
     silenceLocalPlayback,
