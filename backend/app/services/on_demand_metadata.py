@@ -184,6 +184,46 @@ def _large_itunes_artwork(
     )
 
 
+_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
+    (
+        r"\s+"
+        r"(?:&|\band\b|\bx\b|\bwith\b|"
+        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
+        r"\s+"
+    ),
+    flags=re.IGNORECASE,
+)
+
+
+def _primary_artist_credit(
+    artist: str | None,
+) -> str:
+    raw = str(
+        artist
+        or ""
+    ).strip()
+
+    if not raw:
+        return ""
+
+    parts = [
+        part.strip()
+        for part in (
+            _ARTIST_CREDIT_SPLIT_PATTERN
+            .split(
+                raw,
+            )
+        )
+        if part.strip()
+    ]
+
+    return (
+        parts[0]
+        if parts
+        else raw
+    )
+
+
 def _candidate_identity(
     artist: str,
     title: str,
@@ -1208,7 +1248,9 @@ def rank_catalog_candidates_for_kind(
 
     for candidate in candidates:
         if normalized_kind == "artist":
-            field = candidate.artist
+            field = _primary_artist_credit(
+                candidate.artist,
+            )
 
             normalized_field = (
                 _normalized_text(
