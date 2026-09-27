@@ -3278,6 +3278,7 @@ async function downloadOpenedPlaylist() {
             type="button"
             className="hs-search-playlist-action"
             disabled={
+              openedPlaylist.transient ||
               !openedPlaylist.tracks?.length ||
               playlistDownload.status ===
                 "downloading"
@@ -3324,6 +3325,7 @@ async function downloadOpenedPlaylist() {
     type="button"
     className="hs-search-playlist-action"
     disabled={
+      openedPlaylist.transient ||
       playlistActionBusy
     }
     title={
