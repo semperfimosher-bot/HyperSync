@@ -1174,10 +1174,162 @@ def merge_catalog_candidates(
     ]
 
 
+def rank_catalog_candidates_for_kind(
+    candidates: list[CatalogTrackCandidate],
+    *,
+    query: str,
+    kind: str,
+    limit: int,
+) -> list[CatalogTrackCandidate]:
+    normalized_query = _normalized_text(
+        query,
+    )
+
+    normalized_kind = (
+        kind.strip().casefold()
+        if kind
+        else "song"
+    )
+
+    if normalized_kind == "song":
+        return candidates[
+            :max(
+                0,
+                limit,
+            )
+        ]
+
+    ranked: list[
+        tuple[
+            float,
+            CatalogTrackCandidate,
+        ]
+    ] = []
+
+    for candidate in candidates:
+        if normalized_kind == "artist":
+            field = candidate.artist
+
+            normalized_field = (
+                _normalized_text(
+                    field,
+                )
+            )
+
+            score = _similarity(
+                query,
+                field,
+            )
+
+            if (
+                normalized_query
+                and normalized_query
+                in normalized_field
+            ):
+                score = max(
+                    score,
+                    0.98,
+                )
+
+            if score < 0.55:
+                continue
+
+        elif normalized_kind == "album":
+            if not candidate.album:
+                continue
+
+            field = (
+                f"{candidate.artist} "
+                f"{candidate.album}"
+            )
+
+            normalized_field = (
+                _normalized_text(
+                    field,
+                )
+            )
+
+            score = max(
+                _similarity(
+                    query,
+                    candidate.album,
+                ),
+                _similarity(
+                    query,
+                    field,
+                ),
+            )
+
+            if (
+                normalized_query
+                and normalized_query
+                in normalized_field
+            ):
+                score = max(
+                    score,
+                    0.96,
+                )
+
+            if score < 0.52:
+                continue
+
+        else:
+            return candidates[
+                :max(
+                    0,
+                    limit,
+                )
+            ]
+
+        ranked.append(
+            (
+                score,
+                candidate,
+            )
+        )
+
+    if normalized_kind == "album":
+        ranked.sort(
+            key=lambda item: (
+                -item[0],
+                item[1].artist.casefold(),
+                (
+                    item[1].album
+                    or ""
+                ).casefold(),
+                item[1].disc_number
+                or 1,
+                item[1].track_number
+                or 999,
+                item[1].title.casefold(),
+            )
+        )
+    else:
+        ranked.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1].confidence,
+                item[1].artist.casefold(),
+                item[1].title.casefold(),
+            )
+        )
+
+    return [
+        candidate
+        for _score, candidate in ranked[
+            :max(
+                0,
+                limit,
+            )
+        ]
+    ]
+
+
 async def search_catalog_metadata(
     query: str,
     *,
     limit: int = 10,
+    kind: str = "song",
 ) -> list[CatalogTrackCandidate]:
     clean_query = " ".join(
         query.strip().split()
@@ -1215,9 +1367,16 @@ async def search_catalog_metadata(
         ),
     )
 
-    return merge_catalog_candidates(
+    merged = merge_catalog_candidates(
         deezer,
         itunes,
+        limit=provider_limit,
+    )
+
+    return rank_catalog_candidates_for_kind(
+        merged,
+        query=clean_query,
+        kind=kind,
         limit=requested_limit,
     )
 
