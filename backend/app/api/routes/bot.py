@@ -136,6 +136,7 @@ async def bot_music_search(
         await search_and_remember(
             q,
             limit=15,
+            kind=kind,
         )
     )
 
