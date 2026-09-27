@@ -1168,10 +1168,9 @@ def merge_catalog_candidates(
                 candidate,
             )
 
-    best_by_identity: dict[
-        tuple[str, str],
-        CatalogTrackCandidate,
-    ] = {}
+    ranked: list[
+        CatalogTrackCandidate
+    ] = []
 
     for candidate in merged:
         identity = _candidate_identity(
@@ -1179,24 +1178,45 @@ def merge_catalog_candidates(
             candidate.title,
         )
 
-        current = (
-            best_by_identity.get(
-                identity,
+        compatible_index = None
+
+        for index, current in enumerate(
+            ranked,
+        ):
+            if (
+                _candidate_identity(
+                    current.artist,
+                    current.title,
+                )
+                != identity
+            ):
+                continue
+
+            if not _duration_compatible(
+                current.duration_seconds,
+                candidate.duration_seconds,
+            ):
+                continue
+
+            compatible_index = index
+            break
+
+        if compatible_index is None:
+            ranked.append(
+                candidate,
             )
-        )
+
+            continue
 
         if (
-            current is None
-            or candidate.confidence
-            > current.confidence
+            candidate.confidence
+            > ranked[
+                compatible_index
+            ].confidence
         ):
-            best_by_identity[
-                identity
+            ranked[
+                compatible_index
             ] = candidate
-
-    ranked = list(
-        best_by_identity.values()
-    )
 
     ranked.sort(
         key=lambda candidate: (
