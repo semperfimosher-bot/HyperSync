@@ -1023,15 +1023,10 @@ async def prepare_candidate(
         session,
     )
 
-    if (
-        session.track_id is None
-        and session.state
-        != "failed"
-    ):
-        await _ensure_ingest(
-            session,
-        )
-
+    # Preparing a temporary stream must stay
+    # metadata/source-only. Publishing to B2
+    # and creating the catalog row begins only
+    # after the client confirms playback.
     return _session_snapshot(
         session,
     )
@@ -1089,12 +1084,17 @@ async def record_provision_play(
             track_id,
             user_id,
         )
+    elif session.state != "failed":
+        await _ensure_ingest(
+            session,
+        )
 
     return {
         "recorded":
             track_id is not None,
         "pending":
-            track_id is None,
+            track_id is None
+            and session.state != "failed",
         "track_id":
             (
                 str(
