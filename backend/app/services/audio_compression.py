@@ -537,6 +537,8 @@ def compress_audio_for_storage(
     min_source_kbps: int,
     min_savings_percent: int,
     timeout_seconds: int,
+    force_transcode: bool = False,
+    release_year: int | None = None,
 ) -> AudioCompressionResult:
     original_size = len(
         content,
@@ -614,7 +616,8 @@ def compress_audio_for_storage(
         )
 
         if (
-            not should_attempt_audio_compression(
+            not force_transcode
+            and not should_attempt_audio_compression(
                 filename=filename,
                 probe=probe,
                 original_size=(
@@ -686,6 +689,14 @@ def compress_audio_for_storage(
                 [
                     "-metadata",
                     f"genre={genre}",
+                ]
+            )
+
+        if release_year:
+            command.extend(
+                [
+                    "-metadata",
+                    f"date={int(release_year)}",
                 ]
             )
 
@@ -783,12 +794,15 @@ def compress_audio_for_storage(
 
         if (
             final_size <= 0
-            or final_size
-            >= (
-                original_size
-                * (
-                    1
-                    - minimum_savings
+            or (
+                not force_transcode
+                and final_size
+                >= (
+                    original_size
+                    * (
+                        1
+                        - minimum_savings
+                    )
                 )
             )
         ):
