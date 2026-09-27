@@ -1768,6 +1768,18 @@ async def record_listening(
 
     await session.commit()
 
+    await playback_realtime_hub.broadcast(
+        user.id,
+        {
+            "type":
+                "listening_history_changed",
+            "track_id":
+                str(
+                    track.id,
+                ),
+        },
+    )
+
 
     return {
         "recorded": True,
