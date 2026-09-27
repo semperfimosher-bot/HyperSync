@@ -15,3 +15,4 @@ mutagen==1.46.0
 aiosqlite==0.22.1
 
 pywebpush==2.5.0
+yt-dlp==2026.8.19
