@@ -382,23 +382,12 @@ def set_refresh_cookie(
 ) -> None:
     settings = get_settings()
 
-    forwarded_proto = (
-        request.headers.get(
-            "x-forwarded-proto",
-        )
-        or ""
-    )
-
+    # Trust the ASGI request scheme only. Uvicorn applies
+    # X-Forwarded-Proto itself when the immediate proxy is in
+    # --forwarded-allow-ips. Reading the raw header here would
+    # let an untrusted client influence cookie security.
     request_is_https = (
         request.url.scheme
-        == "https"
-        or forwarded_proto
-        .split(
-            ",",
-            1,
-        )[0]
-        .strip()
-        .lower()
         == "https"
     )
 
