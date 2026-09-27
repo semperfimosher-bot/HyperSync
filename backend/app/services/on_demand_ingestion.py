@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
+from sqlalchemy import select
 
 from bot.service import (
     job_completed,
@@ -31,6 +32,10 @@ from bot.youtube_source import (
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
+from .audio_metadata import (
+    normalize_track_identity,
+    normalize_track_title_identity,
+)
 from .catalog_ingestion import (
     find_duplicate_track,
     publish_authorized_audio,
@@ -774,16 +779,44 @@ async def search_and_remember(
     ] = []
 
     async with session_factory() as session:
-        for candidate in candidates:
-            duplicate = (
-                await find_duplicate_track(
-                    session,
-                    title=candidate.title,
-                    artist=candidate.artist,
+        existing_result = (
+            await session.execute(
+                select(
+                    Track.artist,
+                    Track.title,
                 )
             )
+        )
 
-            if duplicate is None:
+        existing_identities = {
+            (
+                normalize_track_identity(
+                    artist,
+                ),
+                normalize_track_title_identity(
+                    title,
+                ),
+            )
+            for (
+                artist,
+                title,
+            ) in existing_result.all()
+        }
+
+        for candidate in candidates:
+            identity = (
+                normalize_track_identity(
+                    candidate.artist,
+                ),
+                normalize_track_title_identity(
+                    candidate.title,
+                ),
+            )
+
+            if (
+                identity
+                not in existing_identities
+            ):
                 missing.append(
                     candidate,
                 )
