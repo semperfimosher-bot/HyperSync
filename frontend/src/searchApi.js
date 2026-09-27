@@ -94,12 +94,33 @@ export function searchOnDemandArtistMusic(
   artistName,
   options = {},
 ) {
+  const requestedLimit =
+    Math.max(
+      1,
+      Math.min(
+        500,
+        Number.isFinite(
+          Number(
+            options.limit,
+          ),
+        )
+          ? Math.floor(
+              Number(
+                options.limit,
+              ),
+            )
+          : 500,
+      ),
+    );
+
   const params =
     new URLSearchParams({
       name:
         artistName,
       limit:
-        "500",
+        String(
+          requestedLimit,
+        ),
     });
 
   return apiRequest(
