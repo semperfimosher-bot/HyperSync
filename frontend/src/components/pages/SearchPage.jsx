@@ -34,9 +34,12 @@ import {
   saveSearchPreferences,
   searchHypersync,
   searchOnDemandMusic,
+  warmOnDemandTracks,
 } from "../../searchApi.js";
 
 import {
+  buildOnDemandArtistPlaylist,
+  inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
 } from "../../onDemandMusic.js";
@@ -1171,34 +1174,125 @@ useEffect(() => {
     sortMode,
   ]);
 
+  const onDemandArtistPlaylist =
+    useMemo(
+      () => {
+        const artistName =
+          inferOnDemandArtistName(
+            normalizedQuery,
+            onDemandTracks,
+          );
+
+        if (!artistName) {
+          return null;
+        }
+
+        const normalizedArtist =
+          artistName
+            .normalize(
+              "NFKC",
+            )
+            .toLocaleLowerCase();
+
+        const alreadyInCatalog =
+          (
+            Array.isArray(
+              results.artists,
+            )
+              ? results.artists
+              : []
+          ).some(
+            (artist) =>
+              String(
+                artist?.name ??
+                  "",
+              )
+                .normalize(
+                  "NFKC",
+                )
+                .toLocaleLowerCase() ===
+              normalizedArtist,
+          );
+
+        if (alreadyInCatalog) {
+          return null;
+        }
+
+        return buildOnDemandArtistPlaylist({
+          artistName,
+          catalogTracks:
+            results.tracks,
+          onDemandTracks,
+        });
+      },
+      [
+        normalizedQuery,
+        onDemandTracks,
+        results.artists,
+        results.tracks,
+      ],
+    );
+
+
   const combinedResults =
     useMemo(
-      () => ({
-        ...results,
+      () => {
+        const playlists =
+          Array.isArray(
+            results.playlists,
+          )
+            ? [
+                ...results.playlists,
+              ]
+            : [];
 
-        counts: {
-          ...results.counts,
-          tracks:
-            Number(
-              results.counts
-                ?.tracks ??
-              0,
-            )
-            + onDemandTracks.length,
-        },
+        if (onDemandArtistPlaylist) {
+          playlists.push(
+            onDemandArtistPlaylist,
+          );
+        }
 
-        tracks: [
-          ...(
-            Array.isArray(
-              results.tracks,
-            )
-              ? results.tracks
-              : []
-          ),
-          ...onDemandTracks,
-        ],
-      }),
+        return {
+          ...results,
+
+          counts: {
+            ...results.counts,
+            tracks:
+              Number(
+                results.counts
+                  ?.tracks ??
+                0,
+              )
+              + onDemandTracks.length,
+            playlists:
+              Number(
+                results.counts
+                  ?.playlists ??
+                0,
+              )
+              + (
+                onDemandArtistPlaylist
+                  ? 1
+                  : 0
+              ),
+          },
+
+          tracks: [
+            ...(
+              Array.isArray(
+                results.tracks,
+              )
+                ? results.tracks
+                : []
+            ),
+            ...onDemandTracks,
+          ],
+
+          playlists,
+        };
+      },
       [
+        onDemandArtistPlaylist,
         onDemandTracks,
         results,
       ],
