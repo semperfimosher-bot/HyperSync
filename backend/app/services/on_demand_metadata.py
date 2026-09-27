@@ -1345,23 +1345,14 @@ def rank_catalog_candidates_for_kind(
                 )
             )
 
-            score = _similarity(
-                query,
-                field,
-            )
-
             if (
-                normalized_query
-                and normalized_query
-                in normalized_field
+                not normalized_query
+                or normalized_field
+                != normalized_query
             ):
-                score = max(
-                    score,
-                    0.98,
-                )
-
-            if score < 0.55:
                 continue
+
+            score = 1.0
 
         elif normalized_kind == "album":
             if not candidate.album:
