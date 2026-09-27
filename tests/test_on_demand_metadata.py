@@ -1,6 +1,7 @@
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
     merge_catalog_candidates,
+    rank_catalog_candidates_for_kind,
 )
 
 
@@ -93,3 +94,82 @@ def test_metadata_merge_does_not_collapse_large_duration_mismatch() -> None:
     )
 
     assert len(merged) == 2
+
+
+def test_artist_mode_only_keeps_matching_primary_artist() -> None:
+    morgan = _candidate(
+        provider="deezer",
+        key="morgan",
+        title="Love Somebody",
+        artist="Morgan Wallen",
+        deezer_id="1",
+    )
+
+    secondary = _candidate(
+        provider="itunes",
+        key="secondary",
+        title="Different Song",
+        artist="Tate McRae & Morgan Wallen",
+        apple_id="2",
+    )
+
+    result = rank_catalog_candidates_for_kind(
+        [
+            secondary,
+            morgan,
+        ],
+        query="Morgan Wallen",
+        kind="artist",
+        limit=10,
+    )
+
+    assert [item.key for item in result] == [
+        "morgan",
+    ]
+
+
+def test_album_mode_orders_tracks_by_album_track_number() -> None:
+    track_two = _candidate(
+        provider="deezer",
+        key="two",
+        title="Track Two",
+        deezer_id="2",
+    )
+
+    track_one = _candidate(
+        provider="deezer",
+        key="one",
+        title="Track One",
+        deezer_id="1",
+    )
+
+    track_two = CatalogTrackCandidate(
+        **{
+            **track_two.as_dict(),
+            "album": "One Thing at a Time",
+            "track_number": 2,
+        }
+    )
+
+    track_one = CatalogTrackCandidate(
+        **{
+            **track_one.as_dict(),
+            "album": "One Thing at a Time",
+            "track_number": 1,
+        }
+    )
+
+    result = rank_catalog_candidates_for_kind(
+        [
+            track_two,
+            track_one,
+        ],
+        query="One Thing at a Time",
+        kind="album",
+        limit=10,
+    )
+
+    assert [item.key for item in result] == [
+        "one",
+        "two",
+    ]
