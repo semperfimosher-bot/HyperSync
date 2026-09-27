@@ -6,6 +6,7 @@ import {
   inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
+  onDemandArtistLookupQuery,
   onDemandPollDelay,
   onDemandTrackId,
 } from "./onDemandMusic.js";
@@ -287,6 +288,26 @@ test(
     assert.equal(
       onDemandPollDelay(20),
       30000,
+    );
+  },
+);
+
+
+test(
+  "artist lookup query handles direct and songs-by searches",
+  () => {
+    assert.equal(
+      onDemandArtistLookupQuery(
+        "Kane Brown",
+      ),
+      "Kane Brown",
+    );
+
+    assert.equal(
+      onDemandArtistLookupQuery(
+        "songs by   Kane Brown",
+      ),
+      "Kane Brown",
     );
   },
 );
