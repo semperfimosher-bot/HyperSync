@@ -6,8 +6,8 @@ import {
 } from "react";
 
 import {
-  API_BASE,
-} from "../../api/client.js";
+  resolveMediaUrl,
+} from "../../mediaCache.js";
 
 import {
   resolveArtworkUrl,
@@ -1428,14 +1428,15 @@ useEffect(() => {
         }
 
         const audioUrl =
-          streamPath.startsWith(
-            "http",
-          )
-            ? streamPath
-            : (
-                API_BASE
-                + streamPath
-              );
+          resolveMediaUrl(
+            streamPath,
+          );
+
+        if (!audioUrl) {
+          throw new Error(
+            "Unable to resolve the temporary audio stream.",
+          );
+        }
 
         await player.playTrack(
           playbackId,
