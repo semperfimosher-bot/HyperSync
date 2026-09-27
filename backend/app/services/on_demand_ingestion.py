@@ -49,6 +49,9 @@ from .on_demand_metadata import (
     CatalogTrackCandidate,
     search_catalog_metadata,
 )
+from .playback_realtime import (
+    playback_realtime_hub,
+)
 
 
 @dataclass
@@ -509,6 +512,18 @@ async def _record_listening_event(
         )
 
         await db.commit()
+
+    await playback_realtime_hub.broadcast(
+        user_id,
+        {
+            "type":
+                "listening_history_changed",
+            "track_id":
+                str(
+                    track_id,
+                ),
+        },
+    )
 
 
 async def _run_ingest(
