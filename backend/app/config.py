@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    frontend_public_url: str = "http://localhost:5173"
+    frontend_public_url: str = "https://hypersynced.app"
     api_docs_enabled: bool = False
 
     database_url: str = ""
