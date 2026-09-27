@@ -156,7 +156,7 @@ test(
       Array.from(
         {
           length:
-            510,
+            499,
         },
         (
           _,
@@ -179,31 +179,53 @@ test(
         }),
       );
 
-    onDemandTracks.push({
-      id:
-        "ondemand:duplicate",
-      provision_key:
-        "duplicate",
-      source_type:
-        "on_demand",
-      title:
-        "Song 0",
-      artist:
-        "Example Artist",
-    });
+    onDemandTracks.splice(
+      2,
+      0,
+      {
+        id:
+          "ondemand:duplicate",
+        provision_key:
+          "duplicate",
+        source_type:
+          "on_demand",
+        title:
+          "Song 0",
+        artist:
+          "Example Artist",
+      },
+      {
+        id:
+          "ondemand:feature",
+        provision_key:
+          "feature",
+        source_type:
+          "on_demand",
+        title:
+          "Feature",
+        artist:
+          "Other Artist & Example Artist",
+      },
+    );
 
-    onDemandTracks.push({
-      id:
-        "ondemand:feature",
-      provision_key:
-        "feature",
-      source_type:
-        "on_demand",
-      title:
-        "Feature",
-      artist:
-        "Other Artist & Example Artist",
-    });
+    for (
+      let index = 499;
+      index < 520;
+      index += 1
+    ) {
+      onDemandTracks.push({
+        id:
+          `ondemand:track-${index}`,
+        provision_key:
+          `track-${index}`,
+        source_type:
+          "on_demand",
+        title:
+          `Song ${index}`,
+        artist:
+          "Example Artist",
+      });
+    }
 
     const playlist =
       buildOnDemandArtistPlaylist({
