@@ -46,7 +46,7 @@ def _prepare_asyncpg_url(value: str) -> str:
 
 
 class Settings(BaseSettings):
-    app_name: str = "Hypersync"
+    app_name: str = "Hypersynced"
     app_version: str = "0.1.0"
     environment: Literal["development", "test", "production"] = "development"
 
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from_email: str = ""
-    smtp_from_name: str = "HyperSync"
+    smtp_from_name: str = "HyperSynced"
     smtp_starttls: bool = True
     smtp_use_ssl: bool = False
 
