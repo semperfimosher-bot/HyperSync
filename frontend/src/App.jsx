@@ -176,6 +176,7 @@ import {
 import {
   applyPlaybackRemoteCommand,
   shouldApplyPlaybackRemoteCommand,
+  shouldOverlapOutgoingHandoff,
 } from "./playbackRemoteCommands.js";
 
 import {
@@ -5494,6 +5495,87 @@ export default function App() {
   const playbackPendingWriteRef =
     useRef(null);
 
+  const playbackHandoffSilenceTimerRef =
+    useRef(null);
+
+
+  const cancelPlaybackHandoffSilence =
+    useCallback(
+      () => {
+        if (
+          playbackHandoffSilenceTimerRef
+            .current !== null
+        ) {
+          globalThis.clearTimeout(
+            playbackHandoffSilenceTimerRef
+              .current,
+          );
+
+          playbackHandoffSilenceTimerRef
+            .current =
+              null;
+        }
+      },
+      [],
+    );
+
+
+  const schedulePlaybackHandoffSilence =
+    useCallback(
+      () => {
+        if (
+          playbackHandoffSilenceTimerRef
+            .current !== null
+        ) {
+          return;
+        }
+
+        playbackHandoffSilenceTimerRef.current =
+          globalThis.setTimeout(
+            () => {
+              playbackHandoffSilenceTimerRef
+                .current =
+                  null;
+
+              const activeDeviceId =
+                String(
+                  accountPlaybackSnapshotRef
+                    .current
+                    ?.device_id ??
+                    "",
+                ).trim();
+
+              const currentDeviceId =
+                String(
+                  playbackDeviceIdRef
+                    .current ??
+                    "",
+                ).trim();
+
+              if (
+                activeDeviceId &&
+                currentDeviceId &&
+                activeDeviceId !==
+                  currentDeviceId
+              ) {
+                player.silenceLocalPlayback();
+              }
+            },
+            1000,
+          );
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    return () => {
+      cancelPlaybackHandoffSilence();
+    };
+  }, [
+    cancelPlaybackHandoffSilence,
+  ]);
+
 
   const resolveCurrentPlaybackControlTarget =
     useCallback(
@@ -5738,10 +5820,12 @@ export default function App() {
                   : []
               );
 
-        if (transferFromLocalOwner) {
-          player.silenceLocalPlayback();
-        }
-
+        /*
+         * Keep the outgoing player audible until
+         * the transfer is accepted. The account
+         * ownership update schedules a short
+         * overlap instead of creating a gap.
+         */
         try {
           if (
             targetId ===
@@ -6099,6 +6183,14 @@ export default function App() {
            * locally after the HTTP fallback.
            */
           if (
+            transferFromLocalOwner &&
+            action ===
+              "transfer"
+          ) {
+            schedulePlaybackHandoffSilence();
+          }
+
+          if (
             !usedRealtime &&
             targetId ===
               currentDeviceId &&
@@ -6151,6 +6243,7 @@ export default function App() {
       },
       [
         currentUser?.account_type,
+        schedulePlaybackHandoffSilence,
       ],
     );
 
@@ -7264,14 +7357,23 @@ export default function App() {
               deviceId;
 
           if (!ownsPlayback) {
-            /*
-             * This is the hard audio-output
-             * gate: once another device owns
-             * playback, this browser cannot
-             * emit audio even if it had been
-             * playing a moment earlier.
-             */
-            player.silenceLocalPlayback();
+            const localState =
+              player.getState();
+
+            const overlapHandoff =
+              shouldOverlapOutgoingHandoff({
+                snapshot,
+                deviceId,
+                localState,
+              });
+
+            if (overlapHandoff) {
+              schedulePlaybackHandoffSilence();
+            } else {
+              cancelPlaybackHandoffSilence();
+
+              player.silenceLocalPlayback();
+            }
 
             player.syncAccountPlaybackShadow?.(
               snapshot,
@@ -7279,6 +7381,8 @@ export default function App() {
 
             return;
           }
+
+          cancelPlaybackHandoffSilence();
 
           /*
            * Never restore an account-state
@@ -7832,8 +7936,10 @@ export default function App() {
       );
     };
   }, [
+    cancelPlaybackHandoffSilence,
     currentUser?.account_type,
     currentUser?.id,
+    schedulePlaybackHandoffSilence,
   ]);
 
 

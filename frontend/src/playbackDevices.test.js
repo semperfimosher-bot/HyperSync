@@ -9,6 +9,7 @@ import {
 import {
   applyPlaybackRemoteCommand,
   shouldApplyPlaybackRemoteCommand,
+  shouldOverlapOutgoingHandoff,
 } from "./playbackRemoteCommands.js";
 
 
@@ -1027,6 +1028,85 @@ test(
         },
       ),
       true,
+    );
+  },
+);
+
+
+
+test(
+  "outgoing handoff overlaps only the same actively playing track",
+  () => {
+    assert.equal(
+      shouldOverlapOutgoingHandoff({
+        snapshot: {
+          device_id:
+            "phone",
+          paused:
+            false,
+          track: {
+            id:
+              "track-1",
+          },
+        },
+        deviceId:
+          "desktop",
+        localState: {
+          trackId:
+            "track-1",
+          paused:
+            false,
+        },
+      }),
+      true,
+    );
+
+    assert.equal(
+      shouldOverlapOutgoingHandoff({
+        snapshot: {
+          device_id:
+            "phone",
+          paused:
+            false,
+          track: {
+            id:
+              "track-2",
+          },
+        },
+        deviceId:
+          "desktop",
+        localState: {
+          trackId:
+            "track-1",
+          paused:
+            false,
+        },
+      }),
+      false,
+    );
+
+    assert.equal(
+      shouldOverlapOutgoingHandoff({
+        snapshot: {
+          device_id:
+            "phone",
+          paused:
+            true,
+          track: {
+            id:
+              "track-1",
+          },
+        },
+        deviceId:
+          "desktop",
+        localState: {
+          trackId:
+            "track-1",
+          paused:
+            false,
+        },
+      }),
+      false,
     );
   },
 );

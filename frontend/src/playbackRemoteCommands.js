@@ -1,3 +1,49 @@
+export function shouldOverlapOutgoingHandoff({
+  snapshot = null,
+  deviceId = null,
+  localState = null,
+} = {}) {
+  const currentDeviceId =
+    String(
+      deviceId ??
+        "",
+    ).trim();
+
+  const nextOwnerId =
+    String(
+      snapshot?.device_id ??
+        "",
+    ).trim();
+
+  const localTrackId =
+    String(
+      localState?.trackId ??
+        "",
+    ).trim();
+
+  const remoteTrackId =
+    String(
+      snapshot?.track?.id ??
+        "",
+    ).trim();
+
+  return Boolean(
+    currentDeviceId &&
+    nextOwnerId &&
+    nextOwnerId !==
+      currentDeviceId &&
+    localTrackId &&
+    remoteTrackId &&
+    localTrackId ===
+      remoteTrackId &&
+    localState?.paused ===
+      false &&
+    snapshot?.paused ===
+      false
+  );
+}
+
+
 export function shouldApplyPlaybackRemoteCommand(
   command,
   {
