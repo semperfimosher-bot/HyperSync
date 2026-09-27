@@ -88,6 +88,28 @@ export function searchOnDemandMusic(
 }
 
 
+export function searchOnDemandArtistMusic(
+  artistName,
+  options = {},
+) {
+  const params =
+    new URLSearchParams({
+      name:
+        artistName,
+      limit:
+        "500",
+    });
+
+  return apiRequest(
+    `/on-demand/artist?${params.toString()}`,
+    {
+      signal:
+        options.signal,
+    },
+  );
+}
+
+
 export function warmOnDemandTracks(
   candidateKeys,
 ) {
