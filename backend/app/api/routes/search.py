@@ -199,31 +199,13 @@ def _track_credits_artist(
     if not target:
         return False
 
-    primary_credits = (
-        _artist_field_credits(
-            track.artist,
-        )
-    )
-
-    if any(
+    return (
         normalize_text(
-            credit,
-        )
-        == target
-        for credit in primary_credits
-    ):
-        return True
-
-    return any(
-        normalize_text(
-            credit,
-        )
-        == target
-        for credit in (
-            extract_featured_artists(
-                track.title,
+            _primary_artist_credit(
+                track.artist,
             )
         )
+        == target
     )
 
 
@@ -244,32 +226,24 @@ def _exact_artist_credit_in_tracks(
     ] = {}
 
     for track in tracks:
-        for credit in (
-            *(
-                _artist_field_credits(
-                    track.artist,
-                )
-            ),
-            *(
-                extract_featured_artists(
-                    track.title,
-                )
-            ),
+        credit = _primary_artist_credit(
+            track.artist,
+        )
+
+        normalized = normalize_text(
+            credit,
+        )
+
+        if normalized == target:
+            return credit
+
+        if normalized.startswith(
+            target,
         ):
-            normalized = normalize_text(
+            prefix_matches.setdefault(
+                normalized,
                 credit,
             )
-
-            if normalized == target:
-                return credit
-
-            if normalized.startswith(
-                target,
-            ):
-                prefix_matches.setdefault(
-                    normalized,
-                    credit,
-                )
 
     if len(prefix_matches) == 1:
         return next(
@@ -299,13 +273,8 @@ async def _load_artist_catalog_candidates(
             Track.is_published.is_(
                 True,
             ),
-            or_(
-                Track.artist.ilike(
-                    pattern,
-                ),
-                Track.title.ilike(
-                    pattern,
-                ),
+            Track.artist.ilike(
+                pattern,
             ),
         )
         .order_by(
@@ -1139,41 +1108,26 @@ def _match_for_track(
                 field="genre",
             )
 
+    primary_artist = (
+        _primary_artist_credit(
+            track.artist,
+        )
+    )
+
     if (
         parsed.field_hint
         == "artist"
     ):
-        best_artist_match = score_artist(
-            track.artist,
+        return score_artist(
+            primary_artist,
             parsed,
         )
 
-        for featured_artist in (
-            extract_featured_artists(
-                track.title,
-            )
-        ):
-            featured_match = score_artist(
-                featured_artist,
-                parsed,
-            )
-
-            if (
-                featured_match.tier,
-                featured_match.score,
-            ) > (
-                best_artist_match.tier,
-                best_artist_match.score,
-            ):
-                best_artist_match = (
-                    featured_match
-                )
-
-        return best_artist_match
-
     direct_match = score_track(
-        track.title,
-        track.artist,
+        _title_without_feature_credit(
+            track.title,
+        ),
+        primary_artist,
         track.album,
         parsed,
         getattr(
@@ -2144,8 +2098,14 @@ def _collaboration_results(
         if not featured_artists:
             continue
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         primary_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
@@ -2181,7 +2141,7 @@ def _collaboration_results(
         # artist becomes a collaboration.
         if matching_features:
             add_collaboration(
-                track.artist,
+                primary_artist,
                 track,
             )
 
@@ -2263,8 +2223,14 @@ def _album_results(
             parsed,
         )
 
+        primary_artist = (
+            _primary_artist_credit(
+                track.artist,
+            )
+        )
+
         artist_match = score_artist(
-            track.artist,
+            primary_artist,
             parsed,
         )
 
@@ -2287,7 +2253,7 @@ def _album_results(
 
         key = (
             normalize_text(
-                track.artist,
+                primary_artist,
             ),
             normalize_text(
                 track.album,
@@ -2297,7 +2263,7 @@ def _album_results(
         if key not in albums:
             albums[key] = SearchAlbumResult(
                 title=(track.album),
-                artist=(track.artist),
+                artist=(primary_artist),
                 track_count=1,
                 artwork_url=(track.artwork_url),
                 match_label=(match_label),
