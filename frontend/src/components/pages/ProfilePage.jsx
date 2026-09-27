@@ -40,6 +40,10 @@ import useOnlineStatus from
 import OfflineNotice from
   "../ui/OfflineNotice.jsx";
 
+import {
+  subscribeListeningHistoryChanged,
+} from "../../homeRecentlyPlayed.js";
+
 
 function memberFor(value) {
   if (!value) {
@@ -231,6 +235,29 @@ export default function ProfilePage({
     void loadProfile();
   }, [
     loadProfile,
+  ]);
+
+
+  useEffect(() => {
+    if (
+      !currentUser ||
+      !online
+    ) {
+      return undefined;
+    }
+
+    return subscribeListeningHistoryChanged(
+      () => {
+        void loadProfile({
+          quiet:
+            true,
+        });
+      },
+    );
+  }, [
+    currentUser,
+    loadProfile,
+    online,
   ]);
 
 
