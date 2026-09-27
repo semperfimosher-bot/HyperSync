@@ -43,6 +43,7 @@ import {
   inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
+  onDemandArtistLookupQuery,
   onDemandPollDelay,
 } from "../../onDemandMusic.js";
 
@@ -1114,11 +1115,96 @@ useEffect(() => {
               remoteTracks,
             );
 
-            const artistName =
+            let artistName =
               inferOnDemandArtistName(
                 normalizedQuery,
                 remoteTracks,
               );
+
+            let artistSeedTracks =
+              [];
+
+            if (!artistName) {
+              const lookupName =
+                onDemandArtistLookupQuery(
+                  normalizedQuery,
+                );
+
+              const normalizedLookupName =
+                lookupName
+                  ?.normalize(
+                    "NFKC",
+                  )
+                  .toLocaleLowerCase() ??
+                "";
+
+              const catalogHasLookupArtist =
+                Boolean(
+                  normalizedLookupName,
+                ) &&
+                (
+                  Array.isArray(
+                    data?.artists,
+                  )
+                    ? data.artists
+                    : []
+                ).some(
+                  (artist) =>
+                    String(
+                      artist?.name ??
+                        "",
+                    )
+                      .normalize(
+                        "NFKC",
+                      )
+                      .toLocaleLowerCase() ===
+                    normalizedLookupName,
+                );
+
+              if (
+                lookupName &&
+                !catalogHasLookupArtist
+              ) {
+                const artistProbe =
+                  await searchOnDemandArtistMusic(
+                    lookupName,
+                    {
+                      signal:
+                        controller.signal,
+                      limit:
+                        25,
+                    },
+                  ).catch(
+                    () => null,
+                  );
+
+                if (
+                  controller.signal
+                    .aborted
+                ) {
+                  return;
+                }
+
+                artistSeedTracks =
+                  Array.isArray(
+                    artistProbe?.tracks,
+                  )
+                    ? artistProbe.tracks
+                        .map(
+                          normalizeOnDemandTrack,
+                        )
+                        .filter(
+                          Boolean,
+                        )
+                    : [];
+
+                artistName =
+                  inferOnDemandArtistName(
+                    lookupName,
+                    artistSeedTracks,
+                  );
+              }
+            }
 
             const normalizedArtist =
               artistName
@@ -1161,6 +1247,8 @@ useEffect(() => {
                   {
                     signal:
                       controller.signal,
+                    limit:
+                      500,
                   },
                 ).catch(
                   () => null,
@@ -1173,7 +1261,7 @@ useEffect(() => {
                 return;
               }
 
-              const exactArtistTracks =
+              const fullArtistTracks =
                 Array.isArray(
                   artistData?.tracks,
                 )
@@ -1187,7 +1275,9 @@ useEffect(() => {
                   : [];
 
               setOnDemandArtistTracks(
-                exactArtistTracks,
+                fullArtistTracks.length > 0
+                  ? fullArtistTracks
+                  : artistSeedTracks,
               );
             } else {
               setOnDemandArtistTracks(
