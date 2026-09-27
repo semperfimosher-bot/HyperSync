@@ -136,7 +136,27 @@ def _duplicate_track_groups(
         if len(grouped_tracks) < 2:
             continue
 
-        first = grouped_tracks[0]
+        ordered_tracks = sorted(
+            grouped_tracks,
+            key=lambda item: (
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                )
+                is None,
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                ),
+                str(
+                    item.id,
+                ),
+            ),
+        )
+
+        first = ordered_tracks[0]
 
         duplicates.append(
             {
@@ -150,7 +170,11 @@ def _duplicate_track_groups(
                     first.title,
                 "count":
                     len(
-                        grouped_tracks,
+                        ordered_tracks,
+                    ),
+                "keep_track_id":
+                    str(
+                        first.id,
                     ),
                 "tracks": [
                     {
@@ -167,7 +191,7 @@ def _duplicate_track_groups(
                         "b2_object_key":
                             item.b2_object_key,
                     }
-                    for item in grouped_tracks
+                    for item in ordered_tracks
                 ],
             }
         )
