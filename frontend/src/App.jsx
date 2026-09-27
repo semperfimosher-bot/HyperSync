@@ -8830,7 +8830,16 @@ const checkDownloadedGeneratedPlaylistUpdates =
 
             return {
               unread_count:
-                nextItems.length,
+                Math.max(
+                  (
+                    Number(
+                      current
+                        ?.unread_count ??
+                        currentItems.length,
+                    ) || 0
+                  ) - 1,
+                  0,
+                ),
               notifications:
                 nextItems,
             };
