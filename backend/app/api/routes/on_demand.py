@@ -264,6 +264,91 @@ async def warm_on_demand(
     }
 
 
+@router.post("/queue")
+async def queue_on_demand(
+    payload: PrepareOnDemandRequest,
+    request: Request,
+    user: CurrentUser,
+):
+    """
+    Queueing is an explicit commitment to play this recording soon.
+
+    Unlike ordinary search/prewarm preparation, this resolves the
+    temporary stream and starts publication immediately so the next
+    track has both a ready stream and a B2/catalog ingest already
+    running before the current song ends.
+    """
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-prepare",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_prepare_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    try:
+        result = await prepare_candidate(
+            payload.candidate_key,
+            start_ingest=True,
+        )
+
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_410_GONE
+            ),
+            detail=str(
+                exc,
+            ),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Unable to prepare this queued recording "
+                f"right now: {str(exc)[:240]}"
+            ),
+        ) from exc
+
+    if (
+        result.get(
+            "state",
+        )
+        == "failed"
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=(
+                result.get(
+                    "error",
+                )
+                or "Unable to prepare this queued recording."
+            ),
+        )
+
+    return result
+
+
 @router.post("/prepare")
 async def prepare_on_demand(
     payload: PrepareOnDemandRequest,
