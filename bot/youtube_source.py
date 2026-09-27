@@ -394,6 +394,9 @@ def _common_options() -> dict[str, Any]:
             ),
         "retries": 1,
         "fragment_retries": 1,
+        "js_runtimes": {
+            "node": {},
+        },
         **_cookies_option(),
     }
 
