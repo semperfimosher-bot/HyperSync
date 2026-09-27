@@ -199,12 +199,19 @@ print("cookies=" + ("ready" if cookies_ready else ("configured-but-missing" if c
 print("admin=" + ("ready" if admin_ready else "not-set"))
 '@
 
-    $probeOutput = @(
-        & $PythonPath -c $probeScript
-    )
+    Push-Location $RepoRoot
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect local on-demand configuration."
+    try {
+        $probeOutput = @(
+            & $PythonPath -c $probeScript
+        )
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect local on-demand configuration."
+        }
+    }
+    finally {
+        Pop-Location
     }
 
     $values = @{}
@@ -254,16 +261,23 @@ print("admin=" + ("ready" if admin_ready else "not-set"))
 }
 
 function Update-DatabaseSchema {
-    $databaseKind = (
-        & $PythonPath -c (
-            "from backend.app.config import get_settings; " +
-            "u=get_settings().sqlalchemy_migration_url; " +
-            "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
-        )
-    ).Trim()
+    Push-Location $RepoRoot
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect local database configuration."
+    try {
+        $databaseKind = (
+            & $PythonPath -c (
+                "from backend.app.config import get_settings; " +
+                "u=get_settings().sqlalchemy_migration_url; " +
+                "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
+            )
+        ).Trim()
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect local database configuration."
+        }
+    }
+    finally {
+        Pop-Location
     }
 
     if ($databaseKind -eq "remote") {
