@@ -110,3 +110,20 @@ jobs:
 
       - name: Scan backend for security issues
         run: python -m bandit -q -r backend bot -ll
+
+
+  backend-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build production backend image
+        run: docker build --file Dockerfile.backend --tag hypersynced-backend-ci .
+
+      - name: Verify yt-dlp and Node runtime
+        run: |
+          docker run --rm hypersynced-backend-ci python -c "import yt_dlp; print(yt_dlp.version.__version__)"
+          docker run --rm hypersynced-backend-ci node --version
+          docker run --rm hypersynced-backend-ci ffmpeg -version
