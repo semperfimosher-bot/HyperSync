@@ -119,6 +119,10 @@ import {
 } from "./duplicateCleanup.js";
 
 import {
+  isOnDemandTrackId,
+} from "./onDemandMusic.js";
+
+import {
   addTrackGroupSelection,
   getTrackGroupSelectionState,
   pruneTrackSelection,
@@ -7426,7 +7430,10 @@ export default function App() {
       (state) => {
         if (
           state?.phase ===
-            "loading"
+            "loading" ||
+          isOnDemandTrackId(
+            state?.trackId,
+          )
         ) {
           return false;
         }
