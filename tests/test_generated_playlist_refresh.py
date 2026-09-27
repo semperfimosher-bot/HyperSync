@@ -139,7 +139,7 @@ async def test_saved_generated_playlist_refreshes_in_place_for_new_music() -> No
 
 
 @pytest.mark.asyncio
-async def test_generated_artist_playlist_includes_full_catalog_up_to_700_tracks() -> None:
+async def test_generated_artist_playlist_respects_configured_track_cap() -> None:
     run_id = uuid4().hex[:8]
     artist = f"Generated Full Catalog {run_id}"
 
@@ -223,7 +223,7 @@ async def test_generated_artist_playlist_includes_full_catalog_up_to_700_tracks(
             ).scalars().all()
         )
 
-        assert len(rows) == 700
+        assert len(rows) == MAX_GENERATED_TRACKS
 
         matching_ids = {
             track.id
