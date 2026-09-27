@@ -8,7 +8,7 @@ RUN npm ci
 
 COPY frontend/ ./
 
-ENV VITE_API_BASE_URL=https://api.hypersynced.app/api
+ENV VITE_API_BASE_URL=/api
 
 RUN npm run build
 
