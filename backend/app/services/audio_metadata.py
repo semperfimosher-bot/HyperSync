@@ -55,7 +55,6 @@ def normalize_track_identity(
 
 _VERSION_QUALIFIER_RE = re.compile(
     r"""
-    (?ix)
     \b(
         remix(?:ed)?
         | remaster(?:ed)?
@@ -87,12 +86,13 @@ _VERSION_QUALIFIER_RE = re.compile(
         | deluxe
     )\b
     """,
+    re.IGNORECASE
+    | re.VERBOSE,
 )
 
 
 _BARE_VERSION_SUFFIX_RE = re.compile(
     r"""
-    (?ix)
     \s+
     (?:
         remix(?:ed)?
@@ -127,6 +127,8 @@ _BARE_VERSION_SUFFIX_RE = re.compile(
     )
     \s*$
     """,
+    re.IGNORECASE
+    | re.VERBOSE,
 )
 
 
