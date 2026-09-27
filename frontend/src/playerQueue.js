@@ -53,6 +53,24 @@ export function buildTrackQueue(
           track.duration_seconds ??
           null,
 
+        onDemand:
+          Boolean(
+            track.onDemand ??
+            track.on_demand ??
+            track.source_type ===
+              "on_demand",
+          ),
+
+        provisionKey:
+          track.provisionKey ??
+          track.provision_key ??
+          null,
+
+        provisionId:
+          track.provisionId ??
+          track.provision_id ??
+          null,
+
         title:
           track.title ??
           "",
