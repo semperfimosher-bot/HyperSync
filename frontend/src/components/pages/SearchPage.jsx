@@ -45,6 +45,7 @@ import {
   normalizeOnDemandTrack,
   onDemandArtistLookupQuery,
   onDemandPollDelay,
+  prioritizeSearchPlaybackTracks,
 } from "../../onDemandMusic.js";
 
 import {
@@ -216,6 +217,101 @@ function formatDuration(seconds) {
   return (
     `${minutes}:${remainder}`
   );
+}
+
+
+function searchPlaybackQueueEntry(
+  track,
+  overrides = {},
+) {
+  const onDemand =
+    track?.source_type ===
+      "on_demand" ||
+    isOnDemandTrackId(
+      track?.id,
+    );
+
+  return {
+    id:
+      overrides.id ??
+      track?.id,
+
+    audioUrl:
+      overrides.audioUrl ??
+      track?.audio_url ??
+      track?.audioUrl ??
+      null,
+
+    artworkUrl:
+      resolveArtworkUrl(
+        track?.artwork_url ??
+        track?.artworkUrl ??
+        null,
+      ),
+
+    mimeType:
+      track?.mime_type ??
+      track?.mimeType ??
+      null,
+
+    fileSize:
+      track?.file_size ??
+      track?.fileSize ??
+      null,
+
+    mediaVersion:
+      track?.media_version ??
+      track?.mediaVersion ??
+      null,
+
+    title:
+      track?.title ??
+      "",
+
+    artist:
+      track?.artist ??
+      "",
+
+    album:
+      track?.album ??
+      "",
+
+    genre:
+      track?.genre ??
+      "",
+
+    releaseYear:
+      track?.release_year ??
+      track?.releaseYear ??
+      null,
+
+    durationSeconds:
+      track?.duration_seconds ??
+      track?.durationSeconds ??
+      null,
+
+    onDemand:
+      overrides.onDemand ??
+      onDemand,
+
+    provisionKey:
+      overrides.provisionKey ??
+      track?.provision_key ??
+      track?.provisionKey ??
+      null,
+
+    provisionId:
+      overrides.provisionId ??
+      track?.provision_id ??
+      track?.provisionId ??
+      null,
+
+    catalogTrackId:
+      overrides.catalogTrackId ??
+      track?.catalog_track_id ??
+      track?.catalogTrackId ??
+      null,
+  };
 }
 
 
@@ -1088,6 +1184,12 @@ useEffect(() => {
               "",
             );
 
+            if (!quietRefresh) {
+              setLoading(
+                false,
+              );
+            }
+
             const remoteData =
               await onDemandPromise;
 
@@ -1344,7 +1446,7 @@ useEffect(() => {
             }
           }
         },
-        220,
+        80,
       );
 
     return () => {
@@ -1757,52 +1859,68 @@ useEffect(() => {
           );
         }
 
-        await player.playTrack(
-          playbackId,
-          {
-            audioUrl,
+        const relevantTracks =
+          prioritizeSearchPlaybackTracks(
+            displayResults.tracks,
+            selected,
+            500,
+          );
 
-            artworkUrl:
-              resolveArtworkUrl(
-                selected
-                  .artwork_url,
+        const queue =
+          relevantTracks.map(
+            (
+              track,
+              index,
+            ) =>
+              searchPlaybackQueueEntry(
+                track,
+                index === 0
+                  ? {
+                      id:
+                        playbackId,
+                      audioUrl,
+                      onDemand:
+                        !permanentTrackId,
+                      provisionKey:
+                        candidateKey,
+                      provisionId:
+                        prepared
+                          ?.provision_id ??
+                        null,
+                      catalogTrackId:
+                        permanentTrackId,
+                    }
+                  : {},
               ),
+          );
 
-            title:
-              selected.title,
+        const warmAheadKeys =
+          relevantTracks
+            .slice(
+              1,
+              17,
+            )
+            .map(
+              (track) =>
+                track?.provision_key ??
+                track?.provisionKey ??
+                null,
+            )
+            .filter(
+              Boolean,
+            );
 
-            artist:
-              selected.artist,
+        if (warmAheadKeys.length) {
+          void warmOnDemandTracks(
+            warmAheadKeys,
+          ).catch(
+            () => {},
+          );
+        }
 
-            album:
-              selected.album ??
-              "",
-
-            genre:
-              selected.genre ??
-              "",
-
-            releaseYear:
-              selected
-                .release_year ??
-              null,
-
-            durationSeconds:
-              selected
-                .duration_seconds ??
-              null,
-
-            onDemand:
-              !permanentTrackId,
-
-            provisionKey:
-              candidateKey,
-
-            provisionId:
-              prepared
-                ?.provision_id ??
-              null,
-          },
+        await player.playTrackQueue(
+          queue,
+          0,
         );
 
         if (
