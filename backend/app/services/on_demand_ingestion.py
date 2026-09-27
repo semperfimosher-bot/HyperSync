@@ -340,6 +340,45 @@ async def _resolve_source(
         raise
 
 
+def is_allowed_artwork_url(
+    value: object,
+) -> bool:
+    if not isinstance(
+        value,
+        str,
+    ):
+        return False
+
+    parsed = urlsplit(
+        value,
+    )
+
+    host = (
+        parsed.hostname
+        or ""
+    ).casefold().rstrip(
+        ".",
+    )
+
+    allowed_suffixes = (
+        "dzcdn.net",
+        "mzstatic.com",
+    )
+
+    return (
+        parsed.scheme
+        == "https"
+        and any(
+            host == suffix
+            or host.endswith(
+                "." + suffix,
+            )
+            for suffix
+            in allowed_suffixes
+        )
+    )
+
+
 async def _fetch_artwork(
     url: str | None,
 ) -> tuple[
@@ -352,17 +391,8 @@ async def _fetch_artwork(
             None,
         )
 
-    parsed = urlsplit(
+    if not is_allowed_artwork_url(
         url,
-    )
-
-    if (
-        parsed.scheme
-        not in {
-            "http",
-            "https",
-        }
-        or not parsed.hostname
     ):
         return (
             None,
@@ -383,6 +413,16 @@ async def _fetch_artwork(
                 },
             ) as response:
                 response.raise_for_status()
+
+                if not is_allowed_artwork_url(
+                    str(
+                        response.url,
+                    )
+                ):
+                    return (
+                        None,
+                        None,
+                    )
 
                 mime_type = (
                     response.headers.get(
