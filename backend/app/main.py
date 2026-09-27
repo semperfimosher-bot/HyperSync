@@ -39,6 +39,7 @@ _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/messages/notifications/",
     "/api/messages/messages/",
     "/api/recommendations/autoplay",
+    "/api/on-demand/",
     "/api/admin/tracks/upload/prepare",
     "/api/admin/tracks/upload/cancel",
     "/api/auth/refresh",
