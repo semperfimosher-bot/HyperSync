@@ -56,11 +56,11 @@ function PlaybackDevicesPanel({
     >
       <div className="playback-devices-panel__heading">
         <span>
-          HYPERSYNC CONNECT
+          HYPERSYNCED CONNECT
         </span>
 
         <strong>
-          Choose where HyperSync plays
+          Choose where HyperSynced plays
         </strong>
 
         <small>
