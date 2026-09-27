@@ -89,9 +89,27 @@ async def send_password_recovery_email(
         .rstrip("/")
     )
 
-    if not frontend_url:
-        raise EmailDeliveryError(
-            "Frontend public URL is not configured."
+    local_frontend = (
+        frontend_url.startswith(
+            "http://localhost"
+        )
+        or frontend_url.startswith(
+            "https://localhost"
+        )
+        or frontend_url.startswith(
+            "http://127.0.0.1"
+        )
+        or frontend_url.startswith(
+            "https://127.0.0.1"
+        )
+    )
+
+    if (
+        not frontend_url
+        or local_frontend
+    ):
+        frontend_url = (
+            "https://hypersynced.app"
         )
 
     reset_url = (
