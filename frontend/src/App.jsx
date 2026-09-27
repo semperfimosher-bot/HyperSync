@@ -174,6 +174,7 @@ import {
 } from "./pwaInstall.js";
 
 import {
+  buildAccountPlaybackSyncState,
   connectPlaybackDeviceLive,
   getPlaybackDeviceDescriptor,
   pollPlaybackDevice,
@@ -7946,12 +7947,16 @@ export default function App() {
           playbackLiveConnectionRef
             .current;
 
+        const syncState =
+          buildAccountPlaybackSyncState(
+            state,
+          );
+
         const sentRealtime =
           liveConnection
             ?.sendPlaybackState?.({
               trackId:
-                state?.trackId ??
-                null,
+                syncState.trackId,
               positionSeconds:
                 Math.max(
                   Number(
@@ -7961,37 +7966,17 @@ export default function App() {
                   0,
                 ),
               paused:
-                state?.trackId
+                syncState.trackId
                   ? Boolean(
                       state.paused,
                     )
                   : true,
               queueTrackIds:
-                Array.isArray(
-                  state?.queue,
-                )
-                  ? state.queue
-                      .slice(
-                        0,
-                        500,
-                      )
-                      .map(
-                        (entry) =>
-                          String(
-                            entry?.id ??
-                              "",
-                          ),
-                      )
-                      .filter(
-                        Boolean,
-                      )
-                  : [],
+                syncState
+                  .queueTrackIds,
               queueIndex:
-                Number.isInteger(
-                  state?.queueIndex,
-                )
-                  ? state.queueIndex
-                  : null,
+                syncState
+                  .queueIndex,
             }) ??
           false;
 
@@ -8027,8 +8012,7 @@ export default function App() {
                 body:
                   JSON.stringify({
                     track_id:
-                      state?.trackId ??
-                      null,
+                      syncState.trackId,
 
                     position_seconds:
                       Math.max(
@@ -8040,39 +8024,19 @@ export default function App() {
                       ),
 
                     paused:
-                      state?.trackId
+                      syncState.trackId
                         ? Boolean(
                             state.paused,
                           )
                         : true,
 
                     queue_track_ids:
-                      Array.isArray(
-                        state?.queue,
-                      )
-                        ? state.queue
-                            .slice(
-                              0,
-                              500,
-                            )
-                            .map(
-                              (entry) =>
-                                String(
-                                  entry?.id ??
-                                    "",
-                                ),
-                            )
-                            .filter(
-                              Boolean,
-                            )
-                        : [],
+                      syncState
+                        .queueTrackIds,
 
                     queue_index:
-                      Number.isInteger(
-                        state?.queueIndex,
-                      )
-                        ? state.queueIndex
-                        : null,
+                      syncState
+                        .queueIndex,
 
                     device_id:
                       deviceId,
