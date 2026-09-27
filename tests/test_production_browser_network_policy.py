@@ -104,3 +104,26 @@ def test_production_frontend_uses_same_origin_api_proxy() -> None:
         'proxy_set_header Connection "upgrade";'
         in nginx
     )
+
+
+def test_backend_retries_startup_migrations() -> None:
+    dockerfile = (
+        Path(__file__).resolve().parents[1]
+        / "Dockerfile.backend"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert (
+        "until python -m alembic "
+        "-c /app/alembic.ini upgrade head"
+        in dockerfile
+    )
+    assert (
+        "MIGRATION_MAX_ATTEMPTS:-12"
+        in dockerfile
+    )
+    assert (
+        "exec python -m uvicorn"
+        in dockerfile
+    )
