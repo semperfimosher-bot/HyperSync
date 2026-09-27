@@ -1000,6 +1000,8 @@ async def search_and_remember(
 
 async def prepare_candidate(
     candidate_key: str,
+    *,
+    start_ingest: bool = False,
 ) -> dict[str, Any]:
     candidate = (
         await candidate_for_key(
@@ -1024,9 +1026,18 @@ async def prepare_candidate(
     )
 
     # Preparing a temporary stream must stay
-    # metadata/source-only. Publishing to B2
-    # and creating the catalog row begins only
-    # after the client confirms playback.
+    # metadata/source-only for normal users.
+    # Explicit admin ingest can still start
+    # publication immediately.
+    if (
+        start_ingest
+        and session.track_id is None
+        and session.state != "failed"
+    ):
+        await _ensure_ingest(
+            session,
+        )
+
     return _session_snapshot(
         session,
     )
