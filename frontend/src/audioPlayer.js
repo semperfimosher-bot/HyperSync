@@ -36,6 +36,10 @@ import {
   writePersistedPlayerState,
 } from "./playerPersistence.js";
 
+import {
+  notifyListeningHistoryChanged,
+} from "./homeRecentlyPlayed.js";
+
 
 const audio =
   new Audio();
@@ -300,9 +304,17 @@ function beginListeningEvent(
       },
     )
       .then(
-        (data) =>
-          data?.event_id ??
-          null,
+        (data) => {
+          const eventId =
+            data?.event_id ??
+            null;
+
+          if (eventId) {
+            notifyListeningHistoryChanged();
+          }
+
+          return eventId;
+        },
       )
       .catch(
         () => null,
