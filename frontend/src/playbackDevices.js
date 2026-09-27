@@ -650,7 +650,7 @@ export async function connectPlaybackDeviceLive({
               );
             }
           },
-          1000,
+          15000,
         );
     },
   );
