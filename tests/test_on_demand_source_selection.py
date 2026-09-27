@@ -2,6 +2,7 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import (
+    is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
 )
@@ -97,4 +98,26 @@ def test_requested_remix_is_not_penalized_as_an_unwanted_version() -> None:
             regular,
             metadata,
         )
+    )
+
+
+def test_temporary_media_url_only_allows_https_googlevideo_hosts() -> None:
+    assert is_allowed_direct_media_url(
+        "https://rr1---sn-example.googlevideo.com/videoplayback?id=abc"
+    )
+
+    assert not is_allowed_direct_media_url(
+        "http://rr1---sn-example.googlevideo.com/videoplayback?id=abc"
+    )
+
+    assert not is_allowed_direct_media_url(
+        "https://googlevideo.com.attacker.example/videoplayback"
+    )
+
+    assert not is_allowed_direct_media_url(
+        "https://127.0.0.1/internal"
+    )
+
+    assert not is_allowed_direct_media_url(
+        "https://example.com/audio"
     )
