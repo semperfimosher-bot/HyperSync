@@ -90,6 +90,8 @@ def job_started(
     job_name: str,
 ) -> None:
     with _lock:
+        _state.running = True
+        _state.status = "running"
         _state.queued_jobs = max(
             0,
             _state.queued_jobs - 1,
@@ -106,6 +108,8 @@ def job_completed(
     message: str,
 ) -> None:
     with _lock:
+        _state.running = True
+        _state.status = "online"
         _state.current_job = None
         _state.completed_jobs += 1
 
@@ -116,6 +120,8 @@ def job_failed(
     message: str,
 ) -> None:
     with _lock:
+        _state.running = True
+        _state.status = "online"
         _state.current_job = None
         _state.failed_jobs += 1
 

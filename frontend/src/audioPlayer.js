@@ -40,6 +40,10 @@ import {
   notifyListeningHistoryChanged,
 } from "./homeRecentlyPlayed.js";
 
+import {
+  isOnDemandTrackId,
+} from "./onDemandMusic.js";
+
 
 const audio =
   new Audio();
@@ -268,7 +272,12 @@ function dispatchRemotePlaybackInBackground(
 function beginListeningEvent(
   trackId,
 ) {
-  if (!getAccessToken()) {
+  if (
+    isOnDemandTrackId(
+      trackId,
+    )
+    || !getAccessToken()
+  ) {
     activeListeningEvent =
       null;
 
@@ -433,6 +442,13 @@ function normalizeTrackMeta(
       meta.duration_seconds ??
       null,
 
+    onDemand:
+      Boolean(
+        meta.onDemand ??
+        meta.on_demand ??
+        false,
+      ),
+
     title:
       meta.title ??
       "",
@@ -559,6 +575,18 @@ function persistPlayerState({
     !currentTrackId ||
     !currentTrackMeta
   ) {
+    return;
+  }
+
+  if (
+    isOnDemandTrackId(
+      currentTrackId,
+    )
+    || currentTrackMeta
+      ?.onDemand
+  ) {
+    clearPersistedPlayerState();
+
     return;
   }
 
@@ -844,7 +872,14 @@ function appendAutoplayTracks(
 async function ensureAutoplayQueue({
   force = false,
 } = {}) {
-  if (!currentTrackId) {
+  if (
+    !currentTrackId ||
+    isOnDemandTrackId(
+      currentTrackId,
+    ) ||
+    currentTrackMeta
+      ?.onDemand
+  ) {
     return 0;
   }
 
@@ -2674,6 +2709,16 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
+  const provisional =
+    isOnDemandTrackId(
+      trackId,
+    )
+    || Boolean(
+      meta?.onDemand ??
+      meta?.on_demand ??
+      false,
+    );
+
   const remoteQueue = [
     {
       id:
@@ -2688,6 +2733,7 @@ export async function playTrack(
   ];
 
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {

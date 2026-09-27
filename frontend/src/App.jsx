@@ -119,6 +119,10 @@ import {
 } from "./duplicateCleanup.js";
 
 import {
+  isOnDemandTrackId,
+} from "./onDemandMusic.js";
+
+import {
   addTrackGroupSelection,
   getTrackGroupSelectionState,
   pruneTrackSelection,
@@ -354,102 +358,440 @@ function accountPlaybackPosition(
 // Pages
 // -----------------------------------------------------------------------------
 function AdminBotPage() {
-  const [status, setStatus] = useState("offline");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [
+    status,
+    setStatus,
+  ] = useState("offline");
 
-  const refreshStatus = useCallback(async () => {
-    setLoading(true);
-    setMessage("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-    try {
-      const data = await apiRequest("/admin/bot/status");
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-      setStatus(
-        data?.status ||
-          data?.state ||
-          "offline",
-      );
-    } catch (error) {
-      setStatus("offline");
+  const [
+    provisions,
+    setProvisions,
+  ] = useState([]);
 
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to load bot status.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [
+    musicQuery,
+    setMusicQuery,
+  ] = useState("");
+
+  const [
+    musicKind,
+    setMusicKind,
+  ] = useState("song");
+
+  const [
+    musicResults,
+    setMusicResults,
+  ] = useState([]);
+
+  const [
+    musicSearching,
+    setMusicSearching,
+  ] = useState(false);
+
+  const [
+    ingestingKeys,
+    setIngestingKeys,
+  ] = useState(
+    () => new Set(),
+  );
+
+
+  const refreshStatus =
+    useCallback(
+      async ({
+        quiet = false,
+      } = {}) => {
+        if (!quiet) {
+          setLoading(
+            true,
+          );
+
+          setMessage(
+            "",
+          );
+        }
+
+        try {
+          const data =
+            await apiRequest(
+              "/admin/bot/status",
+            );
+
+          setStatus(
+            data?.status ||
+              data?.state ||
+              "offline",
+          );
+
+          setProvisions(
+            Array.isArray(
+              data?.provisions,
+            )
+              ? data.provisions
+              : [],
+          );
+
+        } catch (error) {
+          if (!quiet) {
+            setStatus(
+              "offline",
+            );
+
+            setMessage(
+              error instanceof Error
+                ? error.message
+                : "Unable to load bot status.",
+            );
+          }
+
+        } finally {
+          if (!quiet) {
+            setLoading(
+              false,
+            );
+          }
+        }
+      },
+      [],
+    );
+
 
   useEffect(() => {
-    refreshStatus();
-  }, [refreshStatus]);
+    void refreshStatus();
+  }, [
+    refreshStatus,
+  ]);
 
-  const sendBotAction = async (action) => {
-    setLoading(true);
-    setMessage("");
 
-    try {
-      if (action === "restart") {
-        await apiRequest(
-          "/admin/bot/stop",
-          {
-            method: "POST",
-          },
+  useEffect(() => {
+    const hasActive =
+      provisions.some(
+        (item) =>
+          [
+            "queued",
+            "resolving",
+            "stream-ready",
+            "ingesting",
+          ].includes(
+            item?.state,
+          ),
+      );
+
+    if (!hasActive) {
+      return undefined;
+    }
+
+    const timer =
+      window.setInterval(
+        () => {
+          void refreshStatus({
+            quiet:
+              true,
+          });
+        },
+        1800,
+      );
+
+    return () => {
+      window.clearInterval(
+        timer,
+      );
+    };
+  }, [
+    provisions,
+    refreshStatus,
+  ]);
+
+
+  const sendBotAction =
+    async (
+      action,
+    ) => {
+      setLoading(
+        true,
+      );
+
+      setMessage(
+        "",
+      );
+
+      try {
+        if (
+          action ===
+          "restart"
+        ) {
+          await apiRequest(
+            "/admin/bot/stop",
+            {
+              method:
+                "POST",
+            },
+          );
+
+          await apiRequest(
+            "/admin/bot/start",
+            {
+              method:
+                "POST",
+            },
+          );
+
+        } else {
+          await apiRequest(
+            `/admin/bot/${action}`,
+            {
+              method:
+                "POST",
+            },
+          );
+        }
+
+        setMessage(
+          `Bot ${action} command completed.`,
         );
 
-        await apiRequest(
-          "/admin/bot/start",
-          {
-            method: "POST",
-          },
+        await refreshStatus({
+          quiet:
+            true,
+        });
+
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Bot command failed.",
         );
-      } else {
-        await apiRequest(
-          `/admin/bot/${action}`,
-          {
-            method: "POST",
+
+      } finally {
+        setLoading(
+          false,
+        );
+      }
+    };
+
+
+  const searchMusic =
+    async (
+      event,
+    ) => {
+      event?.preventDefault?.();
+
+      const term =
+        musicQuery.trim();
+
+      if (
+        term.length < 2 ||
+        musicSearching
+      ) {
+        return;
+      }
+
+      setMusicSearching(
+        true,
+      );
+
+      setMessage(
+        "",
+      );
+
+      try {
+        const params =
+          new URLSearchParams({
+            q:
+              term,
+            kind:
+              musicKind,
+          });
+
+        const data =
+          await apiRequest(
+            `/admin/bot/music-search?${params.toString()}`,
+          );
+
+        setMusicResults(
+          Array.isArray(
+            data?.tracks,
+          )
+            ? data.tracks
+            : [],
+        );
+
+        if (
+          !data?.tracks?.length
+        ) {
+          setMessage(
+            "No new ingestable recordings matched that search.",
+          );
+        }
+
+      } catch (error) {
+        setMusicResults(
+          [],
+        );
+
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to search music metadata.",
+        );
+
+      } finally {
+        setMusicSearching(
+          false,
+        );
+      }
+    };
+
+
+  const ingestMusic =
+    async (
+      candidate,
+    ) => {
+      const key =
+        candidate
+          ?.provision_key;
+
+      if (
+        !key ||
+        ingestingKeys.has(
+          key,
+        )
+      ) {
+        return;
+      }
+
+      setIngestingKeys(
+        (current) =>
+          new Set(
+            current,
+          ).add(
+            key,
+          ),
+      );
+
+      setMessage(
+        "",
+      );
+
+      try {
+        const result =
+          await apiRequest(
+            "/admin/bot/ingest",
+            {
+              method:
+                "POST",
+
+              body:
+                JSON.stringify({
+                  candidate_key:
+                    key,
+                }),
+            },
+          );
+
+        setMessage(
+          result?.track_id
+            ? (
+                "Already available in the catalog: "
+                + candidate.artist
+                + " — "
+                + candidate.title
+              )
+            : (
+                "Ingest started: "
+                + candidate.artist
+                + " — "
+                + candidate.title
+              ),
+        );
+
+        await refreshStatus({
+          quiet:
+            true,
+        });
+
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to start ingest.",
+        );
+
+      } finally {
+        setIngestingKeys(
+          (current) => {
+            const next =
+              new Set(
+                current,
+              );
+
+            next.delete(
+              key,
+            );
+
+            return next;
           },
         );
       }
+    };
 
-      setMessage(
-        `Bot ${action} command completed.`,
-      );
-
-      await refreshStatus();
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Bot command failed.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const isOnline =
     status === "online" ||
     status === "running" ||
     status === "healthy";
 
+  const activeProvisionCount =
+    provisions.filter(
+      (item) =>
+        ![
+          "ready",
+          "failed",
+        ].includes(
+          item?.state,
+        ),
+    ).length;
+
+
   return (
-    <div className="page-stack admin-page">
+    <div className="page-stack admin-page admin-bot-page">
       <section className="admin-page__header">
-        <span>ADMINISTRATION</span>
+        <span>
+          ADMINISTRATION
+        </span>
 
-        <h2>Bot Control</h2>
+        <h2>
+          Bot Control
+        </h2>
 
+        <p>
+          Resolve canonical metadata with Deezer + iTunes,
+          acquire authorized audio with yt-dlp, and publish
+          validated tracks into the HyperSynced catalog.
+        </p>
       </section>
+
 
       <section className="admin-panel">
         <div className="admin-panel__heading">
           <div>
-            <span>AUTOMATION</span>
-            <h3>Bot Status</h3>
+            <span>
+              AUTOMATION
+            </span>
+
+            <h3>
+              Bot Status
+            </h3>
           </div>
 
           <span
@@ -459,7 +801,9 @@ function AdminBotPage() {
                 : "admin-status admin-status--offline"
             }
           >
-            {isOnline ? "ONLINE" : "OFFLINE"}
+            {isOnline
+              ? "ONLINE"
+              : "OFFLINE"}
           </span>
         </div>
 
@@ -477,156 +821,476 @@ function AdminBotPage() {
             </strong>
 
             <p>
-              Current status:{" "}
+              Current status:
+              {" "}
               {status}
+              {" • "}
+              {activeProvisionCount}
+              {" "}
+              active ingest
+              {activeProvisionCount === 1
+                ? ""
+                : "s"}
             </p>
           </div>
         </div>
       </section>
 
-      {message ? (
-  <div className="admin-alert">
-    <Icon
-      name="shield"
-      size={18}
-    />
 
-    <span>
-      {message}
-    </span>
-  </div>
-) : null}
+      {message ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>
+            {message}
+          </span>
+        </div>
+      ) : null}
+
+
+      <section className="admin-panel admin-bot-music-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>
+              MUSIC INGEST
+            </span>
+
+            <h3>
+              Find authorized music
+            </h3>
+          </div>
+
+          <span className="admin-status admin-status--online">
+            DEEZER + ITUNES
+          </span>
+        </div>
+
+        <form
+          className="admin-bot-search"
+          onSubmit={
+            searchMusic
+          }
+        >
+          <select
+            value={
+              musicKind
+            }
+            aria-label="Music search type"
+            onChange={(
+              event,
+            ) => {
+              setMusicKind(
+                event.target.value,
+              );
+            }}
+          >
+            <option value="song">
+              Song
+            </option>
+
+            <option value="album">
+              Album
+            </option>
+
+            <option value="artist">
+              Artist
+            </option>
+          </select>
+
+          <label>
+            <Icon
+              name="search"
+              size={16}
+            />
+
+            <input
+              type="search"
+              value={
+                musicQuery
+              }
+              placeholder="Artist, album, or song"
+              onChange={(
+                event,
+              ) => {
+                setMusicQuery(
+                  event.target.value,
+                );
+              }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="secondary-admin-button"
+            disabled={
+              musicSearching ||
+              musicQuery.trim()
+                .length < 2
+            }
+          >
+            {musicSearching
+              ? "Resolving..."
+              : "Find music"}
+          </button>
+        </form>
+
+        {musicResults.length > 0 ? (
+          <div className="admin-bot-results">
+            {musicResults.map(
+              (
+                candidate,
+                index,
+              ) => {
+                const ingesting =
+                  ingestingKeys.has(
+                    candidate
+                      .provision_key,
+                  );
+
+                return (
+                  <article
+                    className="admin-bot-result"
+                    key={
+                      candidate
+                        .provision_key
+                    }
+                  >
+                    <span className="admin-bot-result__rank">
+                      {String(
+                        index + 1,
+                      ).padStart(
+                        2,
+                        "0",
+                      )}
+                    </span>
+
+                    <span className="admin-bot-result__art">
+                      {candidate.artwork_url ? (
+                        <img
+                          src={
+                            candidate
+                              .artwork_url
+                          }
+                          alt=""
+                        />
+                      ) : (
+                        <Icon
+                          name="music"
+                          size={22}
+                        />
+                      )}
+                    </span>
+
+                    <span className="admin-bot-result__copy">
+                      <strong>
+                        {candidate.title}
+                      </strong>
+
+                      <small>
+                        {candidate.artist}
+                        {candidate.album
+                          ? (
+                              " • "
+                              + candidate.album
+                            )
+                          : ""}
+                      </small>
+
+                      <em>
+                        {candidate.provider
+                          ?.replace(
+                            "+",
+                            " + ",
+                          )
+                          .toUpperCase()}
+                        {candidate.isrc
+                          ? (
+                              " • ISRC "
+                              + candidate.isrc
+                            )
+                          : ""}
+                      </em>
+                    </span>
+
+                    <span className="admin-bot-result__meta">
+                      <small>
+                        {candidate.genre ||
+                          "Genre pending"}
+                      </small>
+
+                      <small>
+                        {candidate.release_year ||
+                          "Year pending"}
+                      </small>
+
+                      <small>
+                        {candidate.duration_seconds
+                          ? (
+                              Math.floor(
+                                candidate
+                                  .duration_seconds /
+                                  60,
+                              )
+                              + ":"
+                              + String(
+                                  candidate
+                                    .duration_seconds %
+                                    60,
+                                ).padStart(
+                                  2,
+                                  "0",
+                                )
+                            )
+                          : "--:--"}
+                      </small>
+                    </span>
+
+                    <button
+                      type="button"
+                      className="secondary-admin-button admin-bot-result__action"
+                      disabled={
+                        ingesting
+                      }
+                      onClick={() => {
+                        void ingestMusic(
+                          candidate,
+                        );
+                      }}
+                    >
+                      {ingesting
+                        ? "Preparing..."
+                        : "Ingest"}
+                    </button>
+                  </article>
+                );
+              },
+            )}
+          </div>
+        ) : (
+          <div className="admin-duplicate-idle">
+            <Icon
+              name="music"
+              size={20}
+            />
+
+            <div>
+              <strong>
+                Metadata-first ingest
+              </strong>
+
+              <p>
+                Search canonical releases, then let the bot
+                select clean authorized audio, validate it,
+                and publish it into B2 and PostgreSQL.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
 
       <section className="admin-panel">
         <div className="admin-panel__heading">
           <div>
-            <span>CONTROLS</span>
-            <h3>Bot Controls</h3>
+            <span>
+              PROVISION QUEUE
+            </span>
+
+            <h3>
+              Recent ingest activity
+            </h3>
+          </div>
+
+          <strong>
+            {provisions.length}
+          </strong>
+        </div>
+
+        {provisions.length > 0 ? (
+          <div className="admin-bot-provisions">
+            {provisions
+              .slice(
+                0,
+                12,
+              )
+              .map(
+                (item) => (
+                  <div
+                    className="admin-bot-provision"
+                    key={
+                      item.provision_id
+                    }
+                  >
+                    <span
+                      className={[
+                        "admin-tool-light",
+                        item.state ===
+                          "ready"
+                          ? "is-on"
+                          : (
+                              item.state ===
+                                "failed"
+                                ? "is-warning"
+                                : ""
+                            ),
+                      ]
+                        .filter(
+                          Boolean,
+                        )
+                        .join(
+                          " ",
+                        )}
+                    />
+
+                    <span>
+                      <strong>
+                        {item.title}
+                      </strong>
+
+                      <small>
+                        {item.artist}
+                      </small>
+                    </span>
+
+                    <em>
+                      {String(
+                        item.state ||
+                          "queued",
+                      )
+                        .replace(
+                          "-",
+                          " ",
+                        )
+                        .toUpperCase()}
+                    </em>
+                  </div>
+                ),
+              )}
+          </div>
+        ) : (
+          <div className="admin-duplicate-idle is-clean">
+            <Icon
+              name="check"
+              size={20}
+            />
+
+            <div>
+              <strong>
+                Provision queue is clear
+              </strong>
+
+              <p>
+                User first-play and admin ingestion jobs will
+                appear here as they run.
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+
+      <section className="admin-panel">
+        <div className="admin-panel__heading">
+          <div>
+            <span>
+              CONTROLS
+            </span>
+
+            <h3>
+              Bot Controls
+            </h3>
           </div>
         </div>
 
         <div className="admin-quick-actions">
-          <button
-            type="button"
-            className="admin-quick-action"
-            disabled={loading}
-            onClick={() =>
-              sendBotAction("start")
-            }
-          >
-            <span className="admin-quick-action__icon">
-              <Icon
-                name="play"
-                size={20}
-              />
-            </span>
+          {[
+            [
+              "start",
+              "play",
+              "Start Bot",
+              "Enable the automation service.",
+            ],
+            [
+              "stop",
+              "close",
+              "Stop Bot",
+              "Stop legacy queued automation.",
+            ],
+            [
+              "restart",
+              "chart",
+              "Restart Bot",
+              "Restart the automation service.",
+            ],
+            [
+              "scan",
+              "search",
+              "Scan Catalog",
+              "Queue a catalog scan job.",
+            ],
+            [
+              "process",
+              "music",
+              "Process Queue",
+              "Queue the legacy processing job.",
+            ],
+          ].map(
+            ([
+              action,
+              icon,
+              title,
+              description,
+            ]) => (
+              <button
+                type="button"
+                className="admin-quick-action"
+                disabled={
+                  loading
+                }
+                key={
+                  action
+                }
+                onClick={() => {
+                  void sendBotAction(
+                    action,
+                  );
+                }}
+              >
+                <span className="admin-quick-action__icon">
+                  <Icon
+                    name={
+                      icon
+                    }
+                    size={20}
+                  />
+                </span>
 
-            <span>
-              <strong>Start Bot</strong>
-              <small>
-                Start the automation service.
-              </small>
-            </span>
-          </button>
+                <span>
+                  <strong>
+                    {title}
+                  </strong>
 
-          <button
-            type="button"
-            className="admin-quick-action"
-            disabled={loading}
-            onClick={() =>
-              sendBotAction("stop")
-            }
-          >
-            <span className="admin-quick-action__icon">
-              <Icon
-                name="close"
-                size={20}
-              />
-            </span>
-
-            <span>
-              <strong>Stop Bot</strong>
-              <small>
-                Stop the automation service.
-              </small>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="admin-quick-action"
-            disabled={loading}
-            onClick={() =>
-              sendBotAction("restart")
-            }
-          >
-            <span className="admin-quick-action__icon">
-              <Icon
-                name="chart"
-                size={20}
-              />
-            </span>
-
-            <span>
-              <strong>Restart Bot</strong>
-              <small>
-                Restart the automation service.
-              </small>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="admin-quick-action"
-            disabled={loading}
-            onClick={() =>
-              sendBotAction("scan")
-            }
-          >
-            <span className="admin-quick-action__icon">
-              <Icon
-                name="search"
-                size={20}
-              />
-            </span>
-
-            <span>
-              <strong>Scan Catalog</strong>
-              <small>
-                Queue the real catalog scan job.
-              </small>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="admin-quick-action"
-            disabled={loading}
-            onClick={() =>
-              sendBotAction("process")
-            }
-          >
-            <span className="admin-quick-action__icon">
-              <Icon
-                name="music"
-                size={20}
-              />
-            </span>
-
-            <span>
-              <strong>Process Queue</strong>
-              <small>
-                Queue the real processing job.
-              </small>
-            </span>
-          </button>
+                  <small>
+                    {description}
+                  </small>
+                </span>
+              </button>
+            ),
+          )}
         </div>
 
         <button
           type="button"
           className="secondary-admin-button"
-          disabled={loading}
-          onClick={refreshStatus}
+          disabled={
+            loading
+          }
+          onClick={() => {
+            void refreshStatus();
+          }}
         >
           {loading
             ? "Refreshing..."
@@ -7426,7 +8090,10 @@ export default function App() {
       (state) => {
         if (
           state?.phase ===
-            "loading"
+            "loading" ||
+          isOnDemandTrackId(
+            state?.trackId,
+          )
         ) {
           return false;
         }

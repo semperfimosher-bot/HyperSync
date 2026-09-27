@@ -1,6 +1,15 @@
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    status,
+)
+from pydantic import (
+    BaseModel,
+    Field,
+)
 
 from bot.service import (
     get_state,
@@ -13,7 +22,21 @@ from bot.worker import (
     run_scan,
 )
 
+from ...services.on_demand_ingestion import (
+    active_provisions,
+    prepare_candidate,
+    search_and_remember,
+)
 from ..dependencies import AdminUser
+
+
+class AdminBotIngestRequest(
+    BaseModel,
+):
+    candidate_key: str = Field(
+        min_length=1,
+        max_length=160,
+    )
 
 router = APIRouter(
     prefix="/admin/bot",
@@ -34,6 +57,8 @@ async def bot_status(
         "queued_jobs": state.queued_jobs,
         "completed_jobs": state.completed_jobs,
         "failed_jobs": state.failed_jobs,
+        "provisions":
+            await active_provisions(),
         "events": [
             {
                 "id": event.id,
@@ -90,3 +115,77 @@ async def bot_process(
         "accepted": True,
         "message": "Processing job queued.",
     }
+
+
+
+@router.get(
+    "/music-search",
+)
+async def bot_music_search(
+    user: AdminUser,
+    q: str = Query(
+        min_length=2,
+        max_length=180,
+    ),
+    kind: str = Query(
+        default="song",
+        pattern="^(song|album|artist)$",
+    ),
+):
+    candidates = (
+        await search_and_remember(
+            q,
+            limit=15,
+            kind=kind,
+        )
+    )
+
+    return {
+        "query":
+            q.strip(),
+        "kind":
+            kind,
+        "tracks": [
+            {
+                **candidate.as_dict(),
+                "provision_key":
+                    candidate.key,
+            }
+            for candidate
+            in candidates
+        ],
+    }
+
+
+@router.post(
+    "/ingest",
+)
+async def bot_ingest(
+    payload: AdminBotIngestRequest,
+    user: AdminUser,
+):
+    try:
+        return await prepare_candidate(
+            payload.candidate_key,
+        )
+
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_410_GONE
+            ),
+            detail=str(
+                exc,
+            ),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Unable to start bot ingest: "
+                f"{str(exc)[:240]}"
+            ),
+        ) from exc

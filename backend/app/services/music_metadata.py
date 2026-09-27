@@ -18,6 +18,9 @@ from ..models.media import Track
 from .generated_playlists import (
     refresh_smart_playlists_for_track,
 )
+from .on_demand_metadata import (
+    resolve_exact_track_metadata,
+)
 
 
 class ExternalTrackMetadata(TypedDict):
@@ -2086,10 +2089,10 @@ async def lookup_external_track_metadata(
     client: httpx.AsyncClient | None = None,
     throttle: bool = True,
 ) -> ExternalTrackMetadata | None:
-    # Explicit client injection is used by
-    # MusicBrainz unit tests. Keep those
-    # deterministic and isolated from the
-    # configured provider chain.
+    # Explicit client injection is retained for
+    # deterministic legacy MusicBrainz unit tests.
+    # Production uploads now use the same canonical
+    # Deezer + iTunes resolver as on-demand ingest.
     if client is not None:
         return await _lookup_musicbrainz_track_metadata(
             title=title,
@@ -2101,12 +2104,8 @@ async def lookup_external_track_metadata(
             throttle=throttle,
         )
 
-    # Last.fm is the fast primary lookup.
-    # Read-only track metadata needs only
-    # an API key and is not subject to our
-    # Apple/MusicBrainz request spacing.
-    lastfm = (
-        await lookup_lastfm_track_metadata(
+    candidate = (
+        await resolve_exact_track_metadata(
             title=title,
             artist=artist,
             duration_seconds=(
@@ -2115,62 +2114,41 @@ async def lookup_external_track_metadata(
         )
     )
 
-    # Apple is always consulted when available.
-    # Its catalog primary genre is more stable
-    # than community/user tags, so it is allowed
-    # to override a conflicting Last.fm genre.
-    # Last.fm still fills fields Apple does not
-    # provide.
-    apple = (
-        await lookup_apple_track_metadata(
-            title=title,
-            artist=artist,
-            duration_seconds=(
-                duration_seconds
-            ),
-            throttle=throttle,
+    if candidate is None:
+        return None
+
+    recording_id = (
+        candidate.isrc
+        or (
+            (
+                "deezer:"
+                + candidate.deezer_track_id
+            )
+            if candidate.deezer_track_id
+            else None
+        )
+        or (
+            (
+                "itunes:"
+                + candidate.apple_track_id
+            )
+            if candidate.apple_track_id
+            else None
         )
     )
 
-    combined = (
-        _merge_external_metadata(
-            lastfm,
-            apple,
-            prefer_fallback_genre=True,
-        )
-    )
-
-    if (
-        combined is not None
-        and combined[
-            "genre"
-        ]
-        and combined[
-            "release_year"
-        ]
-        is not None
-    ):
-        return combined
-
-    # MusicBrainz is the final fallback.
-    # Its public API requires respectful
-    # request pacing, so avoid it unless
-    # the faster providers were incomplete.
-    musicbrainz = (
-        await _lookup_musicbrainz_track_metadata(
-            title=title,
-            artist=artist,
-            duration_seconds=(
-                duration_seconds
-            ),
-            throttle=throttle,
-        )
-    )
-
-    return _merge_external_metadata(
-        combined,
-        musicbrainz,
-    )
+    return {
+        "source":
+            candidate.provider,
+        "recording_id":
+            recording_id,
+        "genre":
+            candidate.genre,
+        "release_year":
+            candidate.release_year,
+        "confidence":
+            candidate.confidence,
+    }
 
 async def enrich_track_metadata(
     session: AsyncSession,

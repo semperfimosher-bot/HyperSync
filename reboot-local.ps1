@@ -14,6 +14,68 @@ $FrontendRoot = Join-Path $RepoRoot "frontend"
 $PythonPath = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $PackageJson = Join-Path $FrontendRoot "package.json"
 
+function Assert-OnDemandRuntime {
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+
+    if ($null -eq $nodeCommand) {
+        $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $nodeCommand) {
+        throw (
+            "Node.js was not found in PATH. " +
+            "The on-demand yt-dlp extractor requires Node locally."
+        )
+    }
+
+    $ffmpegCommand = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+
+    if ($null -eq $ffmpegCommand) {
+        $ffmpegCommand = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $ffmpegCommand) {
+        throw (
+            "FFmpeg was not found in PATH. " +
+            "Install FFmpeg so on-demand tracks can be normalized and published."
+        )
+    }
+
+    $ffprobeCommand = Get-Command ffprobe.exe -ErrorAction SilentlyContinue
+
+    if ($null -eq $ffprobeCommand) {
+        $ffprobeCommand = Get-Command ffprobe -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $ffprobeCommand) {
+        throw (
+            "ffprobe was not found in PATH. " +
+            "Install the complete FFmpeg package so audio validation can run."
+        )
+    }
+
+    & $PythonPath -c "import yt_dlp; print(yt_dlp.version.__version__)" | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        throw (
+            "yt-dlp is not available in the HyperSync virtual environment. " +
+            "Run go again without -SkipDependencies."
+        )
+    }
+
+    Write-Host ""
+    Write-Host "On-demand runtime ready:" -ForegroundColor Cyan
+    Write-Host ("  Node:    " + (& $nodeCommand.Source --version)) -ForegroundColor Green
+
+    $ffmpegVersion = @(
+        & $ffmpegCommand.Source -version 2>$null
+    )[0]
+
+    Write-Host ("  FFmpeg:  " + $ffmpegVersion) -ForegroundColor Green
+    Write-Host "  ffprobe: ready" -ForegroundColor Green
+    Write-Host "  yt-dlp:  ready" -ForegroundColor Green
+}
+
 function ConvertTo-PowerShellLiteral {
     param(
         [Parameter(Mandatory = $true)]
@@ -248,6 +310,8 @@ if ($StopOnly) {
     return
 }
 
+Assert-OnDemandRuntime
+
 if ($BackendPort -gt 0) {
     if (Test-PortInUse -Port $BackendPort) {
         throw (
@@ -323,7 +387,7 @@ $frontendCommand = $frontendCommandTemplate -f @(
 )
 
 Write-Host ""
-Write-Host "Starting HyperSync local development..." -ForegroundColor Cyan
+Write-Host "Starting HyperSync local development with on-demand ingestion..." -ForegroundColor Cyan
 Write-Host ("Backend:  " + $BackendUrl) -ForegroundColor DarkCyan
 Write-Host ("Frontend: " + $FrontendUrl) -ForegroundColor Green
 Write-Host ""
@@ -379,6 +443,8 @@ Write-Host "===================================" -ForegroundColor Green
 Write-Host " HyperSync local servers restarted" -ForegroundColor Green
 Write-Host (" Backend:  " + $BackendUrl) -ForegroundColor Green
 Write-Host (" Frontend: " + $FrontendUrl) -ForegroundColor Green
+Write-Host " On-demand search + temporary playback: enabled" -ForegroundColor Green
+Write-Host " Admin Bot ingest controls:             enabled" -ForegroundColor Green
 Write-Host (" Backend terminal PID: " + $backendProcess.Id) -ForegroundColor DarkGray
 Write-Host (" Frontend terminal PID: " + $frontendProcess.Id) -ForegroundColor DarkGray
 Write-Host "===================================" -ForegroundColor Green

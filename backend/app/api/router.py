@@ -10,6 +10,7 @@ from .routes import (
     health,
     media,
     messages,
+    on_demand,
     playlists,
     recommendations,
     search,
@@ -65,6 +66,11 @@ api_router.include_router(
 
 api_router.include_router(
     messages.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    on_demand.router,
     prefix="/api",
 )
 

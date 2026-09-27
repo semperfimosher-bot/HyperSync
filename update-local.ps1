@@ -2,6 +2,7 @@
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
+    [string]$Branch = "feature/on-demand-ingestion",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations,
@@ -12,7 +13,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
-$Branch = "feature/offline-pwa-downloads"
+
+if ([string]::IsNullOrWhiteSpace($Branch)) {
+    throw "A Git branch name is required."
+}
+
+$Branch = $Branch.Trim()
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $VenvRoot = Join-Path $RepoRoot ".venv"
 $PythonPath = Join-Path $VenvRoot "Scripts\python.exe"
@@ -21,6 +27,7 @@ $PackageJson = Join-Path $FrontendRoot "package.json"
 $PackageLock = Join-Path $FrontendRoot "package-lock.json"
 $RebootScript = Join-Path $RepoRoot "reboot-local.ps1"
 $InstallGoScript = Join-Path $RepoRoot "install-go.ps1"
+$ReadinessScript = Join-Path $RepoRoot "scripts\local_on_demand_readiness.py"
 
 function Invoke-CheckedCommand {
     param(
@@ -166,17 +173,109 @@ function Update-FrontendDependencies {
     }
 }
 
-function Update-DatabaseSchema {
-    $databaseKind = (
-        & $PythonPath -c (
-            "from backend.app.config import get_settings; " +
-            "u=get_settings().sqlalchemy_migration_url; " +
-            "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
+function Get-OnDemandReadinessValues {
+    if (-not (Test-Path -LiteralPath $ReadinessScript)) {
+        throw (
+            "Local readiness helper was not found at " +
+            $ReadinessScript
         )
-    ).Trim()
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect local database configuration."
+    Push-Location $RepoRoot
+
+    try {
+        $probeOutput = @(
+            & $PythonPath $ReadinessScript
+        )
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect local on-demand configuration."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    $values = @{}
+
+    foreach ($line in $probeOutput) {
+        $parts = ([string]$line).Split("=", 2)
+
+        if ($parts.Count -eq 2) {
+            $values[$parts[0]] = $parts[1]
+        }
+    }
+
+    return $values
+}
+
+function Show-OnDemandReadiness {
+    try {
+        $values = Get-OnDemandReadinessValues
+    }
+    catch {
+        Write-Warning (
+            "Could not display the optional local readiness summary: " +
+            $_.Exception.Message
+        )
+
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Local on-demand readiness:" -ForegroundColor Cyan
+    Write-Host ("  Database:        " + $values["database"]) -ForegroundColor DarkGray
+    Write-Host "  Deezer + iTunes: ready (no API key required)" -ForegroundColor Green
+    Write-Host "  yt-dlp:          installed with backend dependencies" -ForegroundColor Green
+
+    if ($values["b2"] -eq "ready") {
+        Write-Host "  B2 publishing:   ready" -ForegroundColor Green
+    }
+    else {
+        Write-Warning (
+            "B2 publishing is not fully configured in backend/.env. " +
+            "Search and temporary on-demand playback can still work, " +
+            "but permanent ingest cannot finish until B2_ENDPOINT, " +
+            "B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET_NAME are set."
+        )
+    }
+
+    if ($values["cookies"] -eq "configured-but-missing") {
+        Write-Warning "YT_DLP_COOKIES_FILE is configured but the file does not exist."
+    }
+    elseif ($values["cookies"] -eq "ready") {
+        Write-Host "  yt-dlp cookies:  ready" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  yt-dlp cookies:  optional / not configured" -ForegroundColor DarkGray
+    }
+
+    if ($values["admin"] -eq "ready") {
+        Write-Host "  Admin setup:     ready" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  Admin setup:     existing admins can sign in; creation secret is not set" -ForegroundColor DarkGray
+    }
+}
+
+function Update-DatabaseSchema {
+    Push-Location $RepoRoot
+
+    try {
+        $databaseKind = (
+            & $PythonPath -c (
+                "from backend.app.config import get_settings; " +
+                "u=get_settings().sqlalchemy_migration_url; " +
+                "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
+            )
+        ).Trim()
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect local database configuration."
+        }
+    }
+    finally {
+        Pop-Location
     }
 
     if ($databaseKind -eq "remote") {
@@ -332,6 +431,7 @@ try {
         $nextParameters = @{
             FrontendPort = $FrontendPort
             BackendPort = $BackendPort
+            Branch = $Branch
             NoBrowser = $NoBrowser
             SkipDependencies = $SkipDependencies
             SkipMigrations = $SkipMigrations
@@ -376,6 +476,8 @@ if (-not $SkipDependencies) {
 if (-not $SkipMigrations) {
     Update-DatabaseSchema
 }
+
+Show-OnDemandReadiness
 
 if (Test-Path -LiteralPath $InstallGoScript) {
     & $InstallGoScript -Quiet

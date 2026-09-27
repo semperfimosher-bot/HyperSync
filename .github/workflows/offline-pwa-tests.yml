@@ -97,16 +97,56 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend scripts
 
+      - name: Validate local on-demand readiness helper
+        shell: pwsh
+        run: |
+          $output = @(
+            python scripts/local_on_demand_readiness.py
+          )
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Local readiness helper failed."
+          }
+
+          foreach ($required in @(
+            "database_kind=",
+            "database=",
+            "b2=",
+            "cookies=",
+            "admin="
+          )) {
+            if (-not ($output | Where-Object { $_.StartsWith($required) })) {
+              throw ("Missing readiness field: " + $required)
+            }
+          }
+
       - name: Validate Alembic migration chain
         env:
           MIGRATION_DATABASE_URL: postgresql://user:password@localhost/hypersync
         run: python -m alembic upgrade head --sql > /tmp/hypersync-migrations.sql
 
       - name: Run admin security and media regression tests
-        run: python -m pytest -q tests/test_admin_full_reset.py tests/test_admin_registration.py tests/test_admin_user_management.py tests/test_admin_bulk_track_delete.py tests/test_production_hardening.py tests/test_auth_session_lifecycle.py tests/test_tokens.py tests/test_passwords.py tests/test_upload_duplicate_prevention.py tests/test_audio_compression.py tests/test_direct_upload_strategy.py tests/test_b2_presigned_urls.py tests/test_catalog_media_urls.py tests/test_track_lyrics.py tests/test_lrclib_service.py tests/test_messaging.py tests/test_account_playback_sync.py tests/test_password_recovery.py tests/test_profile_media_urls.py tests/test_search_sections.py tests/test_artists.py tests/test_audio_metadata.py tests/test_music_metadata.py tests/test_autoplay_context.py tests/test_generated_playlist_refresh.py tests/test_metadata_backfill_script.py
+        run: python -m pytest -q tests/test_admin_full_reset.py tests/test_admin_registration.py tests/test_admin_user_management.py tests/test_admin_bulk_track_delete.py tests/test_production_hardening.py tests/test_auth_session_lifecycle.py tests/test_tokens.py tests/test_passwords.py tests/test_upload_duplicate_prevention.py tests/test_audio_compression.py tests/test_direct_upload_strategy.py tests/test_b2_presigned_urls.py tests/test_catalog_media_urls.py tests/test_track_lyrics.py tests/test_lrclib_service.py tests/test_messaging.py tests/test_account_playback_sync.py tests/test_password_recovery.py tests/test_profile_media_urls.py tests/test_search_sections.py tests/test_artists.py tests/test_audio_metadata.py tests/test_music_metadata.py tests/test_autoplay_context.py tests/test_generated_playlist_refresh.py tests/test_metadata_backfill_script.py tests/test_on_demand_metadata.py tests/test_on_demand_source_selection.py
 
       - name: Audit backend dependencies
         run: python -m pip_audit -r requirements.backend.txt
 
       - name: Scan backend for security issues
         run: python -m bandit -q -r backend bot -ll
+
+
+  backend-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build production backend image
+        run: docker build --file Dockerfile.backend --tag hypersynced-backend-ci .
+
+      - name: Verify yt-dlp and Node runtime
+        run: |
+          docker run --rm hypersynced-backend-ci python -c "import yt_dlp; print(yt_dlp.version.__version__)"
+          docker run --rm hypersynced-backend-ci node --version
+          docker run --rm hypersynced-backend-ci ffmpeg -version
