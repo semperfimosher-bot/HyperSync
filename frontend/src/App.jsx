@@ -8828,11 +8828,17 @@ export default function App() {
             "visible"
         ) {
           void pollDevice();
+          void connectLive();
         }
       };
 
     window.addEventListener(
       "focus",
+      handleFocus,
+    );
+
+    window.addEventListener(
+      "pageshow",
       handleFocus,
     );
 
@@ -8880,6 +8886,11 @@ export default function App() {
 
       window.removeEventListener(
         "focus",
+        handleFocus,
+      );
+
+      window.removeEventListener(
+        "pageshow",
         handleFocus,
       );
 
