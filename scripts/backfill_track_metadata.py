@@ -7,6 +7,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func, or_, select
 
@@ -62,6 +63,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--apply-report",
+        type=Path,
+        default=None,
+        help=(
+            "Apply accepted metadata from a completed "
+            "--dry-run JSONL report without repeating "
+            "external provider lookups."
+        ),
+    )
+
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -86,7 +98,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Do not refresh generated smart/genre playlists "
-            "after a track's metadata changes."
+            "after a normal provider backfill."
+        ),
+    )
+
+    parser.add_argument(
+        "--refresh-playlists-after-report",
+        action="store_true",
+        help=(
+            "When applying a dry-run report, also refresh "
+            "generated smart/genre playlists after updates. "
+            "This is optional and can make report replay slower."
         ),
     )
 
@@ -335,6 +357,542 @@ def write_report_line(
     handle.flush()
 
 
+def resolve_report_path(
+    path: Path,
+) -> Path:
+    if path.is_absolute():
+        return path
+
+    return (
+        REPO_ROOT
+        / path
+    )
+
+
+def load_completed_dry_run_report(
+    path: Path,
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+]:
+    if not path.exists():
+        raise ValueError(
+            "Report file does not exist: "
+            + str(
+                path,
+            )
+        )
+
+    rows: list[
+        dict[str, Any]
+    ] = []
+
+    summary: dict[
+        str,
+        Any,
+    ] | None = None
+
+    with path.open(
+        "r",
+        encoding="utf-8",
+    ) as handle:
+        for (
+            line_number,
+            raw_line,
+        ) in enumerate(
+            handle,
+            start=1,
+        ):
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            try:
+                item = json.loads(
+                    line,
+                )
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    (
+                        "Invalid JSON in report at line "
+                        + str(
+                            line_number,
+                        )
+                        + "."
+                    )
+                ) from exc
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+                raise ValueError(
+                    (
+                        "Invalid report row at line "
+                        + str(
+                            line_number,
+                        )
+                        + "."
+                    )
+                )
+
+            if (
+                item.get(
+                    "type",
+                )
+                == "summary"
+            ):
+                summary = item
+
+                continue
+
+            if item.get(
+                "track_id",
+            ):
+                rows.append(
+                    item,
+                )
+
+    if summary is None:
+        raise ValueError(
+            "Report has no completion summary. "
+            "Refusing to apply an incomplete run.",
+        )
+
+    if summary.get(
+        "dry_run",
+    ) is not True:
+        raise ValueError(
+            "Report is not a dry-run report. "
+            "Nothing needs to be replayed from it.",
+        )
+
+    return (
+        rows,
+        summary,
+    )
+
+
+def report_metadata(
+    row: dict[
+        str,
+        Any,
+    ],
+) -> ExternalTrackMetadata | None:
+    if (
+        row.get(
+            "status",
+        )
+        != "would_update"
+    ):
+        return None
+
+    recording_id_value = (
+        row.get(
+            "recording_id",
+        )
+    )
+
+    return {
+        "source":
+            str(
+                row.get(
+                    "source",
+                )
+                or "report"
+            ),
+        "recording_id":
+            (
+                str(
+                    recording_id_value,
+                )
+                if recording_id_value
+                is not None
+                else None
+            ),
+        "genre":
+            (
+                str(
+                    row.get(
+                        "provider_genre",
+                    )
+                ).strip()
+                if row.get(
+                    "provider_genre",
+                )
+                else None
+            ),
+        "release_year":
+            (
+                int(
+                    row.get(
+                        "provider_release_year",
+                    )
+                )
+                if row.get(
+                    "provider_release_year",
+                )
+                is not None
+                else None
+            ),
+        "confidence":
+            float(
+                row.get(
+                    "confidence",
+                    0.0,
+                )
+                or 0.0
+            ),
+    }
+
+
+async def apply_report(
+    args: argparse.Namespace,
+) -> int:
+    settings = get_settings()
+
+    if (
+        not settings.database_url
+        .strip()
+        and not args.allow_local
+    ):
+        print(
+            "DATABASE_URL is empty. Refusing to modify "
+            "local_dev.db by accident. Configure DATABASE_URL "
+            "or pass --allow-local intentionally.",
+            file=sys.stderr,
+        )
+
+        return 2
+
+    report_path = resolve_report_path(
+        args.apply_report,
+    )
+
+    try:
+        rows, summary = (
+            load_completed_dry_run_report(
+                report_path,
+            )
+        )
+    except ValueError as exc:
+        print(
+            str(
+                exc,
+            ),
+            file=sys.stderr,
+        )
+
+        return 2
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    stats = {
+        "report_rows":
+            len(
+                rows,
+            ),
+        "eligible":
+            0,
+        "updated":
+            0,
+        "genre_updated":
+            0,
+        "year_updated":
+            0,
+        "already_complete":
+            0,
+        "missing_track":
+            0,
+        "identity_mismatch":
+            0,
+        "low_confidence":
+            0,
+        "errors":
+            0,
+    }
+
+    print(
+        (
+            "Applying completed dry-run metadata report: "
+            + str(
+                report_path,
+            )
+        )
+    )
+
+    print(
+        (
+            "Original dry run matched "
+            + str(
+                (
+                    summary.get(
+                        "stats",
+                    )
+                    or {}
+                ).get(
+                    "matched",
+                    0,
+                )
+            )
+            + " track(s)."
+        )
+    )
+
+    for (
+        index,
+        row,
+    ) in enumerate(
+        rows,
+        start=1,
+    ):
+        metadata = report_metadata(
+            row,
+        )
+
+        if metadata is None:
+            continue
+
+        if not acceptable_metadata(
+            metadata,
+            min_confidence=(
+                args.min_confidence
+            ),
+        ):
+            stats[
+                "low_confidence"
+            ] += 1
+
+            continue
+
+        stats[
+            "eligible"
+        ] += 1
+
+        track_id_value = str(
+            row.get(
+                "track_id",
+                "",
+            )
+        ).strip()
+
+        try:
+            track_id = UUID(
+                track_id_value,
+            )
+        except ValueError:
+            stats[
+                "errors"
+            ] += 1
+
+            continue
+
+        try:
+            async with session_factory() as session:
+                track = await session.get(
+                    Track,
+                    track_id,
+                )
+
+                if track is None:
+                    stats[
+                        "missing_track"
+                    ] += 1
+
+                    continue
+
+                report_title = str(
+                    row.get(
+                        "title",
+                        "",
+                    )
+                ).strip()
+
+                report_artist = str(
+                    row.get(
+                        "artist",
+                        "",
+                    )
+                ).strip()
+
+                if (
+                    report_title
+                    and track.title.strip()
+                    != report_title
+                ) or (
+                    report_artist
+                    and track.artist.strip()
+                    != report_artist
+                ):
+                    stats[
+                        "identity_mismatch"
+                    ] += 1
+
+                    print(
+                        (
+                            "["
+                            + str(
+                                index,
+                            )
+                            + "/"
+                            + str(
+                                len(
+                                    rows,
+                                )
+                            )
+                            + "] SKIP IDENTITY MISMATCH | "
+                            + track.artist
+                            + " - "
+                            + track.title
+                        ),
+                        flush=True,
+                    )
+
+                    continue
+
+                if not missing_metadata(
+                    track,
+                ):
+                    stats[
+                        "already_complete"
+                    ] += 1
+
+                    continue
+
+                (
+                    changed,
+                    genre_changed,
+                    year_changed,
+                ) = apply_missing_metadata(
+                    track,
+                    metadata,
+                )
+
+                if not changed:
+                    stats[
+                        "already_complete"
+                    ] += 1
+
+                    continue
+
+                await session.commit()
+
+                stats[
+                    "updated"
+                ] += 1
+
+                if genre_changed:
+                    stats[
+                        "genre_updated"
+                    ] += 1
+
+                if year_changed:
+                    stats[
+                        "year_updated"
+                    ] += 1
+
+                if (
+                    args
+                    .refresh_playlists_after_report
+                ):
+                    try:
+                        await (
+                            refresh_smart_playlists_for_track(
+                                session,
+                                track,
+                            )
+                        )
+                    except Exception as exc:
+                        # The metadata commit already succeeded.
+                        # Playlist refresh failure must not undo it.
+                        await session.rollback()
+
+                        print(
+                            (
+                                "Playlist refresh failed for "
+                                + str(
+                                    track.id,
+                                )
+                                + ": "
+                                + str(
+                                    exc,
+                                )
+                            ),
+                            file=sys.stderr,
+                        )
+
+                print(
+                    (
+                        "["
+                        + str(
+                            index,
+                        )
+                        + "/"
+                        + str(
+                            len(
+                                rows,
+                            )
+                        )
+                        + "] UPDATED | "
+                        + track.artist
+                        + " - "
+                        + track.title
+                    ),
+                    flush=True,
+                )
+
+        except Exception as exc:
+            stats[
+                "errors"
+            ] += 1
+
+            print(
+                (
+                    "["
+                    + str(
+                        index,
+                    )
+                    + "/"
+                    + str(
+                        len(
+                            rows,
+                        )
+                    )
+                    + "] ERROR | "
+                    + track_id_value
+                    + " | "
+                    + str(
+                        exc,
+                    )
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+    print("")
+    print(
+        "Report apply complete.",
+    )
+
+    print(
+        json.dumps(
+            stats,
+            indent=2,
+        )
+    )
+
+    return (
+        1
+        if stats[
+            "errors"
+        ]
+        else 0
+    )
+
+
 async def run_backfill(
     args: argparse.Namespace,
 ) -> int:
@@ -435,6 +993,12 @@ async def run_backfill(
         tracks = list(
             result.scalars().all()
         )
+
+        # End the SELECT transaction before the potentially
+        # long provider lookup pass. expire_on_commit=False
+        # keeps the loaded track values available while
+        # avoiding a stale Neon transaction at shutdown.
+        await session.commit()
 
         total = len(
             tracks,
@@ -841,12 +1405,36 @@ async def async_main() -> int:
 
     args = parser.parse_args()
 
+    if (
+        args.apply_report is not None
+        and args.dry_run
+    ):
+        parser.error(
+            "--apply-report cannot be combined with --dry-run.",
+        )
+
     try:
+        if args.apply_report is not None:
+            return await apply_report(
+                args,
+            )
+
         return await run_backfill(
             args,
         )
     finally:
-        await close_database()
+        try:
+            await close_database()
+        except Exception as exc:
+            print(
+                (
+                    "Database cleanup warning: "
+                    + str(
+                        exc,
+                    )
+                ),
+                file=sys.stderr,
+            )
 
 
 def main() -> None:

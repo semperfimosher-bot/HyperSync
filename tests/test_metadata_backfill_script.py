@@ -1,9 +1,14 @@
+import json
 from types import SimpleNamespace
+
+import pytest
 
 from scripts.backfill_track_metadata import (
     acceptable_metadata,
     apply_missing_metadata,
+    load_completed_dry_run_report,
     missing_metadata,
+    report_metadata,
 )
 
 
@@ -158,3 +163,116 @@ def test_acceptable_metadata_requires_confidence_and_useful_value() -> None:
         },
         min_confidence=0.90,
     )
+
+
+
+def test_completed_dry_run_report_can_be_replayed(tmp_path) -> None:
+    report_path = (
+        tmp_path
+        / "metadata-backfill.jsonl"
+    )
+
+    rows = [
+        {
+            "track_id":
+                "00000000-0000-0000-0000-000000000001",
+            "title":
+                "Replay Me",
+            "artist":
+                "HyperSync",
+            "status":
+                "would_update",
+            "provider_genre":
+                "Pop",
+            "provider_release_year":
+                2024,
+            "source":
+                "apple",
+            "recording_id":
+                "apple:1",
+            "confidence":
+                0.97,
+        },
+        {
+            "type":
+                "summary",
+            "dry_run":
+                True,
+            "stats": {
+                "matched":
+                    1,
+            },
+        },
+    ]
+
+    report_path.write_text(
+        "".join(
+            json.dumps(
+                row,
+            )
+            + "\n"
+            for row in rows
+        ),
+        encoding="utf-8",
+    )
+
+    report_rows, summary = (
+        load_completed_dry_run_report(
+            report_path,
+        )
+    )
+
+    assert len(
+        report_rows,
+    ) == 1
+
+    assert summary[
+        "dry_run"
+    ] is True
+
+    assert report_metadata(
+        report_rows[0],
+    ) == {
+        "source":
+            "apple",
+        "recording_id":
+            "apple:1",
+        "genre":
+            "Pop",
+        "release_year":
+            2024,
+        "confidence":
+            0.97,
+    }
+
+
+def test_report_replay_rejects_incomplete_report(tmp_path) -> None:
+    report_path = (
+        tmp_path
+        / "incomplete.jsonl"
+    )
+
+    report_path.write_text(
+        json.dumps(
+            {
+                "track_id":
+                    "00000000-0000-0000-0000-000000000001",
+                "status":
+                    "would_update",
+                "provider_genre":
+                    "Rock",
+                "confidence":
+                    0.95,
+            },
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="completion summary",
+    ):
+        load_completed_dry_run_report(
+            report_path,
+        )
