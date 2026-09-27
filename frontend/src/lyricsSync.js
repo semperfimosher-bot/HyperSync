@@ -303,6 +303,10 @@ export function getEffectiveLyricsPlaybackState({
       String(
         remoteTrack.id,
       ),
+    catalogTrackId:
+      catalogLyricsTrackId(
+        remoteTrack.id,
+      ),
     title:
       remoteTrack.title ??
       "",
