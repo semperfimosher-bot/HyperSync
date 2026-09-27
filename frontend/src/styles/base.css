@@ -2980,6 +2980,56 @@ span svg {
   white-space: nowrap;
 }
 
+.home-track-card--skeleton {
+  pointer-events: none;
+}
+
+.home-track-card--skeleton:hover {
+  transform: none;
+  border-color:
+    rgba(103, 183, 218, 0.1);
+}
+
+.home-skeleton-block,
+.home-skeleton-line {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(7, 24, 36, 0.72),
+      rgba(15, 53, 70, 0.9),
+      rgba(7, 24, 36, 0.72)
+    );
+  background-size:
+    200% 100%;
+  animation:
+    home-recent-shimmer
+    1.35s
+    linear
+    infinite;
+}
+
+.home-skeleton-line {
+  display: block;
+  height: 9px;
+  border-radius: 5px;
+}
+
+.home-skeleton-line--title {
+  width: 82%;
+}
+
+.home-skeleton-line--artist {
+  width: 56%;
+  height: 7px;
+}
+
+@keyframes home-recent-shimmer {
+  to {
+    background-position:
+      -200% 0;
+  }
+}
+
 /* -------------------------
    EMPTY STATE
 ------------------------- */
@@ -7871,50 +7921,66 @@ button.hs-shared-music-card:active {
   border-radius: 8px;
 }
 
-.message-notification-list > button {
+.message-notification-row {
   display: grid;
-
-  min-height: 54px;
-
   grid-template-columns:
-    auto
     minmax(0, 1fr)
     auto;
-
-  align-items: center;
-
-  gap: 8px;
-
-  padding:
-    7px;
-
+  align-items: stretch;
   border-bottom:
     1px solid
     rgba(66, 155, 192, 0.07);
-
-  color: inherit;
-
   background:
     rgba(255, 255, 255, 0.008);
-
-  text-align: left;
 }
 
-.message-notification-list > button:last-child {
+.message-notification-row:last-child {
   border-bottom: 0;
 }
 
-.message-notification-list > button:hover {
+.message-notification-row:hover {
   background:
     rgba(30, 176, 216, 0.06);
 }
 
-.message-notification-list > button > span {
+.message-notification-row__open {
   display: grid;
-
   min-width: 0;
+  min-height: 54px;
+  grid-template-columns:
+    auto
+    minmax(0, 1fr)
+    auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  color: inherit;
+  background:
+    transparent;
+  text-align: left;
+}
 
+.message-notification-row__open > span {
+  display: grid;
+  min-width: 0;
   gap: 2px;
+}
+
+.message-notification-row__delete {
+  display: grid;
+  width: 32px;
+  min-height: 54px;
+  place-items: center;
+  padding: 0;
+  color: #637f8b;
+  background:
+    transparent;
+}
+
+.message-notification-row__delete:hover {
+  color: #f29aae;
+  background:
+    rgba(255, 79, 112, 0.07);
 }
 
 .message-notification-list strong {
