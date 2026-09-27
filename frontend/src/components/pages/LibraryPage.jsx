@@ -67,6 +67,13 @@ import {
 } from "../../sortResults.js";
 
 import {
+  readPinnedPlaylistIds,
+  sortPinnedPlaylists,
+  togglePinnedPlaylistId,
+  writePinnedPlaylistIds,
+} from "../../playlistPins.js";
+
+import {
   filterPlaylistTracks,
 } from "../../playlistTrackSearch.js";
 
@@ -338,6 +345,60 @@ const [
     playlistSearchQuery,
     setPlaylistSearchQuery,
   ] = useState("");
+
+  const [
+    likedGenreFilter,
+    setLikedGenreFilter,
+  ] = useState(
+    "all",
+  );
+
+  const [
+    pinnedPlaylistIds,
+    setPinnedPlaylistIds,
+  ] = useState(
+    () =>
+      readPinnedPlaylistIds(
+        libraryCacheKey,
+      ),
+  );
+
+  useEffect(() => {
+    setPinnedPlaylistIds(
+      readPinnedPlaylistIds(
+        libraryCacheKey,
+      ),
+    );
+  }, [
+    libraryCacheKey,
+  ]);
+
+  const togglePlaylistPinned =
+    useCallback(
+      (
+        playlistId,
+      ) => {
+        setPinnedPlaylistIds(
+          (current) => {
+            const next =
+              togglePinnedPlaylistId(
+                current,
+                playlistId,
+              );
+
+            writePinnedPlaylistIds(
+              libraryCacheKey,
+              next,
+            );
+
+            return next;
+          },
+        );
+      },
+      [
+        libraryCacheKey,
+      ],
+    );
 
   useEffect(() => {
   setSelectedPlaylist(
@@ -2642,13 +2703,17 @@ if (offline) {
   const sortedVisiblePlaylists =
     useMemo(
       () =>
-        sortResultItems(
-          visiblePlaylists,
-          sortMode,
+        sortPinnedPlaylists(
+          sortResultItems(
+            visiblePlaylists,
+            sortMode,
+          ),
+          pinnedPlaylistIds,
         ),
       [
         visiblePlaylists,
         sortMode,
+        pinnedPlaylistIds,
       ],
     );
 
@@ -2679,15 +2744,95 @@ if (offline) {
       ],
     );
 
+  const selectedPlaylistIsLiked =
+    Boolean(
+      selectedPlaylist &&
+      playlistPresentation(
+        selectedPlaylist,
+      ).kind ===
+        "liked",
+    );
+
+  const likedGenreOptions =
+    useMemo(
+      () =>
+        selectedPlaylistIsLiked
+          ? Array.from(
+              new Set(
+                (
+                  selectedPlaylist?.tracks ??
+                  []
+                )
+                  .map(
+                    (track) =>
+                      String(
+                        track?.genre ??
+                        "",
+                      ).trim(),
+                  )
+                  .filter(Boolean),
+              ),
+            ).sort(
+              (
+                left,
+                right,
+              ) =>
+                left.localeCompare(
+                  right,
+                ),
+            )
+          : [],
+      [
+        selectedPlaylist?.tracks,
+        selectedPlaylistIsLiked,
+      ],
+    );
+
+  const genreFilteredSelectedPlaylistTracks =
+    useMemo(
+      () => {
+        if (
+          !selectedPlaylistIsLiked ||
+          likedGenreFilter ===
+            "all"
+        ) {
+          return (
+            sortedSelectedPlaylistTracks
+          );
+        }
+
+        return (
+          sortedSelectedPlaylistTracks
+          .filter(
+            (track) =>
+              String(
+                track?.genre ??
+                  "",
+              )
+                .trim()
+                .toLocaleLowerCase()
+              ===
+              likedGenreFilter
+                .toLocaleLowerCase(),
+          )
+        );
+      },
+      [
+        sortedSelectedPlaylistTracks,
+        selectedPlaylistIsLiked,
+        likedGenreFilter,
+      ],
+    );
+
   const filteredSelectedPlaylistTracks =
     useMemo(
       () =>
         filterPlaylistTracks(
-          sortedSelectedPlaylistTracks,
+          genreFilteredSelectedPlaylistTracks,
           playlistSearchQuery,
         ),
       [
-        sortedSelectedPlaylistTracks,
+        genreFilteredSelectedPlaylistTracks,
         playlistSearchQuery,
       ],
     );
@@ -2695,6 +2840,10 @@ if (offline) {
   useEffect(() => {
     setPlaylistSearchQuery(
       "",
+    );
+
+    setLikedGenreFilter(
+      "all",
     );
   }, [
     selectedPlaylist?.id,
@@ -3098,7 +3247,11 @@ if (offline) {
             </div>
 
             <strong>
-              {playlistSearchQuery.trim()
+              {(
+                playlistSearchQuery.trim() ||
+                likedGenreFilter !==
+                  "all"
+              )
                 ? (
                     filteredSelectedPlaylistTracks.length +
                     " / " +
@@ -3137,9 +3290,57 @@ if (offline) {
                 />
               </label>
 
+              {presentation.kind ===
+                "liked" &&
+              likedGenreOptions.length >
+                0 ? (
+                <label className="hs-liked-genre-filter">
+                  <span>
+                    Genre
+                  </span>
+
+                  <select
+                    value={
+                      likedGenreFilter
+                    }
+                    aria-label="Filter Liked Songs by genre"
+                    onChange={(
+                      event,
+                    ) => {
+                      setLikedGenreFilter(
+                        event.target.value,
+                      );
+                    }}
+                  >
+                    <option value="all">
+                      All genres
+                    </option>
+
+                    {likedGenreOptions.map(
+                      (genre) => (
+                        <option
+                          key={
+                            genre
+                          }
+                          value={
+                            genre
+                          }
+                        >
+                          {genre}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              ) : null}
+
               <div className="hs-playlist-track-search__meta">
                 <span>
-                  {playlistSearchQuery.trim()
+                  {(
+                    playlistSearchQuery.trim() ||
+                    likedGenreFilter !==
+                      "all"
+                  )
                     ? (
                         filteredSelectedPlaylistTracks.length +
                         " of " +
@@ -3157,16 +3358,24 @@ if (offline) {
                       )}
                 </span>
 
-                {playlistSearchQuery ? (
+                {(
+                  playlistSearchQuery ||
+                  likedGenreFilter !==
+                    "all"
+                ) ? (
                   <button
                     type="button"
                     onClick={() => {
                       setPlaylistSearchQuery(
                         "",
                       );
+
+                      setLikedGenreFilter(
+                        "all",
+                      );
                     }}
                   >
-                    Clear
+                    Clear filters
                   </button>
                 ) : null}
               </div>
@@ -4547,6 +4756,27 @@ if (offline) {
                         },
                         {
                           id:
+                            "pin",
+                          label:
+                            pinnedPlaylistIds
+                              .includes(
+                                String(
+                                  playlist.id,
+                                ),
+                              )
+                              ? "Unpin playlist"
+                              : "Pin playlist to top",
+                          icon:
+                            "pin",
+                          onSelect:
+                            () => {
+                              togglePlaylistPinned(
+                                playlist.id,
+                              );
+                            },
+                        },
+                        {
+                          id:
                             "download",
                           label:
                             rowDownload?.status ===
@@ -4595,6 +4825,15 @@ if (offline) {
                       "hs-library-playlist-row",
                       "hs-library-playlist-row--generated-look",
                       `hs-library-playlist-row--${presentation.kind}`,
+
+                      pinnedPlaylistIds
+                        .includes(
+                          String(
+                            playlist.id,
+                          ),
+                        )
+                        ? "is-pinned"
+                        : "",
 
                       opening
                         ? "is-opening"
