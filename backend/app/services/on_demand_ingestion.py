@@ -120,6 +120,24 @@ def _now() -> float:
     return time.monotonic()
 
 
+def _candidate_identity_key(
+    candidate: CatalogTrackCandidate,
+) -> tuple[str, str]:
+    (
+        _artist_key,
+        primary_artist_key,
+        title_key,
+    ) = track_identity_keys(
+        title=candidate.title,
+        artist=candidate.artist,
+    )
+
+    return (
+        primary_artist_key,
+        title_key,
+    )
+
+
 def _session_snapshot(
     session: ProvisionSession,
 ) -> dict[str, Any]:
@@ -1016,25 +1034,18 @@ async def search_and_remember(
     )
 
     candidate_keys = {
-        (
-            primary_artist_key,
-            title_key,
-        )
+        key
         for candidate
         in candidates
-        for (
-            _artist_key,
-            primary_artist_key,
-            title_key,
-        )
+        for key
         in [
-            track_identity_keys(
-                title=candidate.title,
-                artist=candidate.artist,
+            _candidate_identity_key(
+                candidate,
             )
         ]
-        if primary_artist_key
-        and title_key
+        if all(
+            key,
+        )
     }
 
     async with session_factory() as session:
@@ -1049,16 +1060,8 @@ async def search_and_remember(
         candidate
         for candidate
         in candidates
-        if (
-            lambda keys: (
-                keys[1],
-                keys[2],
-            )
-        )(
-            track_identity_keys(
-                title=candidate.title,
-                artist=candidate.artist,
-            )
+        if _candidate_identity_key(
+            candidate,
         )
         not in existing_identities
     ]
