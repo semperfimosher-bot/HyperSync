@@ -639,6 +639,132 @@ async def mark_item_started(
         return claimed
 
 
+async def record_item_failure(
+    scan_id: UUID,
+    item_id: UUID,
+    *,
+    error: str,
+    max_attempts: int,
+) -> tuple[str, int]:
+    """Persist a failed attempt and decide whether it is retryable.
+
+    Returns ("retry", attempts) while the durable item still
+    has attempts remaining, ("failed", attempts) once the
+    bounded retry budget is exhausted, or ("ignored", 0) if
+    the item is no longer owned by the caller.
+    """
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(
+                BotCatalogScanItem.attempts,
+            ).where(
+                BotCatalogScanItem.id
+                == item_id,
+                BotCatalogScanItem.scan_id
+                == scan_id,
+                BotCatalogScanItem.state
+                == "ingesting",
+            )
+        )
+
+        attempts = (
+            result.scalar_one_or_none()
+        )
+
+        if attempts is None:
+            return (
+                "ignored",
+                0,
+            )
+
+        attempt_count = max(
+            0,
+            int(
+                attempts,
+            ),
+        )
+
+        retry = (
+            attempt_count
+            < max(
+                1,
+                int(
+                    max_attempts,
+                ),
+            )
+        )
+
+        item_result = await session.execute(
+            update(
+                BotCatalogScanItem,
+            )
+            .where(
+                BotCatalogScanItem.id
+                == item_id,
+                BotCatalogScanItem.scan_id
+                == scan_id,
+                BotCatalogScanItem.state
+                == "ingesting",
+            )
+            .values(
+                state=(
+                    "discovered"
+                    if retry
+                    else "failed"
+                ),
+                error=str(
+                    error
+                    or "Ingest failed.",
+                )[:500],
+            )
+        )
+
+        if not item_result.rowcount:
+            await session.rollback()
+            return (
+                "ignored",
+                attempt_count,
+            )
+
+        if not retry:
+            await session.execute(
+                update(
+                    BotCatalogScan,
+                )
+                .where(
+                    BotCatalogScan.id
+                    == scan_id,
+                )
+                .values(
+                    ingest_failed=(
+                        BotCatalogScan
+                        .ingest_failed
+                        + 1
+                    ),
+                    last_error=str(
+                        error
+                        or "Ingest failed.",
+                    )[:400],
+                )
+            )
+
+        await session.commit()
+
+        return (
+            (
+                "retry"
+                if retry
+                else "failed"
+            ),
+            attempt_count,
+        )
+
+
 async def mark_item_finished(
     scan_id: UUID,
     item_id: UUID,
