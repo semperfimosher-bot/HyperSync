@@ -71,6 +71,9 @@ import MessageNotificationPanel from "./components/ui/MessageNotificationPanel.j
 import NotificationDetailOverlay from
   "./components/ui/NotificationDetailOverlay.jsx";
 
+import PageErrorBoundary from
+  "./components/ui/PageErrorBoundary.jsx";
+
 import PlaybackDevicesPanel from
   "./components/player/PlaybackDevicesPanel.jsx";
 
@@ -2383,10 +2386,12 @@ function MainPage({
                   : "hidden"
               }
             >
-              {renderPage(
-                entry.page,
-                entry.profileUsername,
-              )}
+              <PageErrorBoundary>
+                {renderPage(
+                  entry.page,
+                  entry.profileUsername,
+                )}
+              </PageErrorBoundary>
             </Activity>
           ),
         )}
