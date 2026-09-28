@@ -4,7 +4,10 @@ from sqlalchemy import (
 )
 
 from ..models.artist import ArtistProfile
-from ..models.media import Track
+from ..models.media import (
+    Track,
+    TrackArtistCredit,
+)
 from .audio_metadata import (
     normalize_track_identity,
     primary_artist_credit,
@@ -223,6 +226,84 @@ async def load_published_artist_tracks(
         ]
 
     return tracks
+
+
+async def backfill_missing_artist_profiles(
+    *,
+    batch_size: int = 250,
+) -> int:
+    from ..database import (
+        get_session_factory,
+    )
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(
+                TrackArtistCredit.artist_name,
+                TrackArtistCredit.normalized_name,
+            )
+            .outerjoin(
+                ArtistProfile,
+                ArtistProfile.normalized_name
+                == TrackArtistCredit.normalized_name,
+            )
+            .where(
+                ArtistProfile.id.is_(
+                    None,
+                )
+            )
+            .distinct()
+            .order_by(
+                TrackArtistCredit.normalized_name.asc(),
+            )
+            .limit(
+                max(
+                    1,
+                    int(
+                        batch_size,
+                    ),
+                )
+            )
+        )
+
+        rows = list(
+            result.all()
+        )
+
+        for (
+            artist_name,
+            normalized_name,
+        ) in rows:
+            clean_name = " ".join(
+                str(
+                    artist_name
+                    or ""
+                )
+                .strip()
+                .split()
+            )
+
+            if (
+                not clean_name
+                or not normalized_name
+            ):
+                continue
+
+            await ensure_artist_profile(
+                session,
+                clean_name,
+            )
+
+        if rows:
+            await session.commit()
+
+        return len(
+            rows,
+        )
 
 
 async def ensure_artist_profile(
