@@ -66,13 +66,22 @@ export default class PageErrorBoundary
           />
 
           <h2>
-            This page hit an error
+            {this.props.scope === "app"
+              ? "HyperSynced hit an error"
+              : "This page hit an error"}
           </h2>
 
           <p>
-            The rest of HyperSynced is still running.
-            Retry this page, or navigate somewhere else
-            and come back.
+            {this.props.scope === "app"
+              ? (
+                  "The app shell recovered instead of "
+                  + "leaving a blank screen. Retry the app."
+                )
+              : (
+                  "The rest of HyperSynced is still running. "
+                  + "Retry this page, or navigate somewhere "
+                  + "else and come back."
+                )}
           </p>
 
           <button
@@ -82,7 +91,9 @@ export default class PageErrorBoundary
               this.retry
             }
           >
-            Retry page
+            {this.props.scope === "app"
+              ? "Retry app"
+              : "Retry page"}
           </button>
         </section>
       </div>
