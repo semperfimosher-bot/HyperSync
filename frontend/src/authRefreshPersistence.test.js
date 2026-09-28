@@ -296,3 +296,100 @@ test(
     }
   },
 );
+
+
+test(
+  "concurrent refresh calls share one network request",
+  async () => {
+    resetStorage({
+      hypersync_session_active:
+        "true",
+      hypersync_remember_me:
+        "true",
+      hypersync_user_profile:
+        JSON.stringify({
+          id:
+            "user-1",
+          username:
+            "listener",
+        }),
+    });
+
+    const originalFetch =
+      globalThis.fetch;
+
+    let calls = 0;
+
+    globalThis.fetch =
+      async () => {
+        calls += 1;
+
+        await new Promise(
+          (resolve) => {
+            setTimeout(
+              resolve,
+              15,
+            );
+          },
+        );
+
+        return {
+          ok:
+            true,
+          status:
+            200,
+          headers: {
+            get() {
+              return null;
+            },
+          },
+          async json() {
+            return {
+              access_token:
+                "shared-refresh-token",
+            };
+          },
+        };
+      };
+
+    try {
+      const client =
+        await import(
+          `./api/client.js?refresh-single-flight=${Date.now()}`
+        );
+
+      const [
+        first,
+        second,
+        third,
+      ] = await Promise.all([
+        client.refreshAccessToken(),
+        client.refreshAccessToken(),
+        client.refreshAccessToken(),
+      ]);
+
+      assert.equal(
+        calls,
+        1,
+      );
+
+      assert.equal(
+        first.access_token,
+        "shared-refresh-token",
+      );
+
+      assert.equal(
+        second.access_token,
+        "shared-refresh-token",
+      );
+
+      assert.equal(
+        third.access_token,
+        "shared-refresh-token",
+      );
+    } finally {
+      globalThis.fetch =
+        originalFetch;
+    }
+  },
+);
