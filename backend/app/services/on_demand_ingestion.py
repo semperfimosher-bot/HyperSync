@@ -60,6 +60,7 @@ from .on_demand_state import (
     get_or_create_provision as get_or_create_durable_provision,
     load_candidate as load_durable_candidate,
     load_provision as load_durable_provision,
+    list_recent_provisions as list_durable_recent_provisions,
     persist_candidates as persist_durable_candidates,
     pop_pending_listeners as pop_durable_pending_listeners,
     save_provision as save_durable_provision,
@@ -559,6 +560,10 @@ async def _resolve_source(
                     _now()
                 )
 
+            await _persist_session(
+                session,
+            )
+
             return
 
         source = (
@@ -582,6 +587,10 @@ async def _resolve_source(
                 _now()
             )
 
+        await _persist_session(
+            session,
+        )
+
     except Exception as exc:
         async with _lock:
             session.state = "failed"
@@ -595,6 +604,10 @@ async def _resolve_source(
             session.updated_at = (
                 _now()
             )
+
+        await _persist_session(
+            session,
+        )
 
         raise
 
@@ -807,6 +820,10 @@ async def _run_ingest(
                 _now()
             )
 
+        await _persist_session(
+            session,
+        )
+
         audio_task = asyncio.create_task(
             download_youtube_audio(
                 source,
@@ -890,6 +907,12 @@ async def _run_ingest(
                 _now()
             )
 
+        pending_listener_user_ids.update(
+            await pop_durable_pending_listeners(
+                session.id,
+            )
+        )
+
         if pending_listener_user_ids:
             await asyncio.gather(
                 *[
@@ -909,6 +932,10 @@ async def _run_ingest(
             session.updated_at = (
                 _now()
             )
+
+        await _persist_session(
+            session,
+        )
 
         job_completed(
             (
@@ -931,6 +958,10 @@ async def _run_ingest(
             session.updated_at = (
                 _now()
             )
+
+        await _persist_session(
+            session,
+        )
 
         job_failed(
             (
@@ -1689,6 +1720,11 @@ async def record_provision_play(
             user_id,
         )
     elif session.state != "failed":
+        await persist_pending_listener(
+            provision_id,
+            user_id,
+        )
+
         await _ensure_ingest(
             session,
         )
@@ -1734,24 +1770,57 @@ async def active_provisions() -> list[
     async with _lock:
         await _cleanup_expired_locked()
 
-        sessions = list(
+        local_sessions = list(
             _sessions_by_id.values()
         )
 
-    sessions.sort(
-        key=lambda item:
-            item.updated_at,
-        reverse=True,
+    snapshots_by_id = {
+        str(
+            session.id,
+        ):
+            _session_snapshot(
+                session,
+            )
+        for session in local_sessions
+    }
+
+    durable_rows = (
+        await list_durable_recent_provisions(
+            limit=50,
+        )
     )
 
-    return [
-        _session_snapshot(
+    for durable in durable_rows:
+        provision_id = durable.get(
+            "id",
+        )
+
+        key = str(
+            provision_id,
+        )
+
+        if (
+            not key
+            or key in snapshots_by_id
+        ):
+            continue
+
+        session = _session_from_durable(
+            durable,
+        )
+
+        if session is None:
+            continue
+
+        snapshots_by_id[
+            key
+        ] = _session_snapshot(
             session,
         )
-        for session in sessions[
-            :50
-        ]
-    ]
+
+    return list(
+        snapshots_by_id.values(),
+    )[:50]
 
 
 def stream_token_matches(
