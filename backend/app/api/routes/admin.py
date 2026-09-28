@@ -65,6 +65,9 @@ from ...services.music_metadata import (
     enrich_track_metadata,
     enrich_track_metadata_by_id,
 )
+from ...services.storage_integrity import (
+    audit_track_storage,
+)
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -740,6 +743,65 @@ async def admin_diagnostics(
             "failed_jobs":
                 bot_state.failed_jobs,
         },
+    }
+
+
+@router.get(
+    "/media-integrity",
+)
+async def scan_media_integrity(
+    user: AdminUser,
+    session: DatabaseSession,
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=2000,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
+):
+    result = await session.execute(
+        select(
+            Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            )
+        )
+        .order_by(
+            Track.created_at.asc(),
+            Track.id.asc(),
+        )
+        .offset(
+            offset,
+        )
+        .limit(
+            limit,
+        )
+    )
+
+    tracks = list(
+        result.scalars().all()
+    )
+
+    audit = await audit_track_storage(
+        tracks,
+    )
+
+    return {
+        **audit,
+        "offset":
+            offset,
+        "limit":
+            limit,
+        "has_more":
+            len(
+                tracks,
+            )
+            == limit,
     }
 
 
