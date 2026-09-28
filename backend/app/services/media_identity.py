@@ -9,6 +9,9 @@ from sqlalchemy import (
 from ..database import (
     get_session_factory,
 )
+from ..models.artist import (
+    ArtistProfile,
+)
 from ..models.media import (
     Track,
     TrackArtistCredit,
@@ -853,6 +856,31 @@ async def catalog_identity_diagnostics(
             if count > 1
         )
 
+    artist_profile_backfill_pending = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        func.distinct(
+                            TrackArtistCredit.normalized_name,
+                        )
+                    )
+                )
+                .outerjoin(
+                    ArtistProfile,
+                    ArtistProfile.normalized_name
+                    == TrackArtistCredit.normalized_name,
+                )
+                .where(
+                    ArtistProfile.id.is_(
+                        None,
+                    )
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
     return {
         "track_count":
             track_count,
@@ -866,6 +894,8 @@ async def catalog_identity_diagnostics(
             duplicate_group_count,
         "identity_backfill_pending":
             missing_identity_count,
+        "artist_profile_backfill_pending":
+            artist_profile_backfill_pending,
     }
 
 
