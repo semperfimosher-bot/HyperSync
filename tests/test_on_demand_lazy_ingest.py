@@ -939,3 +939,76 @@ async def test_replica_follower_reuses_durable_ingest_result(
     assert session.state == "ready"
     assert session.track_id == track_id
     assert session.error is None
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_resumes_only_interrupted_ingests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_id = uuid4()
+    second_id = uuid4()
+
+    listed_limits: list[int] = []
+    loaded_ids: list[UUID] = []
+
+    async def fake_list_resumable(
+        *,
+        limit: int = 50,
+    ) -> list[UUID]:
+        listed_limits.append(
+            limit,
+        )
+        return [
+            first_id,
+            second_id,
+        ]
+
+    async def fake_get_provision(
+        provision_id: UUID,
+    ):
+        loaded_ids.append(
+            provision_id,
+        )
+
+        if provision_id == first_id:
+            return SimpleNamespace(
+                track_id=None,
+                state="ingesting",
+            )
+
+        return SimpleNamespace(
+            track_id=uuid4(),
+            state="ready",
+        )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "list_resumable_provision_ids",
+        fake_list_resumable,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "get_provision_session",
+        fake_get_provision,
+    )
+
+    resumed = (
+        await on_demand_ingestion
+        .resume_on_demand_ingests_on_startup(
+            limit=25,
+        )
+    )
+
+    assert listed_limits == [
+        25,
+    ]
+
+    assert set(
+        loaded_ids,
+    ) == {
+        first_id,
+        second_id,
+    }
+
+    assert resumed == 1
