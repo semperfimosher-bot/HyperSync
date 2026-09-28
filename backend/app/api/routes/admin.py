@@ -68,6 +68,9 @@ from ...services.music_metadata import (
 from ...services.storage_integrity import (
     audit_track_storage,
 )
+from ...services.on_demand_state import (
+    durable_state_diagnostics,
+)
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -712,6 +715,10 @@ async def admin_diagnostics(
             exc,
         )
 
+    durability_status = (
+        await durable_state_diagnostics()
+    )
+
     bot_state = get_state()
 
     return {
@@ -722,6 +729,8 @@ async def admin_diagnostics(
         },
         "database":
             database_status,
+        "durability":
+            durability_status,
         "storage":
             storage_status,
         "catalog":
