@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable
+from collections.abc import Coroutine
 from typing import Any
 
 
@@ -41,7 +41,11 @@ def _task_done(
 
 
 def spawn_background_task(
-    awaitable: Awaitable[Any],
+    awaitable: Coroutine[
+        Any,
+        Any,
+        Any,
+    ],
     *,
     name: str,
 ) -> asyncio.Task[Any]:
