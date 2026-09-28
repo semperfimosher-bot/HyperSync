@@ -27,14 +27,6 @@ import {
 
 import { apiRequest } from "./api/client.js";
 
-import {
-  clearAllHyperSyncClientData,
-} from "./clientDataReset.js";
-
-import {
-  rememberResetGeneration,
-} from "./globalResetSync.js";
-
 import { normalizeAppViewState } from "./appViewState.js";
 
 import {
@@ -110,15 +102,6 @@ import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
 import AdminBotPage from "./components/pages/AdminBotPage.jsx";
 import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
 import AdminDashboardPage from "./components/pages/AdminDashboardPage.jsx";
-
-import {
-  deleteCatalogTrack,
-  deleteCatalogTracks,
-} from "./catalogStore.js";
-
-import {
-  duplicateTrackIdsToDelete,
-} from "./duplicateCleanup.js";
 
 import {
   isOnDemandTrackId,
