@@ -51,6 +51,19 @@ def _now() -> datetime:
     )
 
 
+def _affected_rows(
+    result: Any,
+) -> int:
+    return int(
+        getattr(
+            result,
+            "rowcount",
+            0,
+        )
+        or 0
+    )
+
+
 def _candidate_from_payload(
     payload: dict[str, Any],
 ) -> CatalogTrackCandidate:
@@ -657,7 +670,7 @@ async def request_scan_cancel(
         await session.commit()
 
         return bool(
-            result.rowcount,
+            _affected_rows(result),
         )
 
 
@@ -801,7 +814,7 @@ async def mark_item_started(
         )
 
         claimed = bool(
-            result.rowcount,
+            _affected_rows(result),
         )
 
         if claimed:
@@ -887,7 +900,7 @@ async def mark_item_finished(
             )
         )
 
-        if result.rowcount:
+        if _affected_rows(result):
             values: dict[str, Any] = {}
 
             if ready:
