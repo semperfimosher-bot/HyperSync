@@ -37,7 +37,7 @@ _ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
     (
         r"\s+"
         r"(?:&|\band\b|\bx\b|\bwith\b|"
-        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
+        r"\bfeat(?:uring)?\.?|\bft\.?)"
         r"\s+"
     ),
     flags=re.IGNORECASE,
