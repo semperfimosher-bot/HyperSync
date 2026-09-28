@@ -17,6 +17,7 @@ from backend.app.services.media_identity import (
     find_duplicate_track,
     load_tracks_for_artist_credit,
     sync_track_media_identity,
+    track_identity_lock_key,
 )
 
 
@@ -291,3 +292,23 @@ async def test_duplicate_gate_matches_primary_artist_across_credit_formats() -> 
         assert duplicate.id == existing.id
 
     await engine.dispose()
+
+
+def test_track_lock_identity_collapses_primary_artist_credit_formats() -> None:
+    collaboration = track_identity_lock_key(
+        title="Broadway Girls",
+        artist="Morgan Wallen & Lil Durk",
+    )
+
+    primary_only = track_identity_lock_key(
+        title="Broadway Girls",
+        artist="Morgan Wallen",
+    )
+
+    remix_label = track_identity_lock_key(
+        title="Broadway Girls (Remix)",
+        artist="Morgan Wallen feat. Lil Durk",
+    )
+
+    assert collaboration == primary_only
+    assert remix_label == primary_only
