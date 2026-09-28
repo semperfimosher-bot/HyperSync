@@ -489,6 +489,15 @@ async def save_provision(
     never move a terminal row backward.
     """
 
+    if (
+        state == "ready"
+        and track_id is None
+    ):
+        # "ready" is an externally visible guarantee that a
+        # permanent catalog track exists. Never persist an
+        # impossible terminal state.
+        return False
+
     session_factory = (
         get_session_factory()
     )
@@ -587,7 +596,6 @@ async def save_provision(
 
             incoming_ready = (
                 track_id is not None
-                or state == "ready"
             )
 
             if incoming_ready:
