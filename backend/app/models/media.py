@@ -8,9 +8,11 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     false,
     func,
 )
@@ -118,6 +120,104 @@ class Track(
         nullable=False,
         default=True,
         server_default="true",
+    )
+
+
+class TrackIdentity(
+    Base,
+):
+    __tablename__ = "track_identities"
+
+    __table_args__ = (
+        Index(
+            "ix_track_identities_artist_title",
+            "artist_key",
+            "title_key",
+        ),
+        Index(
+            "ix_track_identities_primary_artist_title",
+            "primary_artist_key",
+            "title_key",
+        ),
+    )
+
+    track_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "tracks.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+
+    artist_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    primary_artist_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    title_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+
+class TrackArtistCredit(
+    Base,
+):
+    __tablename__ = "track_artist_credits"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "track_id",
+            "normalized_name",
+            name=(
+                "uq_track_artist_credits_track_artist"
+            ),
+        ),
+        Index(
+            "ix_track_artist_credits_artist_track",
+            "normalized_name",
+            "track_id",
+        ),
+    )
+
+    track_id: Mapped[UUID] = mapped_column(
+        ForeignKey(
+            "tracks.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    )
+
+    position: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+
+    artist_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    normalized_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+        index=True,
     )
 
 
