@@ -2247,6 +2247,14 @@ async def enrich_track_metadata(
 
         changed = True
 
+    # Snapshot the committed metadata before any follow-up
+    # helper can fail or roll back the shared ORM session.
+    # A rollback can expire ORM attributes even though the
+    # metadata commit itself already succeeded.
+    final_genre = track.genre
+    final_release_year = track.release_year
+    track_id = track.id
+
     if changed:
         await session.commit()
 
@@ -2256,6 +2264,10 @@ async def enrich_track_metadata(
                 track,
             )
         except Exception:
+            # Playlist refresh is secondary maintenance. Clear
+            # its failed transaction without making the already
+            # committed metadata result depend on an expired
+            # Track instance.
             await session.rollback()
             logger.exception(
                 (
@@ -2263,7 +2275,7 @@ async def enrich_track_metadata(
                     "generated playlist refresh failed "
                     "for track %s."
                 ),
-                track.id,
+                track_id,
             )
 
     return {
@@ -2284,9 +2296,9 @@ async def enrich_track_metadata(
                 "confidence"
             ],
         "genre":
-            track.genre,
+            final_genre,
         "release_year":
-            track.release_year,
+            final_release_year,
     }
 
 
