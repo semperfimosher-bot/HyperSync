@@ -953,38 +953,41 @@ async def catalog_identity_diagnostics(
         )
 
     try:
-        artist_profile_backfill_pending = int(
-            (
-                await session.execute(
-                    select(
-                        func.count(
-                            func.distinct(
-                                TrackArtistCredit.normalized_name,
+        # Diagnostics are read-only and must never roll back
+        # or expire the caller's transaction. Isolate the
+        # optional artist-profile query behind a savepoint so
+        # compatibility/test databases that omit that table
+        # can fail locally without poisoning the outer session.
+        async with session.begin_nested():
+            artist_profile_backfill_pending = int(
+                (
+                    await session.execute(
+                        select(
+                            func.count(
+                                func.distinct(
+                                    TrackArtistCredit.normalized_name,
+                                )
+                            )
+                        )
+                        .outerjoin(
+                            ArtistProfile,
+                            ArtistProfile.normalized_name
+                            == TrackArtistCredit.normalized_name,
+                        )
+                        .where(
+                            ArtistProfile.id.is_(
+                                None,
                             )
                         )
                     )
-                    .outerjoin(
-                        ArtistProfile,
-                        ArtistProfile.normalized_name
-                        == TrackArtistCredit.normalized_name,
-                    )
-                    .where(
-                        ArtistProfile.id.is_(
-                            None,
-                        )
-                    )
-                )
-            ).scalar_one()
-            or 0
-        )
+                ).scalar_one()
+                or 0
+            )
     except OperationalError:
         # Compatibility/test databases may intentionally
-        # contain only the media sidecar tables. Diagnostics
-        # should still report media identity health instead
-        # of failing because the optional artist profile
-        # table is absent.
-        await session.rollback()
-
+        # contain only the media sidecar tables. The failed
+        # savepoint is rolled back independently; the caller's
+        # surrounding transaction remains intact.
         artist_profile_backfill_pending = 0
 
     return {
