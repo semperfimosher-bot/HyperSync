@@ -48,6 +48,19 @@ _ACTIVE_LONG_RUNNING_STATES = (
 _persistence_warning_emitted = False
 
 
+def _as_utc_aware(
+    value: datetime,
+) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=UTC,
+        )
+
+    return value.astimezone(
+        UTC,
+    )
+
+
 def _now() -> datetime:
     return datetime.now(
         UTC,
@@ -122,7 +135,9 @@ def _provision_dict(
                 row.ingest_started,
             ),
         "expires_at":
-            row.expires_at,
+            _as_utc_aware(
+                row.expires_at,
+            ),
     }
 
 
@@ -270,7 +285,9 @@ async def load_candidate(
             if row is None:
                 return None
 
-            if row.expires_at < _now():
+            if _as_utc_aware(
+                    row.expires_at,
+                ) < _now():
                 await session.delete(
                     row,
                 )
@@ -434,7 +451,9 @@ async def load_provision(
                 return None
 
             if (
-                row.expires_at < _now()
+                _as_utc_aware(
+                    row.expires_at,
+                ) < _now()
                 and row.state
                 not in _ACTIVE_LONG_RUNNING_STATES
             ):
