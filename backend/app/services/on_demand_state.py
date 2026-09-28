@@ -23,6 +23,9 @@ from ..config import get_settings
 from ..database import (
     get_session_factory,
 )
+from ..models.account import (
+    ListeningEvent,
+)
 from ..models.on_demand import (
     OnDemandCandidate,
     OnDemandPendingListener,
@@ -577,6 +580,71 @@ async def add_pending_listener(
         _warn_once(
             "pending listener persistence",
         )
+
+
+async def commit_pending_listeners_to_history(
+    provision_id: UUID,
+    track_id: UUID,
+) -> set[UUID] | None:
+    """Atomically move durable pending listeners into history.
+
+    The pending rows and ListeningEvent inserts share one
+    transaction. A failed commit leaves the pending rows in
+    place so a later status/read can retry instead of silently
+    losing recently-played history.
+    """
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    try:
+        async with session_factory() as session:
+            result = await session.execute(
+                select(
+                    OnDemandPendingListener.user_id,
+                ).where(
+                    OnDemandPendingListener.provision_id
+                    == provision_id,
+                )
+            )
+
+            user_ids = set(
+                result.scalars().all()
+            )
+
+            if not user_ids:
+                return set()
+
+            session.add_all(
+                [
+                    ListeningEvent(
+                        user_id=user_id,
+                        track_id=track_id,
+                    )
+                    for user_id
+                    in user_ids
+                ]
+            )
+
+            await session.execute(
+                delete(
+                    OnDemandPendingListener,
+                ).where(
+                    OnDemandPendingListener.provision_id
+                    == provision_id,
+                )
+            )
+
+            await session.commit()
+
+            return user_ids
+
+    except SQLAlchemyError:
+        _warn_once(
+            "pending listener history commit",
+        )
+        return None
 
 
 async def pop_pending_listeners(
