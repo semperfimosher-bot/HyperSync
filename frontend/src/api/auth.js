@@ -14,6 +14,7 @@ import {
   hasStoredSession,
   readCachedUserProfile,
   saveAuthSession,
+  shouldRememberSession,
 } from "./storage.js";
 
 export {
@@ -27,15 +28,6 @@ export {
 
 
 let restoreInFlight = null;
-
-
-function rememberSession() {
-  return (
-    localStorage.getItem(
-      "hypersync_remember_me",
-    ) !== "false"
-  );
-}
 
 
 function decodeAccessTokenPayload(
@@ -117,7 +109,7 @@ function persistRestoredSession(
   accessToken = getAccessToken(),
 ) {
   const remember =
-    rememberSession();
+    shouldRememberSession();
 
   if (accessToken) {
     saveAuthSession(
@@ -142,7 +134,7 @@ async function restoreSessionInternal() {
     getAccessToken();
 
   const remember =
-    rememberSession();
+    shouldRememberSession();
 
     const cachedProfile =
   readCachedUserProfile();
@@ -162,19 +154,6 @@ const isOffline =
  */
 if (
   isOffline &&
-  cachedProfile
-) {
-  return buildRestoredUser(
-    cachedProfile,
-    token,
-  );
-}
-
-if (
-  typeof navigator !==
-    "undefined" &&
-  navigator.onLine ===
-    false &&
   cachedProfile
 ) {
   return buildRestoredUser(
