@@ -397,6 +397,265 @@ async def load_tracks_for_artist_credit(
     )
 
 
+async def duplicate_track_groups(
+    session,
+) -> tuple[
+    int,
+    list[dict],
+]:
+    track_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        Track.id,
+                    )
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    missing_identity_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        Track.id,
+                    )
+                )
+                .outerjoin(
+                    TrackIdentity,
+                    TrackIdentity.track_id
+                    == Track.id,
+                )
+                .where(
+                    TrackIdentity.track_id.is_(
+                        None,
+                    )
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    if missing_identity_count:
+        result = await session.execute(
+            select(
+                Track,
+            )
+        )
+
+        tracks = list(
+            result.scalars().all()
+        )
+
+        grouped: dict[
+            tuple[str, str],
+            list[Track],
+        ] = {}
+
+        for track in tracks:
+            (
+                _artist_key,
+                primary_artist_key,
+                title_key,
+            ) = track_identity_keys(
+                title=track.title,
+                artist=track.artist,
+            )
+
+            grouped.setdefault(
+                (
+                    primary_artist_key,
+                    title_key,
+                ),
+                [],
+            ).append(
+                track,
+            )
+
+        duplicate_rows = [
+            (
+                key,
+                rows,
+            )
+            for key, rows
+            in grouped.items()
+            if len(
+                rows,
+            ) > 1
+        ]
+
+    else:
+        duplicate_keys = (
+            select(
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            )
+            .group_by(
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            )
+            .having(
+                func.count(
+                    TrackIdentity.track_id,
+                )
+                > 1
+            )
+            .subquery()
+        )
+
+        result = await session.execute(
+            select(
+                Track,
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            )
+            .join(
+                TrackIdentity,
+                TrackIdentity.track_id
+                == Track.id,
+            )
+            .join(
+                duplicate_keys,
+                (
+                    duplicate_keys.c.primary_artist_key
+                    == TrackIdentity.primary_artist_key
+                )
+                &
+                (
+                    duplicate_keys.c.title_key
+                    == TrackIdentity.title_key
+                ),
+            )
+            .order_by(
+                Track.created_at.asc(),
+                Track.id.asc(),
+            )
+        )
+
+        grouped = {}
+
+        for (
+            track,
+            primary_artist_key,
+            title_key,
+        ) in result.all():
+            grouped.setdefault(
+                (
+                    primary_artist_key,
+                    title_key,
+                ),
+                [],
+            ).append(
+                track,
+            )
+
+        duplicate_rows = list(
+            grouped.items()
+        )
+
+    groups: list[dict] = []
+
+    for (
+        artist_key,
+        title_key,
+    ), tracks in duplicate_rows:
+        ordered_tracks = sorted(
+            tracks,
+            key=lambda item: (
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                )
+                is None,
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                ),
+                str(
+                    item.id,
+                ),
+            ),
+        )
+
+        if len(
+            ordered_tracks,
+        ) < 2:
+            continue
+
+        first = ordered_tracks[
+            0
+        ]
+
+        groups.append(
+            {
+                "artist_key":
+                    artist_key,
+                "title_key":
+                    title_key,
+                "artist":
+                    first.artist,
+                "title":
+                    first.title,
+                "count":
+                    len(
+                        ordered_tracks,
+                    ),
+                "keep_track_id":
+                    str(
+                        first.id,
+                    ),
+                "tracks": [
+                    {
+                        "id":
+                            str(
+                                item.id,
+                            ),
+                        "title":
+                            item.title,
+                        "artist":
+                            item.artist,
+                        "album":
+                            item.album,
+                        "b2_object_key":
+                            item.b2_object_key,
+                    }
+                    for item
+                    in ordered_tracks
+                ],
+            }
+        )
+
+    groups.sort(
+        key=lambda group: (
+            -int(
+                group[
+                    "count"
+                ],
+            ),
+            str(
+                group[
+                    "artist_key"
+                ],
+            ),
+            str(
+                group[
+                    "title_key"
+                ],
+            ),
+        )
+    )
+
+    return (
+        track_count,
+        groups,
+    )
+
+
 async def catalog_identity_diagnostics(
     session,
 ) -> dict[str, int]:
