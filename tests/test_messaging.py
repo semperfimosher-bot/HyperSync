@@ -336,12 +336,72 @@ async def test_admin_sees_other_accounts_pending_notifications_without_private_b
             in item.body
         )
 
-        assert (
+        preserved_notification = (
             await session.get(
                 AdminNotification,
                 account_notification.id,
             )
-        ) is not None
+        )
+
+        assert (
+            preserved_notification
+            is not None
+        )
+
+        await message_routes.read_admin_account_notification(
+            account_notification.id,
+            admin,
+            session,
+        )
+
+        preserved_notification = (
+            await session.get(
+                AdminNotification,
+                account_notification.id,
+            )
+        )
+
+        assert (
+            preserved_notification
+            is not None
+        )
+        assert (
+            preserved_notification.viewed_at
+            is not None
+        )
+
+        preserved_message = (
+            await session.get(
+                Message,
+                message.id,
+            )
+        )
+
+        assert preserved_message is not None
+        assert (
+            preserved_message.body
+            == "private-secret-that-admin-must-not-see"
+        )
+        assert (
+            preserved_message.viewed_at
+            is None
+        )
+
+        cleared_feed = (
+            await message_routes.message_notifications(
+                admin,
+                session,
+            )
+        )
+
+        assert cleared_feed.unread_count == 0
+        assert not [
+            item
+            for item in
+            cleared_feed.notifications
+            if item.type
+            == "admin_account_notification"
+        ]
 
     await engine.dispose()
 
