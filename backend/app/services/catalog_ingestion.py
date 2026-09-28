@@ -14,6 +14,10 @@ from .artists import (
     artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
+from .media_identity import (
+    find_duplicate_track,
+    sync_track_media_identity,
+)
 from .audio_compression import (
     compress_audio_for_storage,
 )
@@ -81,46 +85,6 @@ async def lock_track_identity(
                 identity,
         },
     )
-
-
-async def find_duplicate_track(
-    session: AsyncSession,
-    *,
-    title: str,
-    artist: str,
-) -> Track | None:
-    title_key = (
-        normalize_track_title_identity(
-            title,
-        )
-    )
-
-    artist_key = (
-        normalize_track_identity(
-            artist,
-        )
-    )
-
-    result = await session.execute(
-        select(
-            Track,
-        )
-    )
-
-    for track in result.scalars().all():
-        if (
-            normalize_track_title_identity(
-                track.title,
-            )
-            == title_key
-            and normalize_track_identity(
-                track.artist,
-            )
-            == artist_key
-        ):
-            return track
-
-    return None
 
 
 def _valid_release_year(
@@ -386,6 +350,11 @@ async def publish_authorized_audio(
                 session,
                 track.artist,
                 include_combined=True,
+            )
+
+            await sync_track_media_identity(
+                session,
+                track,
             )
 
             await session.commit()
