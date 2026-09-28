@@ -1090,16 +1090,19 @@ async def ensure_smart_playlist(
             generated_at=now,
         )
 
-        session.add(
-            playlist,
-        )
-
         try:
-            await session.flush()
+            # The unique generated_key is the concurrency
+            # guard, but a collision must not roll back
+            # unrelated work already present in the caller's
+            # session. Keep the insert inside a savepoint.
+            async with session.begin_nested():
+                session.add(
+                    playlist,
+                )
+
+                await session.flush()
 
         except IntegrityError:
-            await session.rollback()
-
             return (
                 await _find_smart_playlist(
                     session,
@@ -1412,21 +1415,20 @@ async def ensure_artist_playlist(
             generated_at=now,
         )
 
-        session.add(
-            playlist,
-        )
-
         try:
-            await session.flush()
+            # Two people may search the same artist at the
+            # same time. Let the unique generated_key choose
+            # the winner, but isolate that race in a savepoint
+            # so a losing insert cannot roll back unrelated
+            # caller work.
+            async with session.begin_nested():
+                session.add(
+                    playlist,
+                )
+
+                await session.flush()
 
         except IntegrityError:
-            # Two people searched the same
-            # artist at the same time.
-            #
-            # The unique generated_key means
-            # only one playlist can survive.
-            await session.rollback()
-
             return (
                 await get_cached_artist_playlist(
                     session,
