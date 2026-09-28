@@ -15,6 +15,7 @@ from backend.app.models.media import (
 )
 from backend.app.services.media_identity import (
     catalog_identity_diagnostics,
+    catalog_primary_artist_inventory,
     find_duplicate_track,
     load_tracks_for_artist_credit,
     sync_track_media_identity,
@@ -408,6 +409,83 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
             "duplicate_groups": 1,
             "identity_backfill_pending": 0,
             "artist_profile_backfill_pending": 0,
+        }
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_primary_artist_inventory_prefers_indexed_sidecars_and_falls_back_for_legacy_rows() -> None:
+    engine, factory = await _factory()
+
+    async with factory() as session:
+        indexed = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen & Lil Durk",
+            album="Single",
+            b2_object_key="audio/inventory-indexed.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        legacy = Track(
+            title="Religiously",
+            artist="Bailey Zimmerman & Brandon Lake",
+            album="Album",
+            b2_object_key="audio/inventory-legacy.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        unpublished = Track(
+            title="Hidden",
+            artist="Hidden Artist",
+            album="Hidden",
+            b2_object_key="audio/inventory-hidden.mp3",
+            mime_type="audio/mpeg",
+            is_published=False,
+        )
+
+        session.add_all(
+            [
+                indexed,
+                legacy,
+                unpublished,
+            ]
+        )
+
+        await sync_track_media_identity(
+            session,
+            indexed,
+        )
+
+        await sync_track_media_identity(
+            session,
+            unpublished,
+        )
+
+        await session.commit()
+
+        artists, identities = (
+            await catalog_primary_artist_inventory(
+                session,
+            )
+        )
+
+        assert artists == [
+            "Bailey Zimmerman",
+            "Morgan Wallen",
+        ]
+
+        assert identities == {
+            (
+                "bailey zimmerman",
+                "religiously",
+            ),
+            (
+                "morgan wallen",
+                "broadway girls",
+            ),
         }
 
     await engine.dispose()
