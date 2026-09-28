@@ -15,8 +15,15 @@ from backend.app.api.routes.bot import (
     AdminBotScanRequest,
 )
 
+from backend.app.models.bot import (
+    BotCatalogScan,
+    BotCatalogScanItem,
+)
 from backend.app.models.base import Base
 from backend.app.models.media import Track
+from backend.app.services import (
+    bot_catalog_jobs as bot_jobs,
+)
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
@@ -69,6 +76,12 @@ async def _catalog_factory(
             tables=[
                 Base.metadata.tables[
                     Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    BotCatalogScan.__tablename__
+                ],
+                Base.metadata.tables[
+                    BotCatalogScanItem.__tablename__
                 ],
             ],
         )
@@ -190,6 +203,12 @@ async def test_catalog_gap_scan_discovers_only_missing_tracks(
             factory,
     )
     monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
         bot.worker,
         "search_catalog_metadata",
         fake_search,
@@ -302,6 +321,12 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
             factory,
     )
     monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
         bot.worker,
         "search_catalog_metadata",
         fake_search,
@@ -397,6 +422,12 @@ async def test_catalog_gap_scan_uses_primary_artist_for_collaborations(
             factory,
     )
     monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
         bot.worker,
         "search_catalog_metadata",
         fake_search,
@@ -452,3 +483,125 @@ def test_bulk_scan_no_longer_requires_confirmation_field() -> None:
         request,
         "confirm_authorized_media",
     )
+
+
+@pytest.mark.asyncio
+async def test_catalog_scan_persists_pending_items_for_restart_resume(
+    monkeypatch,
+) -> None:
+    engine, factory = (
+        await _catalog_factory(
+            [
+                (
+                    "Restart Artist",
+                    "Existing Song",
+                ),
+            ]
+        )
+    )
+
+    candidate = _candidate(
+        artist="Restart Artist",
+        title="Resume Me",
+        suffix="resume-me",
+    )
+
+    async def fake_search(
+        query: str,
+        *,
+        kind: str,
+        limit: int,
+    ):
+        assert query == "Restart Artist"
+        assert kind == "artist"
+        assert limit == 500
+
+        return [
+            candidate,
+        ]
+
+    async def fake_remember(
+        candidates,
+    ):
+        del candidates
+
+    monkeypatch.setattr(
+        bot.worker,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
+        bot.worker,
+        "search_catalog_metadata",
+        fake_search,
+    )
+    monkeypatch.setattr(
+        bot.worker,
+        "remember_candidates",
+        fake_remember,
+    )
+
+    scan = await bot_jobs.create_catalog_scan(
+        auto_ingest=True,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+
+    (
+        artists,
+        existing_identities,
+    ) = await bot.worker._catalog_inventory()
+
+    await bot_jobs.set_scan_discovery_start(
+        scan.id,
+        artist_total=len(
+            artists,
+        ),
+    )
+
+    await bot.worker._discover_missing(
+        scan.id,
+        artists,
+        existing_identities,
+        track_limit_per_artist=500,
+    )
+
+    pending = await bot_jobs.pending_scan_items(
+        scan.id,
+    )
+
+    assert len(pending) == 1
+    assert pending[0][1].key == candidate.key
+
+    await bot_jobs.mark_item_started(
+        scan.id,
+        pending[0][0],
+    )
+
+    await bot_jobs.prepare_scan_for_resume(
+        scan.id,
+    )
+
+    resumed = await bot_jobs.pending_scan_items(
+        scan.id,
+    )
+
+    assert len(resumed) == 1
+    assert resumed[0][1].key == candidate.key
+
+    snapshot = await bot_jobs.scan_snapshot(
+        scan.id,
+    )
+
+    assert snapshot is not None
+    assert snapshot["missing_discovered"] == 1
+    assert snapshot["state"] == "discovering"
+
+    await engine.dispose()
