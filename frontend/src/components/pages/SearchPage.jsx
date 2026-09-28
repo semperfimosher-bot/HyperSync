@@ -3479,7 +3479,7 @@ async function downloadOpenedPlaylist() {
         }
       />
 
-      
+
     </span>
 
 
@@ -4869,7 +4869,7 @@ displayResults.tracks.length > 0 ? (
                         )}
                         className={[
                         "hs-search-track",
-                      
+
 
                         selectedTrackIndex ===
                         trackIndex
