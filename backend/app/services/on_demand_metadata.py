@@ -45,6 +45,119 @@ class CatalogTrackCandidate:
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(
+        cls,
+        payload: dict[str, Any],
+    ) -> "CatalogTrackCandidate":
+        def optional_str(
+            key: str,
+        ) -> str | None:
+            value = payload.get(
+                key,
+            )
+
+            return (
+                str(
+                    value,
+                )
+                if value
+                is not None
+                else None
+            )
+
+        def optional_int(
+            key: str,
+        ) -> int | None:
+            value = payload.get(
+                key,
+            )
+
+            return (
+                int(
+                    value,
+                )
+                if value
+                is not None
+                else None
+            )
+
+        explicit_value = payload.get(
+            "explicit",
+        )
+
+        return cls(
+            key=str(
+                payload.get(
+                    "key",
+                    "",
+                )
+            ),
+            title=str(
+                payload.get(
+                    "title",
+                    "",
+                )
+            ),
+            artist=str(
+                payload.get(
+                    "artist",
+                    "",
+                )
+            ),
+            album=optional_str(
+                "album",
+            ),
+            duration_seconds=optional_int(
+                "duration_seconds",
+            ),
+            artwork_url=optional_str(
+                "artwork_url",
+            ),
+            genre=optional_str(
+                "genre",
+            ),
+            release_year=optional_int(
+                "release_year",
+            ),
+            explicit=(
+                bool(
+                    explicit_value,
+                )
+                if explicit_value
+                is not None
+                else None
+            ),
+            track_number=optional_int(
+                "track_number",
+            ),
+            disc_number=optional_int(
+                "disc_number",
+            ),
+            isrc=optional_str(
+                "isrc",
+            ),
+            deezer_track_id=optional_str(
+                "deezer_track_id",
+            ),
+            apple_track_id=optional_str(
+                "apple_track_id",
+            ),
+            provider=str(
+                payload.get(
+                    "provider",
+                    "",
+                )
+            ),
+            confidence=float(
+                payload.get(
+                    "confidence",
+                    0.0,
+                )
+                or 0.0
+            ),
+        )
+
 
 def _normalized_text(
     value: object,
