@@ -678,6 +678,8 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
         )
         await session.commit()
 
+        track_id = track.id
+
         result = await music_metadata.enrich_track_metadata(
             session,
             track,
@@ -690,7 +692,7 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
 
         persisted = await session.get(
             Track,
-            track.id,
+            track_id,
         )
 
         assert persisted is not None
