@@ -1882,6 +1882,13 @@ async def get_provision_session(
             )
 
     if session is not None:
+        # Process memory is a cache, not authority. Another
+        # backend replica may have completed or failed this
+        # provision since the local session was created.
+        await _apply_terminal_durable_provision(
+            session,
+        )
+
         await touch_durable_provision(
             provision_id,
         )
@@ -2147,6 +2154,32 @@ async def active_provisions() -> list[
         key = str(
             session.id,
         )
+
+        durable_snapshot = (
+            snapshots_by_id.get(
+                key,
+            )
+        )
+
+        # A durable terminal result may have been written by
+        # another replica. Never regress it back to a stale
+        # local resolving/stream-ready/ingesting snapshot.
+        if (
+            durable_snapshot is not None
+            and durable_snapshot.get(
+                "state",
+            )
+            in {
+                "ready",
+                "failed",
+            }
+            and session.state
+            not in {
+                "ready",
+                "failed",
+            }
+        ):
+            continue
 
         snapshots_by_id[
             key
