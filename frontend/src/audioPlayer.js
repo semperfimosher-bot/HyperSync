@@ -13,6 +13,8 @@ import {
 import {
   appendQueueEntry,
   buildTrackQueue,
+  catalogTrackIdOrNull,
+  filterCatalogTrackIds,
   getNextQueueIndex,
   getQueueTrackAtIndex,
   insertQueueEntryAsNext,
@@ -1343,6 +1345,27 @@ async function ensureAutoplayQueue({
     ),
   );
 
+  const autoplayCurrentTrackId =
+    catalogTrackIdOrNull(
+      currentTrackMeta
+        ?.catalogTrackId,
+    ) ??
+    catalogTrackIdOrNull(
+      currentTrackId,
+    );
+
+  const autoplayExcludeTrackIds =
+    filterCatalogTrackIds(
+      excludeTrackIds,
+      100,
+    );
+
+  const autoplayContextTrackIds =
+    filterCatalogTrackIds(
+      getAutoplayContextTrackIds(),
+      AUTOPLAY_CONTEXT_SIZE,
+    );
+
 
   let requestPromise;
 
@@ -1360,15 +1383,13 @@ async function ensureAutoplayQueue({
               body:
                 JSON.stringify({
                   current_track_id:
-                    String(
-                      currentTrackId,
-                    ),
+                    autoplayCurrentTrackId,
 
                   exclude_track_ids:
-                    excludeTrackIds,
+                    autoplayExcludeTrackIds,
 
                   context_track_ids:
-                    getAutoplayContextTrackIds(),
+                    autoplayContextTrackIds,
 
                   limit:
                     AUTOPLAY_BATCH_SIZE,
