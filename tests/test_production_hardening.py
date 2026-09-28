@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 from fastapi.requests import Request
@@ -14,6 +16,8 @@ from backend.app.api.routes.auth import (
 from backend.app.config import (
     get_settings,
 )
+import backend.app.database as database_module
+
 from backend.app.database import get_engine
 from backend.app.main import app
 from backend.app.models.base import Base
@@ -394,3 +398,40 @@ def test_refresh_cookie_is_always_secure_in_production(
     assert "Secure" in cookie
 
     get_settings.cache_clear()
+
+
+def test_production_database_never_silently_falls_back_to_sqlite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="production",
+            sqlalchemy_database_url="",
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="DATABASE_URL is required in production",
+    ):
+        database_module.resolve_database_url()
+
+
+def test_development_database_keeps_local_sqlite_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="development",
+            sqlalchemy_database_url="",
+        ),
+    )
+
+    assert (
+        database_module.resolve_database_url()
+        == "sqlite+aiosqlite:///./local_dev.db"
+    )
