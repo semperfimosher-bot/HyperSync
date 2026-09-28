@@ -625,6 +625,65 @@ async def pop_pending_listeners(
         return set()
 
 
+
+
+
+async def list_recent_provisions(
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    session_factory = (
+        get_session_factory()
+    )
+
+    try:
+        async with session_factory() as session:
+            now = _now()
+
+            result = await session.execute(
+                select(
+                    OnDemandProvision,
+                )
+                .where(
+                    or_(
+                        OnDemandProvision.expires_at
+                        > now,
+                        OnDemandProvision.state.in_(
+                            _ACTIVE_LONG_RUNNING_STATES,
+                        ),
+                    )
+                )
+                .order_by(
+                    OnDemandProvision.updated_at
+                    .desc(),
+                )
+                .limit(
+                    max(
+                        1,
+                        min(
+                            int(limit),
+                            200,
+                        ),
+                    )
+                )
+            )
+
+            return [
+                _provision_dict(
+                    row,
+                )
+                for row in result
+                .scalars()
+                .all()
+            ]
+
+    except SQLAlchemyError:
+        _warn_once(
+            "recent provision listing",
+        )
+        return []
+
+
 async def cleanup_expired_state() -> None:
     session_factory = (
         get_session_factory()
