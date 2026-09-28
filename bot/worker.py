@@ -36,6 +36,7 @@ from backend.app.services.bot_catalog_jobs import (
     pending_scan_items,
     persist_discovered_candidates,
     prepare_scan_for_resume,
+    record_item_failure,
     scan_cancel_requested,
     scan_snapshot,
     set_scan_discovery_progress,
@@ -54,6 +55,25 @@ from backend.app.services.on_demand_metadata import (
 
 _catalog_scan_lock = asyncio.Lock()
 _catalog_scan_cancel = asyncio.Event()
+
+CATALOG_INGEST_MAX_ATTEMPTS = 3
+
+
+def _retry_delay_seconds(
+    attempt_count: int,
+) -> float:
+    return min(
+        0.5 * (
+            2 ** max(
+                0,
+                int(
+                    attempt_count,
+                )
+                - 1,
+            )
+        ),
+        4.0,
+    )
 
 
 async def _acquire_distributed_scan_lock(
@@ -420,6 +440,48 @@ async def _ingest_missing(
             item,
         )
 
+    async def handle_failure(
+        item_id: UUID,
+        candidate: CatalogTrackCandidate,
+        message: str,
+    ) -> None:
+        (
+            decision,
+            attempt_count,
+        ) = await record_item_failure(
+            scan_id,
+            item_id,
+            error=message,
+            max_attempts=(
+                CATALOG_INGEST_MAX_ATTEMPTS
+            ),
+        )
+
+        if decision == "retry":
+            await asyncio.sleep(
+                _retry_delay_seconds(
+                    attempt_count,
+                )
+            )
+
+            if not await _scan_cancelled(
+                scan_id,
+            ):
+                queue.put_nowait(
+                    (
+                        item_id,
+                        candidate,
+                    )
+                )
+
+            return
+
+        if decision == "failed":
+            bot.service.catalog_scan_ingest_finished(
+                ready=False,
+                error=message,
+            )
+
     async def worker() -> None:
         while True:
             if await _scan_cancelled(
@@ -486,22 +548,30 @@ async def _ingest_missing(
                     )
                 )
 
-                await mark_item_finished(
-                    scan_id,
-                    item_id,
-                    ready=ready,
-                    track_id=(
-                        result.get(
-                            "track_id",
-                        )
-                    ),
-                    error=error,
-                )
+                if ready:
+                    await mark_item_finished(
+                        scan_id,
+                        item_id,
+                        ready=True,
+                        track_id=(
+                            result.get(
+                                "track_id",
+                            )
+                        ),
+                        error=None,
+                    )
 
-                bot.service.catalog_scan_ingest_finished(
-                    ready=ready,
-                    error=error,
-                )
+                    bot.service.catalog_scan_ingest_finished(
+                        ready=True,
+                        error=None,
+                    )
+
+                else:
+                    await handle_failure(
+                        item_id,
+                        candidate,
+                        error,
+                    )
 
             except asyncio.CancelledError:
                 # Leave the durable item as ingesting.
@@ -510,20 +580,12 @@ async def _ingest_missing(
                 raise
 
             except Exception as exc:
-                message = str(
-                    exc,
-                )
-
-                await mark_item_finished(
-                    scan_id,
+                await handle_failure(
                     item_id,
-                    ready=False,
-                    error=message,
-                )
-
-                bot.service.catalog_scan_ingest_finished(
-                    ready=False,
-                    error=message,
+                    candidate,
+                    str(
+                        exc,
+                    ),
                 )
 
             finally:
