@@ -422,10 +422,20 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
             durable_session.state,
         )
 
-    async def fake_pop_pending(
+    durable_history_calls: list[
+        tuple[UUID, UUID]
+    ] = []
+
+    async def fake_commit_pending_history(
         provision_id: UUID,
+        committed_track_id: UUID,
     ) -> set[UUID]:
-        assert provision_id == session.id
+        durable_history_calls.append(
+            (
+                provision_id,
+                committed_track_id,
+            )
+        )
         return {
             durable_user_id,
         }
@@ -536,8 +546,8 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
 
     monkeypatch.setattr(
         on_demand_ingestion,
-        "pop_durable_pending_listeners",
-        fake_pop_pending,
+        "commit_pending_listeners_to_history",
+        fake_commit_pending_history,
     )
 
     monkeypatch.setattr(
@@ -554,18 +564,19 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
     assert session.track_id == track_id
     assert session.pending_listener_user_ids == set()
 
-    assert set(
-        recorded,
-    ) == {
+    assert recorded == [
         (
             track_id,
             user_id,
         ),
+    ]
+
+    assert durable_history_calls == [
         (
+            session.id,
             track_id,
-            durable_user_id,
         ),
-    }
+    ]
 
     assert "ingesting" in persisted_states
     assert persisted_states[-1] == "ready"
