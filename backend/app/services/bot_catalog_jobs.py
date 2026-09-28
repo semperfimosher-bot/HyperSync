@@ -575,7 +575,15 @@ async def pending_scan_items(
 async def mark_item_started(
     scan_id: UUID,
     item_id: UUID,
-) -> None:
+) -> bool:
+    """Atomically claim one discovered item for ingestion.
+
+    Returning False means another worker already claimed or
+    completed the item. Callers must not ingest in that case.
+    Restart recovery explicitly resets abandoned "ingesting"
+    rows back to "discovered" before workers are launched.
+    """
+
     session_factory = (
         get_session_factory()
     )
@@ -590,12 +598,8 @@ async def mark_item_started(
                 == item_id,
                 BotCatalogScanItem.scan_id
                 == scan_id,
-                BotCatalogScanItem.state.in_(
-                    (
-                        "discovered",
-                        "ingesting",
-                    )
-                ),
+                BotCatalogScanItem.state
+                == "discovered",
             )
             .values(
                 state="ingesting",
@@ -608,7 +612,11 @@ async def mark_item_started(
             )
         )
 
-        if result.rowcount:
+        claimed = bool(
+            result.rowcount,
+        )
+
+        if claimed:
             await session.execute(
                 update(
                     BotCatalogScan,
@@ -627,6 +635,8 @@ async def mark_item_started(
             )
 
         await session.commit()
+
+        return claimed
 
 
 async def mark_item_finished(
