@@ -111,7 +111,6 @@ import AdminBotPage from "./components/pages/AdminBotPage.jsx";
 import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
 
 import {
-  deleteCatalogTrack,
   deleteCatalogTracks,
 } from "./catalogStore.js";
 
@@ -1737,10 +1736,11 @@ function AdminDashboardPage({
 
         {wipeResult ? (
           <p className="admin-danger-zone__result">
-            {wipeResult     </div>
-
-        {explorerBody}
+            {wipeResult}
+          </p>
+        ) : null}
       </section>
+
     </div>
   );
 }
