@@ -1,3 +1,7 @@
+from datetime import (
+    UTC,
+    datetime,
+)
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -22,6 +26,7 @@ from backend.app.models.media import (
 )
 from backend.app.services import (
     on_demand_ingestion,
+    on_demand_state,
 )
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
@@ -47,6 +52,27 @@ def _candidate() -> CatalogTrackCandidate:
         provider="deezer",
         confidence=0.95,
     )
+
+
+def test_on_demand_state_normalizes_naive_timestamp_to_utc() -> None:
+    naive = datetime(
+        2026,
+        9,
+        28,
+        12,
+        30,
+    )
+
+    normalized = (
+        on_demand_state
+        ._as_utc_aware(
+            naive,
+        )
+    )
+
+    assert normalized.tzinfo is UTC
+    assert normalized.hour == 12
+    assert normalized.minute == 30
 
 
 @pytest.mark.asyncio
