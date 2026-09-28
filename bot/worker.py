@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 
@@ -17,6 +18,22 @@ from backend.app.services.audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
     primary_artist_credit,
+)
+from backend.app.services.bot_catalog_jobs import (
+    active_catalog_scan,
+    create_catalog_scan,
+    fail_scan,
+    finish_scan,
+    mark_item_finished,
+    mark_item_started,
+    pending_scan_items,
+    persist_discovered_candidates,
+    prepare_scan_for_resume,
+    scan_cancel_requested,
+    scan_snapshot,
+    set_scan_discovery_progress,
+    set_scan_discovery_start,
+    set_scan_phase,
 )
 from backend.app.services.on_demand_ingestion import (
     ingest_candidate_and_wait,
@@ -50,6 +67,26 @@ def cancel_scan() -> bool:
     return True
 
 
+async def _scan_cancelled(
+    scan_id: UUID,
+) -> bool:
+    if _catalog_scan_cancel.is_set():
+        return True
+
+    if await scan_cancel_requested(
+        scan_id,
+    ):
+        _catalog_scan_cancel.set()
+
+        bot.service.catalog_scan_phase(
+            "cancelling",
+        )
+
+        return True
+
+    return False
+
+
 async def _catalog_inventory() -> tuple[
     list[str],
     set[tuple[str, str]],
@@ -63,6 +100,11 @@ async def _catalog_inventory() -> tuple[
             select(
                 Track.artist,
                 Track.title,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
             )
         )
 
@@ -160,24 +202,21 @@ def _candidate_preview(
 
 
 async def _discover_missing(
+    scan_id: UUID,
     artists: list[str],
     existing_identities: set[
         tuple[str, str]
     ],
     *,
     track_limit_per_artist: int,
-) -> list[
-    CatalogTrackCandidate
-]:
-    discovered: list[
-        CatalogTrackCandidate
-    ] = []
-
+) -> None:
     for index, artist in enumerate(
         artists,
         start=1,
     ):
-        if _catalog_scan_cancel.is_set():
+        if await _scan_cancelled(
+            scan_id,
+        ):
             break
 
         try:
@@ -224,9 +263,16 @@ async def _discover_missing(
                     missing,
                 )
 
-                discovered.extend(
+                await persist_discovered_candidates(
+                    scan_id,
                     missing,
                 )
+
+            await set_scan_discovery_progress(
+                scan_id,
+                artist=artist,
+                artists_scanned=index,
+            )
 
             bot.service.catalog_scan_discovery_progress(
                 artist=artist,
@@ -244,49 +290,77 @@ async def _discover_missing(
             raise
 
         except Exception as exc:
+            message = str(
+                exc,
+            )
+
+            await set_scan_discovery_progress(
+                scan_id,
+                artist=artist,
+                artists_scanned=index,
+                error=message,
+            )
+
             bot.service.catalog_scan_discovery_progress(
                 artist=artist,
                 artists_scanned=index,
                 missing=[],
-                error=str(
-                    exc,
-                ),
+                error=message,
             )
-
-    return discovered
 
 
 async def _ingest_missing(
-    candidates: list[
-        CatalogTrackCandidate
+    scan_id: UUID,
+    items: list[
+        tuple[
+            UUID,
+            CatalogTrackCandidate,
+        ]
     ],
     *,
     concurrency: int,
 ) -> None:
     queue: asyncio.Queue[
-        CatalogTrackCandidate
+        tuple[
+            UUID,
+            CatalogTrackCandidate,
+        ]
     ] = asyncio.Queue()
 
-    for candidate in candidates:
+    for item in items:
         queue.put_nowait(
-            candidate,
+            item,
         )
 
     async def worker() -> None:
-        while (
-            not _catalog_scan_cancel
-            .is_set()
-        ):
+        while True:
+            if await _scan_cancelled(
+                scan_id,
+            ):
+                return
+
             try:
-                candidate = (
-                    queue.get_nowait()
-                )
+                (
+                    item_id,
+                    candidate,
+                ) = queue.get_nowait()
             except asyncio.QueueEmpty:
                 return
 
-            bot.service.catalog_scan_ingest_started()
-
             try:
+                await remember_candidates(
+                    [
+                        candidate,
+                    ],
+                )
+
+                await mark_item_started(
+                    scan_id,
+                    item_id,
+                )
+
+                bot.service.catalog_scan_ingest_started()
+
                 result = (
                     await ingest_candidate_and_wait(
                         candidate.key,
@@ -305,32 +379,58 @@ async def _ingest_missing(
                     )
                 )
 
-                bot.service.catalog_scan_ingest_finished(
+                error = (
+                    None
+                    if ready
+                    else str(
+                        result.get(
+                            "error",
+                        )
+                        or (
+                            "Ingest did not "
+                            "reach ready state."
+                        )
+                    )
+                )
+
+                await mark_item_finished(
+                    scan_id,
+                    item_id,
                     ready=ready,
-                    error=(
-                        None
-                        if ready
-                        else str(
-                            result.get(
-                                "error",
-                            )
-                            or (
-                                "Ingest did not "
-                                "reach ready state."
-                            )
+                    track_id=(
+                        result.get(
+                            "track_id",
                         )
                     ),
+                    error=error,
+                )
+
+                bot.service.catalog_scan_ingest_finished(
+                    ready=ready,
+                    error=error,
                 )
 
             except asyncio.CancelledError:
+                # Leave the durable item as ingesting.
+                # Startup recovery resets it to discovered
+                # so a process restart can safely retry.
                 raise
 
             except Exception as exc:
+                message = str(
+                    exc,
+                )
+
+                await mark_item_finished(
+                    scan_id,
+                    item_id,
+                    ready=False,
+                    error=message,
+                )
+
                 bot.service.catalog_scan_ingest_finished(
                     ready=False,
-                    error=str(
-                        exc,
-                    ),
+                    error=message,
                 )
 
             finally:
@@ -366,13 +466,35 @@ async def run_scan(
     auto_ingest: bool = False,
     track_limit_per_artist: int = 500,
     ingest_concurrency: int = 2,
+    scan_id: UUID | None = None,
+    resume: bool = False,
 ) -> None:
     async with _catalog_scan_lock:
         _catalog_scan_cancel.clear()
 
+        if scan_id is None:
+            scan = await create_catalog_scan(
+                auto_ingest=auto_ingest,
+                track_limit_per_artist=(
+                    track_limit_per_artist
+                ),
+                ingest_concurrency=(
+                    ingest_concurrency
+                ),
+            )
+
+            scan_id = scan.id
+
+        elif resume:
+            await prepare_scan_for_resume(
+                scan_id,
+            )
+
         bot.service.job_started(
             "catalog-gap-scan",
         )
+
+        phase = "discovering"
 
         try:
             (
@@ -387,7 +509,19 @@ async def run_scan(
                 ),
             )
 
+            await set_scan_discovery_start(
+                scan_id,
+                artist_total=len(
+                    artists,
+                ),
+                resume=resume,
+            )
+
             if not artists:
+                await finish_scan(
+                    scan_id,
+                )
+
                 bot.service.catalog_scan_finish()
 
                 bot.service.job_completed(
@@ -399,23 +533,29 @@ async def run_scan(
                 )
                 return
 
-            discovered = (
-                await _discover_missing(
-                    artists,
-                    existing_identities,
-                    track_limit_per_artist=max(
-                        1,
-                        min(
-                            int(
-                                track_limit_per_artist,
-                            ),
-                            500,
+            await _discover_missing(
+                scan_id,
+                artists,
+                existing_identities,
+                track_limit_per_artist=max(
+                    1,
+                    min(
+                        int(
+                            track_limit_per_artist,
                         ),
+                        500,
                     ),
-                )
+                ),
             )
 
-            if _catalog_scan_cancel.is_set():
+            if await _scan_cancelled(
+                scan_id,
+            ):
+                await finish_scan(
+                    scan_id,
+                    cancelled=True,
+                )
+
                 bot.service.catalog_scan_finish(
                     cancelled=True,
                 )
@@ -428,24 +568,42 @@ async def run_scan(
                 )
                 return
 
-            if (
-                auto_ingest
-                and discovered
-            ):
-                bot.service.catalog_scan_phase(
-                    "ingesting",
+            if auto_ingest:
+                pending = (
+                    await pending_scan_items(
+                        scan_id,
+                    )
                 )
 
-                await _ingest_missing(
-                    discovered,
-                    concurrency=(
-                        ingest_concurrency
-                    ),
-                )
+                if pending:
+                    phase = "ingesting"
+
+                    await set_scan_phase(
+                        scan_id,
+                        phase,
+                    )
+
+                    bot.service.catalog_scan_phase(
+                        phase,
+                    )
+
+                    await _ingest_missing(
+                        scan_id,
+                        pending,
+                        concurrency=(
+                            ingest_concurrency
+                        ),
+                    )
 
             cancelled = (
-                _catalog_scan_cancel
-                .is_set()
+                await _scan_cancelled(
+                    scan_id,
+                )
+            )
+
+            await finish_scan(
+                scan_id,
+                cancelled=cancelled,
             )
 
             bot.service.catalog_scan_finish(
@@ -453,8 +611,10 @@ async def run_scan(
             )
 
             state = (
-                bot.service.get_state()
-                .catalog_scan
+                await scan_snapshot(
+                    scan_id,
+                )
+                or {}
             )
 
             if cancelled:
@@ -483,29 +643,75 @@ async def run_scan(
             )
 
         except asyncio.CancelledError:
-            bot.service.catalog_scan_finish(
-                cancelled=True,
-            )
+            # Process/container shutdown is not the same as
+            # the user pressing Cancel. Keep the durable scan
+            # active so startup recovery can resume it.
+            if _catalog_scan_cancel.is_set():
+                await finish_scan(
+                    scan_id,
+                    cancelled=True,
+                )
 
-            bot.service.job_completed(
-                "Catalog gap scan cancelled.",
+            bot.service.catalog_scan_phase(
+                phase,
             )
 
             raise
 
         except Exception as exc:
+            message = str(
+                exc,
+            )
+
+            await fail_scan(
+                scan_id,
+                message,
+            )
+
             bot.service.catalog_scan_fail(
-                str(
-                    exc,
-                )
+                message,
             )
 
             bot.service.job_failed(
                 (
                     "Catalog gap scan failed: "
-                    f"{str(exc)[:300]}"
+                    f"{message[:300]}"
                 )
             )
+
+
+async def resume_catalog_scan_on_startup() -> asyncio.Task | None:
+    scan = await active_catalog_scan()
+
+    if scan is None:
+        return None
+
+    if (
+        scan.state == "cancelling"
+        or scan.cancel_requested
+    ):
+        await finish_scan(
+            scan.id,
+            cancelled=True,
+        )
+
+        return None
+
+    return asyncio.create_task(
+        run_scan(
+            auto_ingest=(
+                scan.auto_ingest
+            ),
+            track_limit_per_artist=(
+                scan.track_limit_per_artist
+            ),
+            ingest_concurrency=(
+                scan.ingest_concurrency
+            ),
+            scan_id=scan.id,
+            resume=True,
+        )
+    )
 
 
 async def run_process() -> None:
