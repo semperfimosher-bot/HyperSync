@@ -1,11 +1,14 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from backend.app.database import get_session_factory
 from backend.app.main import app
+from backend.app.api.routes import admin as admin_routes
 from backend.app.models.account import User, UserRole
 from backend.app.models.media import Track
 from backend.app.security.passwords import hash_password
@@ -239,3 +242,69 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
         )
 
         assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_restores_published_track_when_b2_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+
+    async with get_session_factory()() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Keep Me",
+                artist="Failure Safe Artist",
+                album="Failure Safe Album",
+                b2_object_key=(
+                    f"audio/failure-safe-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=2048,
+                duration_seconds=90,
+                is_published=True,
+            )
+        )
+        await session.commit()
+
+    class FailingBucket:
+        def list_file_versions(
+            self,
+            file_name: str | None = None,
+        ):
+            raise RuntimeError(
+                "simulated B2 outage"
+            )
+
+    monkeypatch.setattr(
+        admin_routes,
+        "get_b2_bucket",
+        lambda:
+            FailingBucket(),
+    )
+
+    async with get_session_factory()() as session:
+        with pytest.raises(
+            HTTPException,
+        ) as exc_info:
+            await admin_routes.delete_track(
+                track_id,
+                SimpleNamespace(),
+                session,
+            )
+
+        assert (
+            exc_info.value.status_code
+            == 500
+        )
+
+    async with get_session_factory()() as session:
+        preserved = await session.get(
+            Track,
+            track_id,
+        )
+
+        assert preserved is not None
+        assert preserved.is_published is True
