@@ -22,6 +22,8 @@ from .bot import (
 from .base import Base
 from .media import (
     Track,
+    TrackArtistCredit,
+    TrackIdentity,
     TrackLyrics,
 )
 from .messaging import (
@@ -47,6 +49,8 @@ __all__ = [
     "ArtistFollow",
     "ArtistProfile",
     "Track",
+    "TrackArtistCredit",
+    "TrackIdentity",
     "TrackLyrics",
     "AdminNotification",
     "Message",
