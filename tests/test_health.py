@@ -191,3 +191,47 @@ async def test_ready_health_when_database_is_unavailable(
 
     assert response.status_code == 503
     assert response.json()["database"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_media_identity_backfill_retries_transient_failure(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    async def fake_backfill(
+        *,
+        batch_size: int,
+    ) -> int:
+        nonlocal attempts
+
+        assert batch_size == 250
+
+        attempts += 1
+
+        if attempts == 1:
+            raise RuntimeError(
+                "temporary database failure",
+            )
+
+        return 0
+
+    monkeypatch.setattr(
+        main_module,
+        "backfill_missing_media_identities",
+        fake_backfill,
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "MEDIA_IDENTITY_BACKFILL_RETRY_SECONDS",
+        0,
+        raising=False,
+    )
+
+    await asyncio.wait_for(
+        main_module.run_media_identity_backfill(),
+        timeout=0.2,
+    )
+
+    assert attempts == 2

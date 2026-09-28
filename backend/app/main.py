@@ -28,6 +28,9 @@ from .services.message_retention import (
 from .services.media_identity import (
     backfill_missing_media_identities,
 )
+from .services.media_deletion import (
+    process_pending_media_deletions,
+)
 from .security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
@@ -37,6 +40,8 @@ DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+MEDIA_IDENTITY_BACKFILL_RETRY_SECONDS = 5.0
+MEDIA_DELETION_CLEANUP_SECONDS = 60.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
@@ -262,11 +267,17 @@ async def run_media_identity_backfill() -> None:
                     batch_size=250,
                 )
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             # Identity sidecars are an optimization and
-            # compatibility layer. A temporary backfill
-            # failure must not take down the API.
-            return
+            # compatibility layer. A temporary DB/network
+            # failure must not kill the API or permanently
+            # abandon the backfill until the next deploy.
+            await asyncio.sleep(
+                MEDIA_IDENTITY_BACKFILL_RETRY_SECONDS,
+            )
+            continue
 
         if processed == 0:
             return
@@ -275,6 +286,26 @@ async def run_media_identity_backfill() -> None:
         # never monopolizes the event loop.
         await asyncio.sleep(
             0,
+        )
+
+
+async def run_media_deletion_cleanup() -> None:
+    while True:
+        try:
+            await process_pending_media_deletions(
+                limit=100,
+                concurrency=4,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Deletion jobs are durable. Leave them pending
+            # and retry instead of turning a transient B2/DB
+            # outage into leaked storage forever.
+            pass
+
+        await asyncio.sleep(
+            MEDIA_DELETION_CLEANUP_SECONDS,
         )
 
 
@@ -304,6 +335,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_media_identity_backfill(),
     )
 
+    media_deletion_task = asyncio.create_task(
+        run_media_deletion_cleanup(),
+    )
+
     try:
         yield
     finally:
@@ -317,6 +352,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 asyncio.CancelledError,
             ):
                 await media_identity_task
+
+        if not media_deletion_task.done():
+            media_deletion_task.cancel()
+
+            with suppress(
+                asyncio.CancelledError,
+            ):
+                await media_deletion_task
 
         if (
             bot_resume_task is not None

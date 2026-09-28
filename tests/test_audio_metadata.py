@@ -188,3 +188,36 @@ def test_extracts_release_year_from_common_date_tags() -> None:
         )
         is None
     )
+
+
+def test_artist_credit_split_handles_dotted_feature_markers() -> None:
+    audio_metadata = load_audio_metadata_module()
+
+    assert audio_metadata is not None
+
+    assert (
+        audio_metadata.split_artist_credits(
+            "Artist One feat. Artist Two",
+        )
+        == (
+            "Artist One",
+            "Artist Two",
+        )
+    )
+
+    assert (
+        audio_metadata.split_artist_credits(
+            "Artist One ft. Artist Two",
+        )
+        == (
+            "Artist One",
+            "Artist Two",
+        )
+    )
+
+    assert (
+        audio_metadata.primary_artist_credit(
+            "Artist One featuring Artist Two",
+        )
+        == "Artist One"
+    )
