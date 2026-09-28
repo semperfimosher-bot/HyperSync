@@ -9751,3 +9751,80 @@ button.hs-shared-music-card:active {
       1fr;
   }
 }
+
+
+/* =========================================================
+   GLOBAL RENDER RECOVERY
+   ========================================================= */
+
+.app-crash-boundary {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(
+      circle at top,
+      rgba(31, 186, 224, 0.12),
+      transparent 38%
+    ),
+    #02090d;
+}
+
+.app-crash-boundary__card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border:
+    1px solid
+    rgba(72, 205, 238, 0.18);
+  border-radius: 18px;
+  background:
+    rgba(5, 19, 26, 0.96);
+  box-shadow:
+    0 24px 70px
+    rgba(0, 0, 0, 0.36);
+}
+
+.app-crash-boundary__eyebrow {
+  display: block;
+  color: #63e6ff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.app-crash-boundary__card h1 {
+  margin: 10px 0 8px;
+  color: #eefbff;
+  font-size: clamp(28px, 7vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.app-crash-boundary__card p {
+  margin: 0;
+  color: rgba(164, 194, 206, 0.86);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.app-crash-boundary__card button {
+  min-height: 42px;
+  margin-top: 18px;
+  padding: 0 16px;
+  border:
+    1px solid
+    rgba(86, 226, 255, 0.34);
+  border-radius: 9px;
+  color: #effcff;
+  background:
+    rgba(19, 151, 187, 0.2);
+  font-weight: 850;
+}
+
+.app-crash-boundary__card button:hover {
+  border-color:
+    rgba(86, 226, 255, 0.62);
+  background:
+    rgba(19, 151, 187, 0.3);
+}

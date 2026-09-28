@@ -605,3 +605,177 @@ async def test_catalog_scan_persists_pending_items_for_restart_resume(
     assert snapshot["state"] == "discovering"
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_durable_scan_item_can_only_be_claimed_once(
+    monkeypatch,
+) -> None:
+    engine, factory = (
+        await _catalog_factory(
+            [
+                (
+                    "Claim Artist",
+                    "Existing Song",
+                ),
+            ]
+        )
+    )
+
+    monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    scan = await bot_jobs.create_catalog_scan(
+        auto_ingest=True,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+
+    candidate = _candidate(
+        artist="Claim Artist",
+        title="Claim Me Once",
+        suffix="claim-once",
+    )
+
+    added = await bot_jobs.persist_discovered_candidates(
+        scan.id,
+        [
+            candidate,
+        ],
+    )
+
+    assert added == 1
+
+    pending = await bot_jobs.pending_scan_items(
+        scan.id,
+    )
+
+    assert len(pending) == 1
+
+    item_id = pending[0][0]
+
+    first_claim = await bot_jobs.mark_item_started(
+        scan.id,
+        item_id,
+    )
+
+    second_claim = await bot_jobs.mark_item_started(
+        scan.id,
+        item_id,
+    )
+
+    assert first_claim is True
+    assert second_claim is False
+
+    async with factory() as session:
+        item = await session.get(
+            BotCatalogScanItem,
+            item_id,
+        )
+
+        assert item is not None
+        assert item.state == "ingesting"
+        assert item.attempts == 1
+
+    snapshot = await bot_jobs.scan_snapshot(
+        scan.id,
+    )
+
+    assert snapshot is not None
+    assert snapshot["ingest_started"] == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_durable_scan_queue_reads_are_bounded(
+    monkeypatch,
+) -> None:
+    engine, factory = (
+        await _catalog_factory(
+            [
+                (
+                    "Batch Artist",
+                    "Existing Song",
+                ),
+            ]
+        )
+    )
+
+    monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    scan = await bot_jobs.create_catalog_scan(
+        auto_ingest=True,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+
+    candidates = [
+        _candidate(
+            artist="Batch Artist",
+            title=f"Missing {index}",
+            suffix=f"batch-{index}",
+        )
+        for index in range(
+            5
+        )
+    ]
+
+    added = await bot_jobs.persist_discovered_candidates(
+        scan.id,
+        candidates,
+    )
+
+    assert added == 5
+
+    first_batch = await bot_jobs.pending_scan_items(
+        scan.id,
+        limit=2,
+    )
+
+    assert len(first_batch) == 2
+
+    for item_id, _candidate_item in first_batch:
+        assert await bot_jobs.mark_item_started(
+            scan.id,
+            item_id,
+        )
+
+        await bot_jobs.mark_item_finished(
+            scan.id,
+            item_id,
+            ready=True,
+            track_id=uuid4(),
+        )
+
+    second_batch = await bot_jobs.pending_scan_items(
+        scan.id,
+        limit=2,
+    )
+
+    assert len(second_batch) == 2
+
+    remaining_keys = {
+        candidate.key
+        for _item_id, candidate
+        in second_batch
+    }
+
+    assert remaining_keys.isdisjoint(
+        {
+            candidate.key
+            for _item_id, candidate
+            in first_batch
+        }
+    )
+
+    await engine.dispose()

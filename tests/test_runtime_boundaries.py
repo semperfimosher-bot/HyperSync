@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -159,3 +160,94 @@ async def test_activity_logging_failure_does_not_break_successful_request(
     )
 
     assert response.status_code == 204
+
+
+PROJECT_ROOT = (
+    Path(__file__)
+    .resolve()
+    .parents[1]
+)
+
+
+def test_api_routes_do_not_spawn_untracked_background_tasks() -> None:
+    route_root = (
+        PROJECT_ROOT
+        / "backend"
+        / "app"
+        / "api"
+        / "routes"
+    )
+
+    offenders = []
+
+    for path in sorted(
+        route_root.glob(
+            "*.py",
+        )
+    ):
+        source = path.read_text(
+            encoding="utf-8",
+        )
+
+        if "asyncio.create_task(" in source:
+            offenders.append(
+                path.name,
+            )
+
+    assert offenders == [], (
+        "API routes must hand detached work to a tracked "
+        "runtime/supervisor instead of raw asyncio.create_task: "
+        + ", ".join(
+            offenders,
+        )
+    )
+
+
+def test_frontend_root_has_global_render_recovery_boundary() -> None:
+    main_source = (
+        PROJECT_ROOT
+        / "frontend"
+        / "src"
+        / "main.jsx"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert (
+        'import AppErrorBoundary from "./components/AppErrorBoundary.jsx";'
+        in main_source
+    )
+    assert "<AppErrorBoundary>" in main_source
+    assert "</AppErrorBoundary>" in main_source
+
+
+def test_app_shell_does_not_reabsorb_admin_page_implementations() -> None:
+    app_source = (
+        PROJECT_ROOT
+        / "frontend"
+        / "src"
+        / "App.jsx"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    forbidden = (
+        "function AdminCatalogPage(",
+        "function AdminBotPage(",
+        "function AdminDashboardPage(",
+        "function AdminUploadsPage(",
+    )
+
+    found = [
+        marker
+        for marker in forbidden
+        if marker in app_source
+    ]
+
+    assert found == [], (
+        "Keep admin page implementations isolated under "
+        "components/pages instead of growing App.jsx again: "
+        + ", ".join(
+            found,
+        )
+    )

@@ -828,7 +828,7 @@ export default function PasswordRecoveryOverlay({
         ) : null}
 
         <p className="auth-legal">
-          Recovery codes and reset links expire 
+          Recovery codes and reset links expire
           after 15 minutes for account security.
         </p>
       </div>

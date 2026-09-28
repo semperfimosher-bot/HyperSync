@@ -199,10 +199,6 @@ async def _artist_profile_response(
     profile: ArtistProfile,
     viewer: User | None,
 ) -> ArtistProfileResponse:
-    normalized = (
-        profile.normalized_name
-    )
-
     tracks = (
         await load_published_artist_tracks(
             session,

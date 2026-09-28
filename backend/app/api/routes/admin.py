@@ -45,8 +45,6 @@ from ...services.media_identity import (
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
-    normalize_track_identity,
-    normalize_track_title_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -791,8 +789,6 @@ async def admin_diagnostics(
         "message":
             "B2 storage unavailable.",
     }
-
-    tracks: list[Track] = []
 
     try:
         await session.execute(
@@ -2145,10 +2141,12 @@ async def backfill_track_metadata(
                 )
             )
 
-            def _read_bytes() -> bytes:
+            def _read_bytes(
+                downloaded_file=downloaded,
+            ) -> bytes:
                 buffer = BytesIO()
 
-                downloaded.save(
+                downloaded_file.save(
                     buffer,
                 )
 

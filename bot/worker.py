@@ -442,10 +442,15 @@ async def _ingest_missing(
                     ],
                 )
 
-                await mark_item_started(
-                    scan_id,
-                    item_id,
+                claimed = (
+                    await mark_item_started(
+                        scan_id,
+                        item_id,
+                    )
                 )
+
+                if not claimed:
+                    continue
 
                 bot.service.catalog_scan_ingest_started()
 
@@ -667,23 +672,40 @@ async def run_scan(
                 return
 
             if auto_ingest:
-                pending = (
-                    await pending_scan_items(
-                        scan_id,
-                    )
+                phase = "ingesting"
+
+                await set_scan_phase(
+                    scan_id,
+                    phase,
                 )
 
-                if pending:
-                    phase = "ingesting"
+                bot.service.catalog_scan_phase(
+                    phase,
+                )
 
-                    await set_scan_phase(
-                        scan_id,
-                        phase,
+                batch_size = max(
+                    16,
+                    min(
+                        128,
+                        int(
+                            ingest_concurrency
+                        )
+                        * 16,
+                    ),
+                )
+
+                while not await _scan_cancelled(
+                    scan_id,
+                ):
+                    pending = (
+                        await pending_scan_items(
+                            scan_id,
+                            limit=batch_size,
+                        )
                     )
 
-                    bot.service.catalog_scan_phase(
-                        phase,
-                    )
+                    if not pending:
+                        break
 
                     await _ingest_missing(
                         scan_id,

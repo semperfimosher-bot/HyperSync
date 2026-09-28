@@ -51,6 +51,19 @@ def _now() -> datetime:
     )
 
 
+def _affected_rows(
+    result: Any,
+) -> int:
+    return int(
+        getattr(
+            result,
+            "rowcount",
+            0,
+        )
+        or 0
+    )
+
+
 def _candidate_from_payload(
     payload: dict[str, Any],
 ) -> CatalogTrackCandidate:
@@ -657,7 +670,7 @@ async def request_scan_cancel(
         await session.commit()
 
         return bool(
-            result.rowcount,
+            _affected_rows(result),
         )
 
 
@@ -689,6 +702,8 @@ async def scan_cancel_requested(
 
 async def pending_scan_items(
     scan_id: UUID,
+    *,
+    limit: int | None = None,
 ) -> list[
     tuple[
         UUID,
@@ -700,7 +715,7 @@ async def pending_scan_items(
     )
 
     async with session_factory() as session:
-        result = await session.execute(
+        statement = (
             select(
                 BotCatalogScanItem,
             )
@@ -714,6 +729,22 @@ async def pending_scan_items(
                 BotCatalogScanItem.created_at.asc(),
                 BotCatalogScanItem.id.asc(),
             )
+        )
+
+        if (
+            limit is not None
+        ):
+            statement = statement.limit(
+                max(
+                    1,
+                    int(
+                        limit,
+                    ),
+                )
+            )
+
+        result = await session.execute(
+            statement
         )
 
         rows = list(
@@ -745,7 +776,15 @@ async def pending_scan_items(
 async def mark_item_started(
     scan_id: UUID,
     item_id: UUID,
-) -> None:
+) -> bool:
+    """
+    Atomically claim one durable scan item.
+
+    Only a discovered item may transition to ingesting.
+    Returning False tells a worker that another execution
+    path already claimed or completed the item, so it must
+    not resolve/download it again.
+    """
     session_factory = (
         get_session_factory()
     )
@@ -760,12 +799,8 @@ async def mark_item_started(
                 == item_id,
                 BotCatalogScanItem.scan_id
                 == scan_id,
-                BotCatalogScanItem.state.in_(
-                    (
-                        "discovered",
-                        "ingesting",
-                    )
-                ),
+                BotCatalogScanItem.state
+                == "discovered",
             )
             .values(
                 state="ingesting",
@@ -778,7 +813,11 @@ async def mark_item_started(
             )
         )
 
-        if result.rowcount:
+        claimed = bool(
+            _affected_rows(result),
+        )
+
+        if claimed:
             await session.execute(
                 update(
                     BotCatalogScan,
@@ -797,6 +836,8 @@ async def mark_item_started(
             )
 
         await session.commit()
+
+        return claimed
 
 
 async def mark_item_finished(
@@ -859,7 +900,7 @@ async def mark_item_finished(
             )
         )
 
-        if result.rowcount:
+        if _affected_rows(result):
             values: dict[str, Any] = {}
 
             if ready:

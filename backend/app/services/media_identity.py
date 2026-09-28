@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     delete,
     func,
     select,
+    tuple_,
 )
 
 from ..database import (
@@ -146,8 +149,8 @@ async def sync_track_media_identity(
 
 
 def _scalar_one_or_none(
-    result,
-):
+    result: Any,
+) -> Any:
     scalar_one_or_none = getattr(
         result,
         "scalar_one_or_none",
@@ -164,6 +167,135 @@ def _scalar_one_or_none(
     # indexed query so the compatibility path can evaluate
     # identities explicitly instead of trusting fake SQL.
     return None
+
+
+async def existing_primary_title_keys(
+    session,
+    keys: set[
+        tuple[str, str]
+    ],
+) -> set[
+    tuple[str, str]
+]:
+    clean_keys = {
+        (
+            str(
+                artist_key,
+            ).strip(),
+            str(
+                title_key,
+            ).strip(),
+        )
+        for (
+            artist_key,
+            title_key,
+        )
+        in keys
+        if str(
+            artist_key,
+        ).strip()
+        and str(
+            title_key,
+        ).strip()
+    }
+
+    if not clean_keys:
+        return set()
+
+    matched: set[
+        tuple[str, str]
+    ] = set()
+
+    ordered_keys = sorted(
+        clean_keys,
+    )
+
+    # Keep each SQL statement comfortably below
+    # backend parameter limits even if search limits
+    # increase later.
+    for offset in range(
+        0,
+        len(
+            ordered_keys,
+        ),
+        200,
+    ):
+        batch = ordered_keys[
+            offset:
+            offset + 200
+        ]
+
+        indexed_result = await session.execute(
+            select(
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            ).where(
+                tuple_(
+                    TrackIdentity.primary_artist_key,
+                    TrackIdentity.title_key,
+                ).in_(
+                    batch,
+                )
+            )
+        )
+
+        matched.update(
+            (
+                str(
+                    artist_key,
+                ),
+                str(
+                    title_key,
+                ),
+            )
+            for (
+                artist_key,
+                title_key,
+            )
+            in indexed_result.all()
+        )
+
+    # Compatibility fallback is restricted to rows
+    # still awaiting identity backfill, instead of
+    # loading the whole catalog on every search.
+    legacy_result = await session.execute(
+        select(
+            Track.title,
+            Track.artist,
+        )
+        .outerjoin(
+            TrackIdentity,
+            TrackIdentity.track_id
+            == Track.id,
+        )
+        .where(
+            TrackIdentity.track_id.is_(
+                None,
+            )
+        )
+    )
+
+    for title, artist in legacy_result.all():
+        (
+            _artist_key,
+            primary_artist_key,
+            title_key,
+        ) = track_identity_keys(
+            title=title,
+            artist=artist,
+        )
+
+        key = (
+            primary_artist_key,
+            title_key,
+        )
+
+        if key in clean_keys:
+            matched.add(
+                key,
+            )
+
+    return matched
 
 
 async def find_duplicate_track(

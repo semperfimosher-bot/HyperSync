@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hmac
-import mimetypes
 import secrets
 import time
 from dataclasses import (
-    asdict,
     dataclass,
     field,
 )
@@ -16,8 +14,6 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import select
-
 from bot.service import (
     job_completed,
     job_failed,
@@ -37,13 +33,13 @@ from ..models.account import (
     ListeningEvent,
 )
 from ..models.media import Track
-from .audio_metadata import (
-    normalize_track_identity,
-    normalize_track_title_identity,
-)
 from .catalog_ingestion import (
     find_duplicate_track,
     publish_authorized_audio,
+)
+from .media_identity import (
+    existing_primary_title_keys,
+    track_identity_keys,
 )
 from .on_demand_metadata import (
     CatalogTrackCandidate,
@@ -104,8 +100,40 @@ _background_warm_tasks: set[
 ] = set()
 
 
+def _track_background_warm_task(
+    task: asyncio.Task[Any],
+) -> asyncio.Task[Any]:
+    _background_warm_tasks.add(
+        task,
+    )
+
+    task.add_done_callback(
+        _background_warm_tasks.discard,
+    )
+
+    return task
+
+
 def _now() -> float:
     return time.monotonic()
+
+
+def _candidate_identity_key(
+    candidate: CatalogTrackCandidate,
+) -> tuple[str, str]:
+    (
+        _artist_key,
+        primary_artist_key,
+        title_key,
+    ) = track_identity_keys(
+        title=candidate.title,
+        artist=candidate.artist,
+    )
+
+    return (
+        primary_artist_key,
+        title_key,
+    )
 
 
 def _session_snapshot(
@@ -867,9 +895,11 @@ async def prewarm_candidates(
     for candidate in candidates[
         :limit
     ]:
-        asyncio.create_task(
-            prewarm_candidate(
-                candidate,
+        _track_background_warm_task(
+            asyncio.create_task(
+                prewarm_candidate(
+                    candidate,
+                )
             )
         )
 
@@ -961,12 +991,8 @@ async def warm_candidate_keys(
             )
         )
 
-        _background_warm_tasks.add(
+        _track_background_warm_task(
             task,
-        )
-
-        task.add_done_callback(
-            _background_warm_tasks.discard,
         )
 
     return [
@@ -1005,52 +1031,38 @@ async def search_and_remember(
         get_session_factory()
     )
 
-    missing: list[
-        CatalogTrackCandidate
-    ] = []
+    candidate_keys = {
+        key
+        for candidate
+        in candidates
+        for key
+        in [
+            _candidate_identity_key(
+                candidate,
+            )
+        ]
+        if all(
+            key,
+        )
+    }
 
     async with session_factory() as session:
-        existing_result = (
-            await session.execute(
-                select(
-                    Track.artist,
-                    Track.title,
-                )
+        existing_identities = (
+            await existing_primary_title_keys(
+                session,
+                candidate_keys,
             )
         )
 
-        existing_identities = {
-            (
-                normalize_track_identity(
-                    artist,
-                ),
-                normalize_track_title_identity(
-                    title,
-                ),
-            )
-            for (
-                artist,
-                title,
-            ) in existing_result.all()
-        }
-
-        for candidate in candidates:
-            identity = (
-                normalize_track_identity(
-                    candidate.artist,
-                ),
-                normalize_track_title_identity(
-                    candidate.title,
-                ),
-            )
-
-            if (
-                identity
-                not in existing_identities
-            ):
-                missing.append(
-                    candidate,
-                )
+    missing = [
+        candidate
+        for candidate
+        in candidates
+        if _candidate_identity_key(
+            candidate,
+        )
+        not in existing_identities
+    ]
 
     await remember_candidates(
         missing,
