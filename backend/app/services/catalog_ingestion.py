@@ -17,6 +17,7 @@ from .artists import (
 from .media_identity import (
     find_duplicate_track,
     sync_track_media_identity,
+    track_identity_lock_key,
 )
 from .audio_compression import (
     compress_audio_for_storage,
@@ -63,14 +64,9 @@ async def lock_track_identity(
     ):
         return
 
-    identity = (
-        normalize_track_identity(
-            artist,
-        )
-        + "\x1f"
-        + normalize_track_title_identity(
-            title,
-        )
+    identity = track_identity_lock_key(
+        title=title,
+        artist=artist,
     )
 
     await session.execute(
