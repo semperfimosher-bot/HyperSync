@@ -1103,6 +1103,13 @@ async def cancel_direct_track_upload(
 
     except Exception:
         deleted_versions = 0
+        logger.exception(
+            (
+                "Unable to clean cancelled direct-upload "
+                "object %s."
+            ),
+            payload.object_key,
+        )
 
     return {
         "success": True,
@@ -1488,7 +1495,13 @@ async def finalize_direct_track_upload(
                     object_key,
                 )
             except Exception:
-                pass
+                logger.exception(
+                    (
+                        "Unable to clean failed direct-upload "
+                        "audio object %s."
+                    ),
+                    object_key,
+                )
 
             if artwork_object_key:
                 try:
@@ -1497,7 +1510,13 @@ async def finalize_direct_track_upload(
                         artwork_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean failed direct-upload "
+                            "artwork object %s."
+                        ),
+                        artwork_object_key,
+                    )
 
 
 @router.post("/tracks/upload")
