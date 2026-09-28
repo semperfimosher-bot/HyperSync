@@ -299,6 +299,179 @@ def _artist_credit_matches_target(
     )
 
 
+async def catalog_primary_artist_inventory(
+    session,
+) -> tuple[
+    list[str],
+    set[
+        tuple[
+            str,
+            str,
+        ]
+    ],
+]:
+    """Return published primary artists and track identities.
+
+    Indexed TrackIdentity rows are authoritative. Only tracks
+    that have not been backfilled yet use the compatibility
+    normalization path, so bot scans do not re-normalize the
+    entire catalog in Python on every run.
+    """
+
+    indexed_result = await session.execute(
+        select(
+            TrackIdentity.primary_artist_key,
+            TrackIdentity.title_key,
+            Track.artist,
+        )
+        .join(
+            Track,
+            Track.id
+            == TrackIdentity.track_id,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            )
+        )
+    )
+
+    artists_by_key: dict[
+        str,
+        str,
+    ] = {}
+
+    identities: set[
+        tuple[
+            str,
+            str,
+        ]
+    ] = set()
+
+    for (
+        primary_artist_key,
+        title_key,
+        artist_credit,
+    ) in indexed_result.all():
+        artist_key = str(
+            primary_artist_key
+            or "",
+        ).strip()
+
+        clean_title_key = str(
+            title_key
+            or "",
+        ).strip()
+
+        if (
+            artist_key
+            and clean_title_key
+        ):
+            identities.add(
+                (
+                    artist_key,
+                    clean_title_key,
+                )
+            )
+
+        if (
+            artist_key
+            and artist_key
+            not in artists_by_key
+        ):
+            display_name = (
+                primary_artist_credit(
+                    artist_credit,
+                )
+                or str(
+                    artist_credit
+                    or "",
+                ).strip()
+            )
+
+            if display_name:
+                artists_by_key[
+                    artist_key
+                ] = display_name
+
+    # Compatibility path for catalog rows that predate the
+    # sidecar identity migration. Startup maintenance fills
+    # these in batches, so this query naturally shrinks to
+    # zero rows on a healthy deployment.
+    legacy_result = await session.execute(
+        select(
+            Track.artist,
+            Track.title,
+        )
+        .outerjoin(
+            TrackIdentity,
+            TrackIdentity.track_id
+            == Track.id,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            ),
+            TrackIdentity.track_id.is_(
+                None,
+            ),
+        )
+    )
+
+    for (
+        artist_credit,
+        title,
+    ) in legacy_result.all():
+        display_name = (
+            primary_artist_credit(
+                artist_credit,
+            )
+        )
+
+        artist_key = (
+            normalize_track_identity(
+                display_name,
+            )
+        )
+
+        title_key = (
+            normalize_track_title_identity(
+                title,
+            )
+        )
+
+        if (
+            artist_key
+            and title_key
+        ):
+            identities.add(
+                (
+                    artist_key,
+                    title_key,
+                )
+            )
+
+        if (
+            artist_key
+            and display_name
+            and artist_key
+            not in artists_by_key
+        ):
+            artists_by_key[
+                artist_key
+            ] = display_name
+
+    artists = sorted(
+        artists_by_key.values(),
+        key=str.casefold,
+    )
+
+    return (
+        artists,
+        identities,
+    )
+
+
 async def load_tracks_for_artist_credit(
     session,
     artist_name: str,
