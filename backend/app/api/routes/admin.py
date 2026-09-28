@@ -1475,7 +1475,7 @@ async def finalize_direct_track_upload(
         await ensure_artist_profiles_for_credit(
             session,
             track.artist,
-            include_combined=True,
+            include_combined=False,
         )
 
         await sync_track_media_identity(
@@ -1539,7 +1539,7 @@ async def finalize_direct_track_upload(
         try:
             for artist_name in artist_names_for_credit(
                 track.artist,
-                include_combined=True,
+                include_combined=False,
             ):
                 await ensure_artist_playlist(
                     session,
@@ -1882,7 +1882,7 @@ async def upload_track(
         await ensure_artist_profiles_for_credit(
             session,
             track.artist,
-            include_combined=True,
+            include_combined=False,
         )
 
         await sync_track_media_identity(
@@ -1957,7 +1957,7 @@ async def upload_track(
         try:
             for artist_name in artist_names_for_credit(
                 track.artist,
-                include_combined=True,
+                include_combined=False,
             ):
                 await ensure_artist_playlist(
                     session,
