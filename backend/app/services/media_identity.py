@@ -312,29 +312,11 @@ async def catalog_primary_artist_inventory(
 ]:
     """Return published primary artists and track identities.
 
-    Indexed TrackIdentity rows are authoritative. Only tracks
-    that have not been backfilled yet use the compatibility
-    normalization path, so bot scans do not re-normalize the
-    entire catalog in Python on every run.
+    Healthy migrated databases use TrackIdentity sidecars so
+    scans do not re-normalize the full catalog. Minimal or
+    legacy schemas that do not have the sidecar table yet fall
+    back to the original published-track normalization path.
     """
-
-    indexed_result = await session.execute(
-        select(
-            TrackIdentity.primary_artist_key,
-            TrackIdentity.title_key,
-            Track.artist,
-        )
-        .join(
-            Track,
-            Track.id
-            == TrackIdentity.track_id,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            )
-        )
-    )
 
     artists_by_key: dict[
         str,
@@ -348,80 +330,10 @@ async def catalog_primary_artist_inventory(
         ]
     ] = set()
 
-    for (
-        primary_artist_key,
-        title_key,
-        artist_credit,
-    ) in indexed_result.all():
-        artist_key = str(
-            primary_artist_key
-            or "",
-        ).strip()
-
-        clean_title_key = str(
-            title_key
-            or "",
-        ).strip()
-
-        if (
-            artist_key
-            and clean_title_key
-        ):
-            identities.add(
-                (
-                    artist_key,
-                    clean_title_key,
-                )
-            )
-
-        if (
-            artist_key
-            and artist_key
-            not in artists_by_key
-        ):
-            display_name = (
-                primary_artist_credit(
-                    artist_credit,
-                )
-                or str(
-                    artist_credit
-                    or "",
-                ).strip()
-            )
-
-            if display_name:
-                artists_by_key[
-                    artist_key
-                ] = display_name
-
-    # Compatibility path for catalog rows that predate the
-    # sidecar identity migration. Startup maintenance fills
-    # these in batches, so this query naturally shrinks to
-    # zero rows on a healthy deployment.
-    legacy_result = await session.execute(
-        select(
-            Track.artist,
-            Track.title,
-        )
-        .outerjoin(
-            TrackIdentity,
-            TrackIdentity.track_id
-            == Track.id,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            TrackIdentity.track_id.is_(
-                None,
-            ),
-        )
-    )
-
-    for (
-        artist_credit,
-        title,
-    ) in legacy_result.all():
+    def add_legacy_identity(
+        artist_credit: str | None,
+        title: str | None,
+    ) -> None:
         display_name = (
             primary_artist_credit(
                 artist_credit,
@@ -460,6 +372,143 @@ async def catalog_primary_artist_inventory(
             artists_by_key[
                 artist_key
             ] = display_name
+
+    indexed_rows = None
+
+    try:
+        # Keep optional-sidecar failures inside a savepoint.
+        # SQLite compatibility tests and partially migrated
+        # databases may intentionally have only the tracks
+        # table; a failed indexed query must not poison the
+        # caller's surrounding transaction.
+        async with session.begin_nested():
+            indexed_result = await session.execute(
+                select(
+                    TrackIdentity.primary_artist_key,
+                    TrackIdentity.title_key,
+                    Track.artist,
+                )
+                .join(
+                    Track,
+                    Track.id
+                    == TrackIdentity.track_id,
+                )
+                .where(
+                    Track.is_published.is_(
+                        True,
+                    )
+                )
+            )
+
+            indexed_rows = list(
+                indexed_result.all()
+            )
+
+    except OperationalError:
+        indexed_rows = None
+
+    if indexed_rows is None:
+        # Full compatibility path when the identity sidecar
+        # table is not available at all.
+        legacy_result = await session.execute(
+            select(
+                Track.artist,
+                Track.title,
+            ).where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+        )
+
+        for (
+            artist_credit,
+            title,
+        ) in legacy_result.all():
+            add_legacy_identity(
+                artist_credit,
+                title,
+            )
+
+    else:
+        for (
+            primary_artist_key,
+            title_key,
+            artist_credit,
+        ) in indexed_rows:
+            artist_key = str(
+                primary_artist_key
+                or "",
+            ).strip()
+
+            clean_title_key = str(
+                title_key
+                or "",
+            ).strip()
+
+            if (
+                artist_key
+                and clean_title_key
+            ):
+                identities.add(
+                    (
+                        artist_key,
+                        clean_title_key,
+                    )
+                )
+
+            if (
+                artist_key
+                and artist_key
+                not in artists_by_key
+            ):
+                display_name = (
+                    primary_artist_credit(
+                        artist_credit,
+                    )
+                    or str(
+                        artist_credit
+                        or "",
+                    ).strip()
+                )
+
+                if display_name:
+                    artists_by_key[
+                        artist_key
+                    ] = display_name
+
+        # Compatibility path for individual catalog rows that
+        # predate the sidecar migration. Startup maintenance
+        # fills these in batches, so this normally shrinks to
+        # zero rows after deployment startup.
+        legacy_result = await session.execute(
+            select(
+                Track.artist,
+                Track.title,
+            )
+            .outerjoin(
+                TrackIdentity,
+                TrackIdentity.track_id
+                == Track.id,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                ),
+                TrackIdentity.track_id.is_(
+                    None,
+                ),
+            )
+        )
+
+        for (
+            artist_credit,
+            title,
+        ) in legacy_result.all():
+            add_legacy_identity(
+                artist_credit,
+                title,
+            )
 
     artists = sorted(
         artists_by_key.values(),
