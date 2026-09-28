@@ -38,15 +38,12 @@ from ...services.artists import (
 )
 from ...services.media_identity import (
     catalog_identity_diagnostics,
+    duplicate_track_groups,
     find_duplicate_track as find_indexed_duplicate_track,
     sync_track_media_identity,
-    track_identity_keys,
-    track_identity_lock_key,
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
-    normalize_track_identity,
-    normalize_track_title_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -55,6 +52,9 @@ from ...services.b2 import (
     delete_all_object_versions,
     get_b2_bucket,
     head_b2_object,
+)
+from ...services.catalog_ingestion import (
+    lock_track_identity,
 )
 from ...services.generated_playlists import (
     ensure_artist_playlist,
@@ -73,156 +73,6 @@ router = APIRouter(
 
 
 logger = logging.getLogger(__name__)
-
-
-async def _lock_track_upload_identity(
-    session: DatabaseSession,
-    *,
-    title: str,
-    artist: str,
-) -> None:
-    bind = session.get_bind()
-
-    if (
-        bind is None
-        or bind.dialect.name
-        != "postgresql"
-    ):
-        return
-
-    identity = track_identity_lock_key(
-        title=title,
-        artist=artist,
-    )
-
-    await session.execute(
-        text(
-            "SELECT "
-            "pg_advisory_xact_lock("
-            "hashtext(:identity)"
-            ")"
-        ),
-        {
-            "identity":
-                identity,
-        },
-    )
-
-
-def _duplicate_track_groups(
-    tracks: list[Track],
-) -> list[dict]:
-    groups: dict[
-        tuple[str, str],
-        list[Track],
-    ] = {}
-
-    for track in tracks:
-        (
-            _artist_key,
-            primary_artist_key,
-            title_key,
-        ) = track_identity_keys(
-            title=track.title,
-            artist=track.artist,
-        )
-
-        key = (
-            primary_artist_key,
-            title_key,
-        )
-
-        groups.setdefault(
-            key,
-            [],
-        ).append(
-            track,
-        )
-
-    duplicates: list[dict] = []
-
-    for (
-        artist_key,
-        title_key,
-    ), grouped_tracks in groups.items():
-        if len(grouped_tracks) < 2:
-            continue
-
-        ordered_tracks = sorted(
-            grouped_tracks,
-            key=lambda item: (
-                getattr(
-                    item,
-                    "created_at",
-                    None,
-                )
-                is None,
-                getattr(
-                    item,
-                    "created_at",
-                    None,
-                ),
-                str(
-                    item.id,
-                ),
-            ),
-        )
-
-        first = ordered_tracks[0]
-
-        duplicates.append(
-            {
-                "artist_key":
-                    artist_key,
-                "title_key":
-                    title_key,
-                "artist":
-                    first.artist,
-                "title":
-                    first.title,
-                "count":
-                    len(
-                        ordered_tracks,
-                    ),
-                "keep_track_id":
-                    str(
-                        first.id,
-                    ),
-                "tracks": [
-                    {
-                        "id":
-                            str(
-                                item.id,
-                            ),
-                        "title":
-                            item.title,
-                        "artist":
-                            item.artist,
-                        "album":
-                            item.album,
-                        "b2_object_key":
-                            item.b2_object_key,
-                    }
-                    for item in ordered_tracks
-                ],
-            }
-        )
-
-    duplicates.sort(
-        key=lambda group: (
-            -int(
-                group["count"],
-            ),
-            str(
-                group["artist_key"],
-            ),
-            str(
-                group["title_key"],
-            ),
-        )
-    )
-
-    return duplicates
 
 
 async def _find_duplicate_track(
@@ -889,27 +739,16 @@ async def scan_catalog_duplicates(
     user: AdminUser,
     session: DatabaseSession,
 ):
-    result = await session.execute(
-        select(
-            Track,
-        )
-    )
-
-    tracks = list(
-        result.scalars().all()
-    )
-
-    duplicate_groups = (
-        _duplicate_track_groups(
-            tracks,
-        )
+    (
+        scanned_tracks,
+        duplicate_groups,
+    ) = await duplicate_track_groups(
+        session,
     )
 
     return {
         "scanned_tracks":
-            len(
-                tracks,
-            ),
+            scanned_tracks,
         "duplicate_group_count":
             len(
                 duplicate_groups,
@@ -1344,7 +1183,7 @@ async def finalize_direct_track_upload(
                 ),
             )
 
-        await _lock_track_upload_identity(
+        await lock_track_identity(
             session,
             title=clean_title,
             artist=clean_artist,
@@ -1649,7 +1488,7 @@ async def upload_track(
             embedded=embedded_metadata,
         )
 
-        await _lock_track_upload_identity(
+        await lock_track_identity(
             session,
             title=(
                 resolved_metadata[
