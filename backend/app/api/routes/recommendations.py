@@ -32,22 +32,96 @@ router = APIRouter(
 )
 
 
+def _catalog_uuid_or_none(
+    value: UUID | str | None,
+) -> UUID | None:
+    if value is None:
+        return None
+
+    if isinstance(
+        value,
+        UUID,
+    ):
+        return value
+
+    try:
+        return UUID(
+            str(
+                value,
+            ).strip()
+        )
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        return None
+
+
+def _catalog_uuid_list(
+    values: list[
+        UUID | str
+    ],
+    *,
+    limit: int,
+) -> list[
+    UUID
+]:
+    result: list[
+        UUID
+    ] = []
+    seen: set[
+        UUID
+    ] = set()
+
+    for value in values:
+        track_id = (
+            _catalog_uuid_or_none(
+                value,
+            )
+        )
+
+        if (
+            track_id is None
+            or track_id in seen
+        ):
+            continue
+
+        seen.add(
+            track_id,
+        )
+
+        result.append(
+            track_id,
+        )
+
+        if (
+            len(
+                result,
+            )
+            >= limit
+        ):
+            break
+
+    return result
+
+
 class AutoplayRequest(
     BaseModel,
 ):
     current_track_id: (
-        UUID | None
+        UUID | str | None
     ) = None
 
     exclude_track_ids: list[
-        UUID
+        UUID | str
     ] = Field(
         default_factory=list,
         max_length=100,
     )
 
     context_track_ids: list[
-        UUID
+        UUID | str
     ] = Field(
         default_factory=list,
         max_length=12,
@@ -107,13 +181,21 @@ async def autoplay(
                 else None
             ),
             current_track_id=(
-                payload.current_track_id
+                _catalog_uuid_or_none(
+                    payload.current_track_id
+                )
             ),
             exclude_track_ids=set(
-                payload.exclude_track_ids
+                _catalog_uuid_list(
+                    payload.exclude_track_ids,
+                    limit=100,
+                )
             ),
             context_track_ids=(
-                payload.context_track_ids
+                _catalog_uuid_list(
+                    payload.context_track_ids,
+                    limit=12,
+                )
             ),
             limit=(
                 payload.limit
