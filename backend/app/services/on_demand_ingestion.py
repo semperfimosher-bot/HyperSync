@@ -1684,6 +1684,26 @@ async def get_provision_session(
             session.candidate.key
         ] = session.candidate
 
+    if (
+        session.track_id is None
+        and session.state == "ingesting"
+    ):
+        # A previous process had already committed to
+        # ingestion. Re-resolve the source because persisted
+        # direct media URLs may have expired across a deploy.
+        session.source = None
+        session.state = "queued"
+        session.error = None
+        session.ingest_started = False
+
+        await _persist_session(
+            session,
+        )
+
+        await _ensure_ingest(
+            session,
+        )
+
     return session
 
 
@@ -1774,15 +1794,10 @@ async def active_provisions() -> list[
             _sessions_by_id.values()
         )
 
-    snapshots_by_id = {
-        str(
-            session.id,
-        ):
-            _session_snapshot(
-                session,
-            )
-        for session in local_sessions
-    }
+    snapshots_by_id: dict[
+        str,
+        dict[str, Any],
+    ] = {}
 
     durable_rows = (
         await list_durable_recent_provisions(
@@ -1811,6 +1826,17 @@ async def active_provisions() -> list[
 
         if session is None:
             continue
+
+        snapshots_by_id[
+            key
+        ] = _session_snapshot(
+            session,
+        )
+
+    for session in local_sessions:
+        key = str(
+            session.id,
+        )
 
         snapshots_by_id[
             key
