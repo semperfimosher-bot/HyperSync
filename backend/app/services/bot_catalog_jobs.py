@@ -655,12 +655,8 @@ async def pending_scan_items(
             .where(
                 BotCatalogScanItem.scan_id
                 == scan_id,
-                BotCatalogScanItem.state.in_(
-                    (
-                        "discovered",
-                        "ingesting",
-                    )
-                ),
+                BotCatalogScanItem.state
+                == "discovered",
             )
             .order_by(
                 BotCatalogScanItem.created_at.asc(),
@@ -794,6 +790,8 @@ async def mark_item_finished(
                 == item_id,
                 BotCatalogScanItem.scan_id
                 == scan_id,
+                BotCatalogScanItem.state
+                == "ingesting",
             )
             .values(
                 state=item_state,
