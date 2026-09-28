@@ -24,6 +24,9 @@ from backend.app.models.media import (
     Track,
     TrackIdentity,
 )
+from backend.app.models.on_demand import (
+    OnDemandProvision,
+)
 from backend.app.services import (
     on_demand_ingestion,
     on_demand_state,
@@ -1147,3 +1150,211 @@ async def test_local_provision_adopts_durable_terminal_result(
         on_demand_ingestion
         .reset_transient_state()
     )
+
+
+@pytest.mark.asyncio
+async def test_durable_provision_terminal_state_cannot_regress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    OnDemandProvision.__tablename__
+                ],
+            ],
+        )
+
+    factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    monkeypatch.setattr(
+        on_demand_state,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    candidate = _candidate()
+    provision_id = uuid4()
+    track_id = uuid4()
+
+    async with factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title=candidate.title,
+                artist=candidate.artist,
+                album=candidate.album,
+                b2_object_key=(
+                    "audio/terminal-monotonic.mp3"
+                ),
+                mime_type="audio/mpeg",
+                is_published=True,
+            )
+        )
+        await session.commit()
+
+    created = await on_demand_state.save_provision(
+        provision_id=provision_id,
+        candidate=candidate,
+        state="ingesting",
+        source_payload=None,
+        track_id=None,
+        error=None,
+        ingest_started=True,
+    )
+
+    assert created is True
+
+    ready = await on_demand_state.save_provision(
+        provision_id=provision_id,
+        candidate=candidate,
+        state="ready",
+        source_payload=None,
+        track_id=track_id,
+        error=None,
+        ingest_started=True,
+    )
+
+    assert ready is True
+
+    stale_stream_ready = (
+        await on_demand_state.save_provision(
+            provision_id=provision_id,
+            candidate=candidate,
+            state="stream-ready",
+            source_payload={
+                "source_id":
+                    "stale-source",
+            },
+            track_id=None,
+            error=None,
+            ingest_started=False,
+        )
+    )
+
+    stale_failure = (
+        await on_demand_state.save_provision(
+            provision_id=provision_id,
+            candidate=candidate,
+            state="failed",
+            source_payload=None,
+            track_id=None,
+            error="stale failure",
+            ingest_started=True,
+        )
+    )
+
+    assert stale_stream_ready is False
+    assert stale_failure is False
+
+    persisted = await on_demand_state.load_provision(
+        provision_id,
+    )
+
+    assert persisted is not None
+    assert persisted["state"] == "ready"
+    assert persisted["track_id"] == track_id
+    assert persisted["error"] is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_durable_ready_can_recover_previous_failed_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    OnDemandProvision.__tablename__
+                ],
+            ],
+        )
+
+    factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    monkeypatch.setattr(
+        on_demand_state,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    candidate = _candidate()
+    provision_id = uuid4()
+    track_id = uuid4()
+
+    failed = await on_demand_state.save_provision(
+        provision_id=provision_id,
+        candidate=candidate,
+        state="failed",
+        source_payload=None,
+        track_id=None,
+        error="temporary failure",
+        ingest_started=True,
+    )
+
+    assert failed is True
+
+    async with factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title=candidate.title,
+                artist=candidate.artist,
+                album=candidate.album,
+                b2_object_key=(
+                    "audio/terminal-recovery.mp3"
+                ),
+                mime_type="audio/mpeg",
+                is_published=True,
+            )
+        )
+        await session.commit()
+
+    recovered = await on_demand_state.save_provision(
+        provision_id=provision_id,
+        candidate=candidate,
+        state="ready",
+        source_payload=None,
+        track_id=track_id,
+        error=None,
+        ingest_started=True,
+    )
+
+    assert recovered is True
+
+    persisted = await on_demand_state.load_provision(
+        provision_id,
+    )
+
+    assert persisted is not None
+    assert persisted["state"] == "ready"
+    assert persisted["track_id"] == track_id
+    assert persisted["error"] is None
+
+    await engine.dispose()
