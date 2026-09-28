@@ -67,6 +67,18 @@ async def test_prepare_is_source_only_until_played(
     )
 
     ingest_calls = 0
+    durable_listener_calls = []
+
+    async def fake_persist_listener(
+        provision_id,
+        user_id,
+    ) -> None:
+        durable_listener_calls.append(
+            (
+                provision_id,
+                user_id,
+            )
+        )
 
     async def fake_ensure_source(
         session,
@@ -80,6 +92,12 @@ async def test_prepare_is_source_only_until_played(
         ingest_calls += 1
         session.ingest_started = True
         session.state = "ingesting"
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "persist_pending_listener",
+        fake_persist_listener,
+    )
 
     monkeypatch.setattr(
         on_demand_ingestion,
@@ -102,6 +120,8 @@ async def test_prepare_is_source_only_until_played(
 
     assert ingest_calls == 0
 
+    played_user_id = uuid4()
+
     played = (
         await on_demand_ingestion
         .record_provision_play(
@@ -110,13 +130,23 @@ async def test_prepare_is_source_only_until_played(
                     "provision_id"
                 ]
             ),
-            uuid4(),
+            played_user_id,
         )
     )
 
     assert played is not None
     assert played["pending"] is True
     assert ingest_calls == 1
+    assert durable_listener_calls == [
+        (
+            UUID(
+                prepared[
+                    "provision_id"
+                ]
+            ),
+            played_user_id,
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -382,6 +412,23 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
     recorded: list[
         tuple[UUID, UUID]
     ] = []
+    persisted_states: list[str] = []
+    durable_user_id = uuid4()
+
+    async def fake_persist_session(
+        durable_session,
+    ) -> None:
+        persisted_states.append(
+            durable_session.state,
+        )
+
+    async def fake_pop_pending(
+        provision_id: UUID,
+    ) -> set[UUID]:
+        assert provision_id == session.id
+        return {
+            durable_user_id,
+        }
 
     async def fake_download(
         _source,
@@ -443,6 +490,18 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
 
     monkeypatch.setattr(
         on_demand_ingestion,
+        "_persist_session",
+        fake_persist_session,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "pop_durable_pending_listeners",
+        fake_pop_pending,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
         "_record_listening_event",
         fake_record,
     )
@@ -455,12 +514,21 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
     assert session.track_id == track_id
     assert session.pending_listener_user_ids == set()
 
-    assert recorded == [
+    assert set(
+        recorded,
+    ) == {
         (
             track_id,
             user_id,
-        )
-    ]
+        ),
+        (
+            track_id,
+            durable_user_id,
+        ),
+    }
+
+    assert "ingesting" in persisted_states
+    assert persisted_states[-1] == "ready"
 
     await (
         on_demand_ingestion
