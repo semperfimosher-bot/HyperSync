@@ -15,6 +15,10 @@ from .artist import (
     ArtistFollow,
     ArtistProfile,
 )
+from .bot import (
+    BotCatalogScan,
+    BotCatalogScanItem,
+)
 from .base import Base
 from .media import (
     Track,
@@ -38,6 +42,8 @@ from .system import (
 __all__ = [
     "AccountType",
     "Base",
+    "BotCatalogScan",
+    "BotCatalogScanItem",
     "ArtistFollow",
     "ArtistProfile",
     "Track",
