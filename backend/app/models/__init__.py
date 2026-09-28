@@ -26,6 +26,9 @@ from .media import (
     TrackIdentity,
     TrackLyrics,
 )
+from .maintenance import (
+    MediaDeletionJob,
+)
 from .messaging import (
     AdminNotification,
     Message,
@@ -52,6 +55,7 @@ __all__ = [
     "TrackArtistCredit",
     "TrackIdentity",
     "TrackLyrics",
+    "MediaDeletionJob",
     "AdminNotification",
     "Message",
     "PushSubscription",
