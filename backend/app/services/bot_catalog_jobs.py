@@ -689,6 +689,8 @@ async def scan_cancel_requested(
 
 async def pending_scan_items(
     scan_id: UUID,
+    *,
+    limit: int | None = None,
 ) -> list[
     tuple[
         UUID,
@@ -700,7 +702,7 @@ async def pending_scan_items(
     )
 
     async with session_factory() as session:
-        result = await session.execute(
+        statement = (
             select(
                 BotCatalogScanItem,
             )
@@ -714,6 +716,22 @@ async def pending_scan_items(
                 BotCatalogScanItem.created_at.asc(),
                 BotCatalogScanItem.id.asc(),
             )
+        )
+
+        if (
+            limit is not None
+        ):
+            statement = statement.limit(
+                max(
+                    1,
+                    int(
+                        limit,
+                    ),
+                )
+            )
+
+        result = await session.execute(
+            statement
         )
 
         rows = list(
