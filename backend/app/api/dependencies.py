@@ -9,18 +9,13 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_database_session
 from ..models.account import User, UserRole, UserSession
+from ..time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 from ..security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
 )
-
-
-def _as_utc_aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 bearer_scheme = HTTPBearer(
