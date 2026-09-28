@@ -157,6 +157,10 @@ import {
 } from "./libraryEntities.js";
 
 import {
+  sortCatalogFolderTracks,
+} from "./catalogOrdering.js";
+
+import {
   findMissingPlaylistTracks,
   playlistUpdateKey,
 } from "./playlistDownloadUpdates.js";
@@ -2056,17 +2060,22 @@ function AdminCatalogPage() {
             .trim()
             .toLocaleLowerCase();
 
-        return tracks.filter(
-          (track) =>
-            folderValuesForTrack(
-              config,
-              track,
-            ).some(
-              (value) =>
-                value
-                  .toLocaleLowerCase()
-                  === wanted,
-            ),
+        const matchingTracks =
+          tracks.filter(
+            (track) =>
+              folderValuesForTrack(
+                config,
+                track,
+              ).some(
+                (value) =>
+                  value
+                    .toLocaleLowerCase()
+                    === wanted,
+              ),
+          );
+
+        return sortCatalogFolderTracks(
+          matchingTracks,
         );
       },
       [
