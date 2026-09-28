@@ -286,3 +286,20 @@ def test_artist_mode_rejects_longer_fuzzy_artist_names() -> None:
     ] == [
         "exact",
     ]
+
+
+def test_catalog_candidate_round_trips_through_shared_payload_decoder() -> None:
+    candidate = _candidate(
+        provider="deezer",
+        key="round-trip",
+        title="Round Trip",
+        artist="Example Artist",
+        deezer_id="12345",
+        genre="Country",
+    )
+
+    restored = CatalogTrackCandidate.from_dict(
+        candidate.as_dict(),
+    )
+
+    assert restored == candidate
