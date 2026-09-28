@@ -32,6 +32,9 @@ from .services.artists import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
+from .services.on_demand_ingestion import (
+    reset_transient_state,
+)
 from .services.media_identity import (
     backfill_missing_media_identities,
 )
@@ -389,6 +392,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # database engine closes. Durable catalog scans remain
         # resumable and will be picked up on the next startup.
         await shutdown_background_tasks()
+
+        # On-demand source resolution and ingest tasks keep
+        # references to DB/B2 work of their own. Drain them
+        # explicitly before the database engine disappears.
+        await reset_transient_state()
 
         await close_database()
 
