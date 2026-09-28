@@ -36,8 +36,8 @@ class BotEvent:
 
 @dataclass
 class BotState:
-    running: bool = False
-    status: str = "offline"
+    running: bool = True
+    status: str = "online"
     current_job: str | None = None
     queued_jobs: int = 0
     completed_jobs: int = 0
@@ -100,21 +100,24 @@ def get_state() -> BotState:
 
 
 def start_bot() -> BotState:
+    # Legacy compatibility endpoint. The bot runtime is
+    # permanently available now, so "start" just confirms
+    # the always-on state.
     with _lock:
         _state.running = True
         _state.status = "online"
 
-    _event("success", "Bot started.")
     return get_state()
 
 
 def stop_bot() -> BotState:
+    # Legacy compatibility endpoint. Older cached clients
+    # may still call /stop; never allow that to disable the
+    # always-on automation runtime.
     with _lock:
-        _state.running = False
-        _state.status = "offline"
-        _state.current_job = None
+        _state.running = True
+        _state.status = "online"
 
-    _event("info", "Bot stopped.")
     return get_state()
 
 
