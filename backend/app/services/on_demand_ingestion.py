@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hmac
 import mimetypes
-import secrets
 import time
 from dataclasses import (
     asdict,
@@ -31,6 +31,7 @@ from bot.youtube_source import (
     DownloadedAudio,
     YouTubeSource,
     download_youtube_audio,
+    is_allowed_direct_media_url,
     resolve_youtube_source,
 )
 
@@ -53,6 +54,16 @@ from .catalog_ingestion import (
 from .on_demand_metadata import (
     CatalogTrackCandidate,
     search_catalog_metadata,
+)
+from .on_demand_state import (
+    add_pending_listener as persist_pending_listener,
+    get_or_create_provision as get_or_create_durable_provision,
+    load_candidate as load_durable_candidate,
+    load_provision as load_durable_provision,
+    persist_candidates as persist_durable_candidates,
+    pop_pending_listeners as pop_durable_pending_listeners,
+    save_provision as save_durable_provision,
+    touch_provision as touch_durable_provision,
 )
 from .playback_realtime import (
     playback_realtime_hub,
@@ -111,6 +122,210 @@ _background_warm_tasks: set[
 
 def _now() -> float:
     return time.monotonic()
+
+
+def _stream_token_for_id(
+    provision_id: UUID,
+) -> str:
+    settings = get_settings()
+
+    secret = (
+        settings.bot_jwt_secret.strip()
+        or settings.jwt_secret.strip()
+    )
+
+    if not secret:
+        if settings.environment == "production":
+            raise RuntimeError(
+                "A JWT secret is required for "
+                "durable on-demand stream tokens."
+            )
+
+        secret = (
+            "hypersync-development-only-"
+            "on-demand-stream-secret"
+        )
+
+    digest = hmac.digest(
+        secret.encode(
+            "utf-8",
+        ),
+        (
+            "on-demand-stream:"
+            + str(
+                provision_id,
+            )
+        ).encode(
+            "utf-8",
+        ),
+        "sha256",
+    )
+
+    return (
+        base64.urlsafe_b64encode(
+            digest,
+        )
+        .decode(
+            "ascii",
+        )
+        .rstrip(
+            "=",
+        )
+    )
+
+
+def _source_from_payload(
+    payload: dict[str, Any] | None,
+) -> YouTubeSource | None:
+    if not payload:
+        return None
+
+    try:
+        source = YouTubeSource(
+            **payload,
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    if not is_allowed_direct_media_url(
+        source.direct_url,
+    ):
+        return None
+
+    return source
+
+
+def _session_from_durable(
+    payload: dict[str, Any],
+) -> ProvisionSession | None:
+    candidate = (
+        CatalogTrackCandidate
+        .from_dict(
+            dict(
+                payload.get(
+                    "candidate_payload",
+                )
+                or {}
+            )
+        )
+    )
+
+    provision_id = payload.get(
+        "id",
+    )
+
+    if (
+        not candidate.key
+        or not isinstance(
+            provision_id,
+            UUID,
+        )
+    ):
+        return None
+
+    state = str(
+        payload.get(
+            "state",
+            "queued",
+        )
+    )
+
+    track_id = payload.get(
+        "track_id",
+    )
+
+    # A persisted "ingesting" flag may outlive the worker
+    # that owned it. Reconstructed sessions are allowed to
+    # retry; the catalog identity advisory lock still makes
+    # final publication idempotent across replicas.
+    ingest_started = (
+        bool(
+            payload.get(
+                "ingest_started",
+                False,
+            )
+        )
+        if track_id is not None
+        else False
+    )
+
+    now = _now()
+
+    return ProvisionSession(
+        id=provision_id,
+        candidate=candidate,
+        state=state,
+        created_at=now,
+        updated_at=now,
+        stream_token=(
+            _stream_token_for_id(
+                provision_id,
+            )
+        ),
+        source=_source_from_payload(
+            payload.get(
+                "source_payload",
+            )
+        ),
+        track_id=(
+            track_id
+            if isinstance(
+                track_id,
+                UUID,
+            )
+            else None
+        ),
+        error=(
+            str(
+                payload.get(
+                    "error",
+                )
+            )
+            if payload.get(
+                "error",
+            )
+            is not None
+            else None
+        ),
+        ingest_started=ingest_started,
+    )
+
+
+async def _persist_session(
+    session: ProvisionSession,
+) -> None:
+    source_payload = None
+
+    if session.source is not None:
+        source_payload = asdict(
+            session.source,
+        )
+
+        # Persist only the headers the stream proxy is
+        # already willing to forward. Never persist cookies
+        # or arbitrary yt-dlp request headers.
+        source_payload[
+            "http_headers"
+        ] = source_headers(
+            session.source,
+        )
+
+    await save_durable_provision(
+        provision_id=session.id,
+        candidate=session.candidate,
+        state=session.state,
+        source_payload=(
+            source_payload
+        ),
+        track_id=session.track_id,
+        error=session.error,
+        ingest_started=(
+            session.ingest_started
+        ),
+    )
 
 
 def _session_snapshot(
@@ -269,6 +484,12 @@ async def remember_candidates(
                 candidate.key
             ] = candidate
 
+    # PostgreSQL is the shared/restart-safe layer; the
+    # in-memory map remains the low-latency fallback.
+    await persist_durable_candidates(
+        candidates,
+    )
+
 
 async def candidate_for_key(
     key: str,
@@ -279,9 +500,26 @@ async def candidate_for_key(
         return None
 
     async with _lock:
-        return _candidates.get(
+        candidate = _candidates.get(
             clean,
         )
+
+    if candidate is not None:
+        return candidate
+
+    candidate = await load_durable_candidate(
+        clean,
+    )
+
+    if candidate is None:
+        return None
+
+    async with _lock:
+        _candidates[
+            clean
+        ] = candidate
+
+    return candidate
 
 
 async def _find_existing_track(
@@ -797,22 +1035,65 @@ async def get_or_create_session(
                 _now()
             )
 
-            return existing
+            local_existing = existing
+        else:
+            local_existing = None
 
+    if local_existing is not None:
+        await touch_durable_provision(
+            local_existing.id,
+        )
+        return local_existing
+
+    durable = (
+        await get_or_create_durable_provision(
+            candidate,
+        )
+    )
+
+    session = (
+        _session_from_durable(
+            durable,
+        )
+        if durable
+        is not None
+        else None
+    )
+
+    if session is None:
+        provision_id = uuid4()
         now = _now()
 
         session = ProvisionSession(
-            id=uuid4(),
+            id=provision_id,
             candidate=candidate,
             state="queued",
             created_at=now,
             updated_at=now,
             stream_token=(
-                secrets.token_urlsafe(
-                    32,
+                _stream_token_for_id(
+                    provision_id,
                 )
             ),
         )
+
+        await _persist_session(
+            session,
+        )
+
+    async with _lock:
+        # Another coroutine on this process may have filled
+        # the local cache while the durable lookup awaited.
+        existing = _sessions_by_key.get(
+            candidate.key,
+        )
+
+        if (
+            existing is not None
+            and existing.state
+            != "failed"
+        ):
+            return existing
 
         _sessions_by_key[
             candidate.key
@@ -1332,7 +1613,47 @@ async def get_provision_session(
                 _now()
             )
 
+    if session is not None:
+        await touch_durable_provision(
+            provision_id,
+        )
         return session
+
+    durable = await load_durable_provision(
+        provision_id,
+    )
+
+    if durable is None:
+        return None
+
+    session = _session_from_durable(
+        durable,
+    )
+
+    if session is None:
+        return None
+
+    async with _lock:
+        existing = _sessions_by_id.get(
+            provision_id,
+        )
+
+        if existing is not None:
+            return existing
+
+        _sessions_by_id[
+            session.id
+        ] = session
+
+        _sessions_by_key[
+            session.candidate.key
+        ] = session
+
+        _candidates[
+            session.candidate.key
+        ] = session.candidate
+
+    return session
 
 
 async def record_provision_play(
