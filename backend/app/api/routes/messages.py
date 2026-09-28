@@ -1260,6 +1260,10 @@ async def message_notifications(
                 != user.id,
                 AdminNotification.kind
                 == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                AdminNotification.viewed_at
+                .is_(
+                    None,
+                ),
                 AdminNotification.source_message_id
                 .is_not(
                     None,
@@ -1455,6 +1459,10 @@ async def message_notifications(
                     != user.id,
                     AdminNotification.kind
                     == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification.viewed_at
+                    .is_(
+                        None,
+                    ),
                     AdminNotification
                     .source_message_id
                     .is_not(
@@ -1529,6 +1537,60 @@ async def read_message_notification(
             == message.id,
         )
     )
+
+    await session.commit()
+
+
+@router.post(
+    "/admin-account-notifications/{notification_id}/read",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def read_admin_account_notification(
+    notification_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Administrator access required."
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            AdminNotification,
+        ).where(
+            AdminNotification.id
+            == notification_id,
+            AdminNotification.recipient_id
+            != user.id,
+            AdminNotification.kind
+            == DIRECT_MESSAGE_NOTIFICATION_KIND,
+            AdminNotification.source_message_id
+            .is_not(
+                None,
+            ),
+        )
+    )
+
+    notification = (
+        result.scalar_one_or_none()
+    )
+
+    if notification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Account notification not found."
+            ),
+        )
+
+    if notification.viewed_at is None:
+        notification.viewed_at = datetime.now(
+            UTC,
+        )
 
     await session.commit()
 
