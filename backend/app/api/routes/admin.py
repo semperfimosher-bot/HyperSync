@@ -35,6 +35,10 @@ from ...services.artists import (
     artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
+from ...services.media_identity import (
+    find_duplicate_track as find_indexed_duplicate_track,
+    sync_track_media_identity,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
@@ -220,45 +224,11 @@ async def _find_duplicate_track(
     title: str,
     artist: str,
 ) -> Track | None:
-    title_key = (
-        normalize_track_title_identity(
-            title,
-        )
+    return await find_indexed_duplicate_track(
+        session,
+        title=title,
+        artist=artist,
     )
-
-    artist_key = (
-        normalize_track_identity(
-            artist,
-        )
-    )
-
-    result = (
-        await session.execute(
-            select(
-                Track,
-            )
-        )
-    )
-
-    for track in (
-        result
-        .scalars()
-        .all()
-    ):
-        if (
-            normalize_track_title_identity(
-                track.title,
-            )
-            == title_key
-            and
-            normalize_track_identity(
-                track.artist,
-            )
-            == artist_key
-        ):
-            return track
-
-    return None
 
 
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
@@ -1506,6 +1476,11 @@ async def finalize_direct_track_upload(
             include_combined=True,
         )
 
+        await sync_track_media_identity(
+            session,
+            track,
+        )
+
         await session.commit()
 
         background_tasks.add_task(
@@ -1906,6 +1881,11 @@ async def upload_track(
             session,
             track.artist,
             include_combined=True,
+        )
+
+        await sync_track_media_identity(
+            session,
+            track,
         )
 
         await session.commit()
