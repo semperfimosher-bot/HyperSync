@@ -26,6 +26,9 @@ from .database import (
 from .services.admin_notifications import (
     record_admin_activity,
 )
+from .services.artists import (
+    backfill_missing_artist_profiles,
+)
 from .services.message_retention import (
     cleanup_expired_messages,
 )
@@ -294,7 +297,24 @@ async def run_media_identity_backfill() -> None:
             continue
 
         if processed == 0:
-            return
+            try:
+                artist_profiles_processed = (
+                    await backfill_missing_artist_profiles(
+                        batch_size=250,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Artist profile backfill failed; retrying.",
+                )
+
+                await asyncio.sleep(
+                    MEDIA_IDENTITY_RETRY_SECONDS,
+                )
+                continue
+
+            if artist_profiles_processed == 0:
+                return
 
         # Yield between batches so startup maintenance
         # never monopolizes the event loop.
