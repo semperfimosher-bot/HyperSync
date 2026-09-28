@@ -153,6 +153,10 @@ import {
 } from "./libraryCache.js";
 
 import {
+  splitArtistCredits,
+} from "./libraryEntities.js";
+
+import {
   findMissingPlaylistTracks,
   playlistUpdateKey,
 } from "./playlistDownloadUpdates.js";
@@ -1819,10 +1823,21 @@ function AdminCatalogPage() {
     artists: {
       label: "Artists",
       icon: "people",
-      value:
-        (track) =>
-          track.artist ||
-          "Unknown Artist",
+      values:
+        (track) => {
+          const credits =
+            splitArtistCredits(
+              track.artist,
+            );
+
+          return (
+            credits.length > 0
+              ? credits
+              : [
+                  "Unknown Artist",
+                ]
+          );
+        },
     },
 
     albums: {
@@ -1843,6 +1858,61 @@ function AdminCatalogPage() {
           "No Genre",
     },
   };
+
+
+  const folderValuesForTrack =
+    (
+      config,
+      track,
+    ) => {
+      const rawValues =
+        typeof config?.values ===
+        "function"
+          ? config.values(
+              track,
+            )
+          : [
+              config?.value?.(
+                track,
+              ),
+            ];
+
+      const seen =
+        new Set();
+
+      return rawValues
+        .map(
+          (value) =>
+            String(
+              value ?? "",
+            ).trim(),
+        )
+        .filter(
+          (value) => {
+            if (!value) {
+              return false;
+            }
+
+            const key =
+              value
+                .toLocaleLowerCase();
+
+            if (
+              seen.has(
+                key,
+              )
+            ) {
+              return false;
+            }
+
+            seen.add(
+              key,
+            );
+
+            return true;
+          },
+        );
+    };
 
 
   const searchResults =
@@ -1899,41 +1969,40 @@ function AdminCatalogPage() {
 
         tracks.forEach(
           (track) => {
-            const value =
-              config.value(
-                track,
-              );
+            folderValuesForTrack(
+              config,
+              track,
+            ).forEach(
+              (value) => {
+                const key =
+                  value
+                    .toLocaleLowerCase();
 
-            const key =
-              String(
-                value,
-              )
-                .trim()
-                .toLocaleLowerCase();
+                if (
+                  !grouped.has(
+                    key,
+                  )
+                ) {
+                  grouped.set(
+                    key,
+                    {
+                      key,
+                      value,
+                      tracks: [],
+                    },
+                  );
+                }
 
-            if (
-              !grouped.has(
-                key,
-              )
-            ) {
-              grouped.set(
-                key,
-                {
-                  key,
-                  value,
-                  tracks: [],
-                },
-              );
-            }
-
-            grouped
-              .get(
-                key,
-              )
-              .tracks
-              .push(
-                track,
-              );
+                grouped
+                  .get(
+                    key,
+                  )
+                  .tracks
+                  .push(
+                    track,
+                  );
+              },
+            );
           },
         );
 
@@ -1980,21 +2049,24 @@ function AdminCatalogPage() {
             category
           ];
 
+        const wanted =
+          String(
+            folderValue,
+          )
+            .trim()
+            .toLocaleLowerCase();
+
         return tracks.filter(
           (track) =>
-            String(
-              config.value(
-                track,
-              ),
-            )
-              .trim()
-              .toLocaleLowerCase()
-              ===
-            String(
-              folderValue,
-            )
-              .trim()
-              .toLocaleLowerCase(),
+            folderValuesForTrack(
+              config,
+              track,
+            ).some(
+              (value) =>
+                value
+                  .toLocaleLowerCase()
+                  === wanted,
+            ),
         );
       },
       [
@@ -2312,15 +2384,16 @@ function AdminCatalogPage() {
           ]) => {
             const count =
               new Set(
-                tracks.map(
+                tracks.flatMap(
                   (track) =>
-                    String(
-                      config.value(
-                        track,
-                      ),
-                    )
-                      .trim()
-                      .toLocaleLowerCase(),
+                    folderValuesForTrack(
+                      config,
+                      track,
+                    ).map(
+                      (value) =>
+                        value
+                          .toLocaleLowerCase(),
+                    ),
                 ),
               ).size;
 
