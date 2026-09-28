@@ -61,13 +61,13 @@ from .on_demand_metadata import (
 )
 from .on_demand_state import (
     add_pending_listener as persist_pending_listener,
+    commit_pending_listeners_to_history,
     get_or_create_provision as get_or_create_durable_provision,
     load_candidate as load_durable_candidate,
     load_provision as load_durable_provision,
     list_recent_provisions as list_durable_recent_provisions,
     list_resumable_provision_ids,
     persist_candidates as persist_durable_candidates,
-    pop_pending_listeners as pop_durable_pending_listeners,
     save_provision as save_durable_provision,
     touch_provision as touch_durable_provision,
 )
@@ -931,6 +931,71 @@ async def _record_listening_event(
     )
 
 
+
+async def _flush_pending_listener_history(
+    session: ProvisionSession,
+) -> None:
+    track_id = session.track_id
+
+    if track_id is None:
+        return
+
+    durable_recorded = (
+        await commit_pending_listeners_to_history(
+            session.id,
+            track_id,
+        )
+    )
+
+    # None means the durable transaction failed. Leave both
+    # durable and local pending state untouched so a later
+    # provision read/status poll can safely retry.
+    if durable_recorded is None:
+        return
+
+    for user_id in durable_recorded:
+        await playback_realtime_hub.broadcast(
+            user_id,
+            {
+                "type":
+                    "listening_history_changed",
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+            },
+        )
+
+    async with _lock:
+        local_only = (
+            set(
+                session.pending_listener_user_ids
+            )
+            - durable_recorded
+        )
+
+        session.pending_listener_user_ids.difference_update(
+            durable_recorded,
+        )
+
+    for user_id in local_only:
+        try:
+            await _record_listening_event(
+                track_id,
+                user_id,
+            )
+        except Exception:
+            # The local fallback remains pending and can be
+            # retried while this process is alive. Durable
+            # listeners use the transaction above.
+            continue
+
+        async with _lock:
+            session.pending_listener_user_ids.discard(
+                user_id,
+            )
+
+
 async def _run_ingest(
     session: ProvisionSession,
 ) -> None:
@@ -1084,37 +1149,13 @@ async def _run_ingest(
 
             session.error = None
 
-            pending_listener_user_ids = (
-                set(
-                    session
-                    .pending_listener_user_ids
-                )
-            )
-
-            session.pending_listener_user_ids.clear()
-
             session.updated_at = (
                 _now()
             )
 
-        pending_listener_user_ids.update(
-            await pop_durable_pending_listeners(
-                session.id,
-            )
+        await _flush_pending_listener_history(
+            session,
         )
-
-        if pending_listener_user_ids:
-            await asyncio.gather(
-                *[
-                    _record_listening_event(
-                        result.track_id,
-                        user_id,
-                    )
-                    for user_id
-                    in pending_listener_user_ids
-                ],
-                return_exceptions=True,
-            )
 
         async with _lock:
             session.state = "ready"
@@ -1844,6 +1885,12 @@ async def get_provision_session(
         await touch_durable_provision(
             provision_id,
         )
+
+        if session.track_id is not None:
+            await _flush_pending_listener_history(
+                session,
+            )
+
         return session
 
     durable = await load_durable_provision(
@@ -1879,6 +1926,11 @@ async def get_provision_session(
         _candidates[
             session.candidate.key
         ] = session.candidate
+
+    if session.track_id is not None:
+        await _flush_pending_listener_history(
+            session,
+        )
 
     if (
         session.track_id is None
