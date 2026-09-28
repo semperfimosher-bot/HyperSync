@@ -8,6 +8,10 @@ from contextlib import (
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from bot.worker import (
+    resume_catalog_scan_on_startup,
+)
+
 from .api.router import api_router
 from .config import get_settings
 from .database import (
@@ -257,6 +261,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # failures instead of crashing the container.
     await wait_for_database_ready()
 
+    bot_resume_task = (
+        await resume_catalog_scan_on_startup()
+    )
+
     keepalive_task = asyncio.create_task(
         keep_database_warm(),
     )
@@ -270,6 +278,17 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     finally:
         keepalive_task.cancel()
         retention_task.cancel()
+
+        if (
+            bot_resume_task is not None
+            and not bot_resume_task.done()
+        ):
+            bot_resume_task.cancel()
+
+            with suppress(
+                asyncio.CancelledError,
+            ):
+                await bot_resume_task
 
         with suppress(
             asyncio.CancelledError,
