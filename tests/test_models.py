@@ -66,3 +66,16 @@ def test_track_lyrics_table_is_registered() -> None:
     assert expected_columns.issubset(
         lyrics_table.columns.keys(),
     )
+
+
+def test_hardening_tables_are_registered() -> None:
+    expected_tables = {
+        "bot_catalog_scans",
+        "bot_catalog_scan_items",
+        "track_identities",
+        "track_artist_credits",
+    }
+
+    assert expected_tables.issubset(
+        Base.metadata.tables,
+    )
