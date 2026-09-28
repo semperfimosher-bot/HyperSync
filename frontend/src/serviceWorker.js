@@ -819,7 +819,7 @@ export async function handleMediaRequest(
       });
     }
   }
-  
+
   const response =
     await createCachedMediaRangeResponse({
       rangeHeader:
