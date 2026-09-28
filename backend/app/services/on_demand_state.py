@@ -126,6 +126,39 @@ def _provision_dict(
     }
 
 
+async def durable_state_diagnostics() -> dict[str, Any]:
+    """Verify the durable on-demand schema is queryable."""
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    try:
+        async with session_factory() as session:
+            await session.execute(
+                select(
+                    OnDemandProvision.id,
+                ).limit(
+                    1,
+                )
+            )
+
+        return {
+            "healthy": True,
+            "message":
+                "Durable on-demand state is available.",
+        }
+
+    except SQLAlchemyError as exc:
+        return {
+            "healthy": False,
+            "message":
+                str(
+                    exc,
+                )[:240],
+        }
+
+
 async def persist_candidates(
     candidates: list[
         CatalogTrackCandidate
