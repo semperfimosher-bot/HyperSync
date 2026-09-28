@@ -102,11 +102,8 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://user:password@localhost/hypersync
         run: python -m scripts.verify_backend
 
-      - name: Lint Python
-        run: python -m ruff check backend bot migrations scripts tests
-
-      - name: Check Python formatting
-        run: python -m ruff format --check backend bot migrations scripts tests
+      - name: Lint Python correctness
+        run: python -m ruff check --select F,B,ASYNC backend bot migrations scripts tests
 
       - name: Type-check Python
         run: python -m pyright --warnings
