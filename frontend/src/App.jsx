@@ -126,18 +126,6 @@ import {
 } from "./playlistDownloadUpdates.js";
 
 import {
-  getMessageNotifications,
-  markAdminAccountNotificationRead,
-  markAdminNotificationRead,
-  markMessageNotificationRead,
-} from "./messageApi.js";
-
-import {
-  enablePushNotifications,
-  syncExistingPushSubscription,
-} from "./pushNotifications.js";
-
-import {
   getPwaInstallState,
   requestPwaInstall,
   subscribePwaInstall,
@@ -175,6 +163,9 @@ import {
 import {
   notifyListeningHistoryChanged,
 } from "./homeRecentlyPlayed.js";
+
+import useMessageNotifications from
+  "./hooks/useMessageNotifications.js";
 
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
@@ -1410,31 +1401,6 @@ export default function App() {
     sharedMusicToSend,
     setSharedMusicToSend,
   ] = useState(null);
-
-  const [
-    messageNotifications,
-    setMessageNotifications,
-  ] = useState({
-    unread_count:
-      0,
-    notifications:
-      [],
-  });
-
-  const [
-    notificationDetail,
-    setNotificationDetail,
-  ] = useState(null);
-
-  const [
-    pushBusy,
-    setPushBusy,
-  ] = useState(false);
-
-  const [
-    pushEnabled,
-    setPushEnabled,
-  ] = useState(false);
 
   const [
     installState,
@@ -4866,218 +4832,6 @@ const checkDownloadedGeneratedPlaylistUpdates =
     null;
 
 
-  const refreshMessageNotifications =
-  useCallback(
-    async () => {
-      if (
-        currentUser?.account_type !==
-          "registered" ||
-        globalThis.navigator
-          ?.onLine ===
-          false
-      ) {
-        setMessageNotifications({
-          unread_count:
-            0,
-          notifications:
-            [],
-        });
-
-        return;
-      }
-
-      try {
-        const result =
-          await getMessageNotifications();
-
-        setMessageNotifications({
-          unread_count:
-            Number(
-              result?.unread_count ??
-              0,
-            ) || 0,
-          notifications:
-            Array.isArray(
-              result?.notifications,
-            )
-              ? result.notifications
-              : [],
-        });
-      } catch {
-        // Keep the current notification snapshot
-        // during a temporary network failure.
-      }
-    },
-    [
-      currentUser?.account_type,
-      currentUser?.id,
-    ],
-  );
-
-
-  const consumeNotification =
-    useCallback(
-      async (
-        notification,
-      ) => {
-        if (!notification) {
-          return;
-        }
-
-        const adminNotification =
-          notification.type ===
-            "admin_activity" ||
-          notification.type ===
-            "admin_account_notification";
-
-        const notificationKey =
-          adminNotification
-            ? String(
-                notification
-                  .notification_id ??
-                  "",
-              )
-            : String(
-                notification
-                  .message_id ??
-                  "",
-              );
-
-        setMessageNotifications(
-          (current) => {
-            const currentItems =
-              Array.isArray(
-                current?.notifications,
-              )
-                ? current.notifications
-                : [];
-
-            const nextItems =
-              currentItems.filter(
-                (item) => {
-                  const itemAdminNotification =
-                    item.type ===
-                      "admin_activity" ||
-                    item.type ===
-                      "admin_account_notification";
-
-                  const itemKey =
-                    itemAdminNotification
-                      ? String(
-                          item
-                            .notification_id ??
-                            "",
-                        )
-                      : String(
-                          item
-                            .message_id ??
-                            "",
-                        );
-
-                  return (
-                    item.type !==
-                      notification.type ||
-                    itemKey !==
-                      notificationKey
-                  );
-                },
-              );
-
-            return {
-              unread_count:
-                Math.max(
-                  (
-                    Number(
-                      current
-                        ?.unread_count ??
-                        currentItems.length,
-                    ) || 0
-                  ) - 1,
-                  0,
-                ),
-              notifications:
-                nextItems,
-            };
-          },
-        );
-
-        try {
-          if (
-            notification.type ===
-              "admin_activity"
-          ) {
-            await markAdminNotificationRead(
-              notification
-                .notification_id,
-            );
-          } else if (
-            notification.type ===
-              "admin_account_notification"
-          ) {
-            await markAdminAccountNotificationRead(
-              notification
-                .notification_id,
-            );
-          } else {
-            await markMessageNotificationRead(
-              notification
-                .message_id,
-            );
-          }
-        } catch {
-          // Refresh restores the item if deletion failed.
-        } finally {
-          await refreshMessageNotifications();
-        }
-      },
-      [
-        refreshMessageNotifications,
-      ],
-    );
-
-
-  const openNotificationDetail =
-    useCallback(
-      (
-        notification,
-      ) => {
-        if (!notification) {
-          return;
-        }
-
-        setNotificationDetail(
-          notification,
-        );
-
-        void consumeNotification(
-          notification,
-        );
-      },
-      [
-        consumeNotification,
-      ],
-    );
-
-
-  const deleteNotification =
-    useCallback(
-      (
-        notification,
-      ) => {
-        if (!notification) {
-          return;
-        }
-
-        void consumeNotification(
-          notification,
-        );
-      },
-      [
-        consumeNotification,
-      ],
-    );
-
-
 const persistAppView =
   useCallback(
     (state) => {
@@ -5142,16 +4896,7 @@ const persistAppView =
   setPlaylistUpdates([]);
   setMessageToOpen("");
   setArtistToOpen("");
-  setNotificationDetail(null);
-  setMessageNotifications({
-    unread_count:
-      0,
-    notifications:
-      [],
-  });
-  setPushEnabled(
-    false,
-  );
+  resetMessageNotifications();
   dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
@@ -5578,6 +5323,30 @@ const clearPlaylistToOpen =
   }, []);
 
 
+  const {
+    messageNotifications,
+    notificationDetail,
+    pushBusy,
+    pushEnabled,
+    refreshMessageNotifications,
+    openNotificationDetail,
+    closeNotificationDetail,
+    deleteNotification,
+    handleEnablePush,
+    resetMessageNotifications,
+  } = useMessageNotifications({
+    currentUser,
+    onRequireSignIn:
+      () => {
+        openAuth(
+          "signin",
+        );
+      },
+    onStatusMessage:
+      setStatusMessage,
+  });
+
+
   const openMessageUser =
   useCallback(
     (username) => {
@@ -5797,198 +5566,6 @@ const clearPlaylistToOpen =
     },
     [],
   );
-
-
-  const handleEnablePush =
-  useCallback(
-    async () => {
-      if (
-        currentUser?.account_type !==
-          "registered"
-      ) {
-        openAuth(
-          "signin",
-        );
-
-        return;
-      }
-
-      setPushBusy(
-        true,
-      );
-
-      try {
-        const result =
-          await enablePushNotifications();
-
-        if (
-          !result?.supported
-        ) {
-          setPushEnabled(
-            false,
-          );
-
-          setStatusMessage(
-            "Push notifications are not supported by this browser.",
-          );
-
-          return;
-        }
-
-        if (
-          result?.configured ===
-          false
-        ) {
-          setPushEnabled(
-            false,
-          );
-
-          setStatusMessage(
-            "Push notifications need VAPID keys configured on the server.",
-          );
-
-          return;
-        }
-
-        if (
-          !result?.enabled
-        ) {
-          setPushEnabled(
-            false,
-          );
-
-          setStatusMessage(
-            result?.permission ===
-              "denied"
-              ? "Push notifications are blocked in this browser's site settings."
-              : "Push notification permission was not granted.",
-          );
-
-          return;
-        }
-
-        setPushEnabled(
-          true,
-        );
-
-        setStatusMessage(
-          "Push notifications enabled.",
-        );
-      } catch (error) {
-        setPushEnabled(
-          false,
-        );
-
-        setStatusMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to enable push notifications.",
-        );
-      } finally {
-        setPushBusy(
-          false,
-        );
-      }
-    },
-    [
-      currentUser?.account_type,
-      openAuth,
-    ],
-  );
-
-
-  useEffect(() => {
-    if (
-      currentUser?.account_type !==
-        "registered"
-    ) {
-      setMessageNotifications({
-        unread_count:
-          0,
-        notifications:
-          [],
-      });
-
-      setPushEnabled(
-        false,
-      );
-
-      return undefined;
-    }
-
-    void refreshMessageNotifications();
-
-    void syncExistingPushSubscription()
-      .then(
-        (result) => {
-          setPushEnabled(
-            Boolean(
-              result?.enabled,
-            ),
-          );
-        },
-      )
-      .catch(
-        () => {
-          setPushEnabled(
-            false,
-          );
-        },
-      );
-
-    const interval =
-      window.setInterval(
-        () => {
-          void refreshMessageNotifications();
-        },
-        12_000,
-      );
-
-    const handleFocus =
-      () => {
-        void refreshMessageNotifications();
-      };
-
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-            "visible"
-        ) {
-          void refreshMessageNotifications();
-        }
-      };
-
-    window.addEventListener(
-      "focus",
-      handleFocus,
-    );
-
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibility,
-    );
-
-    return () => {
-      window.clearInterval(
-        interval,
-      );
-
-      window.removeEventListener(
-        "focus",
-        handleFocus,
-      );
-
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibility,
-      );
-    };
-  }, [
-    currentUser?.account_type,
-    currentUser?.id,
-    refreshMessageNotifications,
-  ]);
 
 
   useEffect(() => {
@@ -6386,11 +5963,9 @@ const clearPlaylistToOpen =
   notification={
     notificationDetail
   }
-  onClose={() => {
-    setNotificationDetail(
-      null,
-    );
-  }}
+  onClose={
+    closeNotificationDetail
+  }
   onOpenMessage={
     openMessageUser
   }
@@ -6434,11 +6009,7 @@ const clearPlaylistToOpen =
   }
   onPasswordReset={() => {
     setCurrentUser(null);
-    setPushEnabled(false);
-    setMessageNotifications({
-      unread_count: 0,
-      notifications: [],
-    });
+    resetMessageNotifications();
   }}
 />
     </div>
