@@ -158,6 +158,7 @@ import {
 
 import {
   getMessageNotifications,
+  markAdminAccountNotificationRead,
   markAdminNotificationRead,
   markMessageNotificationRead,
 } from "./messageApi.js";
@@ -9628,16 +9629,14 @@ const checkDownloadedGeneratedPlaylistUpdates =
           return;
         }
 
-        if (
+        const adminNotification =
           notification.type ===
-            "admin_account_notification"
-        ) {
-          return;
-        }
+            "admin_activity" ||
+          notification.type ===
+            "admin_account_notification";
 
         const notificationKey =
-          notification.type ===
-            "admin_activity"
+          adminNotification
             ? String(
                 notification
                   .notification_id ??
@@ -9661,9 +9660,14 @@ const checkDownloadedGeneratedPlaylistUpdates =
             const nextItems =
               currentItems.filter(
                 (item) => {
-                  const itemKey =
+                  const itemAdminNotification =
                     item.type ===
-                      "admin_activity"
+                      "admin_activity" ||
+                    item.type ===
+                      "admin_account_notification";
+
+                  const itemKey =
+                    itemAdminNotification
                       ? String(
                           item
                             .notification_id ??
@@ -9708,6 +9712,14 @@ const checkDownloadedGeneratedPlaylistUpdates =
               "admin_activity"
           ) {
             await markAdminNotificationRead(
+              notification
+                .notification_id,
+            );
+          } else if (
+            notification.type ===
+              "admin_account_notification"
+          ) {
+            await markAdminAccountNotificationRead(
               notification
                 .notification_id,
             );
@@ -9757,11 +9769,7 @@ const checkDownloadedGeneratedPlaylistUpdates =
       (
         notification,
       ) => {
-        if (
-          !notification ||
-          notification.type ===
-            "admin_account_notification"
-        ) {
+        if (!notification) {
           return;
         }
 
