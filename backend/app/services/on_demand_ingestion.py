@@ -16,7 +16,10 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import (
+    or_,
+    select,
+)
 
 from bot.service import (
     job_completed,
@@ -36,10 +39,12 @@ from ..database import get_session_factory
 from ..models.account import (
     ListeningEvent,
 )
-from ..models.media import Track
-from .audio_metadata import (
-    normalize_track_identity,
-    normalize_track_title_identity,
+from ..models.media import (
+    Track,
+    TrackIdentity,
+)
+from .media_identity import (
+    track_identity_keys,
 )
 from .catalog_ingestion import (
     find_duplicate_track,
@@ -1009,44 +1014,170 @@ async def search_and_remember(
         CatalogTrackCandidate
     ] = []
 
+    candidate_identities = {
+        candidate.key:
+            track_identity_keys(
+                title=candidate.title,
+                artist=candidate.artist,
+            )
+        for candidate in candidates
+    }
+
     async with session_factory() as session:
-        existing_result = (
+        title_keys = {
+            identity[2]
+            for identity
+            in candidate_identities.values()
+            if identity[2]
+        }
+
+        artist_keys = {
+            identity[0]
+            for identity
+            in candidate_identities.values()
+            if identity[0]
+        }
+
+        primary_artist_keys = {
+            identity[1]
+            for identity
+            in candidate_identities.values()
+            if identity[1]
+        }
+
+        indexed_identities: set[
+            tuple[
+                str,
+                str,
+                str,
+            ]
+        ] = set()
+
+        if title_keys:
+            indexed_result = (
+                await session.execute(
+                    select(
+                        TrackIdentity.artist_key,
+                        TrackIdentity.primary_artist_key,
+                        TrackIdentity.title_key,
+                    ).where(
+                        TrackIdentity.title_key.in_(
+                            title_keys,
+                        ),
+                        or_(
+                            TrackIdentity.artist_key.in_(
+                                artist_keys,
+                            ),
+                            TrackIdentity.primary_artist_key.in_(
+                                primary_artist_keys,
+                            ),
+                        ),
+                    )
+                )
+            )
+
+            indexed_identities = {
+                (
+                    str(
+                        artist_key,
+                    ),
+                    str(
+                        primary_artist_key,
+                    ),
+                    str(
+                        title_key,
+                    ),
+                )
+                for (
+                    artist_key,
+                    primary_artist_key,
+                    title_key,
+                )
+                in indexed_result.all()
+            }
+
+        # Compatibility only: startup maintenance backfills
+        # TrackIdentity rows. Until every legacy row has one,
+        # compare just those unindexed rows in Python instead
+        # of scanning the entire catalog on every search.
+        legacy_result = (
             await session.execute(
                 select(
                     Track.artist,
                     Track.title,
                 )
+                .outerjoin(
+                    TrackIdentity,
+                    TrackIdentity.track_id
+                    == Track.id,
+                )
+                .where(
+                    TrackIdentity.track_id.is_(
+                        None,
+                    )
+                )
             )
         )
 
-        existing_identities = {
-            (
-                normalize_track_identity(
-                    artist,
-                ),
-                normalize_track_title_identity(
-                    title,
-                ),
+        legacy_identities = {
+            track_identity_keys(
+                title=title,
+                artist=artist,
             )
-            for (
-                artist,
-                title,
-            ) in existing_result.all()
+            for artist, title
+            in legacy_result.all()
         }
 
         for candidate in candidates:
-            identity = (
-                normalize_track_identity(
-                    candidate.artist,
-                ),
-                normalize_track_title_identity(
-                    candidate.title,
-                ),
+            (
+                artist_key,
+                primary_artist_key,
+                title_key,
+            ) = candidate_identities[
+                candidate.key
+            ]
+
+            indexed_match = any(
+                (
+                    existing_title_key
+                    == title_key
+                    and (
+                        existing_artist_key
+                        == artist_key
+                        or existing_primary_key
+                        == primary_artist_key
+                    )
+                )
+                for (
+                    existing_artist_key,
+                    existing_primary_key,
+                    existing_title_key,
+                )
+                in indexed_identities
+            )
+
+            legacy_match = any(
+                (
+                    existing_title_key
+                    == title_key
+                    and (
+                        existing_artist_key
+                        == artist_key
+                        or existing_primary_key
+                        == primary_artist_key
+                    )
+                )
+                for (
+                    existing_artist_key,
+                    existing_primary_key,
+                    existing_title_key,
+                )
+                in legacy_identities
             )
 
             if (
-                identity
-                not in existing_identities
+                not indexed_match
+                and not legacy_match
             ):
                 missing.append(
                     candidate,
