@@ -14,7 +14,9 @@ from backend.app.api.routes.auth import (
     set_refresh_cookie,
 )
 from backend.app.config import (
+    Settings,
     get_settings,
+    validate_runtime_configuration,
 )
 import backend.app.database as database_module
 
@@ -435,3 +437,81 @@ def test_development_database_keeps_local_sqlite_fallback(
         database_module.resolve_database_url()
         == "sqlite+aiosqlite:///./local_dev.db"
     )
+
+
+def _valid_production_settings(
+    **overrides,
+) -> Settings:
+    values = {
+        "environment":
+            "production",
+        "database_url":
+            (
+                "postgresql://user:password@"
+                "db.example.test/hypersync"
+            ),
+        "migration_database_url":
+            (
+                "postgresql://user:password@"
+                "db.example.test/hypersync"
+            ),
+        "jwt_secret":
+            "x" * 48,
+        "frontend_origins":
+            "https://hypersynced.app",
+        "frontend_public_url":
+            "https://hypersynced.app",
+        "b2_endpoint":
+            "https://s3.example.test",
+        "b2_key_id":
+            "key-id",
+        "b2_application_key":
+            "application-key",
+        "b2_bucket_name":
+            "hypersync",
+    }
+
+    values.update(
+        overrides,
+    )
+
+    return Settings(
+        _env_file=None,
+        **values,
+    )
+
+
+def test_valid_production_runtime_configuration_is_accepted() -> None:
+    validate_runtime_configuration(
+        _valid_production_settings(),
+    )
+
+
+def test_production_runtime_rejects_missing_storage_configuration() -> None:
+    settings = _valid_production_settings(
+        b2_application_key="",
+        b2_bucket_name="",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="B2_APPLICATION_KEY.*B2_BUCKET_NAME",
+    ):
+        validate_runtime_configuration(
+            settings,
+        )
+
+
+def test_production_runtime_rejects_insecure_public_origin() -> None:
+    settings = _valid_production_settings(
+        frontend_public_url=
+            "http://hypersynced.app",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="FRONTEND_PUBLIC_URL must use HTTPS",
+    ):
+        validate_runtime_configuration(
+            settings,
+        )
