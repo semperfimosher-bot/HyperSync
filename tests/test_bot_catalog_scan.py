@@ -11,6 +11,10 @@ from sqlalchemy.ext.asyncio import (
 import bot.service
 import bot.worker
 
+from backend.app.api.routes.bot import (
+    AdminBotScanRequest,
+)
+
 from backend.app.models.base import Base
 from backend.app.models.media import Track
 from backend.app.services.on_demand_metadata import (
@@ -424,3 +428,27 @@ async def test_catalog_gap_scan_uses_primary_artist_for_collaborations(
     ]
 
     await engine.dispose()
+
+
+def test_bot_runtime_is_always_online() -> None:
+    stopped = bot.service.stop_bot()
+
+    assert stopped.running is True
+    assert stopped.status == "online"
+
+    started = bot.service.start_bot()
+
+    assert started.running is True
+    assert started.status == "online"
+
+
+def test_bulk_scan_no_longer_requires_confirmation_field() -> None:
+    request = AdminBotScanRequest(
+        auto_ingest=True,
+    )
+
+    assert request.auto_ingest is True
+    assert not hasattr(
+        request,
+        "confirm_authorized_media",
+    )
