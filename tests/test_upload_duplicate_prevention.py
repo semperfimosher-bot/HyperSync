@@ -301,3 +301,42 @@ async def test_duplicate_lookup_allows_same_title_for_different_artist() -> None
     )
 
     assert duplicate is None
+
+
+def test_duplicate_groups_collapse_primary_artist_credit_formats() -> None:
+    first = _track(
+        title="Broadway Girls",
+        artist="Morgan Wallen & Lil Durk",
+    )
+
+    second = _track(
+        title="Broadway Girls",
+        artist="Morgan Wallen",
+    )
+
+    first.id = uuid4()
+    second.id = uuid4()
+
+    first.created_at = datetime(
+        2026,
+        1,
+        1,
+        tzinfo=UTC,
+    )
+
+    second.created_at = (
+        first.created_at
+        + timedelta(
+            minutes=1,
+        )
+    )
+
+    groups = _duplicate_track_groups(
+        [
+            first,
+            second,
+        ],
+    )
+
+    assert len(groups) == 1
+    assert groups[0]["count"] == 2
