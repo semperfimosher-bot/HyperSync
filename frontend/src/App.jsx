@@ -1754,6 +1754,2441 @@ function AdminDashboardPage({
   );
 }
 
+function AdminCatalogPage() {
+  const {
+    tracks,
+    loading,
+    error,
+    refreshCatalog,
+  } = useCatalogTracks();
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState("");
+
+  const [
+    category,
+    setCategory,
+  ] = useState(null);
+
+  const [
+    folderValue,
+    setFolderValue,
+  ] = useState(null);
+
+  const [
+    selectedTrackIds,
+    setSelectedTrackIds,
+  ] = useState(
+    () =>
+      new Set(),
+  );
+
+  const [
+    bulkDeleteBusy,
+    setBulkDeleteBusy,
+  ] = useState(false);
+
+
+  useEffect(() => {
+    setSelectedTrackIds(
+      (current) =>
+        pruneTrackSelection(
+          current,
+          tracks,
+        ),
+    );
+  }, [
+    tracks,
+  ]);
+
+
+  const normalizedSearch =
+    searchQuery
+      .trim()
+      .toLocaleLowerCase();
+
+
+  const folderConfig = {
+    artists: {
+      label: "Artists",
+      icon: "people",
+      value:
+        (track) =>
+          track.artist ||
+          "Unknown Artist",
+    },
+
+    albums: {
+      label: "Albums",
+      icon: "disc",
+      value:
+        (track) =>
+          track.album ||
+          "No Album",
+    },
+
+    genres: {
+      label: "Genres",
+      icon: "music",
+      value:
+        (track) =>
+          track.genre ||
+          "No Genre",
+    },
+  };
+
+
+  const searchResults =
+    useMemo(
+      () => {
+        if (!normalizedSearch) {
+          return [];
+        }
+
+        return tracks.filter(
+          (track) =>
+            [
+              track.title,
+              track.artist,
+              track.album,
+              track.genre,
+            ]
+              .filter(Boolean)
+              .some(
+                (value) =>
+                  String(value)
+                    .toLocaleLowerCase()
+                    .includes(
+                      normalizedSearch,
+                    ),
+              ),
+        );
+      },
+      [
+        normalizedSearch,
+        tracks,
+      ],
+    );
+
+
+  const folders =
+    useMemo(
+      () => {
+        if (!category) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        if (!config) {
+          return [];
+        }
+
+        const grouped =
+          new Map();
+
+        tracks.forEach(
+          (track) => {
+            const value =
+              config.value(
+                track,
+              );
+
+            const key =
+              String(
+                value,
+              )
+                .trim()
+                .toLocaleLowerCase();
+
+            if (
+              !grouped.has(
+                key,
+              )
+            ) {
+              grouped.set(
+                key,
+                {
+                  key,
+                  value,
+                  tracks: [],
+                },
+              );
+            }
+
+            grouped
+              .get(
+                key,
+              )
+              .tracks
+              .push(
+                track,
+              );
+          },
+        );
+
+        return Array.from(
+          grouped.values(),
+        ).sort(
+          (
+            left,
+            right,
+          ) =>
+            String(
+              left.value,
+            ).localeCompare(
+              String(
+                right.value,
+              ),
+              undefined,
+              {
+                sensitivity:
+                  "base",
+              },
+            ),
+        );
+      },
+      [
+        category,
+        tracks,
+      ],
+    );
+
+
+  const folderTracks =
+    useMemo(
+      () => {
+        if (
+          !category ||
+          !folderValue
+        ) {
+          return [];
+        }
+
+        const config =
+          folderConfig[
+            category
+          ];
+
+        return tracks.filter(
+          (track) =>
+            String(
+              config.value(
+                track,
+              ),
+            )
+              .trim()
+              .toLocaleLowerCase()
+              ===
+            String(
+              folderValue,
+            )
+              .trim()
+              .toLocaleLowerCase(),
+        );
+      },
+      [
+        category,
+        folderValue,
+        tracks,
+      ],
+    );
+
+
+  const visibleTrackIds =
+    (
+      normalizedSearch
+        ? searchResults
+        : folderValue
+          ? folderTracks
+          : []
+    ).map(
+      (track) =>
+        String(
+          track.id,
+        ),
+    );
+
+  const selectedTrackCount =
+    selectedTrackIds.size;
+
+
+  const deleteSelectedTracks =
+    async () => {
+      if (
+        bulkDeleteBusy ||
+        selectedTrackCount ===
+          0
+      ) {
+        return;
+      }
+
+      const requestedTrackIds =
+        Array.from(
+          selectedTrackIds,
+        );
+
+      setBulkDeleteBusy(
+        true,
+      );
+
+      setMessage("");
+
+      try {
+        const result =
+          await deleteCatalogTracks(
+            requestedTrackIds,
+          );
+
+        const deletedTrackIds =
+          new Set(
+            (
+              Array.isArray(
+                result?.deleted_track_ids,
+              )
+                ? result.deleted_track_ids
+                : []
+            ).map(
+              (trackId) =>
+                String(
+                  trackId,
+                ),
+            ),
+          );
+
+        setSelectedTrackIds(
+          (current) =>
+            new Set(
+              Array.from(
+                current,
+              ).filter(
+                (trackId) =>
+                  !deletedTrackIds.has(
+                    String(
+                      trackId,
+                    ),
+                  ),
+              ),
+            ),
+        );
+
+        const failed =
+          Array.isArray(
+            result?.failed,
+          )
+            ? result.failed
+            : [];
+
+        if (
+          failed.length >
+          0
+        ) {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} songs; ${failed.length} could not be deleted.`,
+          );
+        } else {
+          setMessage(
+            `Deleted ${result?.deleted_count ?? deletedTrackIds.size} selected songs.`,
+          );
+
+          setSelectedTrackIds(
+            new Set(),
+          );
+        }
+
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete selected tracks.",
+        );
+
+      } finally {
+        setBulkDeleteBusy(
+          false,
+        );
+      }
+    };
+
+
+  const deleteTrack =
+    async (
+      track,
+    ) => {
+      setMessage("");
+
+      try {
+        await deleteCatalogTrack(
+          track.id,
+        );
+
+        setSelectedTrackIds(
+          (current) => {
+            const next =
+              new Set(
+                current,
+              );
+
+            next.delete(
+              String(
+                track.id,
+              ),
+            );
+
+            return next;
+          },
+        );
+
+        setMessage(
+          `Deleted "${track.title}".`,
+        );
+      } catch (deleteError) {
+        setMessage(
+          deleteError instanceof Error
+            ? deleteError.message
+            : "Unable to delete track.",
+        );
+      }
+    };
+
+
+  const renderFile =
+    (
+      track,
+    ) => {
+      const trackId =
+        String(
+          track.id,
+        );
+
+      const selected =
+        selectedTrackIds.has(
+          trackId,
+        );
+
+      return (
+      <div
+        className={
+          selected
+            ? "admin-explorer-file is-selected"
+            : "admin-explorer-file"
+        }
+        key={track.id}
+        onContextMenu={(
+          event,
+        ) => {
+          event.preventDefault();
+
+          if (
+            bulkDeleteBusy
+          ) {
+            return;
+          }
+
+          setSelectedTrackIds(
+            (current) =>
+              toggleTrackSelection(
+                current,
+                trackId,
+              ),
+          );
+        }}
+      >
+        <TrackArtwork
+          src={track.artwork_url}
+          alt={track.title}
+          variant={1}
+        />
+
+        <div className="admin-explorer-file__copy">
+          <strong>
+            {track.title}
+          </strong>
+
+          <span>
+            {track.artist}
+            {" • "}
+            {track.album ||
+              "No album"}
+            {" • "}
+            {track.genre ||
+              "No genre"}
+          </span>
+        </div>
+
+        <span className="admin-explorer-file__type">
+          {String(
+            track.mime_type ||
+              "audio",
+          )
+            .replace(
+              "audio/",
+              "",
+            )
+            .toUpperCase()}
+        </span>
+
+        <button
+          type="button"
+          className="danger-button"
+          onClick={() => {
+            void deleteTrack(
+              track,
+            );
+          }}
+        >
+          Delete
+        </button>
+      </div>
+      );
+    };
+
+
+  let explorerBody = null;
+
+  if (loading) {
+    explorerBody = (
+      <div className="admin-empty-state">
+        <Icon
+          name="chart"
+          size={28}
+        />
+
+        <strong>
+          Loading catalog...
+        </strong>
+      </div>
+    );
+
+  } else if (
+    normalizedSearch
+  ) {
+    explorerBody =
+      searchResults.length > 0
+        ? (
+          <div className="admin-explorer-files">
+            {searchResults.map(
+              renderFile,
+            )}
+          </div>
+        )
+        : (
+          <div className="admin-empty-state">
+            <Icon
+              name="search"
+              size={28}
+            />
+
+            <strong>
+              No files or folders match
+            </strong>
+
+            <p>
+              Search title, artist,
+              album, or genre.
+            </p>
+          </div>
+        );
+
+  } else if (!category) {
+    explorerBody = (
+      <div className="admin-explorer-folder-grid">
+        {Object.entries(
+          folderConfig,
+        ).map(
+          ([
+            key,
+            config,
+          ]) => {
+            const count =
+              new Set(
+                tracks.map(
+                  (track) =>
+                    String(
+                      config.value(
+                        track,
+                      ),
+                    )
+                      .trim()
+                      .toLocaleLowerCase(),
+                ),
+              ).size;
+
+            return (
+              <button
+                type="button"
+                className="admin-explorer-folder"
+                key={key}
+                onClick={() => {
+                  setCategory(
+                    key,
+                  );
+
+                  setFolderValue(
+                    null,
+                  );
+                }}
+              >
+                <span className="admin-explorer-folder__icon">
+                  <Icon
+                    name={
+                      config.icon
+                    }
+                    size={24}
+                  />
+                </span>
+
+                <span>
+                  <strong>
+                    {config.label}
+                  </strong>
+
+                  <small>
+                    {count}
+                    {" folders"}
+                  </small>
+                </span>
+
+                <Icon
+                  name="chevron"
+                  size={15}
+                />
+              </button>
+            );
+          },
+        )}
+
+      </div>
+    );
+
+  } else if (
+    category &&
+    !folderValue
+  ) {
+    explorerBody = (
+      <div className="admin-explorer-folder-list">
+        {folders.map(
+          (folder) => {
+            const folderTrackIds =
+              folder.tracks.map(
+                (track) =>
+                  String(
+                    track.id,
+                  ),
+              );
+
+            const selectionState =
+              getTrackGroupSelectionState(
+                selectedTrackIds,
+                folderTrackIds,
+              );
+
+            const artistSelectable =
+              category ===
+              "artists";
+
+            const folderClassName =
+              [
+                "admin-explorer-folder",
+                "admin-explorer-folder--row",
+                selectionState.allSelected
+                  ? "is-selected"
+                  : "",
+                selectionState.partiallySelected
+                  ? "is-partial"
+                  : "",
+                artistSelectable
+                  ? "is-multiselectable"
+                  : "",
+              ]
+                .filter(
+                  Boolean,
+                )
+                .join(
+                  " ",
+                );
+
+            return (
+            <button
+              type="button"
+              className={
+                folderClassName
+              }
+              key={folder.key}
+              onClick={() => {
+                setFolderValue(
+                  folder.value,
+                );
+              }}
+              onContextMenu={(
+                event,
+              ) => {
+                if (
+                  !artistSelectable
+                ) {
+                  return;
+                }
+
+                event.preventDefault();
+
+                if (
+                  bulkDeleteBusy
+                ) {
+                  return;
+                }
+
+                setSelectedTrackIds(
+                  (current) =>
+                    toggleTrackGroupSelection(
+                      current,
+                      folderTrackIds,
+                    ),
+                );
+              }}
+              title={
+                artistSelectable
+                  ? "Right-click to select every song by this artist"
+                  : undefined
+              }
+            >
+              <span className="admin-explorer-folder__icon">
+                <Icon
+                  name={
+                    folderConfig[
+                      category
+                    ].icon
+                  }
+                  size={20}
+                />
+              </span>
+
+              <span>
+                <strong>
+                  {folder.value}
+                </strong>
+
+                <small>
+                  {folder.tracks.length}
+                  {" files"}
+
+                  {artistSelectable &&
+                  selectionState.selectedCount >
+                    0
+                    ? (
+                        " • " +
+                        selectionState.selectedCount +
+                        " selected"
+                      )
+                    : ""}
+                </small>
+              </span>
+
+              <Icon
+                name="chevron"
+                size={15}
+              />
+            </button>
+            );
+          },
+        )}
+      </div>
+    );
+
+  } else {
+    explorerBody = (
+      <div className="admin-explorer-files">
+        {folderTracks.map(
+          renderFile,
+        )}
+      </div>
+    );
+  }
+
+
+  return (
+    <div className="page-stack hs-search-page admin-page admin-catalog-explorer-page">
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
+
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                MEDIA STORAGE
+              </span>
+            </div>
+
+            <h2>
+              Catalog Explorer
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Browse the music catalog like a
+              file system or search across
+              artists, albums, genres, and tracks.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            disabled={loading}
+            onClick={() => {
+              refreshCatalog({
+                force: true,
+              });
+            }}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+        </div>
+
+        <label className="hs-search-input admin-explorer-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={searchQuery}
+            placeholder="Search files, artists, albums, or genres..."
+            onChange={(
+              event,
+            ) => {
+              setSearchQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        <div className="admin-explorer-breadcrumb">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory(null);
+              setFolderValue(null);
+              setSearchQuery("");
+            }}
+          >
+            Catalog
+          </button>
+
+          {category ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFolderValue(
+                    null,
+                  );
+
+                  setSearchQuery(
+                    "",
+                  );
+                }}
+              >
+                {folderConfig[
+                  category
+                ].label}
+              </button>
+            </>
+          ) : null}
+
+          {folderValue ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                {folderValue}
+              </span>
+            </>
+          ) : null}
+
+          {normalizedSearch ? (
+            <>
+              <Icon
+                name="chevron"
+                size={12}
+              />
+
+              <span>
+                Search
+              </span>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      {message || error ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>
+            {message || error}
+          </span>
+        </div>
+      ) : null}
+
+      <section className="admin-panel admin-explorer-shell">
+        <div className="admin-panel__heading">
+          <div>
+            <span>
+              FILE EXPLORER
+            </span>
+
+            <h3>
+              {normalizedSearch
+                ? "Search Results"
+                : folderValue ||
+                  (
+                    category
+                      ? folderConfig[
+                          category
+                        ].label
+                      : "Catalog Root"
+                  )}
+            </h3>
+          </div>
+
+          <strong className="admin-panel-count">
+            {normalizedSearch
+              ? searchResults.length
+              : folderValue
+                ? folderTracks.length
+                : category
+                  ? folders.length
+                  : tracks.length}
+            {" items"}
+          </strong>
+        </div>
+
+        <div
+          className={
+            selectedTrackCount >
+              0
+              ? "admin-explorer-selection-bar is-active"
+              : "admin-explorer-selection-bar"
+          }
+        >
+          <span>
+            {selectedTrackCount >
+            0
+              ? (
+                  selectedTrackCount +
+                  " songs selected"
+                )
+              : "Right-click songs or artist folders to select multiple items while you scroll."}
+          </span>
+
+          {selectedTrackCount >
+          0 ? (
+            <div className="admin-explorer-selection-bar__actions">
+              {visibleTrackIds.length >
+              0 ? (
+                <button
+                  type="button"
+                  disabled={
+                    bulkDeleteBusy
+                  }
+                  onClick={() => {
+                    setSelectedTrackIds(
+                      (current) =>
+                        addTrackGroupSelection(
+                          current,
+                          visibleTrackIds,
+                        ),
+                    );
+                  }}
+                >
+                  Select all shown
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  setSelectedTrackIds(
+                    new Set(),
+                  );
+                }}
+              >
+                Clear
+              </button>
+
+              <button
+                type="button"
+                className="danger-button"
+                disabled={
+                  bulkDeleteBusy
+                }
+                onClick={() => {
+                  void deleteSelectedTracks();
+                }}
+              >
+                {bulkDeleteBusy
+                  ? (
+                      "Deleting " +
+                      selectedTrackCount +
+                      "..."
+                    )
+                  : (
+                      "Delete selected (" +
+                      selectedTrackCount +
+                      ")"
+                    )}
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {explorerBody}
+      </section>
+    </div>
+  );
+}
+
+function AdminDashboardPage({
+  onNavigate,
+}) {
+  const [
+    tracks,
+    setTracks,
+  ] = useState([]);
+
+  const [
+    diagnostics,
+    setDiagnostics,
+  ] = useState(null);
+
+  const [
+    botStatus,
+    setBotStatus,
+  ] = useState(null);
+
+  const [
+    duplicates,
+    setDuplicates,
+  ] = useState(null);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    duplicateBusy,
+    setDuplicateBusy,
+  ] = useState(false);
+
+  const [
+    duplicateDeleteBusy,
+    setDuplicateDeleteBusy,
+  ] = useState(false);
+
+  const [
+    userQuery,
+    setUserQuery,
+  ] = useState("");
+
+  const [
+    userResults,
+    setUserResults,
+  ] = useState([]);
+
+  const [
+    userSearchBusy,
+    setUserSearchBusy,
+  ] = useState(false);
+
+  const [
+    userDeleteBusy,
+    setUserDeleteBusy,
+  ] = useState(null);
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+  const [
+    lastChecked,
+    setLastChecked,
+  ] = useState(null);
+
+  const [
+    wipePassword,
+    setWipePassword,
+  ] = useState("");
+
+  const [
+    wipeConfirmation,
+    setWipeConfirmation,
+  ] = useState("");
+
+  const [
+    wipeBusy,
+    setWipeBusy,
+  ] = useState(false);
+
+  const [
+    wipeResult,
+    setWipeResult,
+  ] = useState("");
+
+
+  const deleteAllData = useCallback(
+    async () => {
+      setMessage("");
+      setWipeResult("");
+
+      if (
+        !wipePassword ||
+        wipeConfirmation !==
+          "DELETE ALL DATA"
+      ) {
+        setMessage(
+          "Enter the admin reset password and type DELETE ALL DATA exactly.",
+        );
+
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "This permanently deletes ALL HyperSynced database data and EVERY version of EVERY file in the configured B2 bucket. This also deletes the current admin account. Continue?",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setWipeBusy(true);
+
+      try {
+        const result =
+          await apiRequest(
+            "/admin/database/delete-all",
+            {
+              method:
+                "POST",
+              body:
+                JSON.stringify({
+                  password:
+                    wipePassword,
+                  confirmation:
+                    wipeConfirmation,
+                }),
+            },
+          );
+
+        player.stopTrack();
+
+        const clientReset =
+          await clearAllHyperSyncClientData();
+
+        rememberResetGeneration(
+          result?.reset_generation,
+        );
+
+        setTracks([]);
+
+        setWipeResult(
+          `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches.`,
+        );
+
+        setWipePassword("");
+        setWipeConfirmation("");
+
+        window.setTimeout(
+          () => {
+            window.location.replace(
+              "/",
+            );
+          },
+          250,
+        );
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to delete all data.",
+        );
+      } finally {
+        setWipeBusy(false);
+      }
+    },
+    [
+      wipePassword,
+      wipeConfirmation,
+    ],
+  );
+
+
+  const loadDashboard =
+    useCallback(
+      async () => {
+        setLoading(true);
+
+        const results =
+          await Promise.allSettled([
+            apiRequest(
+              "/catalog/tracks",
+            ),
+            apiRequest(
+              "/admin/diagnostics",
+            ),
+            apiRequest(
+              "/admin/bot/status",
+            ),
+          ]);
+
+        const errors = [];
+
+        if (
+          results[0].status ===
+          "fulfilled"
+        ) {
+          setTracks(
+            results[0].value ||
+              [],
+          );
+        } else {
+          errors.push(
+            "catalog",
+          );
+        }
+
+        if (
+          results[1].status ===
+          "fulfilled"
+        ) {
+          setDiagnostics(
+            results[1].value,
+          );
+        } else {
+          setDiagnostics(null);
+          errors.push(
+            "diagnostics",
+          );
+        }
+
+        if (
+          results[2].status ===
+          "fulfilled"
+        ) {
+          setBotStatus(
+            results[2].value,
+          );
+        } else {
+          setBotStatus(null);
+          errors.push(
+            "bot",
+          );
+        }
+
+        setLastChecked(
+          new Date(),
+        );
+
+        setMessage(
+          errors.length > 0
+            ? `Could not refresh: ${errors.join(", ")}.`
+            : "",
+        );
+
+        setLoading(false);
+      },
+      [],
+    );
+
+
+  const runDuplicateCheck =
+    useCallback(
+      async () => {
+        setDuplicateBusy(true);
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              "/admin/duplicates",
+            );
+
+          setDuplicates(
+            result,
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Duplicate scan failed.",
+          );
+        } finally {
+          setDuplicateBusy(false);
+        }
+      },
+      [],
+    );
+
+
+  const duplicateDeleteTrackIds =
+    useMemo(
+      () =>
+        duplicateTrackIdsToDelete(
+          duplicates,
+        ),
+      [
+        duplicates,
+      ],
+    );
+
+
+  const deleteFoundDuplicates =
+    useCallback(
+      async () => {
+        if (
+          duplicateDeleteBusy ||
+          duplicateDeleteTrackIds
+            .length === 0
+        ) {
+          return;
+        }
+
+        const confirmed =
+          window.confirm(
+            "Delete " +
+            duplicateDeleteTrackIds.length +
+            " duplicate track" +
+            (
+              duplicateDeleteTrackIds.length ===
+                1
+                ? ""
+                : "s"
+            ) +
+            "? HyperSynced will keep the oldest catalog copy in each duplicate group and permanently delete the extra database rows and B2 files.",
+          );
+
+        if (!confirmed) {
+          return;
+        }
+
+        setDuplicateDeleteBusy(
+          true,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await deleteCatalogTracks(
+              duplicateDeleteTrackIds,
+            );
+
+          await loadDashboard();
+
+          await runDuplicateCheck();
+
+          const deletedCount =
+            Number(
+              result
+                ?.deleted_count ??
+              result
+                ?.deleted_track_ids
+                ?.length ??
+              0,
+            );
+
+          const failedCount =
+            Array.isArray(
+              result?.failed,
+            )
+              ? result.failed.length
+              : 0;
+
+          setMessage(
+            failedCount > 0
+              ? (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  ". " +
+                  failedCount +
+                  " could not be deleted and remain in the catalog."
+                )
+              : (
+                  "Deleted " +
+                  deletedCount +
+                  " duplicate track" +
+                  (
+                    deletedCount === 1
+                      ? ""
+                      : "s"
+                  ) +
+                  " and kept one canonical copy per group."
+                ),
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to delete duplicates.",
+          );
+        } finally {
+          setDuplicateDeleteBusy(
+            false,
+          );
+        }
+      },
+      [
+        duplicateDeleteBusy,
+        duplicateDeleteTrackIds,
+        loadDashboard,
+        runDuplicateCheck,
+      ],
+    );
+
+
+  useEffect(() => {
+    const term =
+      userQuery.trim();
+
+    if (!term) {
+      setUserResults([]);
+      setUserSearchBusy(false);
+
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const timer =
+      window.setTimeout(
+        async () => {
+          setUserSearchBusy(
+            true,
+          );
+
+          try {
+            const result =
+              await apiRequest(
+                `/admin/users?q=${encodeURIComponent(
+                  term,
+                )}`,
+              );
+
+            if (!cancelled) {
+              setUserResults(
+                result?.users ||
+                  [],
+              );
+            }
+          } catch (searchError) {
+            if (!cancelled) {
+              setUserResults([]);
+
+              setMessage(
+                searchError instanceof Error
+                  ? searchError.message
+                  : "User search failed.",
+              );
+            }
+          } finally {
+            if (!cancelled) {
+              setUserSearchBusy(
+                false,
+              );
+            }
+          }
+        },
+        220,
+      );
+
+    return () => {
+      cancelled = true;
+
+      window.clearTimeout(
+        timer,
+      );
+    };
+  }, [
+    userQuery,
+  ]);
+
+
+  const deleteUserAccount =
+    useCallback(
+      async (
+        foundUser,
+      ) => {
+        setUserDeleteBusy(
+          foundUser.id,
+        );
+
+        setMessage("");
+
+        try {
+          const result =
+            await apiRequest(
+              `/admin/users/${foundUser.id}`,
+              {
+                method:
+                  "DELETE",
+              },
+            );
+
+          setUserResults(
+            (current) =>
+              current.filter(
+                (entry) =>
+                  entry.id !==
+                  foundUser.id,
+              ),
+          );
+
+          setMessage(
+            result?.message ||
+              `Deleted @${foundUser.username}.`,
+          );
+        } catch (deleteError) {
+          setMessage(
+            deleteError instanceof Error
+              ? deleteError.message
+              : "Unable to delete user.",
+          );
+        } finally {
+          setUserDeleteBusy(
+            null,
+          );
+        }
+      },
+      [],
+    );
+
+
+  useEffect(() => {
+    void loadDashboard();
+
+    const interval =
+      window.setInterval(
+        () => {
+          void loadDashboard();
+        },
+        30000,
+      );
+
+    return () => {
+      window.clearInterval(
+        interval,
+      );
+    };
+  }, [
+    loadDashboard,
+  ]);
+
+
+  const artistCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.artist,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
+
+  const albumCount =
+    useMemo(
+      () =>
+        new Set(
+          tracks
+            .map(
+              (track) =>
+                track.album,
+            )
+            .filter(Boolean),
+        ).size,
+      [
+        tracks,
+      ],
+    );
+
+  const artworkCount =
+    useMemo(
+      () =>
+        tracks.filter(
+          (track) =>
+            Boolean(
+              track.artwork_url,
+            ),
+        ).length,
+      [
+        tracks,
+      ],
+    );
+
+  const apiHealthy =
+    diagnostics?.api
+      ?.healthy === true;
+
+  const databaseHealthy =
+    diagnostics?.database
+      ?.healthy === true;
+
+  const storageHealthy =
+    diagnostics?.storage
+      ?.healthy === true;
+
+  const catalogHealthy =
+    diagnostics?.catalog
+      ?.healthy === true;
+
+  const botReachable =
+    diagnostics?.bot
+      ?.healthy === true;
+
+  const botRunning =
+    Boolean(
+      botStatus?.running ??
+      diagnostics?.bot
+        ?.running,
+    );
+
+  const duplicateCount =
+    duplicates
+      ?.duplicate_group_count ??
+    diagnostics?.catalog
+      ?.duplicate_groups ??
+    0;
+
+  const coreHealthy =
+    apiHealthy &&
+    databaseHealthy &&
+    storageHealthy;
+
+
+  return (
+    <div className="page-stack hs-search-page admin-dashboard-page admin-dashboard-page--revamped">
+
+      <section className="hs-search-console admin-command-console">
+        <div
+          className="hs-search-console__grid"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--one"
+          aria-hidden="true"
+        />
+
+        <div
+          className="hs-search-console__ambient hs-search-console__ambient--two"
+          aria-hidden="true"
+        />
+
+        <div className="hs-search-console__heading admin-command-console__heading">
+          <div className="hs-search-console__intro">
+            <div className="hs-search-console__eyebrow-row">
+              <span className="hs-search-eyebrow">
+                <i aria-hidden="true" />
+                HYPERSYNCED ADMIN
+              </span>
+            </div>
+
+            <h2>
+              Control Center
+            </h2>
+
+            <p className="admin-command-console__copy">
+              Live system checks, catalog tools,
+              automation controls, upload access,
+              and maintenance in one console.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="hs-search-primary-action admin-refresh-button"
+            onClick={() => {
+              void loadDashboard();
+            }}
+            disabled={loading}
+          >
+            <Icon
+              name="chart"
+              size={16}
+            />
+
+            {loading
+              ? "Checking..."
+              : "Refresh Systems"}
+          </button>
+        </div>
+
+        <div className="hs-search-console__status admin-command-status">
+          <span className="hs-search-status-chip hs-search-status-chip--primary">
+            <i
+              className={
+                coreHealthy
+                  ? "admin-blue-light is-on"
+                  : "admin-blue-light"
+              }
+            />
+
+            {coreHealthy
+              ? "CORE SYSTEMS ONLINE"
+              : "SYSTEM CHECK NEEDED"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {storageHealthy
+              ? "B2 CONNECTED"
+              : "B2 CHECK"}
+          </span>
+
+          <span className="hs-search-status-chip">
+            {lastChecked
+              ? `CHECKED ${lastChecked.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : "CHECKING"}
+          </span>
+        </div>
+      </section>
+
+
+      {message ? (
+        <div className="admin-alert">
+          <Icon
+            name="shield"
+            size={18}
+          />
+
+          <span>
+            {message}
+          </span>
+        </div>
+      ) : null}
+
+
+      <section className="admin-stat-grid admin-stat-grid--revamped">
+        <AdminStatCard
+          icon="music"
+          label="Published Tracks"
+          value={tracks.length}
+          detail="Live catalog count"
+        />
+
+        <AdminStatCard
+          icon="people"
+          label="Artists"
+          value={artistCount}
+          detail="Unique artists"
+        />
+
+        <AdminStatCard
+          icon="disc"
+          label="Albums"
+          value={albumCount}
+          detail="Unique albums"
+        />
+
+        <AdminStatCard
+          icon="mountains"
+          label="Artwork"
+          value={
+            tracks.length
+              ? `${Math.round(
+                  (
+                    artworkCount /
+                    tracks.length
+                  ) *
+                    100,
+                )}%`
+              : "0%"
+          }
+          detail={
+            `${artworkCount} covered`
+          }
+        />
+
+        <AdminStatCard
+          icon="shield"
+          label="Duplicate Groups"
+          value={duplicateCount}
+          detail={
+            duplicates
+              ? `${duplicates.scanned_tracks ?? tracks.length} scanned`
+              : "Run duplicate check"
+          }
+        />
+      </section>
+
+
+      <section className="admin-dashboard-grid admin-dashboard-grid--revamped">
+        <article className="admin-panel admin-health-panel admin-panel--interactive">
+          <div className="admin-panel__heading">
+            <div>
+              <span>LIVE DIAGNOSTICS</span>
+              <h3>Service Matrix</h3>
+            </div>
+
+            <span
+              className={
+                coreHealthy
+                  ? "admin-status admin-status--online"
+                  : "admin-status admin-status--offline"
+              }
+            >
+              {coreHealthy
+                ? "HEALTHY"
+                : "CHECK"}
+            </span>
+          </div>
+
+          <div className="admin-health-list">
+            <AdminHealthRow
+              label="Admin API"
+              value={
+                apiHealthy
+                  ? "Responding"
+                  : "Unavailable"
+              }
+              healthy={apiHealthy}
+            />
+
+            <AdminHealthRow
+              label="Database"
+              value={
+                databaseHealthy
+                  ? "Connected"
+                  : "Unavailable"
+              }
+              healthy={
+                databaseHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="B2 Storage"
+              value={
+                storageHealthy
+                  ? "Connected"
+                  : "Unavailable"
+              }
+              healthy={
+                storageHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="Catalog"
+              value={
+                catalogHealthy
+                  ? `${diagnostics?.catalog?.track_count ?? tracks.length} tracks`
+                  : "Unavailable"
+              }
+              healthy={
+                catalogHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="Bot Service"
+              value={
+                botRunning
+                  ? "Running"
+                  : (
+                      botReachable
+                        ? "Ready / stopped"
+                        : "Unavailable"
+                    )
+              }
+              healthy={
+                botReachable
+              }
+            />
+          </div>
+        </article>
+
+
+        <article className="admin-panel admin-panel--interactive">
+          <div className="admin-panel__heading">
+            <div>
+              <span>AUTOMATION</span>
+              <h3>Bot Telemetry</h3>
+            </div>
+
+            <span
+              className={
+                botRunning
+                  ? "admin-status admin-status--online"
+                  : "admin-status admin-status--offline"
+              }
+            >
+              {botRunning
+                ? "RUNNING"
+                : "STOPPED"}
+            </span>
+          </div>
+
+          <div className="bot-status-card">
+            <div className="bot-status-icon">
+              <Icon
+                name="chart"
+                size={25}
+              />
+            </div>
+
+            <div>
+              <strong>
+                HyperSynced Bot
+              </strong>
+
+              <p>
+                {botStatus?.current_job
+                  ? `Working: ${botStatus.current_job}`
+                  : `${botStatus?.queued_jobs ?? 0} queued • ${botStatus?.completed_jobs ?? 0} completed • ${botStatus?.failed_jobs ?? 0} failed`}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button"
+            onClick={() => {
+              onNavigate(
+                "admin-bot",
+              );
+            }}
+          >
+            Open Bot Controls
+
+            <Icon
+              name="chevron"
+              size={14}
+            />
+          </button>
+        </article>
+      </section>
+
+
+      <section className="admin-tool-deck">
+        <div className="admin-tool-deck__heading">
+          <div>
+            <span>ADMIN TOOLS</span>
+            <h3>Operations Deck</h3>
+          </div>
+
+          <small>
+            Blue lights mean the supporting
+            service responded successfully.
+          </small>
+        </div>
+
+        <div className="admin-quick-actions admin-quick-actions--four">
+          <AdminQuickAction
+            icon="plus"
+            title="Upload Studio"
+            description="Upload and process music."
+            active={
+              apiHealthy &&
+              storageHealthy
+            }
+            status={
+              storageHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-uploads",
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="music"
+            title="Media Catalog"
+            description="Browse artists, albums, genres, and files."
+            active={
+              catalogHealthy
+            }
+            status={
+              catalogHealthy
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-catalog",
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="chart"
+            title="Bot Control"
+            description="Run automation and processing."
+            active={
+              botReachable
+            }
+            status={
+              botReachable
+                ? "READY"
+                : "CHECK"
+            }
+            onClick={() => {
+              onNavigate(
+                "admin-bot",
+              );
+            }}
+          />
+
+          <AdminQuickAction
+            icon="shield"
+            title="Duplicate Check"
+            description="Scan normalized title + artist identities."
+            active={
+              duplicates !== null &&
+              duplicateCount === 0
+            }
+            status={
+              duplicateDeleteBusy
+                ? "DELETING"
+                : duplicateBusy
+                  ? "SCANNING"
+                  : duplicates
+                  ? (
+                      duplicateCount === 0
+                        ? "CLEAN"
+                        : `${duplicateCount} FOUND`
+                    )
+                  : "RUN"
+            }
+            onClick={() => {
+              document
+                .getElementById(
+                  "admin-duplicate-tool",
+                )
+                ?.scrollIntoView({
+                  behavior:
+                    "smooth",
+                  block:
+                    "start",
+                });
+
+              void runDuplicateCheck();
+            }}
+          />
+        </div>
+      </section>
+
+
+      <section
+        id="admin-duplicate-tool"
+        className="admin-panel admin-duplicate-panel admin-panel--interactive"
+      >
+        <div className="admin-panel__heading">
+          <div>
+            <span>CATALOG INTEGRITY</span>
+            <h3>Duplicate Check</h3>
+          </div>
+
+          <div className="admin-duplicate-actions">
+            {duplicateDeleteTrackIds.length >
+              0 ? (
+              <button
+                type="button"
+                className="danger-button admin-inline-button"
+                disabled={
+                  duplicateBusy ||
+                  duplicateDeleteBusy
+                }
+                onClick={() => {
+                  void deleteFoundDuplicates();
+                }}
+              >
+                {duplicateDeleteBusy
+                  ? "Deleting duplicates..."
+                  : (
+                      "Delete duplicates (" +
+                      duplicateDeleteTrackIds.length +
+                      ")"
+                    )}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="secondary-admin-button admin-inline-button"
+              disabled={
+                duplicateBusy ||
+                duplicateDeleteBusy
+              }
+              onClick={() => {
+                void runDuplicateCheck();
+              }}
+            >
+              {duplicateBusy
+                ? "Scanning..."
+                : "Scan Catalog"}
+            </button>
+          </div>
+        </div>
+
+        {duplicates === null ? (
+          <div className="admin-duplicate-idle">
+            <span className="admin-tool-light" />
+            <div>
+              <strong>
+                Ready to scan
+              </strong>
+              <p>
+                Uses the same normalized title and
+                artist identity check used by the
+                upload duplicate guard.
+              </p>
+            </div>
+          </div>
+        ) : duplicates.groups?.length ? (
+          <div className="admin-duplicate-list">
+            {duplicates.groups.map(
+              (group) => (
+                <div
+                  className="admin-duplicate-group"
+                  key={
+                    `${group.artist_key}:${group.title_key}`
+                  }
+                >
+                  <span className="admin-tool-light is-warning" />
+
+                  <div>
+                    <strong>
+                      {group.title}
+                    </strong>
+
+                    <small>
+                      {group.artist}
+                      {" • "}
+                      {group.count}
+                      {" matching tracks"}
+                    </small>
+                  </div>
+
+                  <span>
+                    {group.tracks
+                      ?.map(
+                        (track) =>
+                          track.album ||
+                          "No album",
+                      )
+                      .join(" • ")}
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
+        ) : (
+          <div className="admin-duplicate-idle is-clean">
+            <span className="admin-tool-light is-on" />
+
+            <div>
+              <strong>
+                Catalog is clean
+              </strong>
+
+              <p>
+                {duplicates.scanned_tracks ?? 0}
+                {" tracks scanned with no normalized duplicates found."}
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+
+      <section className="admin-panel admin-user-manager admin-panel--interactive">
+        <div className="admin-panel__heading">
+          <div>
+            <span>USER ADMINISTRATION</span>
+            <h3>Find & Delete Account</h3>
+          </div>
+
+          <span className="admin-status admin-status--online">
+            ADMIN ONLY
+          </span>
+        </div>
+
+        <p className="admin-user-manager__copy">
+          Search registered accounts by username,
+          display name, or email. Deleting an
+          account removes its server-side account
+          rows and profile avatar storage.
+        </p>
+
+        <label className="hs-search-input admin-user-search">
+          <span className="hs-search-input__icon">
+            <Icon
+              name="search"
+              size={17}
+            />
+          </span>
+
+          <input
+            type="search"
+            value={userQuery}
+            placeholder="Search username, display name, or email..."
+            onChange={(
+              event,
+            ) => {
+              setUserQuery(
+                event.target.value,
+              );
+            }}
+          />
+        </label>
+
+        {userSearchBusy ? (
+          <div className="admin-user-search-state">
+            <span className="library-spinner" />
+            <span>
+              Searching accounts...
+            </span>
+          </div>
+        ) : userQuery.trim() &&
+          userResults.length === 0 ? (
+          <div className="admin-user-search-state">
+            <Icon
+              name="people"
+              size={18}
+            />
+
+            <span>
+              No matching accounts.
+            </span>
+          </div>
+        ) : (
+          <div className="admin-user-results">
+            {userResults.map(
+              (foundUser) => (
+                <div
+                  className="admin-user-result"
+                  key={foundUser.id}
+                >
+                  <span className="admin-user-result__avatar">
+                    {foundUser.has_avatar ? (
+                      <img
+                        src={
+                          `/api/users/${encodeURIComponent(
+                            foundUser.username,
+                          )}/avatar`
+                        }
+                        alt=""
+                      />
+                    ) : (
+                      <Icon
+                        name="people"
+                        size={18}
+                      />
+                    )}
+                  </span>
+
+                  <div className="admin-user-result__copy">
+                    <strong>
+                      {foundUser.display_name}
+                    </strong>
+
+                    <span>
+                      {"@"}
+                      {foundUser.username}
+                      {" • "}
+                      {foundUser.email}
+                    </span>
+                  </div>
+
+                  <span className="admin-user-result__role">
+                    {String(
+                      foundUser.role,
+                    ).toUpperCase()}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={
+                      foundUser.is_current_admin ||
+                      userDeleteBusy ===
+                        foundUser.id
+                    }
+                    onClick={() => {
+                      void deleteUserAccount(
+                        foundUser,
+                      );
+                    }}
+                  >
+                    {foundUser.is_current_admin
+                      ? "Current Admin"
+                      : userDeleteBusy ===
+                          foundUser.id
+                        ? "Deleting..."
+                        : "Delete Account"}
+                  </button>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+      </section>
+
+
+      <section className="admin-panel admin-danger-zone admin-danger-zone--bottom">
+        <div className="admin-panel__heading">
+          <div>
+            <span>DANGER ZONE</span>
+            <h3>Delete All System Data</h3>
+          </div>
+
+          <span className="admin-status admin-status--danger">
+            IRREVERSIBLE
+          </span>
+        </div>
+
+        <p className="admin-danger-zone__copy">
+          Permanently delete every application row
+          and every version of every object in the
+          configured B2 bucket. Database schema and
+          migrations remain intact.
+        </p>
+
+        <div className="admin-danger-zone__form">
+          <label>
+            <span>
+              Verification password
+            </span>
+
+            <input
+              type="password"
+              name="hypersync_admin_reset_code"
+              autoComplete="one-time-code"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              value={wipePassword}
+              onChange={(event) => {
+                setWipePassword(
+                  event.target.value,
+                );
+              }}
+              placeholder="Enter password"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <label>
+            <span>
+              Type DELETE ALL DATA
+            </span>
+
+            <input
+              type="text"
+              autoComplete="off"
+              value={wipeConfirmation}
+              onChange={(event) => {
+                setWipeConfirmation(
+                  event.target.value,
+                );
+              }}
+              placeholder="DELETE ALL DATA"
+              disabled={wipeBusy}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="danger-button admin-danger-zone__button"
+            disabled={
+              wipeBusy ||
+              !wipePassword ||
+              wipeConfirmation !==
+                "DELETE ALL DATA"
+            }
+            onClick={() => {
+              void deleteAllData();
+            }}
+          >
+            {wipeBusy
+              ? "Deleting everything..."
+              : "Delete DB + B2 Data"}
+          </button>
+        </div>
+
+        {wipeResult ? (
+          <p className="admin-danger-zone__result">
+            {wipeResult}
+          </p>
+        ) : null}
+      </section>
+
+    </div>
+  );
+}
+
+
 function AdminStatCard({
   icon,
   label,
