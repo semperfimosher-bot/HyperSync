@@ -120,3 +120,70 @@ async def test_storage_integrity_reports_missing_objects_without_mutating_catalo
         "Healthy",
         "Broken",
     ]
+
+
+@pytest.mark.asyncio
+async def test_storage_integrity_reports_non_missing_storage_errors(
+    monkeypatch,
+) -> None:
+    tracks = [
+        _track(
+            title="Storage Error",
+            audio_key="audio/error.mp3",
+        ),
+    ]
+
+    def fake_head(
+        _object_key: str,
+    ):
+        raise RuntimeError(
+            "temporary storage failure",
+        )
+
+    monkeypatch.setattr(
+        storage_integrity,
+        "head_b2_object",
+        fake_head,
+    )
+
+    result = await storage_integrity.audit_track_storage(
+        tracks,
+        concurrency=2,
+    )
+
+    assert result["healthy"] is False
+    assert result["missing_audio_count"] == 0
+    assert result["error_count"] == 1
+    assert (
+        result["errors"][0]["object_key"]
+        == "audio/error.mp3"
+    )
+
+
+@pytest.mark.asyncio
+async def test_storage_integrity_handles_empty_catalog(
+    monkeypatch,
+) -> None:
+    calls = 0
+
+    def fake_head(
+        _object_key: str,
+    ):
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(
+        storage_integrity,
+        "head_b2_object",
+        fake_head,
+    )
+
+    result = await storage_integrity.audit_track_storage(
+        [],
+        concurrency=8,
+    )
+
+    assert result["healthy"] is True
+    assert result["tracks_checked"] == 0
+    assert result["objects_checked"] == 0
+    assert calls == 0
