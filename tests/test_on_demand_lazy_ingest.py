@@ -2,6 +2,10 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from bot.youtube_source import DownloadedAudio
 
@@ -10,6 +14,11 @@ from backend.app.api.routes import (
 )
 from backend.app.models.account import (
     AccountType,
+)
+from backend.app.models.base import Base
+from backend.app.models.media import (
+    Track,
+    TrackIdentity,
 )
 from backend.app.services import (
     on_demand_ingestion,
@@ -457,3 +466,187 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
         on_demand_ingestion
         .reset_transient_state()
     )
+
+
+@pytest.mark.asyncio
+async def test_on_demand_search_uses_indexed_identity_with_legacy_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackIdentity.__tablename__
+                ],
+            ],
+        )
+
+    factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with factory() as session:
+        indexed = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen & Lil Durk",
+            album="Single",
+            b2_object_key="audio/indexed-existing.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        legacy = Track(
+            title="Legacy Song",
+            artist="Legacy Artist",
+            album="Legacy Album",
+            b2_object_key="audio/legacy-existing.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add_all(
+            [
+                indexed,
+                legacy,
+            ]
+        )
+
+        await session.flush()
+
+        session.add(
+            TrackIdentity(
+                track_id=indexed.id,
+                artist_key=(
+                    "morgan wallen lil durk"
+                ),
+                primary_artist_key=(
+                    "morgan wallen"
+                ),
+                title_key=(
+                    "broadway girls"
+                ),
+            )
+        )
+
+        await session.commit()
+
+    candidates = [
+        CatalogTrackCandidate(
+            key="metadata:indexed",
+            title="Broadway Girls",
+            artist="Morgan Wallen",
+            album="Single",
+            duration_seconds=180,
+            artwork_url=None,
+            genre=None,
+            release_year=2026,
+            explicit=False,
+            track_number=1,
+            disc_number=1,
+            isrc=None,
+            deezer_track_id="indexed",
+            apple_track_id=None,
+            provider="deezer",
+            confidence=0.95,
+        ),
+        CatalogTrackCandidate(
+            key="metadata:legacy",
+            title="Legacy Song",
+            artist="Legacy Artist",
+            album="Legacy Album",
+            duration_seconds=180,
+            artwork_url=None,
+            genre=None,
+            release_year=2026,
+            explicit=False,
+            track_number=1,
+            disc_number=1,
+            isrc=None,
+            deezer_track_id="legacy",
+            apple_track_id=None,
+            provider="deezer",
+            confidence=0.95,
+        ),
+        CatalogTrackCandidate(
+            key="metadata:new",
+            title="Brand New Song",
+            artist="New Artist",
+            album="New Album",
+            duration_seconds=180,
+            artwork_url=None,
+            genre=None,
+            release_year=2026,
+            explicit=False,
+            track_number=1,
+            disc_number=1,
+            isrc=None,
+            deezer_track_id="new",
+            apple_track_id=None,
+            provider="deezer",
+            confidence=0.95,
+        ),
+    ]
+
+    async def fake_search(
+        *_args,
+        **_kwargs,
+    ):
+        return candidates
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "search_catalog_metadata",
+        fake_search,
+    )
+
+    missing = (
+        await on_demand_ingestion
+        .search_and_remember(
+            "anything",
+            limit=10,
+            prewarm=False,
+        )
+    )
+
+    assert [
+        candidate.key
+        for candidate
+        in missing
+    ] == [
+        "metadata:new",
+    ]
+
+    assert (
+        await on_demand_ingestion
+        .candidate_for_key(
+            "metadata:new",
+        )
+    ) is not None
+
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    await engine.dispose()
