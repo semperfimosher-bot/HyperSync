@@ -1,3 +1,84 @@
+const CATALOG_TRACK_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+export function catalogTrackIdOrNull(
+  value,
+) {
+  const id =
+    String(
+      value ?? "",
+    ).trim();
+
+  return (
+    CATALOG_TRACK_ID_PATTERN.test(
+      id,
+    )
+      ? id
+      : null
+  );
+}
+
+
+export function filterCatalogTrackIds(
+  values,
+  limit = 100,
+) {
+  const source =
+    Array.isArray(
+      values,
+    )
+      ? values
+      : [];
+
+  const cap =
+    Math.max(
+      0,
+      Math.floor(
+        Number(
+          limit,
+        ) || 0,
+      ),
+    );
+
+  const result = [];
+  const seen = new Set();
+
+  for (const value of source) {
+    const id =
+      catalogTrackIdOrNull(
+        value,
+      );
+
+    if (
+      !id ||
+      seen.has(
+        id,
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      id,
+    );
+
+    result.push(
+      id,
+    );
+
+    if (
+      result.length >=
+      cap
+    ) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+
 export function buildTrackQueue(
   tracks = [],
 ) {
