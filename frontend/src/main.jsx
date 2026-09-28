@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App.jsx";
+import PageErrorBoundary from
+  "./components/ui/PageErrorBoundary.jsx";
 import {
   syncGlobalResetState,
 } from "./globalResetSync.js";
@@ -25,7 +27,9 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <PageErrorBoundary scope="app">
+      <App />
+    </PageErrorBoundary>
   </StrictMode>,
 );
 
