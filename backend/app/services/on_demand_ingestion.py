@@ -19,6 +19,7 @@ import httpx
 from sqlalchemy import (
     or_,
     select,
+    text,
 )
 
 from bot.service import (
@@ -36,7 +37,10 @@ from bot.youtube_source import (
 )
 
 from ..config import get_settings
-from ..database import get_session_factory
+from ..database import (
+    get_engine,
+    get_session_factory,
+)
 from ..models.account import (
     ListeningEvent,
 )
@@ -119,6 +123,150 @@ _sessions_by_id: dict[
 _background_warm_tasks: set[
     asyncio.Task[Any]
 ] = set()
+
+
+async def _try_acquire_distributed_ingest_lock(
+    provision_id: UUID,
+):
+    """Try to become the one replica allowed to ingest a provision."""
+
+    engine = get_engine()
+
+    if engine.dialect.name != "postgresql":
+        return (
+            True,
+            None,
+        )
+
+    connection = await engine.connect()
+
+    try:
+        result = await connection.execute(
+            text(
+                "SELECT pg_try_advisory_lock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:on-demand-ingest:"
+                        + str(
+                            provision_id,
+                        )
+                    ),
+            },
+        )
+
+        acquired = bool(
+            result.scalar_one(),
+        )
+
+        if not acquired:
+            await connection.close()
+
+            return (
+                False,
+                None,
+            )
+
+        return (
+            True,
+            connection,
+        )
+
+    except Exception:
+        await connection.close()
+        raise
+
+
+async def _release_distributed_ingest_lock(
+    provision_id: UUID,
+    connection,
+) -> None:
+    if connection is None:
+        return
+
+    try:
+        await connection.execute(
+            text(
+                "SELECT pg_advisory_unlock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:on-demand-ingest:"
+                        + str(
+                            provision_id,
+                        )
+                    ),
+            },
+        )
+    finally:
+        await connection.close()
+
+
+async def _apply_terminal_durable_provision(
+    session: ProvisionSession,
+) -> bool:
+    durable = await load_durable_provision(
+        session.id,
+    )
+
+    if durable is None:
+        return False
+
+    track_id = durable.get(
+        "track_id",
+    )
+    state = str(
+        durable.get(
+            "state",
+            "",
+        )
+    )
+    error = durable.get(
+        "error",
+    )
+
+    if isinstance(
+        track_id,
+        UUID,
+    ):
+        async with _lock:
+            session.track_id = track_id
+            session.state = "ready"
+            session.error = None
+            session.ingest_started = True
+            session.updated_at = (
+                _now()
+            )
+
+        return True
+
+    if state == "failed":
+        async with _lock:
+            session.state = "failed"
+            session.error = (
+                str(
+                    error,
+                )[:500]
+                if error is not None
+                else (
+                    "Ingest failed on another "
+                    "backend replica."
+                )
+            )
+            session.ingest_started = True
+            session.updated_at = (
+                _now()
+            )
+
+        return True
+
+    return False
 
 
 def _now() -> float:
@@ -792,13 +940,54 @@ async def _run_ingest(
         + session.candidate.title
     )
 
-    queue_job()
-
-    job_started(
-        job_name,
-    )
+    lock_connection = None
+    job_accounted = False
 
     try:
+        # Local asyncio locks only coordinate one process.
+        # A durable provision can be reconstructed by another
+        # API replica after a deploy or concurrent request, so
+        # claim the expensive download/transcode work across
+        # the whole deployment.
+        while True:
+            (
+                acquired,
+                lock_connection,
+            ) = (
+                await _try_acquire_distributed_ingest_lock(
+                    session.id,
+                )
+            )
+
+            if acquired:
+                break
+
+            # The owning replica may already have completed.
+            # Mirror its durable terminal state instead of
+            # launching duplicate source acquisition work.
+            if await _apply_terminal_durable_provision(
+                session,
+            ):
+                return
+
+            await asyncio.sleep(
+                0.35,
+            )
+
+        # The lock may have become available immediately after
+        # the previous owner finished. Re-check durable state
+        # after acquiring it before doing any expensive work.
+        if await _apply_terminal_durable_provision(
+            session,
+        ):
+            return
+
+        queue_job()
+        job_started(
+            job_name,
+        )
+        job_accounted = True
+
         source = session.source
 
         if source is None:
@@ -963,16 +1152,22 @@ async def _run_ingest(
             session,
         )
 
-        job_failed(
-            (
-                "Catalog ingest failed: "
-                f"{session.candidate.artist} - "
-                f"{session.candidate.title}: "
-                f"{str(exc)[:300]}"
+        if job_accounted:
+            job_failed(
+                (
+                    "Catalog ingest failed: "
+                    f"{session.candidate.artist} - "
+                    f"{session.candidate.title}: "
+                    f"{str(exc)[:300]}"
+                )
             )
-        )
 
     finally:
+        await _release_distributed_ingest_lock(
+            session.id,
+            lock_connection,
+        )
+
         async with _lock:
             if (
                 session.ingest_task
