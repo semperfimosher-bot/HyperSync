@@ -1320,6 +1320,28 @@ async def test_durable_ready_can_recover_previous_failed_state(
 
     assert failed is True
 
+    invalid_ready = (
+        await on_demand_state.save_provision(
+            provision_id=provision_id,
+            candidate=candidate,
+            state="ready",
+            source_payload=None,
+            track_id=None,
+            error=None,
+            ingest_started=True,
+        )
+    )
+
+    assert invalid_ready is False
+
+    still_failed = await on_demand_state.load_provision(
+        provision_id,
+    )
+
+    assert still_failed is not None
+    assert still_failed["state"] == "failed"
+    assert still_failed["track_id"] is None
+
     async with factory() as session:
         session.add(
             Track(
