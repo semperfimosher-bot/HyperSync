@@ -2881,8 +2881,11 @@ async def live_playback_device(
                             source_device_id=(
                                 device_id
                             ),
-                            action=message.get(
-                                "action",
+                            action=cast(
+                                PlaybackRemoteAction,
+                                message.get(
+                                    "action",
+                                ),
                             ),
                             value=message.get(
                                 "value",
@@ -3067,17 +3070,11 @@ async def live_playback_device(
     except WebSocketDisconnect:
         pass
     finally:
-        should_cleanup = (
+        if (
             user is not None
             and registered_socket
-            and bool(
-                device_id,
-            )
-        )
-
-        is_current_socket = False
-
-        if should_cleanup:
+            and device_id
+        ):
             is_current_socket = (
                 await playback_realtime_hub.disconnect(
                     user.id,
@@ -3086,27 +3083,24 @@ async def live_playback_device(
                 )
             )
 
-        if (
-            should_cleanup
-            and is_current_socket
-        ):
-            # A socket close can be temporary: Vite reloads,
-            # Wi-Fi changes, mobile backgrounding, and normal
-            # reconnects all create short disconnect windows.
-            #
-            # Do not delete the shared playback_devices row here.
-            # HTTP polling may already be refreshing that same
-            # device, which previously raced this DELETE and
-            # produced SQLAlchemy StaleDataError. The existing
-            # background-tolerant presence TTL removes truly
-            # offline devices and releases playback ownership.
-            await playback_realtime_hub.broadcast(
-                user.id,
-                {
-                    "type":
-                        "presence_changed",
-                },
-            )
+            if is_current_socket:
+                # A socket close can be temporary: Vite reloads,
+                # Wi-Fi changes, mobile backgrounding, and normal
+                # reconnects all create short disconnect windows.
+                #
+                # Do not delete the shared playback_devices row here.
+                # HTTP polling may already be refreshing that same
+                # device, which previously raced this DELETE and
+                # produced SQLAlchemy StaleDataError. The existing
+                # background-tolerant presence TTL removes truly
+                # offline devices and releases playback ownership.
+                await playback_realtime_hub.broadcast(
+                    user.id,
+                    {
+                        "type":
+                            "presence_changed",
+                    },
+                )
 
 
 @router.post(
