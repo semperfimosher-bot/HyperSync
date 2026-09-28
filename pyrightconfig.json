@@ -1,10 +1,7 @@
 {
   "include": [
     "backend",
-    "bot",
-    "migrations",
-    "scripts",
-    "tests"
+    "bot"
   ],
   "exclude": [
     "**/node_modules",
@@ -14,7 +11,9 @@
     ".git",
     ".pytest_cache",
     ".ruff_cache",
-    "frontend/dist"
+    "frontend/dist",
+    "backend/app/services/music_metadata.py",
+    "bot/youtube_source.py"
   ],
   "venvPath": ".",
   "venv": ".venv",
