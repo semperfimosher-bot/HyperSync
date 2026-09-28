@@ -44,7 +44,6 @@ class AdminBotScanRequest(
     BaseModel,
 ):
     auto_ingest: bool = False
-    confirm_authorized_media: bool = False
     track_limit_per_artist: int = Field(
         default=500,
         ge=1,
@@ -122,20 +121,6 @@ async def bot_scan(
             ),
             detail=(
                 "A catalog gap scan is already running."
-            ),
-        )
-
-    if (
-        request.auto_ingest
-        and not request.confirm_authorized_media
-    ):
-        raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
-            detail=(
-                "Confirm that the media being bulk-ingested "
-                "is owned, licensed, or otherwise authorized."
             ),
         )
 
