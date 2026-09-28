@@ -25,6 +25,7 @@ from bot.worker import (
 )
 
 from ...services.bot_catalog_jobs import (
+    ActiveCatalogScanError,
     catalog_scan_is_active,
     create_catalog_scan,
     request_scan_cancel,
@@ -139,17 +140,27 @@ async def bot_scan(
             ),
         )
 
-    scan = await create_catalog_scan(
-        auto_ingest=(
-            request.auto_ingest
-        ),
-        track_limit_per_artist=(
-            request.track_limit_per_artist
-        ),
-        ingest_concurrency=(
-            request.ingest_concurrency
-        ),
-    )
+    try:
+        scan = await create_catalog_scan(
+            auto_ingest=(
+                request.auto_ingest
+            ),
+            track_limit_per_artist=(
+                request.track_limit_per_artist
+            ),
+            ingest_concurrency=(
+                request.ingest_concurrency
+            ),
+        )
+    except ActiveCatalogScanError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=str(
+                exc,
+            ),
+        ) from exc
 
     queue_job()
 
