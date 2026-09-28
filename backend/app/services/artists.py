@@ -6,6 +6,7 @@ from sqlalchemy import (
 from ..models.artist import ArtistProfile
 from ..models.media import Track
 from .audio_metadata import (
+    normalize_track_identity,
     primary_artist_credit,
     split_artist_credits,
 )
@@ -17,16 +18,11 @@ from .media_identity import (
 def normalize_artist_name(
     value: str,
 ) -> str:
-    return (
-        " ".join(
-            str(
-                value
-                or ""
-            )
-            .strip()
-            .split()
-        )
-        .casefold()
+    # Keep artist profile/search identity aligned with the
+    # same Unicode + whitespace normalization used by track
+    # identity and duplicate detection.
+    return normalize_track_identity(
+        value,
     )
 
 
