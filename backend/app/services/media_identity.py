@@ -413,6 +413,54 @@ async def catalog_identity_diagnostics(
         or 0
     )
 
+    album_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        func.distinct(
+                            func.lower(
+                                func.trim(
+                                    Track.album,
+                                )
+                            )
+                        )
+                    )
+                ).where(
+                    Track.album.is_not(
+                        None,
+                    ),
+                    func.trim(
+                        Track.album,
+                    )
+                    != "",
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    artwork_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        Track.id,
+                    )
+                ).where(
+                    Track.artwork_object_key.is_not(
+                        None,
+                    ),
+                    func.trim(
+                        Track.artwork_object_key,
+                    )
+                    != "",
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
     missing_identity_count = int(
         (
             await session.execute(
@@ -437,6 +485,22 @@ async def catalog_identity_diagnostics(
     )
 
     if missing_identity_count == 0:
+        artist_count = int(
+            (
+                await session.execute(
+                    select(
+                        func.count(
+                            func.distinct(
+                                TrackArtistCredit
+                                .normalized_name,
+                            )
+                        )
+                    )
+                )
+            ).scalar_one()
+            or 0
+        )
+
         duplicate_groups = (
             select(
                 TrackIdentity.primary_artist_key,
@@ -481,6 +545,8 @@ async def catalog_identity_diagnostics(
             int,
         ] = {}
 
+        artist_keys: set[str] = set()
+
         for title, artist in result.all():
             (
                 _artist_key,
@@ -504,6 +570,24 @@ async def catalog_identity_diagnostics(
                 + 1
             )
 
+            for credit in split_artist_credits(
+                artist,
+            ):
+                normalized_credit = (
+                    normalize_track_identity(
+                        credit,
+                    )
+                )
+
+                if normalized_credit:
+                    artist_keys.add(
+                        normalized_credit,
+                    )
+
+        artist_count = len(
+            artist_keys,
+        )
+
         duplicate_group_count = sum(
             1
             for count in groups.values()
@@ -513,6 +597,12 @@ async def catalog_identity_diagnostics(
     return {
         "track_count":
             track_count,
+        "artist_count":
+            artist_count,
+        "album_count":
+            album_count,
+        "artwork_count":
+            artwork_count,
         "duplicate_groups":
             duplicate_group_count,
         "identity_backfill_pending":
