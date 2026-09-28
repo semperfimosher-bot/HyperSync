@@ -25,6 +25,9 @@ from .services.admin_notifications import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
+from .services.media_identity import (
+    backfill_missing_media_identities,
+)
 from .security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
@@ -251,6 +254,30 @@ async def run_message_retention_cleanup() -> None:
         )
 
 
+async def run_media_identity_backfill() -> None:
+    while True:
+        try:
+            processed = (
+                await backfill_missing_media_identities(
+                    batch_size=250,
+                )
+            )
+        except Exception:
+            # Identity sidecars are an optimization and
+            # compatibility layer. A temporary backfill
+            # failure must not take down the API.
+            return
+
+        if processed == 0:
+            return
+
+        # Yield between batches so startup maintenance
+        # never monopolizes the event loop.
+        await asyncio.sleep(
+            0,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await ensure_demo_data()
@@ -273,11 +300,23 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_message_retention_cleanup(),
     )
 
+    media_identity_task = asyncio.create_task(
+        run_media_identity_backfill(),
+    )
+
     try:
         yield
     finally:
         keepalive_task.cancel()
         retention_task.cancel()
+
+        if not media_identity_task.done():
+            media_identity_task.cancel()
+
+            with suppress(
+                asyncio.CancelledError,
+            ):
+                await media_identity_task
 
         if (
             bot_resume_task is not None
