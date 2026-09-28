@@ -104,6 +104,20 @@ _background_warm_tasks: set[
 ] = set()
 
 
+def _track_background_warm_task(
+    task: asyncio.Task[Any],
+) -> asyncio.Task[Any]:
+    _background_warm_tasks.add(
+        task,
+    )
+
+    task.add_done_callback(
+        _background_warm_tasks.discard,
+    )
+
+    return task
+
+
 def _now() -> float:
     return time.monotonic()
 
@@ -867,9 +881,11 @@ async def prewarm_candidates(
     for candidate in candidates[
         :limit
     ]:
-        asyncio.create_task(
-            prewarm_candidate(
-                candidate,
+        _track_background_warm_task(
+            asyncio.create_task(
+                prewarm_candidate(
+                    candidate,
+                )
             )
         )
 
@@ -961,12 +977,8 @@ async def warm_candidate_keys(
             )
         )
 
-        _background_warm_tasks.add(
+        _track_background_warm_task(
             task,
-        )
-
-        task.add_done_callback(
-            _background_warm_tasks.discard,
         )
 
     return [
