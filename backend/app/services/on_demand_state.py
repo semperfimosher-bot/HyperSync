@@ -14,6 +14,7 @@ from sqlalchemy import (
     or_,
     select,
     text,
+    update,
 )
 from sqlalchemy.exc import (
     SQLAlchemyError,
@@ -479,6 +480,15 @@ async def save_provision(
     error: str | None,
     ingest_started: bool,
 ) -> bool:
+    """Persist provision state without allowing stale regressions.
+
+    Multiple API replicas can resolve the same provision at
+    different speeds. Terminal durable states are therefore
+    monotonic: ready is strongest; failed can only be replaced
+    by a real successful publish; nonterminal writers can
+    never move a terminal row backward.
+    """
+
     session_factory = (
         get_session_factory()
     )
@@ -491,6 +501,7 @@ async def save_provision(
             )
 
             now = _now()
+            expiry = _expires_at()
 
             if row is None:
                 row = OnDemandProvision(
@@ -501,47 +512,127 @@ async def save_provision(
                     candidate_payload=(
                         candidate.as_dict()
                     ),
-                    state=state,
+                    state=(
+                        "ready"
+                        if track_id is not None
+                        else state
+                    ),
                     source_payload=(
                         source_payload
                     ),
                     track_id=track_id,
-                    error=error,
+                    error=(
+                        None
+                        if track_id is not None
+                        else error
+                    ),
                     ingest_started=(
                         ingest_started
+                        or track_id is not None
                     ),
-                    expires_at=(
-                        _expires_at()
-                    ),
+                    expires_at=expiry,
                 )
 
                 session.add(
                     row,
                 )
+
+                await session.commit()
+
+                return True
+
+            values = {
+                "candidate_key":
+                    candidate.key,
+                "candidate_payload":
+                    candidate.as_dict(),
+                "state":
+                    (
+                        "ready"
+                        if track_id is not None
+                        else state
+                    ),
+                "source_payload":
+                    source_payload,
+                "track_id":
+                    track_id,
+                "error":
+                    (
+                        None
+                        if track_id is not None
+                        else error
+                    ),
+                "ingest_started":
+                    (
+                        bool(
+                            ingest_started
+                        )
+                        or track_id is not None
+                    ),
+                "expires_at":
+                    expiry,
+                "updated_at":
+                    now,
+            }
+
+            statement = (
+                update(
+                    OnDemandProvision,
+                )
+                .where(
+                    OnDemandProvision.id
+                    == provision_id,
+                )
+            )
+
+            incoming_ready = (
+                track_id is not None
+                or state == "ready"
+            )
+
+            if incoming_ready:
+                # A successful publish may recover a provision
+                # that another replica previously marked failed.
+                pass
+
+            elif state == "failed":
+                # Failure may finalize active work, but it may
+                # never erase a successful result.
+                statement = statement.where(
+                    OnDemandProvision.track_id.is_(
+                        None,
+                    ),
+                    OnDemandProvision.state
+                    != "ready",
+                )
+
             else:
-                row.candidate_key = (
-                    candidate.key
+                # Resolving/queued/stream-ready/ingesting are
+                # transient observations. Never let a stale
+                # replica overwrite either terminal state.
+                statement = statement.where(
+                    OnDemandProvision.track_id.is_(
+                        None,
+                    ),
+                    OnDemandProvision.state.not_in(
+                        (
+                            "ready",
+                            "failed",
+                        )
+                    ),
                 )
-                row.candidate_payload = (
-                    candidate.as_dict()
+
+            result = await session.execute(
+                statement.values(
+                    **values,
                 )
-                row.state = state
-                row.source_payload = (
-                    source_payload
-                )
-                row.track_id = track_id
-                row.error = error
-                row.ingest_started = (
-                    ingest_started
-                )
-                row.expires_at = (
-                    _expires_at()
-                )
-                row.updated_at = now
+            )
 
             await session.commit()
 
-        return True
+            return bool(
+                result.rowcount,
+            )
 
     except SQLAlchemyError:
         _warn_once(
