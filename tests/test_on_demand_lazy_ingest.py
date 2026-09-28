@@ -486,6 +486,12 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
         assert provision_id == session.id
         assert connection is None
 
+    async def no_terminal_durable_result(
+        durable_session,
+    ) -> bool:
+        assert durable_session is session
+        return False
+
     monkeypatch.setattr(
         on_demand_ingestion,
         "_try_acquire_distributed_ingest_lock",
@@ -496,6 +502,12 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
         on_demand_ingestion,
         "_release_distributed_ingest_lock",
         fake_unlock,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_apply_terminal_durable_provision",
+        no_terminal_durable_result,
     )
 
     monkeypatch.setattr(
@@ -538,7 +550,7 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
         session,
     )
 
-    assert session.state == "ready"
+    assert session.state == "ready", session.error
     assert session.track_id == track_id
     assert session.pending_listener_user_ids == set()
 
