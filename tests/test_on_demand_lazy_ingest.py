@@ -470,6 +470,34 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
             )
         )
 
+    async def fake_lock(
+        provision_id: UUID,
+    ):
+        assert provision_id == session.id
+        return (
+            True,
+            None,
+        )
+
+    async def fake_unlock(
+        provision_id: UUID,
+        connection,
+    ) -> None:
+        assert provision_id == session.id
+        assert connection is None
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_try_acquire_distributed_ingest_lock",
+        fake_lock,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_release_distributed_ingest_lock",
+        fake_unlock,
+    )
+
     monkeypatch.setattr(
         on_demand_ingestion,
         "download_youtube_audio",
