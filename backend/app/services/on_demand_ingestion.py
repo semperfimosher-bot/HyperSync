@@ -65,6 +65,7 @@ from .on_demand_state import (
     load_candidate as load_durable_candidate,
     load_provision as load_durable_provision,
     list_recent_provisions as list_durable_recent_provisions,
+    list_resumable_provision_ids,
     persist_candidates as persist_durable_candidates,
     pop_pending_listeners as pop_durable_pending_listeners,
     save_provision as save_durable_provision,
@@ -1977,6 +1978,68 @@ async def provision_status(
     return _session_snapshot(
         session,
     )
+
+
+async def resume_on_demand_ingests_on_startup(
+    *,
+    limit: int = 50,
+) -> int:
+    """Reconstruct interrupted durable ingests after a deploy.
+
+    This intentionally resumes only provisions that had
+    already entered ingestion. Search prewarms and source-only
+    preparations remain lazy.
+    """
+
+    provision_ids = (
+        await list_resumable_provision_ids(
+            limit=limit,
+        )
+    )
+
+    if not provision_ids:
+        return 0
+
+    resumed = 0
+    semaphore = asyncio.Semaphore(
+        4,
+    )
+
+    async def resume_one(
+        provision_id: UUID,
+    ) -> None:
+        nonlocal resumed
+
+        async with semaphore:
+            session = (
+                await get_provision_session(
+                    provision_id,
+                )
+            )
+
+            if (
+                session is not None
+                and session.track_id is None
+                and session.state
+                not in {
+                    "failed",
+                    "ready",
+                }
+            ):
+                resumed += 1
+
+    await asyncio.gather(
+        *[
+            resume_one(
+                provision_id,
+            )
+            for provision_id
+            in provision_ids
+        ],
+        return_exceptions=False,
+    )
+
+    return resumed
 
 
 async def active_provisions() -> list[
