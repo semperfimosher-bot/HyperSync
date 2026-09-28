@@ -265,6 +265,34 @@ async def find_duplicate_track(
     return None
 
 
+def _artist_credit_matches_target(
+    artist_credit: str | None,
+    target: str,
+    *,
+    primary_only: bool,
+) -> bool:
+    credits = (
+        (
+            primary_artist_credit(
+                artist_credit,
+            ),
+        )
+        if primary_only
+        else split_artist_credits(
+            artist_credit,
+        )
+    )
+
+    return any(
+        normalize_track_identity(
+            credit,
+        )
+        == target
+        for credit in credits
+        if credit
+    )
+
+
 async def load_tracks_for_artist_credit(
     session,
     artist_name: str,
@@ -317,6 +345,11 @@ async def load_tracks_for_artist_credit(
             track
         for track
         in indexed_result.scalars().all()
+        if _artist_credit_matches_target(
+            track.artist,
+            target,
+            primary_only=primary_only,
+        )
     }
 
     # Compatibility fallback for rows that do not
@@ -350,25 +383,10 @@ async def load_tracks_for_artist_credit(
     )
 
     for track in legacy_result.scalars().all():
-        credits = (
-            (
-                primary_artist_credit(
-                    track.artist,
-                ),
-            )
-            if primary_only
-            else split_artist_credits(
-                track.artist,
-            )
-        )
-
-        if any(
-            normalize_track_identity(
-                credit,
-            )
-            == target
-            for credit in credits
-            if credit
+        if _artist_credit_matches_target(
+            track.artist,
+            target,
+            primary_only=primary_only,
         ):
             tracks_by_id[
                 track.id
