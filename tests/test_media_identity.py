@@ -489,3 +489,91 @@ async def test_catalog_primary_artist_inventory_prefers_indexed_sidecars_and_fal
         }
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_primary_artist_inventory_supports_tracks_only_legacy_schema() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+            ],
+        )
+
+    factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with factory() as session:
+        session.add_all(
+            [
+                Track(
+                    title="Broadway Girls",
+                    artist=(
+                        "Morgan Wallen & Lil Durk"
+                    ),
+                    album="Single",
+                    b2_object_key=(
+                        "audio/legacy-inventory-one.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    is_published=True,
+                ),
+                Track(
+                    title="Religiously",
+                    artist=(
+                        "Bailey Zimmerman & Brandon Lake"
+                    ),
+                    album="Album",
+                    b2_object_key=(
+                        "audio/legacy-inventory-two.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    is_published=True,
+                ),
+                Track(
+                    title="Hidden",
+                    artist="Hidden Artist",
+                    album="Hidden",
+                    b2_object_key=(
+                        "audio/legacy-inventory-hidden.mp3"
+                    ),
+                    mime_type="audio/mpeg",
+                    is_published=False,
+                ),
+            ]
+        )
+
+        await session.commit()
+
+        artists, identities = (
+            await catalog_primary_artist_inventory(
+                session,
+            )
+        )
+
+        assert artists == [
+            "Bailey Zimmerman",
+            "Morgan Wallen",
+        ]
+
+        assert identities == {
+            (
+                "bailey zimmerman",
+                "religiously",
+            ),
+            (
+                "morgan wallen",
+                "broadway girls",
+            ),
+        }
+
+    await engine.dispose()
