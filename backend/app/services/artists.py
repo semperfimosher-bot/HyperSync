@@ -61,6 +61,97 @@ def artist_credit_matches(
     )
 
 
+def artist_names_for_credit(
+    artist_credit: str | None,
+    *,
+    include_combined: bool = True,
+) -> tuple[str, ...]:
+    raw = " ".join(
+        str(
+            artist_credit
+            or ""
+        )
+        .strip()
+        .split()
+    )
+
+    if not raw:
+        return ()
+
+    values = (
+        (
+            raw,
+            *split_artist_credits(
+                raw,
+            ),
+        )
+        if include_combined
+        else split_artist_credits(
+            raw,
+        )
+    )
+
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        clean = " ".join(
+            str(
+                value
+                or ""
+            )
+            .strip()
+            .split()
+        )
+
+        key = normalize_artist_name(
+            clean,
+        )
+
+        if (
+            not key
+            or key in seen
+        ):
+            continue
+
+        seen.add(
+            key,
+        )
+        result.append(
+            clean,
+        )
+
+    return tuple(
+        result,
+    )
+
+
+async def ensure_artist_profiles_for_credit(
+    session,
+    artist_credit: str | None,
+    *,
+    include_combined: bool = True,
+) -> list[ArtistProfile]:
+    profiles: list[
+        ArtistProfile
+    ] = []
+
+    for artist_name in artist_names_for_credit(
+        artist_credit,
+        include_combined=(
+            include_combined
+        ),
+    ):
+        profiles.append(
+            await ensure_artist_profile(
+                session,
+                artist_name,
+            )
+        )
+
+    return profiles
+
+
 def _artist_like_pattern(
     artist_name: str,
 ) -> str:
