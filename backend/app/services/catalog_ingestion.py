@@ -345,7 +345,7 @@ async def publish_authorized_audio(
             await ensure_artist_profiles_for_credit(
                 session,
                 track.artist,
-                include_combined=True,
+                include_combined=False,
             )
 
             await sync_track_media_identity(
@@ -358,7 +358,7 @@ async def publish_authorized_audio(
             try:
                 for artist_name in artist_names_for_credit(
                     track.artist,
-                    include_combined=True,
+                    include_combined=False,
                 ):
                     await ensure_artist_playlist(
                         session,
