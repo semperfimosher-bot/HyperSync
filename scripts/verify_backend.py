@@ -940,9 +940,17 @@ def _collect_route_entries(
 
 
 def verify_application() -> None:
+    expected_title = (
+        f"{get_settings().app_name} API"
+    )
+
     _require(
-        app.title == "HyperSync API",
-        f"Unexpected API title: {app.title!r}",
+        app.title == expected_title,
+        (
+            "Unexpected API title: "
+            f"{app.title!r}; expected "
+            f"{expected_title!r}."
+        ),
     )
 
     openapi_paths = set(
