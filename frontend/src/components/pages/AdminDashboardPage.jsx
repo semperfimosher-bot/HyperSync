@@ -49,6 +49,16 @@ export default function AdminDashboardPage({
   ] = useState(null);
 
   const [
+    mediaIntegrity,
+    setMediaIntegrity,
+  ] = useState(null);
+
+  const [
+    mediaIntegrityBusy,
+    setMediaIntegrityBusy,
+  ] = useState(false);
+
+  const [
     loading,
     setLoading,
   ] = useState(true);
@@ -284,6 +294,44 @@ export default function AdminDashboardPage({
           );
         } finally {
           setDuplicateBusy(false);
+        }
+      },
+      [],
+    );
+
+
+  const runMediaIntegrityCheck =
+    useCallback(
+      async () => {
+        setMediaIntegrityBusy(
+          true,
+        );
+
+        setMessage(
+          "",
+        );
+
+        try {
+          const result =
+            await apiRequest(
+              "/admin/media-integrity?limit=500",
+            );
+
+          setMediaIntegrity(
+            result,
+          );
+
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Media integrity scan failed.",
+          );
+
+        } finally {
+          setMediaIntegrityBusy(
+            false,
+          );
         }
       },
       [],
@@ -1160,6 +1208,127 @@ export default function AdminDashboardPage({
                 {" tracks scanned with no normalized duplicates found."}
               </p>
             </div>
+          </div>
+        )}
+      </section>
+
+
+      <section
+        id="admin-media-integrity-tool"
+        className="admin-panel admin-duplicate-panel admin-panel--interactive"
+      >
+        <div className="admin-panel__heading">
+          <div>
+            <span>STORAGE INTEGRITY</span>
+            <h3>DB ↔ B2 Reference Check</h3>
+          </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button admin-inline-button"
+            disabled={
+              mediaIntegrityBusy
+            }
+            onClick={() => {
+              void runMediaIntegrityCheck();
+            }}
+          >
+            {mediaIntegrityBusy
+              ? "Checking storage..."
+              : "Scan 500 Tracks"}
+          </button>
+        </div>
+
+        {mediaIntegrity === null ? (
+          <div className="admin-duplicate-idle">
+            <span className="admin-tool-light" />
+
+            <div>
+              <strong>
+                Ready to verify storage
+              </strong>
+
+              <p>
+                Read-only check for catalog rows whose
+                audio or artwork objects are missing from B2.
+              </p>
+            </div>
+          </div>
+        ) : mediaIntegrity.healthy ? (
+          <div className="admin-duplicate-idle is-clean">
+            <span className="admin-tool-light is-on" />
+
+            <div>
+              <strong>
+                Storage references are healthy
+              </strong>
+
+              <p>
+                {mediaIntegrity.tracks_checked ?? 0}
+                {" tracks and "}
+                {mediaIntegrity.objects_checked ?? 0}
+                {" B2 objects checked with no missing references."}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="admin-duplicate-list">
+            <div className="admin-duplicate-group">
+              <span className="admin-tool-light is-warning" />
+
+              <div>
+                <strong>
+                  Storage issues found
+                </strong>
+
+                <small>
+                  {(mediaIntegrity.missing_audio_count ?? 0)}
+                  {" missing audio • "}
+                  {(mediaIntegrity.missing_artwork_count ?? 0)}
+                  {" missing artwork • "}
+                  {(mediaIntegrity.error_count ?? 0)}
+                  {" B2 errors"}
+                </small>
+              </div>
+            </div>
+
+            {[
+              ...(mediaIntegrity.missing_audio ?? []),
+              ...(mediaIntegrity.missing_artwork ?? []),
+            ]
+              .slice(
+                0,
+                12,
+              )
+              .map(
+                (
+                  issue,
+                  index,
+                ) => (
+                  <div
+                    className="admin-duplicate-group"
+                    key={
+                      (issue.track_id ?? "track")
+                      + ":"
+                      + (issue.object_key ?? index)
+                    }
+                  >
+                    <span className="admin-tool-light is-warning" />
+
+                    <div>
+                      <strong>
+                        {issue.title ?? "Unknown track"}
+                      </strong>
+
+                      <small>
+                        {issue.artist ?? "Unknown artist"}
+                        {" • "}
+                        {issue.object_key}
+                      </small>
+                    </div>
+                  </div>
+                ),
+              )}
           </div>
         )}
       </section>
