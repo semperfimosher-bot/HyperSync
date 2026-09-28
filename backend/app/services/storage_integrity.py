@@ -61,21 +61,47 @@ async def audit_track_storage(
     *,
     concurrency: int = 8,
 ) -> dict[str, Any]:
-    semaphore = asyncio.Semaphore(
-        max(
-            1,
-            min(
-                int(
-                    concurrency,
-                ),
-                16,
+    worker_count = max(
+        1,
+        min(
+            int(
+                concurrency,
             ),
-        )
+            16,
+        ),
     )
 
     missing_audio: list[dict[str, str]] = []
     missing_artwork: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
+
+    jobs: asyncio.Queue[
+        tuple[
+            Track,
+            str,
+            str,
+        ]
+    ] = asyncio.Queue()
+
+    for track in tracks:
+        jobs.put_nowait(
+            (
+                track,
+                track.b2_object_key,
+                "audio",
+            )
+        )
+
+        if track.artwork_object_key:
+            jobs.put_nowait(
+                (
+                    track,
+                    track.artwork_object_key,
+                    "artwork",
+                )
+            )
+
+    objects_checked = jobs.qsize()
 
     async def check_object(
         track: Track,
@@ -84,11 +110,10 @@ async def audit_track_storage(
         kind: str,
     ) -> None:
         try:
-            async with semaphore:
-                await asyncio.to_thread(
-                    head_b2_object,
-                    object_key,
-                )
+            await asyncio.to_thread(
+                head_b2_object,
+                object_key,
+            )
 
         except ClientError as exc:
             if _missing_b2_error(
@@ -151,33 +176,44 @@ async def audit_track_storage(
                 }
             )
 
-    tasks = []
+    async def worker() -> None:
+        while True:
+            try:
+                (
+                    track,
+                    object_key,
+                    kind,
+                ) = jobs.get_nowait()
+            except asyncio.QueueEmpty:
+                return
 
-    for track in tracks:
-        tasks.append(
-            check_object(
-                track,
-                object_key=(
-                    track.b2_object_key
+            try:
+                await check_object(
+                    track,
+                    object_key=object_key,
+                    kind=kind,
+                )
+            finally:
+                jobs.task_done()
+
+    workers = [
+        asyncio.create_task(
+            worker(),
+        )
+        for _index in range(
+            min(
+                worker_count,
+                max(
+                    objects_checked,
+                    1,
                 ),
-                kind="audio",
             )
         )
+    ]
 
-        if track.artwork_object_key:
-            tasks.append(
-                check_object(
-                    track,
-                    object_key=(
-                        track.artwork_object_key
-                    ),
-                    kind="artwork",
-                )
-            )
-
-    if tasks:
+    if workers:
         await asyncio.gather(
-            *tasks,
+            *workers,
         )
 
     return {
@@ -191,9 +227,7 @@ async def audit_track_storage(
                 tracks,
             ),
         "objects_checked":
-            len(
-                tasks,
-            ),
+            objects_checked,
         "missing_audio_count":
             len(
                 missing_audio,
