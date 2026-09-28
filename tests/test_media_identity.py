@@ -14,6 +14,7 @@ from backend.app.models.media import (
     TrackIdentity,
 )
 from backend.app.services.media_identity import (
+    catalog_identity_diagnostics,
     find_duplicate_track,
     load_tracks_for_artist_credit,
     sync_track_media_identity,
@@ -312,3 +313,80 @@ def test_track_lock_identity_collapses_primary_artist_credit_formats() -> None:
 
     assert collaboration == primary_only
     assert remix_label == primary_only
+
+
+@pytest.mark.asyncio
+async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts() -> None:
+    engine, factory = await _factory()
+
+    async with factory() as session:
+        first = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen & Lil Durk",
+            album="Single",
+            b2_object_key="audio/diag-one.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        second = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen",
+            album="Single",
+            b2_object_key="audio/diag-two.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        unique = Track(
+            title="Different Song",
+            artist="Morgan Wallen",
+            album="Album",
+            b2_object_key="audio/diag-three.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add_all(
+            [
+                first,
+                second,
+                unique,
+            ]
+        )
+
+        await session.commit()
+
+        legacy = await catalog_identity_diagnostics(
+            session,
+        )
+
+        assert legacy == {
+            "track_count": 3,
+            "duplicate_groups": 1,
+            "identity_backfill_pending": 3,
+        }
+
+        for track in (
+            first,
+            second,
+            unique,
+        ):
+            await sync_track_media_identity(
+                session,
+                track,
+            )
+
+        await session.commit()
+
+        indexed = await catalog_identity_diagnostics(
+            session,
+        )
+
+        assert indexed == {
+            "track_count": 3,
+            "duplicate_groups": 1,
+            "identity_backfill_pending": 0,
+        }
+
+    await engine.dispose()
