@@ -30,6 +30,7 @@ from ...models.artist import (
 from ...models.media import Track
 from ...services.artists import (
     ensure_artist_profile,
+    load_published_artist_tracks,
     normalize_artist_name,
 )
 from ..dependencies import (
@@ -122,27 +123,16 @@ async def _artist_entity(
     if profile is not None:
         return profile
 
-    track_result = await session.execute(
-        select(
-            Track,
-        ).where(
-            func.lower(
-                Track.artist,
-            )
-            == normalized.lower(),
-            Track.is_published.is_(True),
+    matching_tracks = (
+        await load_published_artist_tracks(
+            session,
+            clean,
+            primary_only=False,
+            limit=1,
         )
-        .order_by(
-            Track.created_at.asc(),
-        )
-        .limit(1)
     )
 
-    track = (
-        track_result.scalar_one_or_none()
-    )
-
-    if track is None:
+    if not matching_tracks:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Artist not found.",
@@ -150,7 +140,7 @@ async def _artist_entity(
 
     profile = await ensure_artist_profile(
         session,
-        track.artist,
+        clean,
     )
 
     await session.commit()
@@ -213,23 +203,18 @@ async def _artist_profile_response(
         profile.normalized_name
     )
 
-    track_result = await session.execute(
-        select(
-            Track,
-        ).where(
-            func.lower(
-                Track.artist,
-            )
-            == normalized.lower(),
-            Track.is_published.is_(True),
-        )
-        .order_by(
-            Track.created_at.desc(),
+    tracks = (
+        await load_published_artist_tracks(
+            session,
+            profile.name,
+            primary_only=False,
         )
     )
 
-    tracks = list(
-        track_result.scalars().all()
+    tracks.sort(
+        key=lambda track:
+            track.created_at,
+        reverse=True,
     )
 
     track_ids = [
