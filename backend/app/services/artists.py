@@ -9,6 +9,9 @@ from .audio_metadata import (
     primary_artist_credit,
     split_artist_credits,
 )
+from .media_identity import (
+    load_tracks_for_artist_credit,
+)
 
 
 def normalize_artist_name(
@@ -194,65 +197,36 @@ async def load_published_artist_tracks(
     primary_only: bool = False,
     limit: int | None = None,
 ) -> list[Track]:
-    clean = " ".join(
-        str(
-            artist_name
-            or ""
-        )
-        .strip()
-        .split()
-    )
-
-    if not clean:
-        return []
-
-    statement = (
-        select(
-            Track,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.artist.ilike(
-                _artist_like_pattern(
-                    clean,
-                ),
-                escape="\\",
-            ),
-        )
-        .order_by(
-            Track.artist.asc(),
-            Track.title.asc(),
-        )
-    )
-
-    result = await session.execute(
-        statement,
-    )
-
-    matches = [
-        track
-        for track
-        in result.scalars().all()
-        if artist_credit_matches(
-            track.artist,
-            clean,
+    tracks = (
+        await load_tracks_for_artist_credit(
+            session,
+            artist_name,
             primary_only=(
                 primary_only
             ),
+            published_only=True,
         )
-    ]
+    )
+
+    tracks.sort(
+        key=lambda track: (
+            track.artist.casefold(),
+            track.title.casefold(),
+            str(
+                track.id,
+            ),
+        )
+    )
 
     if (
         limit is not None
         and limit >= 0
     ):
-        return matches[
+        return tracks[
             :limit
         ]
 
-    return matches
+    return tracks
 
 
 async def ensure_artist_profile(
