@@ -1211,13 +1211,13 @@ function AdminDashboardPage({
             <AdminHealthRow
               label="Bot Service"
               value={
-                botRunning
-                  ? "Running"
-                  : (
-                      botReachable
-                        ? "Ready / stopped"
-                        : "Unavailable"
+                botReachable
+                  ? (
+                      botStatus?.current_job
+                        ? "Working"
+                        : "Always on"
                     )
+                  : "Unavailable"
               }
               healthy={
                 botReachable
@@ -1236,14 +1236,18 @@ function AdminDashboardPage({
 
             <span
               className={
-                botRunning
+                botReachable
                   ? "admin-status admin-status--online"
                   : "admin-status admin-status--offline"
               }
             >
-              {botRunning
-                ? "RUNNING"
-                : "STOPPED"}
+              {botReachable
+                ? (
+                    botStatus?.current_job
+                      ? "WORKING"
+                      : "ONLINE"
+                  )
+                : "OFFLINE"}
             </span>
           </div>
 
@@ -1277,7 +1281,7 @@ function AdminDashboardPage({
               );
             }}
           >
-            Open Bot Controls
+            Open Bot Automation
 
             <Icon
               name="chevron"
