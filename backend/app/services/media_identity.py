@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     delete,
+    func,
     select,
 )
 
@@ -376,6 +377,129 @@ async def load_tracks_for_artist_credit(
     return list(
         tracks_by_id.values(),
     )
+
+
+async def catalog_identity_diagnostics(
+    session,
+) -> dict[str, int]:
+    track_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        Track.id,
+                    )
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    missing_identity_count = int(
+        (
+            await session.execute(
+                select(
+                    func.count(
+                        Track.id,
+                    )
+                )
+                .outerjoin(
+                    TrackIdentity,
+                    TrackIdentity.track_id
+                    == Track.id,
+                )
+                .where(
+                    TrackIdentity.track_id.is_(
+                        None,
+                    )
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    if missing_identity_count == 0:
+        duplicate_groups = (
+            select(
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            )
+            .group_by(
+                TrackIdentity.primary_artist_key,
+                TrackIdentity.title_key,
+            )
+            .having(
+                func.count(
+                    TrackIdentity.track_id,
+                )
+                > 1
+            )
+            .subquery()
+        )
+
+        duplicate_group_count = int(
+            (
+                await session.execute(
+                    select(
+                        func.count(),
+                    ).select_from(
+                        duplicate_groups,
+                    )
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    else:
+        result = await session.execute(
+            select(
+                Track.title,
+                Track.artist,
+            )
+        )
+
+        groups: dict[
+            tuple[str, str],
+            int,
+        ] = {}
+
+        for title, artist in result.all():
+            (
+                _artist_key,
+                primary_artist_key,
+                title_key,
+            ) = track_identity_keys(
+                title=title,
+                artist=artist,
+            )
+
+            key = (
+                primary_artist_key,
+                title_key,
+            )
+
+            groups[key] = (
+                groups.get(
+                    key,
+                    0,
+                )
+                + 1
+            )
+
+        duplicate_group_count = sum(
+            1
+            for count in groups.values()
+            if count > 1
+        )
+
+    return {
+        "track_count":
+            track_count,
+        "duplicate_groups":
+            duplicate_group_count,
+        "identity_backfill_pending":
+            missing_identity_count,
+    }
 
 
 async def backfill_missing_media_identities(
