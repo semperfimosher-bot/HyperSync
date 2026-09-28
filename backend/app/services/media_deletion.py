@@ -5,9 +5,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import (
+    select,
+    text,
+)
 
 from ..database import (
+    get_engine,
     get_session_factory,
 )
 from ..models.maintenance import (
@@ -87,7 +91,88 @@ async def queue_media_deletion(
     return job
 
 
-async def process_media_deletion_job(
+async def _acquire_deletion_lock(
+    job_id: UUID,
+):
+    engine = get_engine()
+
+    if engine.dialect.name != "postgresql":
+        return (
+            True,
+            None,
+        )
+
+    connection = await engine.connect()
+
+    try:
+        result = await connection.execute(
+            text(
+                "SELECT pg_try_advisory_lock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:media-delete:"
+                        + str(
+                            job_id,
+                        )
+                    ),
+            },
+        )
+
+        acquired = bool(
+            result.scalar_one(),
+        )
+
+        if not acquired:
+            await connection.close()
+
+            return (
+                False,
+                None,
+            )
+
+        return (
+            True,
+            connection,
+        )
+
+    except Exception:
+        await connection.close()
+        raise
+
+
+async def _release_deletion_lock(
+    job_id: UUID,
+    connection,
+) -> None:
+    if connection is None:
+        return
+
+    try:
+        await connection.execute(
+            text(
+                "SELECT pg_advisory_unlock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:media-delete:"
+                        + str(
+                            job_id,
+                        )
+                    ),
+            },
+        )
+    finally:
+        await connection.close()
+
+
+async def _process_media_deletion_job_locked(
     job_id: UUID,
     *,
     bucket: Any | None = None,
@@ -240,6 +325,33 @@ async def process_media_deletion_job(
                     exc,
                 )[:500],
             )
+
+
+async def process_media_deletion_job(
+    job_id: UUID,
+    *,
+    bucket: Any | None = None,
+) -> MediaDeletionResult | None:
+    (
+        acquired,
+        lock_connection,
+    ) = await _acquire_deletion_lock(
+        job_id,
+    )
+
+    if not acquired:
+        return None
+
+    try:
+        return await _process_media_deletion_job_locked(
+            job_id,
+            bucket=bucket,
+        )
+    finally:
+        await _release_deletion_lock(
+            job_id,
+            lock_connection,
+        )
 
 
 async def process_pending_media_deletions(
