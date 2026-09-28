@@ -497,24 +497,25 @@ async def _ingest_missing(
             except asyncio.QueueEmpty:
                 return
 
+            claimed = (
+                await mark_item_started(
+                    scan_id,
+                    item_id,
+                )
+            )
+
+            if not claimed:
+                queue.task_done()
+                continue
+
             try:
+                bot.service.catalog_scan_ingest_started()
+
                 await remember_candidates(
                     [
                         candidate,
                     ],
                 )
-
-                claimed = (
-                    await mark_item_started(
-                        scan_id,
-                        item_id,
-                    )
-                )
-
-                if not claimed:
-                    continue
-
-                bot.service.catalog_scan_ingest_started()
 
                 result = (
                     await ingest_candidate_and_wait(
