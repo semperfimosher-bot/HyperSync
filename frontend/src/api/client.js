@@ -3,6 +3,7 @@ import {
   getAccessToken,
   hasStoredSession,
   saveAuthSession,
+  shouldRememberSession,
 } from "./storage.js";
 
 export const API_BASE =
@@ -292,9 +293,7 @@ export async function refreshAccessToken() {
       await response.json();
 
     const remember =
-      localStorage.getItem(
-        "hypersync_remember_me",
-      ) !== "false";
+      shouldRememberSession();
 
     saveAuthSession(
       data.access_token,
