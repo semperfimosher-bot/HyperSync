@@ -8,6 +8,9 @@ from contextlib import (
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from bot.runtime import (
+    shutdown_background_tasks,
+)
 from bot.worker import (
     resume_catalog_scan_on_startup,
 )
@@ -338,6 +341,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             asyncio.CancelledError,
         ):
             await retention_task
+
+        # Any route-started bot task must stop before the
+        # database engine closes. Durable catalog scans remain
+        # resumable and will be picked up on the next startup.
+        await shutdown_background_tasks()
 
         await close_database()
 
