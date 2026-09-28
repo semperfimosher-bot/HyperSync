@@ -424,20 +424,30 @@ async def admin_activity_notifications(
     ):
         kind, title = description
 
-        await record_admin_activity(
-            kind=kind,
-            title=title,
-            body=(
-                request.method.upper()
-                + " "
-                + request.url.path
-            ),
-            actor_user_id=(
-                _request_actor_user_id(
-                    request,
-                )
-            ),
-        )
+        try:
+            await record_admin_activity(
+                kind=kind,
+                title=title,
+                body=(
+                    request.method.upper()
+                    + " "
+                    + request.url.path
+                ),
+                actor_user_id=(
+                    _request_actor_user_id(
+                        request,
+                    )
+                ),
+            )
+        except Exception:
+            # Activity notifications are observability.
+            # They must never turn an already-successful
+            # core request into a user-visible failure.
+            logger.exception(
+                "Unable to record admin activity for %s %s",
+                request.method.upper(),
+                request.url.path,
+            )
 
     return response
 
