@@ -797,3 +797,105 @@ async def test_speculative_prewarm_tasks_are_tracked_and_drained(
         ._background_warm_tasks
         == set()
     )
+
+
+@pytest.mark.asyncio
+async def test_replica_follower_reuses_durable_ingest_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _candidate()
+    track_id = uuid4()
+
+    session = (
+        on_demand_ingestion
+        .ProvisionSession(
+            id=uuid4(),
+            candidate=candidate,
+            state="ingesting",
+            created_at=0.0,
+            updated_at=0.0,
+            stream_token="test-token",
+        )
+    )
+
+    lock_attempts = 0
+    download_calls = 0
+    publish_calls = 0
+
+    async def fake_lock(
+        provision_id: UUID,
+    ):
+        nonlocal lock_attempts
+        assert provision_id == session.id
+        lock_attempts += 1
+
+        return (
+            False,
+            None,
+        )
+
+    async def fake_load(
+        provision_id: UUID,
+    ):
+        assert provision_id == session.id
+
+        return {
+            "id":
+                provision_id,
+            "state":
+                "ready",
+            "track_id":
+                track_id,
+            "error":
+                None,
+        }
+
+    async def unexpected_download(
+        _source,
+    ):
+        nonlocal download_calls
+        download_calls += 1
+        raise AssertionError(
+            "Follower replica must not download audio.",
+        )
+
+    async def unexpected_publish(
+        **_kwargs,
+    ):
+        nonlocal publish_calls
+        publish_calls += 1
+        raise AssertionError(
+            "Follower replica must not publish audio.",
+        )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_try_acquire_distributed_ingest_lock",
+        fake_lock,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "load_durable_provision",
+        fake_load,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "download_youtube_audio",
+        unexpected_download,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "publish_authorized_audio",
+        unexpected_publish,
+    )
+
+    await on_demand_ingestion._run_ingest(
+        session,
+    )
+
+    assert lock_attempts == 1
+    assert download_calls == 0
+    assert publish_calls == 0
+    assert session.state == "ready"
+    assert session.track_id == track_id
+    assert session.error is None
