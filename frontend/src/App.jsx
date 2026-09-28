@@ -106,30 +106,13 @@ import {
 } from "./onDemandMusic.js";
 
 import {
-  cleanupLegacyUnscopedDownloads,
-  getActivePlaylistDownloads,
-  getDownloadedPlaylists,
   getOfflineOwnerKey,
-  getPlaylistDownloadJobId,
-  reconcileDownloadedPlaylistMembership,
-  recoverInterruptedDownloadJobs,
   removeAllOfflineDownloadsForOwner,
-  removePlaylistFromOffline,
-  startPlaylistDownloadForOffline,
 } from "./offlineDownloads.js";
-
-import {
-  getPlaylist,
-} from "./playlistApi.js";
 
 import {
   clearCachedLibraryScope,
 } from "./libraryCache.js";
-
-import {
-  findMissingPlaylistTracks,
-  playlistUpdateKey,
-} from "./playlistDownloadUpdates.js";
 
 import {
   getPwaInstallState,
@@ -172,6 +155,9 @@ import {
 
 import useMessageNotifications from
   "./hooks/useMessageNotifications.js";
+
+import useDownloadedPlaylistUpdates from
+  "./hooks/useDownloadedPlaylistUpdates.js";
 
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
@@ -973,6 +959,18 @@ export default function App() {
   const [statusMessage, setStatusMessage] =
     useState("");
 
+  const {
+    activePlaylistDownloads,
+    activePlaylistUpdate,
+    dismissPlaylistUpdate,
+    downloadActivePlaylistUpdate,
+    resetDownloadedPlaylistUpdates,
+  } = useDownloadedPlaylistUpdates({
+    currentUser,
+    onStatusMessage:
+      setStatusMessage,
+  });
+
   const [
     mobileSeekFeedback,
     setMobileSeekFeedback,
@@ -995,16 +993,6 @@ export default function App() {
 
   const mobilePointerStartRef =
     useRef(null);
-
-  const [
-    playlistUpdates,
-    setPlaylistUpdates,
-  ] = useState([]);
-
-  const [
-    activePlaylistDownloads,
-    setActivePlaylistDownloads,
-  ] = useState([]);
 
   const [
     playbackDevices,
@@ -3640,64 +3628,6 @@ export default function App() {
   ]);
 
 
-  useEffect(() => {
-    const syncActivePlaylistDownloads =
-      () => {
-        if (
-          currentUser?.account_type !==
-            "registered"
-        ) {
-          setActivePlaylistDownloads(
-            [],
-          );
-
-          return;
-        }
-
-        setActivePlaylistDownloads(
-          getActivePlaylistDownloads(
-            getOfflineOwnerKey(
-              currentUser,
-            ),
-          ),
-        );
-      };
-
-    syncActivePlaylistDownloads();
-
-    window.addEventListener(
-      "hypersync:offline-download-progress",
-      syncActivePlaylistDownloads,
-    );
-
-    window.addEventListener(
-      "hypersync:offline-downloads-changed",
-      syncActivePlaylistDownloads,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "hypersync:offline-download-progress",
-        syncActivePlaylistDownloads,
-      );
-
-      window.removeEventListener(
-        "hypersync:offline-downloads-changed",
-        syncActivePlaylistDownloads,
-      );
-    };
-  }, [
-    currentUser,
-  ]);
-
-  const playlistUpdateCheckRef =
-    useRef(false);
-
-  const dismissedPlaylistUpdatesRef =
-    useRef(
-      new Set(),
-    );
-
   const searchStateTimerRef =
     useRef(null);
 
@@ -3814,533 +3744,6 @@ const restoreSavedAppView =
   );
 
 
-const checkDownloadedGeneratedPlaylistUpdates =
-  useCallback(
-    async () => {
-      if (
-        currentUser?.account_type !==
-          "registered" ||
-        globalThis.navigator
-          ?.onLine ===
-          false ||
-        playlistUpdateCheckRef
-          .current
-      ) {
-        return;
-      }
-
-      playlistUpdateCheckRef.current =
-        true;
-
-      try {
-        const offlineOwnerKey =
-          getOfflineOwnerKey(
-            currentUser,
-          );
-
-        const downloadedPlaylists =
-          await getDownloadedPlaylists(
-            offlineOwnerKey,
-          );
-
-        const detected =
-          (
-            await Promise.all(
-              downloadedPlaylists.map(
-                async (
-                  downloadedPlaylist,
-                ) => {
-                  try {
-                    const livePlaylist =
-                      await getPlaylist(
-                        downloadedPlaylist.id,
-                      );
-
-                    if (
-                      livePlaylist.is_liked_songs
-                    ) {
-                      await reconcileDownloadedPlaylistMembership(
-                        livePlaylist,
-                        offlineOwnerKey,
-                      );
-
-                      const missingLikedTracks =
-                        findMissingPlaylistTracks(
-                          livePlaylist,
-                          downloadedPlaylist,
-                        );
-
-                      if (
-                        missingLikedTracks.length >
-                        0
-                      ) {
-                        await startPlaylistDownloadForOffline(
-                          livePlaylist.tracks,
-                          {
-                            jobId:
-                              getPlaylistDownloadJobId(
-                                offlineOwnerKey,
-                                livePlaylist.id,
-                              ),
-                            ownerKey:
-                              offlineOwnerKey,
-
-                            jobMetadata: {
-                              kind:
-                                "playlist",
-                              playlistId:
-                                livePlaylist.id,
-                              playlistTitle:
-                                livePlaylist.title,
-                              playlistDescription:
-                                livePlaylist.description ??
-                                null,
-                              playlistArtworkUrl:
-                                livePlaylist.artwork_url ??
-                                null,
-                              playlistOwnerUsername:
-                                livePlaylist.owner_username ??
-                                null,
-                              playlistVisibility:
-                                livePlaylist.visibility ??
-                                null,
-                            },
-                          },
-                        );
-
-                        window.dispatchEvent(
-                          new CustomEvent(
-                            "hypersync:offline-playlist-updated",
-                            {
-                              detail: {
-                                playlistId:
-                                  livePlaylist.id,
-                              },
-                            },
-                          ),
-                        );
-                      }
-
-                      return null;
-                    }
-
-                    if (
-                      livePlaylist.visibility !==
-                      "generated"
-                    ) {
-                      return null;
-                    }
-
-                    await reconcileDownloadedPlaylistMembership(
-                      livePlaylist,
-                      offlineOwnerKey,
-                    );
-
-                    const missingTracks =
-                      findMissingPlaylistTracks(
-                        livePlaylist,
-                        downloadedPlaylist,
-                      );
-
-                    if (
-                      missingTracks.length ===
-                      0
-                    ) {
-                      return null;
-                    }
-
-                    const key =
-                      playlistUpdateKey(
-                        livePlaylist,
-                        missingTracks,
-                      );
-
-                    if (
-                      dismissedPlaylistUpdatesRef
-                        .current
-                        .has(
-                          key,
-                        )
-                    ) {
-                      return null;
-                    }
-
-                    return {
-                      key,
-                      playlist:
-                        livePlaylist,
-                      missingTracks,
-                      status:
-                        "ready",
-                      progress:
-                        0,
-                    };
-                  } catch (error) {
-                    if (
-                      error?.status ===
-                      404
-                    ) {
-                      await removePlaylistFromOffline(
-                        downloadedPlaylist.id,
-                        offlineOwnerKey,
-                      ).catch(
-                        () => false,
-                      );
-
-                      window.dispatchEvent(
-                        new CustomEvent(
-                          "hypersync:offline-downloads-changed",
-                        ),
-                      );
-                    }
-
-                    return null;
-                  }
-                },
-              ),
-            )
-          ).filter(Boolean);
-
-        setPlaylistUpdates(
-          (current) =>
-            detected.map(
-              (update) => {
-                const existing =
-                  current.find(
-                    (item) =>
-                      item.key ===
-                      update.key,
-                  );
-
-                return (
-                  existing?.status ===
-                    "downloading"
-                    ? existing
-                    : update
-                );
-              },
-            ),
-        );
-      } finally {
-        playlistUpdateCheckRef.current =
-          false;
-      }
-    },
-    [currentUser],
-  );
-
-
-  useEffect(() => {
-    if (
-      currentUser?.account_type !==
-      "registered"
-    ) {
-      setPlaylistUpdates(
-        [],
-      );
-
-      return undefined;
-    }
-
-    void (
-      async () => {
-        await cleanupLegacyUnscopedDownloads();
-
-        await recoverInterruptedDownloadJobs(
-          getOfflineOwnerKey(
-            currentUser,
-          ),
-        );
-
-        await checkDownloadedGeneratedPlaylistUpdates();
-      }
-    )().catch(
-      () => {},
-    );
-
-    const intervalId =
-      window.setInterval(
-        () => {
-          void checkDownloadedGeneratedPlaylistUpdates();
-        },
-        15000,
-      );
-
-    const handleFocus =
-      () => {
-        void checkDownloadedGeneratedPlaylistUpdates();
-      };
-
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          void checkDownloadedGeneratedPlaylistUpdates();
-        }
-      };
-
-    window.addEventListener(
-      "focus",
-      handleFocus,
-    );
-
-    window.addEventListener(
-      "online",
-      handleFocus,
-    );
-
-    window.addEventListener(
-      "hypersync:library-changed",
-      handleFocus,
-    );
-
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibility,
-    );
-
-    return () => {
-      window.clearInterval(
-        intervalId,
-      );
-
-      window.removeEventListener(
-        "focus",
-        handleFocus,
-      );
-
-      window.removeEventListener(
-        "online",
-        handleFocus,
-      );
-
-      window.removeEventListener(
-        "hypersync:library-changed",
-        handleFocus,
-      );
-
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibility,
-      );
-    };
-  }, [
-    currentUser,
-    checkDownloadedGeneratedPlaylistUpdates,
-  ]);
-
-
-  const dismissPlaylistUpdate =
-    useCallback(
-      () => {
-        setPlaylistUpdates(
-          (current) => {
-            const [
-              active,
-              ...rest
-            ] =
-              current;
-
-            if (active?.key) {
-              dismissedPlaylistUpdatesRef
-                .current
-                .add(
-                  active.key,
-                );
-            }
-
-            return rest;
-          },
-        );
-      },
-      [],
-    );
-
-
-  const downloadActivePlaylistUpdate =
-    useCallback(
-      async () => {
-        const update =
-          playlistUpdates[0];
-
-        if (
-          !update ||
-          update.status ===
-            "downloading"
-        ) {
-          return;
-        }
-
-        const {
-          playlist,
-          missingTracks,
-          key,
-        } =
-          update;
-
-        setPlaylistUpdates(
-          (current) =>
-            current.map(
-              (item) =>
-                item.key === key
-                  ? {
-                      ...item,
-                      status:
-                        "downloading",
-                      progress:
-                        0,
-                    }
-                  : item,
-            ),
-        );
-
-        try {
-          await startPlaylistDownloadForOffline(
-            playlist.tracks,
-            {
-              jobId:
-                getPlaylistDownloadJobId(
-                  getOfflineOwnerKey(
-                    currentUser,
-                  ),
-                  playlist.id,
-                ),
-              ownerKey:
-                getOfflineOwnerKey(
-                  currentUser,
-                ),
-
-              jobMetadata: {
-                kind:
-                  "playlist",
-                playlistId:
-                  playlist.id,
-                playlistTitle:
-                  playlist.title,
-                playlistDescription:
-                  playlist.description ??
-                  null,
-                playlistArtworkUrl:
-                  playlist.artwork_url ??
-                  null,
-                playlistOwnerUsername:
-                  playlist.owner_username ??
-                  null,
-                playlistVisibility:
-                  playlist.visibility ??
-                  null,
-              },
-
-              onProgress: ({
-                trackProgress,
-              }) => {
-                const missingProgress =
-                  missingTracks.length > 0
-                    ? (
-                        missingTracks.reduce(
-                          (
-                            total,
-                            track,
-                          ) =>
-                            total +
-                            (
-                              trackProgress?.[
-                                String(
-                                  track.id,
-                                )
-                              ]?.progress ??
-                              0
-                            ),
-                          0,
-                        ) /
-                        missingTracks.length
-                      )
-                    : 1;
-
-                setPlaylistUpdates(
-                  (current) =>
-                    current.map(
-                      (item) =>
-                        item.key ===
-                        key
-                          ? {
-                              ...item,
-                              status:
-                                "downloading",
-                              progress:
-                                Number.isFinite(
-                                  missingProgress,
-                                )
-                                  ? missingProgress
-                                  : 0,
-                            }
-                          : item,
-                    ),
-                );
-              },
-            },
-          );
-
-          setPlaylistUpdates(
-            (current) =>
-              current.filter(
-                (item) =>
-                  item.key !==
-                  key,
-              ),
-          );
-
-          setStatusMessage(
-            `${missingTracks.length} ${missingTracks.length === 1 ? "new song" : "new songs"} downloaded to ${playlist.title}.`,
-          );
-
-          window.dispatchEvent(
-            new CustomEvent(
-              "hypersync:offline-playlist-updated",
-              {
-                detail: {
-                  playlistId:
-                    playlist.id,
-                },
-              },
-            ),
-          );
-        } catch (error) {
-          setPlaylistUpdates(
-            (current) =>
-              current.map(
-                (item) =>
-                  item.key ===
-                  key
-                    ? {
-                        ...item,
-                        status:
-                          "ready",
-                        progress:
-                          0,
-                      }
-                    : item,
-              ),
-          );
-
-          setStatusMessage(
-            error instanceof Error
-              ? error.message
-              : "Unable to download new playlist songs.",
-          );
-        }
-      },
-      [playlistUpdates],
-    );
-
-
-  const activePlaylistUpdate =
-    playlistUpdates[0] ??
-    null;
-
-
 const persistAppView =
   useCallback(
     (state) => {
@@ -4402,11 +3805,10 @@ const persistAppView =
   logoutSession();
 
   setCurrentUser(null);
-  setPlaylistUpdates([]);
+  resetDownloadedPlaylistUpdates();
   setMessageToOpen("");
   setArtistToOpen("");
   resetMessageNotifications();
-  dismissedPlaylistUpdatesRef.current.clear();
   setActivePage("home");
   setSearchQuery("");
   setActiveProfileUsername("");
