@@ -107,9 +107,9 @@ export default function AdminBotPage() {
     setBotData,
   ] = useState({
     status:
-      "offline",
+      "online",
     running:
-      false,
+      true,
     current_job:
       null,
     queued_jobs:
@@ -139,11 +139,6 @@ export default function AdminBotPage() {
   const [
     scanBusy,
     setScanBusy,
-  ] = useState(false);
-
-  const [
-    rightsConfirmed,
-    setRightsConfirmed,
   ] = useState(false);
 
   const [
@@ -408,72 +403,6 @@ export default function AdminBotPage() {
   ]);
 
 
-  const sendBotAction =
-    async (
-      action,
-    ) => {
-      setLoading(
-        true,
-      );
-      setMessage(
-        "",
-      );
-
-      try {
-        if (
-          action ===
-          "restart"
-        ) {
-          await apiRequest(
-            "/admin/bot/stop",
-            {
-              method:
-                "POST",
-            },
-          );
-
-          await apiRequest(
-            "/admin/bot/start",
-            {
-              method:
-                "POST",
-            },
-          );
-
-        } else {
-          await apiRequest(
-            `/admin/bot/${action}`,
-            {
-              method:
-                "POST",
-            },
-          );
-        }
-
-        setMessage(
-          `Bot ${action} command completed.`,
-        );
-
-        await refreshStatus({
-          quiet:
-            true,
-        });
-
-      } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Bot command failed.",
-        );
-
-      } finally {
-        setLoading(
-          false,
-        );
-      }
-    };
-
-
   const startGapScan =
     async (
       autoIngest,
@@ -482,16 +411,6 @@ export default function AdminBotPage() {
         scanActive ||
         scanBusy
       ) {
-        return;
-      }
-
-      if (
-        autoIngest &&
-        !rightsConfirmed
-      ) {
-        setMessage(
-          "Confirm media rights before bulk ingesting missing tracks.",
-        );
         return;
       }
 
@@ -513,11 +432,6 @@ export default function AdminBotPage() {
                 JSON.stringify({
                   auto_ingest:
                     autoIngest,
-                  confirm_authorized_media:
-                    (
-                      autoIngest &&
-                      rightsConfirmed
-                    ),
                   track_limit_per_artist:
                     500,
                   ingest_concurrency:
@@ -1105,37 +1019,6 @@ export default function AdminBotPage() {
             </div>
           ) : null}
 
-          <label className="admin-bot-rights-check">
-            <input
-              type="checkbox"
-              checked={
-                rightsConfirmed
-              }
-              disabled={
-                scanActive
-              }
-              onChange={(
-                event,
-              ) => {
-                setRightsConfirmed(
-                  event.target.checked,
-                );
-              }}
-            />
-
-            <span>
-              <strong>
-                Authorized media only
-              </strong>
-
-              <small>
-                I confirm bulk-ingested audio is owned,
-                licensed, or otherwise permitted for this
-                catalog.
-              </small>
-            </span>
-          </label>
-
           <div className="admin-bot-scan-actions">
             <button
               type="button"
@@ -1163,8 +1046,7 @@ export default function AdminBotPage() {
               className="admin-bot-primary-action"
               disabled={
                 scanActive ||
-                scanBusy ||
-                !rightsConfirmed
+                scanBusy
               }
               onClick={() => {
                 void startGapScan(
@@ -1207,99 +1089,52 @@ export default function AdminBotPage() {
           <div className="admin-panel__heading">
             <div>
               <span>
-                SERVICE CONTROL
+                AUTOMATION RUNTIME
               </span>
 
               <h3>
-                Runtime controls
+                Always on
               </h3>
             </div>
-          </div>
 
-          <div className="admin-bot-control-stack">
-            {[
-              [
-                "start",
-                "play",
-                "Start Bot",
-                "Enable automation runtime.",
-              ],
-              [
-                "restart",
-                "chart",
-                "Restart Bot",
-                "Refresh bot runtime state.",
-              ],
-              [
-                "process",
-                "music",
-                "Process Queue",
-                "Run legacy queue hook.",
-              ],
-              [
-                "stop",
-                "close",
-                "Stop Bot",
-                "Stop legacy automation state.",
-              ],
-            ].map(
-              ([
-                action,
-                icon,
-                title,
-                detail,
-              ]) => (
-                <button
-                  type="button"
-                  key={action}
-                  disabled={
-                    loading
-                  }
-                  onClick={() => {
-                    void sendBotAction(
-                      action,
-                    );
-                  }}
-                >
-                  <span>
-                    <Icon
-                      name={icon}
-                      size={18}
-                    />
-                  </span>
-
-                  <div>
-                    <strong>
-                      {title}
-                    </strong>
-
-                    <small>
-                      {detail}
-                    </small>
-                  </div>
-
-                  <Icon
-                    name="chevron"
-                    size={13}
-                  />
-                </button>
-              ),
-            )}
+            <span className="admin-status admin-status--online">
+              ONLINE
+            </span>
           </div>
 
           <div className="admin-bot-runtime-note">
             <Icon
-              name="shield"
+              name="check"
               size={16}
             />
 
             <p>
-              Gap scanning is isolated from normal search,
-              playback, manual ingest, and on-demand first-play
-              ingestion. Existing duplicate checks remain the
-              final gate before publication.
+              The bot runtime stays available automatically.
+              There is no start, stop, or restart step. Catalog
+              scanning, manual ingest, and on-demand ingest can
+              run whenever you need them.
             </p>
           </div>
+
+          <button
+            type="button"
+            className="secondary-admin-button"
+            disabled={
+              loading
+            }
+            onClick={() => {
+              void refreshStatus();
+            }}
+          >
+            <Icon
+              name="chart"
+              size={15}
+            />
+
+            {loading
+              ? "Refreshing..."
+              : "Refresh status"}
+          </button>
         </div>
       </section>
 
