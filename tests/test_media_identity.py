@@ -53,7 +53,7 @@ async def _factory():
 
 
 @pytest.mark.asyncio
-async def test_legacy_duplicate_lookup_backfills_identity_sidecar() -> None:
+async def test_legacy_duplicate_lookup_is_read_only_until_identity_sync() -> None:
     engine, factory = await _factory()
 
     async with factory() as session:
@@ -83,6 +83,21 @@ async def test_legacy_duplicate_lookup_backfills_identity_sidecar() -> None:
         assert duplicate is not None
         assert duplicate.id == track.id
 
+        # Lookups stay read-only. Upload paths and the
+        # startup backfill own sidecar writes.
+        identity = await session.get(
+            TrackIdentity,
+            track.id,
+        )
+
+        assert identity is None
+
+        await sync_track_media_identity(
+            session,
+            track,
+        )
+        await session.commit()
+
         identity = await session.get(
             TrackIdentity,
             track.id,
@@ -91,8 +106,6 @@ async def test_legacy_duplicate_lookup_backfills_identity_sidecar() -> None:
         assert identity is not None
         assert identity.artist_key == "example artist"
         assert identity.title_key == "existing song"
-
-        await session.commit()
 
         duplicate_again = await find_duplicate_track(
             session,
