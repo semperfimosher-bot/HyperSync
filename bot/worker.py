@@ -442,10 +442,15 @@ async def _ingest_missing(
                     ],
                 )
 
-                await mark_item_started(
-                    scan_id,
-                    item_id,
+                claimed = (
+                    await mark_item_started(
+                        scan_id,
+                        item_id,
+                    )
                 )
+
+                if not claimed:
+                    continue
 
                 bot.service.catalog_scan_ingest_started()
 
