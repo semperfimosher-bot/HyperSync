@@ -376,6 +376,9 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
 
         assert legacy == {
             "track_count": 3,
+            "artist_count": 2,
+            "album_count": 2,
+            "artwork_count": 0,
             "duplicate_groups": 1,
             "identity_backfill_pending": 3,
         }
@@ -398,6 +401,9 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
 
         assert indexed == {
             "track_count": 3,
+            "artist_count": 2,
+            "album_count": 2,
+            "artwork_count": 0,
             "duplicate_groups": 1,
             "identity_backfill_pending": 0,
         }
