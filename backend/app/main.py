@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import (
     asynccontextmanager,
@@ -36,10 +37,14 @@ from .security.tokens import (
     decode_access_token,
 )
 
+logger = logging.getLogger(__name__)
+
+
 DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
@@ -254,8 +259,12 @@ async def run_message_retention_cleanup() -> None:
         try:
             await cleanup_expired_messages()
         except Exception:
-            # Retention cleanup must never take down the API.
-            pass
+            # Retention cleanup must never take down the API,
+            # but silent failures make production drift hard
+            # to diagnose.
+            logger.exception(
+                "Message retention cleanup failed.",
+            )
 
         await asyncio.sleep(
             MESSAGE_RETENTION_CLEANUP_SECONDS,
@@ -273,8 +282,16 @@ async def run_media_identity_backfill() -> None:
         except Exception:
             # Identity sidecars are an optimization and
             # compatibility layer. A temporary backfill
-            # failure must not take down the API.
-            return
+            # failure must not take down the API or disable
+            # maintenance for the lifetime of this process.
+            logger.exception(
+                "Media identity backfill failed; retrying.",
+            )
+
+            await asyncio.sleep(
+                MEDIA_IDENTITY_RETRY_SECONDS,
+            )
+            continue
 
         if processed == 0:
             return
@@ -288,13 +305,14 @@ async def run_media_identity_backfill() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    await ensure_demo_data()
-
-    # Pay any database wake-up/connection cost
-    # during backend startup instead of login.
-    # Retry transient database wake-up/network
-    # failures instead of crashing the container.
+    # Pay any database wake-up/connection cost before any
+    # startup routine touches the database. This keeps a
+    # sleeping or temporarily unavailable database inside
+    # the retry envelope instead of failing earlier in
+    # ensure_demo_data().
     await wait_for_database_ready()
+
+    await ensure_demo_data()
 
     bot_resume_task = (
         await resume_catalog_scan_on_startup()
