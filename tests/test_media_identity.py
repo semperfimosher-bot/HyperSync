@@ -252,3 +252,42 @@ async def test_identity_sync_updates_sidecars_without_touching_track_payload() -
         assert old_credit == []
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_gate_matches_primary_artist_across_credit_formats() -> None:
+    engine, factory = await _factory()
+
+    async with factory() as session:
+        existing = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen & Lil Durk",
+            album="Broadway Girls",
+            b2_object_key=(
+                "audio/broadway-girls.mp3"
+            ),
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add(
+            existing,
+        )
+
+        await sync_track_media_identity(
+            session,
+            existing,
+        )
+
+        await session.commit()
+
+        duplicate = await find_duplicate_track(
+            session,
+            title="Broadway Girls",
+            artist="Morgan Wallen",
+        )
+
+        assert duplicate is not None
+        assert duplicate.id == existing.id
+
+    await engine.dispose()
