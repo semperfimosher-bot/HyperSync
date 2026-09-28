@@ -650,3 +650,82 @@ async def test_on_demand_search_uses_indexed_identity_with_legacy_fallback(
     )
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_speculative_prewarm_tasks_are_tracked_and_drained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    candidate = _candidate()
+    started = False
+    cancelled = False
+
+    async def fake_prewarm(
+        _candidate,
+    ) -> None:
+        nonlocal started
+        nonlocal cancelled
+
+        started = True
+
+        try:
+            await __import__(
+                "asyncio",
+            ).sleep(
+                60,
+            )
+        except __import__(
+            "asyncio",
+        ).CancelledError:
+            cancelled = True
+            raise
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "prewarm_candidate",
+        fake_prewarm,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "get_settings",
+        lambda:
+            SimpleNamespace(
+                on_demand_prewarm_limit=1,
+            ),
+    )
+
+    await on_demand_ingestion.prewarm_candidates(
+        [
+            candidate,
+        ]
+    )
+
+    await __import__(
+        "asyncio",
+    ).sleep(
+        0,
+    )
+
+    assert started is True
+    assert len(
+        on_demand_ingestion
+        ._background_warm_tasks
+    ) == 1
+
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    assert cancelled is True
+    assert (
+        on_demand_ingestion
+        ._background_warm_tasks
+        == set()
+    )
