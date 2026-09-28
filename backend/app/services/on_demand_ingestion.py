@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hmac
-import mimetypes
 import secrets
 import time
 from dataclasses import (
-    asdict,
     dataclass,
     field,
 )
