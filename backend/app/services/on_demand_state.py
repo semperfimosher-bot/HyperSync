@@ -31,6 +31,9 @@ from ..models.on_demand import (
     OnDemandPendingListener,
     OnDemandProvision,
 )
+from ..time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
@@ -46,19 +49,6 @@ _ACTIVE_LONG_RUNNING_STATES = (
 )
 
 _persistence_warning_emitted = False
-
-
-def _as_utc_aware(
-    value: datetime,
-) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(
-            tzinfo=UTC,
-        )
-
-    return value.astimezone(
-        UTC,
-    )
 
 
 def _now() -> datetime:
