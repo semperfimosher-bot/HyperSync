@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     delete,
     func,
@@ -147,8 +149,8 @@ async def sync_track_media_identity(
 
 
 def _scalar_one_or_none(
-    result,
-):
+    result: Any,
+) -> Any:
     scalar_one_or_none = getattr(
         result,
         "scalar_one_or_none",
