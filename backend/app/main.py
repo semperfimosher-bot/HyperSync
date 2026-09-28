@@ -34,6 +34,7 @@ from .services.message_retention import (
 )
 from .services.on_demand_ingestion import (
     reset_transient_state,
+    resume_on_demand_ingests_on_startup,
 )
 from .services.media_identity import (
     backfill_missing_media_identities,
@@ -340,6 +341,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     bot_resume_task = (
         await resume_catalog_scan_on_startup()
     )
+
+    resumed_on_demand_ingests = (
+        await resume_on_demand_ingests_on_startup()
+    )
+
+    if resumed_on_demand_ingests:
+        logger.info(
+            "Resumed %s interrupted on-demand ingest(s).",
+            resumed_on_demand_ingests,
+        )
 
     keepalive_task = asyncio.create_task(
         keep_database_warm(),
