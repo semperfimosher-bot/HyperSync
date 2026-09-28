@@ -32,7 +32,8 @@ from ...services.audio_compression import (
     should_attempt_audio_compression,
 )
 from ...services.artists import (
-    ensure_artist_profile,
+    artist_names_for_credit,
+    ensure_artist_profiles_for_credit,
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -1499,9 +1500,10 @@ async def finalize_direct_track_upload(
             track,
         )
 
-        await ensure_artist_profile(
+        await ensure_artist_profiles_for_credit(
             session,
             track.artist,
+            include_combined=True,
         )
 
         await session.commit()
@@ -1558,10 +1560,14 @@ async def finalize_direct_track_upload(
         }
 
         try:
-            await ensure_artist_playlist(
-                session,
+            for artist_name in artist_names_for_credit(
                 track.artist,
-            )
+                include_combined=True,
+            ):
+                await ensure_artist_playlist(
+                    session,
+                    artist_name,
+                )
 
             await refresh_smart_playlists_for_track(
                 session,
@@ -1896,9 +1902,10 @@ async def upload_track(
 
         session.add(track)
 
-        await ensure_artist_profile(
+        await ensure_artist_profiles_for_credit(
             session,
             track.artist,
+            include_combined=True,
         )
 
         await session.commit()
@@ -1966,10 +1973,14 @@ async def upload_track(
         # failure must not turn a successfully
         # committed upload into a false upload error.
         try:
-            await ensure_artist_playlist(
-                session,
+            for artist_name in artist_names_for_credit(
                 track.artist,
-            )
+                include_combined=True,
+            ):
+                await ensure_artist_playlist(
+                    session,
+                    artist_name,
+                )
 
             await refresh_smart_playlists_for_track(
                 session,
