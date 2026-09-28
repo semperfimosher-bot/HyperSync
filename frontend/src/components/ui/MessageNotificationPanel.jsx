@@ -82,10 +82,6 @@ export default function MessageNotificationPanel({
                 notification.type ===
                   "admin_account_notification";
 
-              const accountNotification =
-                notification.type ===
-                  "admin_account_notification";
-
               return (
                 <div
                   className="message-notification-row"
@@ -149,24 +145,22 @@ export default function MessageNotificationPanel({
                     </small>
                   </button>
 
-                  {!accountNotification ? (
-                    <button
-                      className="message-notification-row__delete"
-                      type="button"
-                      aria-label="Delete notification"
-                      title="Delete notification"
-                      onClick={() => {
-                        onDeleteNotification?.(
-                          notification,
-                        );
-                      }}
-                    >
-                      <Icon
-                        name="close"
-                        size={13}
-                      />
-                    </button>
-                  ) : null}
+                  <button
+                    className="message-notification-row__delete"
+                    type="button"
+                    aria-label="Dismiss notification"
+                    title="Dismiss notification"
+                    onClick={() => {
+                      onDeleteNotification?.(
+                        notification,
+                      );
+                    }}
+                  >
+                    <Icon
+                      name="close"
+                      size={13}
+                    />
+                  </button>
                 </div>
               );
             },
