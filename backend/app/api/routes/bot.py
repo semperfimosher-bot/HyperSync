@@ -24,6 +24,12 @@ from bot.worker import (
     scan_running,
 )
 
+from ...services.bot_catalog_jobs import (
+    catalog_scan_is_active,
+    create_catalog_scan,
+    request_scan_cancel,
+    scan_snapshot,
+)
 from ...services.on_demand_ingestion import (
     active_provisions,
     prepare_candidate,
@@ -67,6 +73,10 @@ async def bot_status(
 ):
     state = get_state()
 
+    persisted_scan = (
+        await scan_snapshot()
+    )
+
     return {
         "running": state.running,
         "status": state.status,
@@ -74,8 +84,10 @@ async def bot_status(
         "queued_jobs": state.queued_jobs,
         "completed_jobs": state.completed_jobs,
         "failed_jobs": state.failed_jobs,
-        "catalog_scan":
-            state.catalog_scan,
+        "catalog_scan": (
+            persisted_scan
+            or state.catalog_scan
+        ),
         "provisions":
             await active_provisions(),
         "events": [
@@ -114,7 +126,10 @@ async def bot_scan(
         or AdminBotScanRequest()
     )
 
-    if scan_running():
+    if (
+        scan_running()
+        or await catalog_scan_is_active()
+    ):
         raise HTTPException(
             status_code=(
                 status.HTTP_409_CONFLICT
@@ -123,6 +138,18 @@ async def bot_scan(
                 "A catalog gap scan is already running."
             ),
         )
+
+    scan = await create_catalog_scan(
+        auto_ingest=(
+            request.auto_ingest
+        ),
+        track_limit_per_artist=(
+            request.track_limit_per_artist
+        ),
+        ingest_concurrency=(
+            request.ingest_concurrency
+        ),
+    )
 
     queue_job()
 
@@ -137,6 +164,7 @@ async def bot_scan(
             ingest_concurrency=(
                 request.ingest_concurrency
             ),
+            scan_id=scan.id,
         )
     )
 
@@ -144,6 +172,10 @@ async def bot_scan(
         "accepted": True,
         "auto_ingest":
             request.auto_ingest,
+        "scan_id":
+            str(
+                scan.id,
+            ),
         "message": (
             "Catalog gap scan queued with auto-ingest."
             if request.auto_ingest
@@ -158,7 +190,16 @@ async def bot_scan_cancel(
 ):
     del user
 
-    accepted = cancel_scan()
+    memory_accepted = cancel_scan()
+
+    durable_accepted = (
+        await request_scan_cancel()
+    )
+
+    accepted = (
+        memory_accepted
+        or durable_accepted
+    )
 
     return {
         "accepted": accepted,
