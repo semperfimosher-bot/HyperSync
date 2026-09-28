@@ -15,6 +15,7 @@ from backend.app.models.media import (
 )
 from backend.app.services.media_identity import (
     catalog_identity_diagnostics,
+    existing_primary_title_keys,
     find_duplicate_track,
     load_tracks_for_artist_credit,
     sync_track_media_identity,
@@ -406,6 +407,75 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
             "artwork_count": 0,
             "duplicate_groups": 1,
             "identity_backfill_pending": 0,
+        }
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_batch_identity_lookup_uses_index_and_legacy_fallback() -> None:
+    engine, factory = await _factory()
+
+    async with factory() as session:
+        indexed = Track(
+            title="Broadway Girls",
+            artist="Morgan Wallen & Lil Durk",
+            album="Single",
+            b2_object_key="audio/indexed-identity.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        legacy = Track(
+            title="Legacy Song",
+            artist="Legacy Artist",
+            album="Legacy Album",
+            b2_object_key="audio/legacy-identity.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add_all(
+            [
+                indexed,
+                legacy,
+            ]
+        )
+
+        await sync_track_media_identity(
+            session,
+            indexed,
+        )
+
+        await session.commit()
+
+        found = await existing_primary_title_keys(
+            session,
+            {
+                (
+                    "morgan wallen",
+                    "broadway girls",
+                ),
+                (
+                    "legacy artist",
+                    "legacy song",
+                ),
+                (
+                    "missing artist",
+                    "missing song",
+                ),
+            },
+        )
+
+        assert found == {
+            (
+                "morgan wallen",
+                "broadway girls",
+            ),
+            (
+                "legacy artist",
+                "legacy song",
+            ),
         }
 
     await engine.dispose()
