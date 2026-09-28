@@ -31,6 +31,11 @@ from .messaging import (
     Message,
     PushSubscription,
 )
+from .on_demand import (
+    OnDemandCandidate,
+    OnDemandPendingListener,
+    OnDemandProvision,
+)
 from .playlist import (
     Playlist,
     PlaylistTrack,
@@ -55,6 +60,9 @@ __all__ = [
     "AdminNotification",
     "Message",
     "PushSubscription",
+    "OnDemandCandidate",
+    "OnDemandPendingListener",
+    "OnDemandProvision",
     "ListeningEvent",
     "PlaybackCommand",
     "PlaybackDevice",
