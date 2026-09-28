@@ -1023,3 +1023,101 @@ async def test_startup_recovery_resumes_only_interrupted_ingests(
     }
 
     assert resumed == 1
+
+
+@pytest.mark.asyncio
+async def test_local_provision_adopts_durable_terminal_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
+
+    candidate = _candidate()
+    provision_id = uuid4()
+    track_id = uuid4()
+
+    local = (
+        on_demand_ingestion
+        .ProvisionSession(
+            id=provision_id,
+            candidate=candidate,
+            state="stream-ready",
+            created_at=0.0,
+            updated_at=0.0,
+            stream_token="test-token",
+        )
+    )
+
+    async with on_demand_ingestion._lock:
+        on_demand_ingestion._sessions_by_id[
+            provision_id
+        ] = local
+
+        on_demand_ingestion._sessions_by_key[
+            candidate.key
+        ] = local
+
+    async def fake_load(
+        requested_id: UUID,
+    ):
+        assert requested_id == provision_id
+        return {
+            "id":
+                provision_id,
+            "state":
+                "ready",
+            "track_id":
+                track_id,
+            "error":
+                None,
+        }
+
+    async def fake_touch(
+        requested_id: UUID,
+    ) -> None:
+        assert requested_id == provision_id
+
+    async def fake_commit_pending(
+        requested_id: UUID,
+        committed_track_id: UUID,
+    ) -> set[UUID]:
+        assert requested_id == provision_id
+        assert committed_track_id == track_id
+        return set()
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "load_durable_provision",
+        fake_load,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "touch_durable_provision",
+        fake_touch,
+    )
+
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "commit_pending_listeners_to_history",
+        fake_commit_pending,
+    )
+
+    resolved = (
+        await on_demand_ingestion
+        .get_provision_session(
+            provision_id,
+        )
+    )
+
+    assert resolved is local
+    assert local.state == "ready"
+    assert local.track_id == track_id
+    assert local.error is None
+
+    await (
+        on_demand_ingestion
+        .reset_transient_state()
+    )
