@@ -19,6 +19,7 @@ from ..config import get_settings
 from .audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
+    primary_artist_credit,
 )
 
 
@@ -181,46 +182,6 @@ def _large_itunes_artwork(
         r"\d+x\d+bb",
         "600x600bb",
         url,
-    )
-
-
-_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
-    (
-        r"\s+"
-        r"(?:&|\band\b|\bx\b|\bwith\b|"
-        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
-        r"\s+"
-    ),
-    flags=re.IGNORECASE,
-)
-
-
-def _primary_artist_credit(
-    artist: str | None,
-) -> str:
-    raw = str(
-        artist
-        or ""
-    ).strip()
-
-    if not raw:
-        return ""
-
-    parts = [
-        part.strip()
-        for part in (
-            _ARTIST_CREDIT_SPLIT_PATTERN
-            .split(
-                raw,
-            )
-        )
-        if part.strip()
-    ]
-
-    return (
-        parts[0]
-        if parts
-        else raw
     )
 
 
@@ -1335,7 +1296,7 @@ def rank_catalog_candidates_for_kind(
 
     for candidate in candidates:
         if normalized_kind == "artist":
-            field = _primary_artist_credit(
+            field = primary_artist_credit(
                 candidate.artist,
             )
 
