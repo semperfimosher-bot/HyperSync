@@ -40,3 +40,39 @@ test(
     );
   },
 );
+
+
+test(
+  "admin monitoring uses the shared lifecycle-safe refresh hook",
+  () => {
+    for (
+      const relativePath
+      of [
+        "./components/pages/AdminDashboardPage.jsx",
+        "./components/pages/AdminBotPage.jsx",
+      ]
+    ) {
+      const source =
+        fs.readFileSync(
+          new URL(
+            relativePath,
+            import.meta.url,
+          ),
+          "utf8",
+        );
+
+      assert.match(
+        source,
+        /useQuietRefresh/,
+      );
+
+      assert.equal(
+        source.includes(
+          "setInterval(",
+        ),
+        false,
+        relativePath,
+      );
+    }
+  },
+);
