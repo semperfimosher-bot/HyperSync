@@ -641,3 +641,44 @@ test(
     );
   },
 );
+
+
+test(
+  "autoplay catalog ID filtering drops temporary on-demand IDs",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const valid =
+      "9e061d5c-5ae4-4db9-8bb1-ef55bdd7af33";
+
+    assert.equal(
+      queueModule.catalogTrackIdOrNull(
+        valid,
+      ),
+      valid,
+    );
+
+    assert.equal(
+      queueModule.catalogTrackIdOrNull(
+        "ondemand:temporary-track",
+      ),
+      null,
+    );
+
+    assert.deepEqual(
+      queueModule.filterCatalogTrackIds(
+        [
+          "ondemand:old",
+          valid,
+          valid,
+          "not-a-uuid",
+        ],
+        12,
+      ),
+      [
+        valid,
+      ],
+    );
+  },
+);
