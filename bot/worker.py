@@ -4,11 +4,15 @@ import asyncio
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import (
+    select,
+    text,
+)
 
 import bot.service
 
 from backend.app.database import (
+    get_engine,
     get_session_factory,
 )
 from backend.app.models.media import (
@@ -47,6 +51,87 @@ from backend.app.services.on_demand_metadata import (
 
 _catalog_scan_lock = asyncio.Lock()
 _catalog_scan_cancel = asyncio.Event()
+
+
+async def _acquire_distributed_scan_lock(
+    scan_id: UUID,
+):
+    engine = get_engine()
+
+    if engine.dialect.name != "postgresql":
+        return (
+            True,
+            None,
+        )
+
+    connection = await engine.connect()
+
+    try:
+        result = await connection.execute(
+            text(
+                "SELECT pg_try_advisory_lock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:catalog-scan:"
+                        + str(
+                            scan_id,
+                        )
+                    ),
+            },
+        )
+
+        acquired = bool(
+            result.scalar_one(),
+        )
+
+        if not acquired:
+            await connection.close()
+
+            return (
+                False,
+                None,
+            )
+
+        return (
+            True,
+            connection,
+        )
+
+    except Exception:
+        await connection.close()
+        raise
+
+
+async def _release_distributed_scan_lock(
+    scan_id: UUID,
+    connection,
+) -> None:
+    if connection is None:
+        return
+
+    try:
+        await connection.execute(
+            text(
+                "SELECT pg_advisory_unlock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    (
+                        "hypersync:catalog-scan:"
+                        + str(
+                            scan_id,
+                        )
+                    ),
+            },
+        )
+    finally:
+        await connection.close()
 
 
 def scan_running() -> bool:
@@ -485,7 +570,17 @@ async def run_scan(
 
             scan_id = scan.id
 
-        elif resume:
+        (
+            distributed_acquired,
+            distributed_connection,
+        ) = await _acquire_distributed_scan_lock(
+            scan_id,
+        )
+
+        if not distributed_acquired:
+            return
+
+        if resume:
             await prepare_scan_for_resume(
                 scan_id,
             )
@@ -677,6 +772,12 @@ async def run_scan(
                     "Catalog gap scan failed: "
                     f"{message[:300]}"
                 )
+            )
+
+        finally:
+            await _release_distributed_scan_lock(
+                scan_id,
+                distributed_connection,
             )
 
 
