@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -33,7 +34,7 @@ router = APIRouter(
 
 
 def _catalog_uuid_or_none(
-    value: UUID | str | None,
+    value: Any,
 ) -> UUID | None:
     if value is None:
         return None
@@ -59,14 +60,22 @@ def _catalog_uuid_or_none(
 
 
 def _catalog_uuid_list(
-    values: list[
-        UUID | str
-    ],
+    values: Any,
     *,
     limit: int,
 ) -> list[
     UUID
 ]:
+    if not isinstance(
+        values,
+        (
+            list,
+            tuple,
+            set,
+        ),
+    ):
+        return []
+
     result: list[
         UUID
     ] = []
@@ -106,32 +115,48 @@ def _catalog_uuid_list(
     return result
 
 
+def _autoplay_limit(
+    value: Any,
+) -> int:
+    try:
+        parsed = int(
+            value,
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 8
+
+    return max(
+        1,
+        min(
+            parsed,
+            20,
+        ),
+    )
+
+
 class AutoplayRequest(
     BaseModel,
 ):
-    current_track_id: (
-        UUID | str | None
-    ) = None
+    # Autoplay is best-effort playback support.
+    # Keep this request deliberately permissive:
+    # stale browser/service-worker state must not
+    # be able to turn recommendation refill into
+    # a FastAPI 422. The route sanitizes every
+    # value before it reaches the service layer.
+    current_track_id: Any = None
 
-    exclude_track_ids: list[
-        UUID | str
-    ] = Field(
+    exclude_track_ids: Any = Field(
         default_factory=list,
-        max_length=100,
     )
 
-    context_track_ids: list[
-        UUID | str
-    ] = Field(
+    context_track_ids: Any = Field(
         default_factory=list,
-        max_length=12,
     )
 
-    limit: int = Field(
-        default=8,
-        ge=1,
-        le=20,
-    )
+    limit: Any = 8
 
 
 class AutoplayTrackResponse(
@@ -198,7 +223,9 @@ async def autoplay(
                 )
             ),
             limit=(
-                payload.limit
+                _autoplay_limit(
+                    payload.limit
+                )
             ),
         )
     )
