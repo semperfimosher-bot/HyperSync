@@ -123,6 +123,27 @@ async def sync_track_media_identity(
     await session.flush()
 
 
+def _scalar_one_or_none(
+    result,
+):
+    scalar_one_or_none = getattr(
+        result,
+        "scalar_one_or_none",
+        None,
+    )
+
+    if callable(
+        scalar_one_or_none,
+    ):
+        return scalar_one_or_none()
+
+    # Lightweight test/session doubles may only expose
+    # scalars().all(). Treat those as not representing the
+    # indexed query so the compatibility path can evaluate
+    # identities explicitly instead of trusting fake SQL.
+    return None
+
+
 async def find_duplicate_track(
     session,
     *,
@@ -171,8 +192,8 @@ async def find_duplicate_track(
         )
     )
 
-    indexed = (
-        indexed_result.scalar_one_or_none()
+    indexed = _scalar_one_or_none(
+        indexed_result,
     )
 
     if indexed is not None:
@@ -217,11 +238,6 @@ async def find_duplicate_track(
                 == _primary_artist_key
             )
         ):
-            await sync_track_media_identity(
-                session,
-                track,
-            )
-
             return track
 
     return None
@@ -335,11 +351,6 @@ async def load_tracks_for_artist_credit(
             tracks_by_id[
                 track.id
             ] = track
-
-            await sync_track_media_identity(
-                session,
-                track,
-            )
 
     return list(
         tracks_by_id.values(),
