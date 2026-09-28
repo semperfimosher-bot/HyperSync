@@ -51,6 +51,7 @@ REQUIRED_FILES = {
     "backend/app/models/base.py",
     "backend/app/models/account.py",
     "backend/app/models/bot.py",
+    "backend/app/models/on_demand.py",
     "backend/app/services/bot_catalog_jobs.py",
     "backend/app/services/media_identity.py",
     "backend/app/security/__init__.py",
@@ -108,6 +109,9 @@ EXPECTED_TABLES = {
     "bot_catalog_scan_items",
     "track_identities",
     "track_artist_credits",
+    "on_demand_candidates",
+    "on_demand_provisions",
+    "on_demand_pending_listeners",
 }
 
 EXPECTED_USER_COLUMNS = {
