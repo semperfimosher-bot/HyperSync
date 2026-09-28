@@ -130,3 +130,45 @@ test(
     );
   },
 );
+
+
+test(
+  "remember-session preference is centralized in storage",
+  async () => {
+    globalThis.localStorage =
+      createStorage();
+
+    globalThis.sessionStorage =
+      createStorage();
+
+    const storage =
+      await import(
+        `./api/storage.js?remember=${Date.now()}`
+      );
+
+    assert.equal(
+      storage.shouldRememberSession(),
+      true,
+    );
+
+    localStorage.setItem(
+      storage.REMEMBER_ME_KEY,
+      "false",
+    );
+
+    assert.equal(
+      storage.shouldRememberSession(),
+      false,
+    );
+
+    localStorage.setItem(
+      storage.REMEMBER_ME_KEY,
+      "true",
+    );
+
+    assert.equal(
+      storage.shouldRememberSession(),
+      true,
+    );
+  },
+);
