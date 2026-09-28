@@ -36,6 +36,7 @@ from ...services.artists import (
     ensure_artist_profiles_for_credit,
 )
 from ...services.media_identity import (
+    catalog_identity_diagnostics,
     find_duplicate_track as find_indexed_duplicate_track,
     sync_track_media_identity,
     track_identity_keys,
@@ -778,6 +779,7 @@ async def admin_diagnostics(
         "healthy": False,
         "track_count": 0,
         "duplicate_groups": 0,
+        "identity_backfill_pending": 0,
     }
 
     storage_status = {
@@ -801,32 +803,15 @@ async def admin_diagnostics(
                 "Database query succeeded.",
         }
 
-        result = await session.execute(
-            select(
-                Track,
-            )
-        )
-
-        tracks = list(
-            result.scalars().all()
-        )
-
-        duplicate_groups = (
-            _duplicate_track_groups(
-                tracks,
+        catalog_counts = (
+            await catalog_identity_diagnostics(
+                session,
             )
         )
 
         catalog_status = {
             "healthy": True,
-            "track_count":
-                len(
-                    tracks,
-                ),
-            "duplicate_groups":
-                len(
-                    duplicate_groups,
-                ),
+            **catalog_counts,
         }
 
     except Exception as exc:
