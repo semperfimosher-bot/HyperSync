@@ -400,6 +400,131 @@ async def load_tracks_for_artist_credit(
     )
 
 
+def group_duplicate_tracks(
+    tracks: list[Track],
+) -> list[dict]:
+    grouped: dict[
+        tuple[str, str],
+        list[Track],
+    ] = {}
+
+    for track in tracks:
+        (
+            _artist_key,
+            primary_artist_key,
+            title_key,
+        ) = track_identity_keys(
+            title=track.title,
+            artist=track.artist,
+        )
+
+        grouped.setdefault(
+            (
+                primary_artist_key,
+                title_key,
+            ),
+            [],
+        ).append(
+            track,
+        )
+
+    groups: list[dict] = []
+
+    for (
+        artist_key,
+        title_key,
+    ), rows in grouped.items():
+        if len(
+            rows,
+        ) < 2:
+            continue
+
+        ordered_tracks = sorted(
+            rows,
+            key=lambda item: (
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                )
+                is None,
+                getattr(
+                    item,
+                    "created_at",
+                    None,
+                ),
+                str(
+                    item.id,
+                ),
+            ),
+        )
+
+        first = ordered_tracks[
+            0
+        ]
+
+        groups.append(
+            {
+                "artist_key":
+                    artist_key,
+                "title_key":
+                    title_key,
+                "artist":
+                    first.artist,
+                "title":
+                    first.title,
+                "count":
+                    len(
+                        ordered_tracks,
+                    ),
+                "keep_track_id":
+                    str(
+                        first.id,
+                    ),
+                "tracks": [
+                    {
+                        "id":
+                            str(
+                                item.id,
+                            ),
+                        "title":
+                            item.title,
+                        "artist":
+                            item.artist,
+                        "album":
+                            item.album,
+                        "b2_object_key":
+                            item.b2_object_key,
+                    }
+                    for item
+                    in ordered_tracks
+                ],
+            }
+        )
+
+    groups.sort(
+        key=lambda group: (
+            -int(
+                group[
+                    "count"
+                ],
+            ),
+            str(
+                group[
+                    "artist_key"
+                ],
+            ),
+            str(
+                group[
+                    "title_key"
+                ],
+            ),
+        )
+    )
+
+    return groups
+
+
 async def duplicate_track_groups(
     session,
 ) -> tuple[
@@ -449,46 +574,14 @@ async def duplicate_track_groups(
             )
         )
 
-        tracks = list(
-            result.scalars().all()
+        return (
+            track_count,
+            group_duplicate_tracks(
+                list(
+                    result.scalars().all()
+                )
+            ),
         )
-
-        grouped: dict[
-            tuple[str, str],
-            list[Track],
-        ] = {}
-
-        for track in tracks:
-            (
-                _artist_key,
-                primary_artist_key,
-                title_key,
-            ) = track_identity_keys(
-                title=track.title,
-                artist=track.artist,
-            )
-
-            grouped.setdefault(
-                (
-                    primary_artist_key,
-                    title_key,
-                ),
-                [],
-            ).append(
-                track,
-            )
-
-        duplicate_rows = [
-            (
-                key,
-                rows,
-            )
-            for key, rows
-            in grouped.items()
-            if len(
-                rows,
-            ) > 1
-        ]
 
     else:
         duplicate_keys = (
