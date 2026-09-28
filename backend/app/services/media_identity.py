@@ -148,10 +148,19 @@ async def find_duplicate_track(
             == Track.id,
         )
         .where(
-            TrackIdentity.artist_key
-            == artist_key,
             TrackIdentity.title_key
             == title_key,
+            (
+                (
+                    TrackIdentity.artist_key
+                    == artist_key
+                )
+                |
+                (
+                    TrackIdentity.primary_artist_key
+                    == _primary_artist_key
+                )
+            ),
         )
         .order_by(
             Track.created_at.asc(),
@@ -199,10 +208,14 @@ async def find_duplicate_track(
         )
 
         if (
-            existing_artist_key
-            == artist_key
-            and existing_title_key
+            existing_title_key
             == title_key
+            and (
+                existing_artist_key
+                == artist_key
+                or _existing_primary_key
+                == _primary_artist_key
+            )
         ):
             await sync_track_media_identity(
                 session,
