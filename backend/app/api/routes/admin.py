@@ -10,7 +10,11 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query
 from mutagen._file import File as MutagenFile
 from pydantic import BaseModel
 from mutagen.flac import Picture
-from sqlalchemy import select, text
+from sqlalchemy import (
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import selectinload
 
 from bot.service import get_state
@@ -25,7 +29,10 @@ from ...models.account import (
     User,
     UserProfile,
 )
-from ...models.media import Track
+from ...models.media import (
+    Track,
+    TrackIdentity,
+)
 from ...services.audio_compression import (
     AudioProbe,
     compress_audio_for_storage,
@@ -779,7 +786,11 @@ async def admin_diagnostics(
     catalog_status = {
         "healthy": False,
         "track_count": 0,
+        "artist_count": 0,
+        "album_count": 0,
+        "artwork_count": 0,
         "duplicate_groups": 0,
+        "identity_backfill_pending": 0,
     }
 
     storage_status = {
@@ -787,8 +798,6 @@ async def admin_diagnostics(
         "message":
             "B2 storage unavailable.",
     }
-
-    tracks: list[Track] = []
 
     try:
         await session.execute(
@@ -803,31 +812,130 @@ async def admin_diagnostics(
                 "Database query succeeded.",
         }
 
-        result = await session.execute(
+        aggregate_result = await session.execute(
             select(
-                Track,
+                func.count(
+                    Track.id,
+                ),
+                func.count(
+                    func.distinct(
+                        Track.artist,
+                    ),
+                ),
+                func.count(
+                    func.distinct(
+                        Track.album,
+                    ),
+                ),
+                func.count(
+                    Track.artwork_object_key,
+                ),
+            ).where(
+                Track.is_published.is_(
+                    True,
+                )
             )
         )
 
-        tracks = list(
-            result.scalars().all()
+        (
+            track_count,
+            artist_count,
+            album_count,
+            artwork_count,
+        ) = aggregate_result.one()
+
+        duplicate_groups_stmt = (
+            select(
+                TrackIdentity.artist_key,
+                TrackIdentity.title_key,
+            )
+            .join(
+                Track,
+                Track.id
+                == TrackIdentity.track_id,
+            )
+            .where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+            .group_by(
+                TrackIdentity.artist_key,
+                TrackIdentity.title_key,
+            )
+            .having(
+                func.count(
+                    TrackIdentity.track_id,
+                )
+                > 1
+            )
+            .subquery()
         )
 
-        duplicate_groups = (
-            _duplicate_track_groups(
-                tracks,
+        duplicate_count = (
+            await session.scalar(
+                select(
+                    func.count(),
+                ).select_from(
+                    duplicate_groups_stmt,
+                )
+            )
+        )
+
+        identity_pending = (
+            await session.scalar(
+                select(
+                    func.count(
+                        Track.id,
+                    ),
+                )
+                .outerjoin(
+                    TrackIdentity,
+                    TrackIdentity.track_id
+                    == Track.id,
+                )
+                .where(
+                    Track.is_published.is_(
+                        True,
+                    ),
+                    TrackIdentity.track_id.is_(
+                        None,
+                    ),
+                )
             )
         )
 
         catalog_status = {
             "healthy": True,
             "track_count":
-                len(
-                    tracks,
+                int(
+                    track_count
+                    or 0
+                ),
+            "artist_count":
+                int(
+                    artist_count
+                    or 0
+                ),
+            "album_count":
+                int(
+                    album_count
+                    or 0
+                ),
+            "artwork_count":
+                int(
+                    artwork_count
+                    or 0
                 ),
             "duplicate_groups":
-                len(
-                    duplicate_groups,
+                int(
+                    duplicate_count
+                    or 0
+                ),
+            "identity_backfill_pending":
+                int(
+                    identity_pending
+                    or 0
                 ),
         }
 
