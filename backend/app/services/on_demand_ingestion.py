@@ -1109,6 +1109,51 @@ async def prepare_candidate(
     )
 
 
+async def ingest_candidate_and_wait(
+    candidate_key: str,
+) -> dict[str, Any]:
+    candidate = (
+        await candidate_for_key(
+            candidate_key,
+        )
+    )
+
+    if candidate is None:
+        raise KeyError(
+            "The catalog candidate expired."
+        )
+
+    session = (
+        await get_or_create_session(
+            candidate,
+        )
+    )
+
+    await _ensure_source(
+        session,
+    )
+
+    if (
+        session.track_id is None
+        and session.state != "failed"
+    ):
+        await _ensure_ingest(
+            session,
+        )
+
+    async with _lock:
+        task = session.ingest_task
+
+    if task is not None:
+        await asyncio.shield(
+            task,
+        )
+
+    return _session_snapshot(
+        session,
+    )
+
+
 async def get_provision_session(
     provision_id: UUID,
 ) -> ProvisionSession | None:
