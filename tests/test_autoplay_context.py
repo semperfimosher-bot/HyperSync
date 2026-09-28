@@ -278,3 +278,46 @@ def test_autoplay_temporary_current_track_becomes_none() -> None:
         )
         is None
     )
+
+
+def test_autoplay_request_model_accepts_stale_mixed_browser_state() -> None:
+    payload = AutoplayRequest(
+        current_track_id={
+            "stale":
+                True,
+        },
+        exclude_track_ids=[
+            "ondemand:temporary",
+            None,
+            {
+                "id":
+                    "bad",
+            },
+        ]
+        * 80,
+        context_track_ids="stale-string",
+        limit="999",
+    )
+
+    assert (
+        _catalog_uuid_or_none(
+            payload.current_track_id,
+        )
+        is None
+    )
+
+    assert (
+        _catalog_uuid_list(
+            payload.exclude_track_ids,
+            limit=100,
+        )
+        == []
+    )
+
+    assert (
+        _catalog_uuid_list(
+            payload.context_track_ids,
+            limit=12,
+        )
+        == []
+    )
