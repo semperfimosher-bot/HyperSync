@@ -38,6 +38,8 @@ from ...services.artists import (
 from ...services.media_identity import (
     find_duplicate_track as find_indexed_duplicate_track,
     sync_track_media_identity,
+    track_identity_keys,
+    track_identity_lock_key,
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -83,14 +85,9 @@ async def _lock_track_upload_identity(
     ):
         return
 
-    identity = (
-        normalize_track_identity(
-            artist,
-        )
-        + "\x1f"
-        + normalize_track_title_identity(
-            title,
-        )
+    identity = track_identity_lock_key(
+        title=title,
+        artist=artist,
     )
 
     await session.execute(
@@ -116,13 +113,18 @@ def _duplicate_track_groups(
     ] = {}
 
     for track in tracks:
+        (
+            _artist_key,
+            primary_artist_key,
+            title_key,
+        ) = track_identity_keys(
+            title=track.title,
+            artist=track.artist,
+        )
+
         key = (
-            normalize_track_identity(
-                track.artist,
-            ),
-            normalize_track_title_identity(
-                track.title,
-            ),
+            primary_artist_key,
+            title_key,
         )
 
         groups.setdefault(
