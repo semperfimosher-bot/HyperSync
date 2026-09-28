@@ -50,6 +50,9 @@ REQUIRED_FILES = {
     "backend/app/models/__init__.py",
     "backend/app/models/base.py",
     "backend/app/models/account.py",
+    "backend/app/models/bot.py",
+    "backend/app/services/bot_catalog_jobs.py",
+    "backend/app/services/media_identity.py",
     "backend/app/security/__init__.py",
     "backend/app/security/passwords.py",
     "backend/app/security/tokens.py",
@@ -101,6 +104,10 @@ EXPECTED_TABLES = {
     "users",
     "user_profiles",
     "user_sessions",
+    "bot_catalog_scans",
+    "bot_catalog_scan_items",
+    "track_identities",
+    "track_artist_credits",
 }
 
 EXPECTED_USER_COLUMNS = {
