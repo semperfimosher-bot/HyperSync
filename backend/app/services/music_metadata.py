@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from difflib import SequenceMatcher
 import re
@@ -21,6 +22,8 @@ from .generated_playlists import (
 from .on_demand_metadata import (
     resolve_exact_track_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ExternalTrackMetadata(TypedDict):
@@ -2254,6 +2257,14 @@ async def enrich_track_metadata(
             )
         except Exception:
             await session.rollback()
+            logger.exception(
+                (
+                    "Track metadata update succeeded but "
+                    "generated playlist refresh failed "
+                    "for track %s."
+                ),
+                track.id,
+            )
 
     return {
         "matched":
