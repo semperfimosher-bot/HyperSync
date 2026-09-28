@@ -45,6 +45,27 @@ def track_identity_keys(
     )
 
 
+def track_identity_lock_key(
+    *,
+    title: str,
+    artist: str,
+) -> str:
+    (
+        _artist_key,
+        primary_artist_key,
+        title_key,
+    ) = track_identity_keys(
+        title=title,
+        artist=artist,
+    )
+
+    return (
+        primary_artist_key
+        + "\x1f"
+        + title_key
+    )
+
+
 async def sync_track_media_identity(
     session,
     track: Track,
