@@ -1045,9 +1045,15 @@ async def search_and_remember(
             if identity[1]
         }
 
-        indexed_identities: set[
+        indexed_artist_titles: set[
             tuple[
                 str,
+                str,
+            ]
+        ] = set()
+
+        indexed_primary_titles: set[
+            tuple[
                 str,
                 str,
             ]
@@ -1076,25 +1082,32 @@ async def search_and_remember(
                 )
             )
 
-            indexed_identities = {
-                (
-                    str(
-                        artist_key,
-                    ),
-                    str(
-                        primary_artist_key,
-                    ),
-                    str(
-                        title_key,
-                    ),
+            for (
+                existing_artist_key,
+                existing_primary_key,
+                existing_title_key,
+            ) in indexed_result.all():
+                indexed_artist_titles.add(
+                    (
+                        str(
+                            existing_artist_key,
+                        ),
+                        str(
+                            existing_title_key,
+                        ),
+                    )
                 )
-                for (
-                    artist_key,
-                    primary_artist_key,
-                    title_key,
+
+                indexed_primary_titles.add(
+                    (
+                        str(
+                            existing_primary_key,
+                        ),
+                        str(
+                            existing_title_key,
+                        ),
+                    )
                 )
-                in indexed_result.all()
-            }
 
         # Compatibility only: startup maintenance backfills
         # TrackIdentity rows. Until every legacy row has one,
@@ -1119,14 +1132,43 @@ async def search_and_remember(
             )
         )
 
-        legacy_identities = {
-            track_identity_keys(
+        legacy_artist_titles: set[
+            tuple[
+                str,
+                str,
+            ]
+        ] = set()
+
+        legacy_primary_titles: set[
+            tuple[
+                str,
+                str,
+            ]
+        ] = set()
+
+        for artist, title in legacy_result.all():
+            (
+                existing_artist_key,
+                existing_primary_key,
+                existing_title_key,
+            ) = track_identity_keys(
                 title=title,
                 artist=artist,
             )
-            for artist, title
-            in legacy_result.all()
-        }
+
+            legacy_artist_titles.add(
+                (
+                    existing_artist_key,
+                    existing_title_key,
+                )
+            )
+
+            legacy_primary_titles.add(
+                (
+                    existing_primary_key,
+                    existing_title_key,
+                )
+            )
 
         for candidate in candidates:
             (
@@ -1137,47 +1179,27 @@ async def search_and_remember(
                 candidate.key
             ]
 
-            indexed_match = any(
-                (
-                    existing_title_key
-                    == title_key
-                    and (
-                        existing_artist_key
-                        == artist_key
-                        or existing_primary_key
-                        == primary_artist_key
-                    )
-                )
-                for (
-                    existing_artist_key,
-                    existing_primary_key,
-                    existing_title_key,
-                )
-                in indexed_identities
-            )
-
-            legacy_match = any(
-                (
-                    existing_title_key
-                    == title_key
-                    and (
-                        existing_artist_key
-                        == artist_key
-                        or existing_primary_key
-                        == primary_artist_key
-                    )
-                )
-                for (
-                    existing_artist_key,
-                    existing_primary_key,
-                    existing_title_key,
-                )
-                in legacy_identities
-            )
-
             if (
-                not indexed_match
-                and not legacy_match
+                (
+                    artist_key,
+                    title_key,
+                )
+                not in indexed_artist_titles
+                and (
+                    primary_artist_key,
+                    title_key,
+                )
+                not in indexed_primary_titles
+                and (
+                    artist_key,
+                    title_key,
+                )
+                not in legacy_artist_titles
+                and (
+                    primary_artist_key,
+                    title_key,
+                )
+                not in legacy_primary_titles
             ):
                 missing.append(
                     candidate,
