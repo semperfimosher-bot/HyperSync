@@ -42,6 +42,9 @@ from ...services.audio_metadata import (
     primary_artist_credit,
     split_artist_credits,
 )
+from ...services.artists import (
+    load_published_artist_tracks,
+)
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
@@ -217,42 +220,12 @@ async def _load_artist_catalog_candidates(
     session: AsyncSession,
     artist_name: str,
 ) -> list[Track]:
-    pattern = (
-        "%"
-        + artist_name
-        + "%"
+    return await load_published_artist_tracks(
+        session,
+        artist_name,
+        primary_only=True,
+        limit=TRACK_CANDIDATE_LIMIT,
     )
-
-    result = await session.execute(
-        select(
-            Track,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.artist.ilike(
-                pattern,
-            ),
-        )
-        .order_by(
-            Track.artist.asc(),
-            Track.title.asc(),
-        )
-    )
-
-    matches = [
-        track
-        for track in result.scalars().all()
-        if _track_credits_artist(
-            track,
-            artist_name,
-        )
-    ]
-
-    return matches[
-        :TRACK_CANDIDATE_LIMIT
-    ]
 
 
 class SearchPlaylistResult(
