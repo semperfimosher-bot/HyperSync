@@ -353,11 +353,6 @@ function AdminDashboardPage({
   onNavigate,
 }) {
   const [
-    tracks,
-    setTracks,
-  ] = useState([]);
-
-  const [
     diagnostics,
     setDiagnostics,
   ] = useState(null);
@@ -492,8 +487,6 @@ function AdminDashboardPage({
           result?.reset_generation,
         );
 
-        setTracks([]);
-
         setWipeResult(
           `Deleted ${result?.deleted_row_count ?? 0} database rows, ${result?.deleted_b2_versions ?? 0} B2 file versions, ${clientReset.indexedDatabases.length} IndexedDB databases, and ${clientReset.cacheNames.length} browser caches.`,
         );
@@ -534,9 +527,6 @@ function AdminDashboardPage({
         const results =
           await Promise.allSettled([
             apiRequest(
-              "/catalog/tracks",
-            ),
-            apiRequest(
               "/admin/diagnostics",
             ),
             apiRequest(
@@ -550,22 +540,8 @@ function AdminDashboardPage({
           results[0].status ===
           "fulfilled"
         ) {
-          setTracks(
-            results[0].value ||
-              [],
-          );
-        } else {
-          errors.push(
-            "catalog",
-          );
-        }
-
-        if (
-          results[1].status ===
-          "fulfilled"
-        ) {
           setDiagnostics(
-            results[1].value,
+            results[0].value,
           );
         } else {
           setDiagnostics(null);
@@ -575,11 +551,11 @@ function AdminDashboardPage({
         }
 
         if (
-          results[2].status ===
+          results[1].status ===
           "fulfilled"
         ) {
           setBotStatus(
-            results[2].value,
+            results[1].value,
           );
         } else {
           setBotStatus(null);
@@ -893,50 +869,32 @@ function AdminDashboardPage({
   ]);
 
 
+  const trackCount =
+    Number(
+      diagnostics?.catalog
+        ?.track_count ??
+      0,
+    );
+
   const artistCount =
-    useMemo(
-      () =>
-        new Set(
-          tracks
-            .map(
-              (track) =>
-                track.artist,
-            )
-            .filter(Boolean),
-        ).size,
-      [
-        tracks,
-      ],
+    Number(
+      diagnostics?.catalog
+        ?.artist_count ??
+      0,
     );
 
   const albumCount =
-    useMemo(
-      () =>
-        new Set(
-          tracks
-            .map(
-              (track) =>
-                track.album,
-            )
-            .filter(Boolean),
-        ).size,
-      [
-        tracks,
-      ],
+    Number(
+      diagnostics?.catalog
+        ?.album_count ??
+      0,
     );
 
   const artworkCount =
-    useMemo(
-      () =>
-        tracks.filter(
-          (track) =>
-            Boolean(
-              track.artwork_url,
-            ),
-        ).length,
-      [
-        tracks,
-      ],
+    Number(
+      diagnostics?.catalog
+        ?.artwork_count ??
+      0,
     );
 
   const apiHealthy =
@@ -1088,7 +1046,7 @@ function AdminDashboardPage({
         <AdminStatCard
           icon="music"
           label="Published Tracks"
-          value={tracks.length}
+          value={trackCount}
           detail="Live catalog count"
         />
 
@@ -1110,11 +1068,11 @@ function AdminDashboardPage({
           icon="mountains"
           label="Artwork"
           value={
-            tracks.length
+            trackCount
               ? `${Math.round(
                   (
                     artworkCount /
-                    tracks.length
+                    trackCount
                   ) *
                     100,
                 )}%`
@@ -1131,7 +1089,7 @@ function AdminDashboardPage({
           value={duplicateCount}
           detail={
             duplicates
-              ? `${duplicates.scanned_tracks ?? tracks.length} scanned`
+              ? `${duplicates.scanned_tracks ?? trackCount} scanned`
               : "Run duplicate check"
           }
         />
@@ -1198,7 +1156,7 @@ function AdminDashboardPage({
               label="Catalog"
               value={
                 catalogHealthy
-                  ? `${diagnostics?.catalog?.track_count ?? tracks.length} tracks`
+                  ? `${diagnostics?.catalog?.track_count ?? trackCount} tracks`
                   : "Unavailable"
               }
               healthy={
