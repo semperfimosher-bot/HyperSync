@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
-from .artists import ensure_artist_profile
+from .artists import (
+    artist_names_for_credit,
+    ensure_artist_profiles_for_credit,
+)
 from .audio_compression import (
     compress_audio_for_storage,
 )
@@ -379,18 +382,23 @@ async def publish_authorized_audio(
                 track,
             )
 
-            await ensure_artist_profile(
+            await ensure_artist_profiles_for_credit(
                 session,
                 track.artist,
+                include_combined=True,
             )
 
             await session.commit()
 
             try:
-                await ensure_artist_playlist(
-                    session,
+                for artist_name in artist_names_for_credit(
                     track.artist,
-                )
+                    include_combined=True,
+                ):
+                    await ensure_artist_playlist(
+                        session,
+                        artist_name,
+                    )
 
                 await refresh_smart_playlists_for_track(
                     session,
