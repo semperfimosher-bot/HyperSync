@@ -635,6 +635,10 @@ export default function AdminDashboardPage({
     diagnostics?.database
       ?.healthy === true;
 
+  const durableStateHealthy =
+    diagnostics?.durability
+      ?.healthy === true;
+
   const storageHealthy =
     diagnostics?.storage
       ?.healthy === true;
@@ -664,6 +668,7 @@ export default function AdminDashboardPage({
   const coreHealthy =
     apiHealthy &&
     databaseHealthy &&
+    durableStateHealthy &&
     storageHealthy;
 
 
@@ -867,6 +872,18 @@ export default function AdminDashboardPage({
               }
               healthy={
                 databaseHealthy
+              }
+            />
+
+            <AdminHealthRow
+              label="Durable Ingest State"
+              value={
+                durableStateHealthy
+                  ? "Persistent"
+                  : "Degraded"
+              }
+              healthy={
+                durableStateHealthy
               }
             />
 
