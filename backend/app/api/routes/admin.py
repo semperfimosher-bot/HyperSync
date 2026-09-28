@@ -2262,6 +2262,62 @@ async def backfill_track_metadata(
             failed,
     }
 
+async def _stage_tracks_for_storage_delete(
+    session: DatabaseSession,
+    tracks: list[Track],
+) -> dict[UUID, bool]:
+    """Hide tracks before destructive object-store mutation."""
+
+    original = {
+        track.id:
+            bool(
+                track.is_published,
+            )
+        for track in tracks
+    }
+
+    for track in tracks:
+        track.is_published = False
+
+    try:
+        await session.commit()
+
+    except Exception:
+        await session.rollback()
+        raise
+
+    return original
+
+
+async def _restore_staged_tracks(
+    session: DatabaseSession,
+    original: dict[UUID, bool],
+    track_ids: set[UUID],
+) -> None:
+    if not track_ids:
+        return
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                track_ids,
+            )
+        )
+    )
+
+    for track in result.scalars().all():
+        track.is_published = (
+            original.get(
+                track.id,
+                True,
+            )
+        )
+
+    await session.commit()
+
+
 @router.post(
     "/tracks/delete-bulk",
 )
@@ -2314,6 +2370,24 @@ async def delete_tracks_bulk(
         track.id: track
         for track in tracks
     }
+
+    try:
+        original_publication = (
+            await _stage_tracks_for_storage_delete(
+                session,
+                tracks,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Unable to safely stage tracks for deletion. "
+                "No storage objects were removed."
+            ),
+        ) from exc
 
     bucket = get_b2_bucket()
 
@@ -2409,12 +2483,18 @@ async def delete_tracks_bulk(
     failed: list[dict[str, str]] = []
     deleted_b2_versions = 0
 
+    failed_storage_ids: set[UUID] = set()
+
     for (
         track,
         deleted_versions,
         error_message,
     ) in storage_results:
         if error_message is not None:
+            failed_storage_ids.add(
+                track.id,
+            )
+
             failed.append(
                 {
                     "track_id":
@@ -2428,6 +2508,13 @@ async def delete_tracks_bulk(
                             f"B2: {error_message}"
                         ),
                 }
+            )
+
+            track.is_published = (
+                original_publication.get(
+                    track.id,
+                    True,
+                )
             )
 
             continue
@@ -2467,14 +2554,33 @@ async def delete_tracks_bulk(
     except Exception as exc:
         await session.rollback()
 
+        # The initial staging commit remains durable. Any
+        # track whose B2 files were already removed therefore
+        # stays unpublished instead of becoming a broken
+        # public catalog row. Restore only storage failures in
+        # a fresh transaction when possible.
+        try:
+            await _restore_staged_tracks(
+                session,
+                original_publication,
+                failed_storage_ids,
+            )
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "Unable to restore publication state after "
+                "bulk-delete database failure.",
+            )
+
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Track files were removed from "
-                "storage, but the database bulk "
-                f"delete failed: {exc}"
+                "Storage deletion completed, but final "
+                "database cleanup failed. Affected tracks "
+                "were quarantined from the public catalog "
+                "instead of leaving broken media entries."
             ),
         ) from exc
 
@@ -2516,6 +2622,37 @@ async def delete_track(
             detail="Track not found.",
         )
 
+    deleted_object_key = (
+        track.b2_object_key
+    )
+    deleted_artwork_object_key = (
+        track.artwork_object_key
+    )
+    original_publication = {
+        track.id:
+            bool(
+                track.is_published,
+            )
+    }
+
+    try:
+        await _stage_tracks_for_storage_delete(
+            session,
+            [
+                track,
+            ],
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Unable to safely stage the track for "
+                "deletion. No storage objects were removed."
+            ),
+        ) from exc
+
     bucket = get_b2_bucket()
 
     try:
@@ -2529,19 +2666,61 @@ async def delete_track(
     except Exception as exc:
         await session.rollback()
 
+        try:
+            await _restore_staged_tracks(
+                session,
+                original_publication,
+                {
+                    track_id,
+                },
+            )
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "Unable to restore track publication after "
+                "B2 deletion failure for %s.",
+                track_id,
+            )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(f"Failed to permanently remove track files from B2: {exc}"),
+            detail=(
+                "Failed to permanently remove track files "
+                "from B2. The catalog track was restored."
+            ),
         ) from exc
 
-    await session.delete(track)
+    try:
+        current = await session.get(
+            Track,
+            track_id,
+        )
 
-    await session.commit()
+        if current is not None:
+            await session.delete(
+                current,
+            )
+
+        await session.commit()
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Track files were removed from storage, but "
+                "final database cleanup failed. The track "
+                "was quarantined from the public catalog."
+            ),
+        ) from exc
 
     return {
         "success": True,
         "deleted_track_id": str(track_id),
-        "deleted_object_key": track.b2_object_key,
-        "deleted_artwork_object_key": track.artwork_object_key,
+        "deleted_object_key": deleted_object_key,
+        "deleted_artwork_object_key": deleted_artwork_object_key,
         "deleted_b2_versions": deleted_versions,
     }
