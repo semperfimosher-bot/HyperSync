@@ -18,8 +18,10 @@ from bot.service import (
     stop_bot,
 )
 from bot.worker import (
+    cancel_scan,
     run_process,
     run_scan,
+    scan_running,
 )
 
 from ...services.on_demand_ingestion import (
@@ -36,6 +38,22 @@ class AdminBotIngestRequest(
     candidate_key: str = Field(
         min_length=1,
         max_length=160,
+    )
+
+class AdminBotScanRequest(
+    BaseModel,
+):
+    auto_ingest: bool = False
+    confirm_authorized_media: bool = False
+    track_limit_per_artist: int = Field(
+        default=500,
+        ge=1,
+        le=500,
+    )
+    ingest_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=4,
     )
 
 router = APIRouter(
@@ -57,6 +75,8 @@ async def bot_status(
         "queued_jobs": state.queued_jobs,
         "completed_jobs": state.completed_jobs,
         "failed_jobs": state.failed_jobs,
+        "catalog_scan":
+            state.catalog_scan,
         "provisions":
             await active_provisions(),
         "events": [
@@ -88,16 +108,80 @@ async def bot_stop(
 @router.post("/scan")
 async def bot_scan(
     user: AdminUser,
+    payload: AdminBotScanRequest | None = None,
 ):
+    request = (
+        payload
+        or AdminBotScanRequest()
+    )
+
+    if scan_running():
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "A catalog gap scan is already running."
+            ),
+        )
+
+    if (
+        request.auto_ingest
+        and not request.confirm_authorized_media
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "Confirm that the media being bulk-ingested "
+                "is owned, licensed, or otherwise authorized."
+            ),
+        )
+
     queue_job()
 
     asyncio.create_task(
-        run_scan(),
+        run_scan(
+            auto_ingest=(
+                request.auto_ingest
+            ),
+            track_limit_per_artist=(
+                request.track_limit_per_artist
+            ),
+            ingest_concurrency=(
+                request.ingest_concurrency
+            ),
+        )
     )
 
     return {
         "accepted": True,
-        "message": "Catalog scan queued.",
+        "auto_ingest":
+            request.auto_ingest,
+        "message": (
+            "Catalog gap scan queued with auto-ingest."
+            if request.auto_ingest
+            else "Catalog gap discovery scan queued."
+        ),
+    }
+
+
+@router.post("/scan/cancel")
+async def bot_scan_cancel(
+    user: AdminUser,
+):
+    del user
+
+    accepted = cancel_scan()
+
+    return {
+        "accepted": accepted,
+        "message": (
+            "Catalog gap scan cancellation requested."
+            if accepted
+            else "No catalog gap scan is running."
+        ),
     }
 
 
