@@ -37,6 +37,7 @@ DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+MEDIA_IDENTITY_BACKFILL_RETRY_SECONDS = 5.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
@@ -262,11 +263,17 @@ async def run_media_identity_backfill() -> None:
                     batch_size=250,
                 )
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             # Identity sidecars are an optimization and
-            # compatibility layer. A temporary backfill
-            # failure must not take down the API.
-            return
+            # compatibility layer. A temporary DB/network
+            # failure must not kill the API or permanently
+            # abandon the backfill until the next deploy.
+            await asyncio.sleep(
+                MEDIA_IDENTITY_BACKFILL_RETRY_SECONDS,
+            )
+            continue
 
         if processed == 0:
             return
