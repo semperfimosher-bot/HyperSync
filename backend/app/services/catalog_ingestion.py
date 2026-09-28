@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -37,6 +38,9 @@ from .generated_playlists import (
 from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -372,6 +376,14 @@ async def publish_authorized_audio(
 
             except Exception:
                 await session.rollback()
+                logger.exception(
+                    (
+                        "Catalog publish succeeded but "
+                        "generated playlist refresh failed "
+                        "for track %s."
+                    ),
+                    track.id,
+                )
 
             return CatalogPublishResult(
                 track_id=track.id,
@@ -418,7 +430,13 @@ async def publish_authorized_audio(
                         audio_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean unreferenced "
+                            "audio object %s."
+                        ),
+                        audio_object_key,
+                    )
 
             if (
                 uploaded_artwork
@@ -431,4 +449,10 @@ async def publish_authorized_audio(
                         artwork_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean unreferenced "
+                            "artwork object %s."
+                        ),
+                        artwork_object_key,
+                    )
