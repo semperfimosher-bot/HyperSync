@@ -74,6 +74,7 @@ def test_hardening_tables_are_registered() -> None:
         "bot_catalog_scan_items",
         "track_identities",
         "track_artist_credits",
+        "media_deletion_jobs",
     }
 
     assert expected_tables.issubset(
