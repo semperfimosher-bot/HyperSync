@@ -72,6 +72,7 @@ REQUIRED_FILES = {
     "frontend/nginx.conf",
     "frontend/package.json",
     "frontend/package-lock.json",
+    "frontend/scripts/run-tests.mjs",
     "frontend/vite.config.js",
     "frontend/src/App.jsx",
     "frontend/src/main.jsx",
@@ -661,6 +662,14 @@ def verify_configuration_files() -> None:
     package = json.loads(_read_utf8(PROJECT_ROOT / "frontend/package.json"))
     scripts = package.get("scripts", {})
     _require(scripts.get("build") == "vite build", "Frontend build script must run vite build.")
+    _require(
+        scripts.get("test") == "node scripts/run-tests.mjs",
+        "Frontend test script must auto-discover every .test.js file.",
+    )
+    _require(
+        scripts.get("test:offline") == "node scripts/run-tests.mjs",
+        "test:offline must use the same complete frontend test discovery.",
+    )
 
     for section_name in ("dependencies", "devDependencies"):
         dependencies = package.get(section_name, {})
