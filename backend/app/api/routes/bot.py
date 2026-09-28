@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -11,6 +9,9 @@ from pydantic import (
     Field,
 )
 
+from bot.runtime import (
+    spawn_background_task,
+)
 from bot.service import (
     get_state,
     queue_job,
@@ -164,7 +165,7 @@ async def bot_scan(
 
     queue_job()
 
-    asyncio.create_task(
+    spawn_background_task(
         run_scan(
             auto_ingest=(
                 request.auto_ingest
@@ -176,7 +177,13 @@ async def bot_scan(
                 request.ingest_concurrency
             ),
             scan_id=scan.id,
-        )
+        ),
+        name=(
+            "catalog-scan:"
+            + str(
+                scan.id,
+            )
+        ),
     )
 
     return {
@@ -228,8 +235,9 @@ async def bot_process(
 ):
     queue_job()
 
-    asyncio.create_task(
+    spawn_background_task(
         run_process(),
+        name="bot-process-queue",
     )
 
     return {
