@@ -9,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     select,
+    text,
     update,
 )
 
@@ -36,6 +37,12 @@ TERMINAL_SCAN_STATES = (
     "cancelled",
     "failed",
 )
+
+
+class ActiveCatalogScanError(
+    RuntimeError,
+):
+    pass
 
 
 def _now() -> datetime:
@@ -225,6 +232,51 @@ async def create_catalog_scan(
     )
 
     async with session_factory() as session:
+        bind = session.get_bind()
+
+        if (
+            bind is not None
+            and bind.dialect.name
+            == "postgresql"
+        ):
+            # Serialize "is there an active scan?" + create
+            # across every API replica. This closes the race
+            # where two requests arrive before either insert
+            # becomes visible.
+            await session.execute(
+                text(
+                    "SELECT pg_advisory_xact_lock("
+                    "hashtext(:lock_key)"
+                    ")"
+                ),
+                {
+                    "lock_key":
+                        "hypersync:catalog-scan:create",
+                },
+            )
+
+        existing_result = await session.execute(
+            select(
+                BotCatalogScan.id,
+            )
+            .where(
+                BotCatalogScan.state.in_(
+                    ACTIVE_SCAN_STATES,
+                )
+            )
+            .limit(
+                1,
+            )
+        )
+
+        if (
+            existing_result.scalar_one_or_none()
+            is not None
+        ):
+            raise ActiveCatalogScanError(
+                "A catalog gap scan is already running.",
+            )
+
         scan = BotCatalogScan(
             state="queued",
             auto_ingest=bool(
