@@ -113,7 +113,6 @@ import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
 import {
   deleteCatalogTrack,
   deleteCatalogTracks,
-  useCatalogTracks,
 } from "./catalogStore.js";
 
 import {
@@ -123,14 +122,6 @@ import {
 import {
   isOnDemandTrackId,
 } from "./onDemandMusic.js";
-
-import {
-  addTrackGroupSelection,
-  getTrackGroupSelectionState,
-  pruneTrackSelection,
-  toggleTrackGroupSelection,
-  toggleTrackSelection,
-} from "./catalogSelection.js";
 
 import {
   cleanupLegacyUnscopedDownloads,
@@ -152,14 +143,6 @@ import {
 import {
   clearCachedLibraryScope,
 } from "./libraryCache.js";
-
-import {
-  splitArtistCredits,
-} from "./libraryEntities.js";
-
-import {
-  sortCatalogFolderTracks,
-} from "./catalogOrdering.js";
 
 import {
   findMissingPlaylistTracks,
