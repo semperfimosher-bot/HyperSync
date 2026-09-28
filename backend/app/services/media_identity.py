@@ -45,6 +45,25 @@ def track_identity_keys(
     )
 
 
+def _supports_identity_sidecars(
+    session,
+) -> bool:
+    return all(
+        callable(
+            getattr(
+                session,
+                name,
+                None,
+            )
+        )
+        for name in (
+            "add",
+            "flush",
+            "get",
+        )
+    )
+
+
 async def sync_track_media_identity(
     session,
     track: Track,
@@ -131,76 +150,92 @@ async def find_duplicate_track(
 ) -> Track | None:
     (
         artist_key,
-        _primary_artist_key,
+        primary_artist_key,
         title_key,
     ) = track_identity_keys(
         title=title,
         artist=artist,
     )
 
-    indexed_result = await session.execute(
-        select(
-            Track,
-        )
-        .join(
-            TrackIdentity,
-            TrackIdentity.track_id
-            == Track.id,
-        )
-        .where(
-            TrackIdentity.title_key
-            == title_key,
-            (
-                (
-                    TrackIdentity.artist_key
-                    == artist_key
-                )
-                |
-                (
-                    TrackIdentity.primary_artist_key
-                    == _primary_artist_key
-                )
-            ),
-        )
-        .order_by(
-            Track.created_at.asc(),
-            Track.id.asc(),
-        )
-        .limit(
-            1,
+    supports_sidecars = (
+        _supports_identity_sidecars(
+            session,
         )
     )
 
-    indexed = (
-        indexed_result.scalar_one_or_none()
-    )
-
-    if indexed is not None:
-        return indexed
-
-    # Compatibility fallback while legacy rows are
-    # being backfilled. Once indexed, future lookups
-    # avoid scanning that row again.
-    legacy_result = await session.execute(
-        select(
-            Track,
-        )
-        .outerjoin(
-            TrackIdentity,
-            TrackIdentity.track_id
-            == Track.id,
-        )
-        .where(
-            TrackIdentity.track_id.is_(
-                None,
+    if supports_sidecars:
+        indexed_result = await session.execute(
+            select(
+                Track,
+            )
+            .join(
+                TrackIdentity,
+                TrackIdentity.track_id
+                == Track.id,
+            )
+            .where(
+                TrackIdentity.title_key
+                == title_key,
+                (
+                    (
+                        TrackIdentity.artist_key
+                        == artist_key
+                    )
+                    |
+                    (
+                        TrackIdentity.primary_artist_key
+                        == primary_artist_key
+                    )
+                ),
+            )
+            .order_by(
+                Track.created_at.asc(),
+                Track.id.asc(),
+            )
+            .limit(
+                1,
             )
         )
+
+        indexed = (
+            indexed_result.scalar_one_or_none()
+        )
+
+        if indexed is not None:
+            return indexed
+
+        legacy_stmt = (
+            select(
+                Track,
+            )
+            .outerjoin(
+                TrackIdentity,
+                TrackIdentity.track_id
+                == Track.id,
+            )
+            .where(
+                TrackIdentity.track_id.is_(
+                    None,
+                )
+            )
+        )
+    else:
+        # Lightweight test/read adapters may not expose
+        # SQLAlchemy's write/identity-map methods. Preserve
+        # the legacy behavior for them instead of coupling
+        # read helpers to sidecar persistence.
+        legacy_stmt = select(
+            Track,
+        )
+
+    legacy_result = await session.execute(
+        legacy_stmt
     )
 
     for track in legacy_result.scalars().all():
         (
             existing_artist_key,
-            _existing_primary_key,
+            existing_primary_key,
             existing_title_key,
         ) = track_identity_keys(
             title=track.title,
@@ -213,14 +248,15 @@ async def find_duplicate_track(
             and (
                 existing_artist_key
                 == artist_key
-                or _existing_primary_key
-                == _primary_artist_key
+                or existing_primary_key
+                == primary_artist_key
             )
         ):
-            await sync_track_media_identity(
-                session,
-                track,
-            )
+            if supports_sidecars:
+                await sync_track_media_identity(
+                    session,
+                    track,
+                )
 
             return track
 
@@ -241,64 +277,75 @@ async def load_tracks_for_artist_credit(
     if not target:
         return []
 
-    indexed_stmt = (
-        select(
+    supports_sidecars = (
+        _supports_identity_sidecars(
+            session,
+        )
+    )
+
+    tracks_by_id: dict = {}
+
+    if supports_sidecars:
+        indexed_stmt = (
+            select(
+                Track,
+            )
+            .join(
+                TrackArtistCredit,
+                TrackArtistCredit.track_id
+                == Track.id,
+            )
+            .where(
+                TrackArtistCredit.normalized_name
+                == target,
+            )
+        )
+
+        if primary_only:
+            indexed_stmt = indexed_stmt.where(
+                TrackArtistCredit.is_primary.is_(
+                    True,
+                )
+            )
+
+        if published_only:
+            indexed_stmt = indexed_stmt.where(
+                Track.is_published.is_(
+                    True,
+                )
+            )
+
+        indexed_result = await session.execute(
+            indexed_stmt
+        )
+
+        tracks_by_id = {
+            track.id:
+                track
+            for track
+            in indexed_result.scalars().all()
+        }
+
+        legacy_stmt = (
+            select(
+                Track,
+            )
+            .outerjoin(
+                TrackArtistCredit,
+                TrackArtistCredit.track_id
+                == Track.id,
+            )
+            .where(
+                TrackArtistCredit.track_id.is_(
+                    None,
+                )
+            )
+            .distinct()
+        )
+    else:
+        legacy_stmt = select(
             Track,
         )
-        .join(
-            TrackArtistCredit,
-            TrackArtistCredit.track_id
-            == Track.id,
-        )
-        .where(
-            TrackArtistCredit.normalized_name
-            == target,
-        )
-    )
-
-    if primary_only:
-        indexed_stmt = indexed_stmt.where(
-            TrackArtistCredit.is_primary.is_(
-                True,
-            )
-        )
-
-    if published_only:
-        indexed_stmt = indexed_stmt.where(
-            Track.is_published.is_(
-                True,
-            )
-        )
-
-    indexed_result = await session.execute(
-        indexed_stmt
-    )
-
-    tracks_by_id = {
-        track.id:
-            track
-        for track
-        in indexed_result.scalars().all()
-    }
-
-    # Compatibility fallback for rows that do not
-    # have artist-credit sidecars yet.
-    legacy_stmt = (
-        select(
-            Track,
-        )
-        .outerjoin(
-            TrackArtistCredit,
-            TrackArtistCredit.track_id
-            == Track.id,
-        )
-        .where(
-            TrackArtistCredit.track_id.is_(
-                None,
-            )
-        )
-        .distinct()
-    )
 
     if published_only:
         legacy_stmt = legacy_stmt.where(
@@ -312,6 +359,17 @@ async def load_tracks_for_artist_credit(
     )
 
     for track in legacy_result.scalars().all():
+        if (
+            published_only
+            and getattr(
+                track,
+                "is_published",
+                True,
+            )
+            is False
+        ):
+            continue
+
         credits = (
             (
                 primary_artist_credit(
@@ -336,10 +394,11 @@ async def load_tracks_for_artist_credit(
                 track.id
             ] = track
 
-            await sync_track_media_identity(
-                session,
-                track,
-            )
+            if supports_sidecars:
+                await sync_track_media_identity(
+                    session,
+                    track,
+                )
 
     return list(
         tracks_by_id.values(),
