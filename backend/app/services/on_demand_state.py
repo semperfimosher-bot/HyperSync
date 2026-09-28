@@ -628,6 +628,61 @@ async def pop_pending_listeners(
 
 
 
+async def list_resumable_provision_ids(
+    *,
+    limit: int = 50,
+) -> list[UUID]:
+    """Return durable ingests abandoned by a prior process.
+
+    Only provisions that reached the explicit ingesting state
+    are eligible. Speculative source-resolution/prewarm rows
+    are intentionally excluded so a deploy never turns
+    background warming into an unexpected bulk ingest.
+    """
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    try:
+        async with session_factory() as session:
+            result = await session.execute(
+                select(
+                    OnDemandProvision.id,
+                )
+                .where(
+                    OnDemandProvision.track_id.is_(
+                        None,
+                    ),
+                    OnDemandProvision.state
+                    == "ingesting",
+                )
+                .order_by(
+                    OnDemandProvision.updated_at.asc(),
+                    OnDemandProvision.id.asc(),
+                )
+                .limit(
+                    max(
+                        1,
+                        min(
+                            int(limit),
+                            200,
+                        ),
+                    )
+                )
+            )
+
+            return list(
+                result.scalars().all()
+            )
+
+    except SQLAlchemyError:
+        _warn_once(
+            "resumable provision listing",
+        )
+        return []
+
+
 async def list_recent_provisions(
     *,
     limit: int = 50,
