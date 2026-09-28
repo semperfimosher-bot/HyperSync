@@ -2350,16 +2350,60 @@ async def delete_tracks_bulk(
                     ),
                 )
 
-    storage_results = (
-        await asyncio.gather(
-            *(
-                delete_storage(
-                    track,
+    storage_queue: asyncio.Queue[
+        Track
+    ] = asyncio.Queue()
+
+    for track in tracks:
+        storage_queue.put_nowait(
+            track,
+        )
+
+    storage_results: list[
+        tuple[
+            Track,
+            int,
+            str | None,
+        ]
+    ] = []
+
+    async def storage_worker() -> None:
+        while True:
+            try:
+                track = (
+                    storage_queue
+                    .get_nowait()
                 )
-                for track in tracks
+            except asyncio.QueueEmpty:
+                return
+
+            try:
+                storage_results.append(
+                    await delete_storage(
+                        track,
+                    )
+                )
+            finally:
+                storage_queue.task_done()
+
+    workers = [
+        asyncio.create_task(
+            storage_worker(),
+        )
+        for _index in range(
+            min(
+                12,
+                len(
+                    tracks,
+                ),
             )
         )
-    )
+    ]
+
+    if workers:
+        await asyncio.gather(
+            *workers,
+        )
 
     deleted_track_ids: list[str] = []
     failed: list[dict[str, str]] = []
