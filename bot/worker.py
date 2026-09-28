@@ -10,6 +10,9 @@ from sqlalchemy import (
 )
 
 import bot.service
+from bot.runtime import (
+    spawn_background_task,
+)
 
 from backend.app.database import (
     get_engine,
@@ -798,7 +801,7 @@ async def resume_catalog_scan_on_startup() -> asyncio.Task | None:
 
         return None
 
-    return asyncio.create_task(
+    return spawn_background_task(
         run_scan(
             auto_ingest=(
                 scan.auto_ingest
@@ -811,7 +814,13 @@ async def resume_catalog_scan_on_startup() -> asyncio.Task | None:
             ),
             scan_id=scan.id,
             resume=True,
-        )
+        ),
+        name=(
+            "catalog-scan-resume:"
+            + str(
+                scan.id,
+            )
+        ),
     )
 
 
