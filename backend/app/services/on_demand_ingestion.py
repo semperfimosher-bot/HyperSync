@@ -872,10 +872,18 @@ async def prewarm_candidates(
     for candidate in candidates[
         :limit
     ]:
-        asyncio.create_task(
+        task = asyncio.create_task(
             prewarm_candidate(
                 candidate,
             )
+        )
+
+        _background_warm_tasks.add(
+            task,
+        )
+
+        task.add_done_callback(
+            _background_warm_tasks.discard,
         )
 
 
