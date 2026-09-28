@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -159,3 +160,34 @@ async def test_activity_logging_failure_does_not_break_successful_request(
     )
 
     assert response.status_code == 204
+
+
+def test_bot_routes_use_tracked_background_runtime() -> None:
+    source = Path(
+        "backend/app/api/routes/bot.py",
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert "asyncio.create_task(" not in source
+    assert source.count(
+        "spawn_background_task(",
+    ) >= 2
+
+
+def test_shared_transaction_helpers_do_not_rollback_caller_session() -> None:
+    for relative_path in (
+        "backend/app/services/generated_playlists.py",
+        "backend/app/services/media_identity.py",
+    ):
+        source = Path(
+            relative_path,
+        ).read_text(
+            encoding="utf-8",
+        )
+
+        assert "session.rollback(" not in source, (
+            relative_path
+            + " must leave outer transaction ownership "
+            "to its caller; use savepoints for local races."
+        )
