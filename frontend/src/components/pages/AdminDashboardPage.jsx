@@ -29,6 +29,9 @@ import {
 
 import Icon from "../ui/Icon.jsx";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 
 export default function AdminDashboardPage({
   onNavigate,
@@ -579,23 +582,17 @@ export default function AdminDashboardPage({
 
   useEffect(() => {
     void loadDashboard();
-
-    const interval =
-      window.setInterval(
-        () => {
-          void loadDashboard();
-        },
-        30000,
-      );
-
-    return () => {
-      window.clearInterval(
-        interval,
-      );
-    };
   }, [
     loadDashboard,
   ]);
+
+  useQuietRefresh(
+    loadDashboard,
+    {
+      intervalMs:
+        30_000,
+    },
+  );
 
 
   const trackCount =
