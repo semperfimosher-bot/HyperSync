@@ -31,6 +31,15 @@ for (const storage of STORAGES) {
   );
 }
 
+export function shouldRememberSession() {
+  return (
+    localStorage.getItem(
+      REMEMBER_ME_KEY,
+    ) !== "false"
+  );
+}
+
+
 export function getActiveStorage() {
   for (const storage of STORAGES) {
     if (
@@ -72,9 +81,7 @@ export function cacheUserProfile(
   user,
   {
     remember =
-      localStorage.getItem(
-        REMEMBER_ME_KEY,
-      ) !== "false",
+      shouldRememberSession(),
   } = {},
 ) {
   if (!user) {
