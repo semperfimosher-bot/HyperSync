@@ -16,6 +16,7 @@ from backend.app.models.media import (
 from backend.app.services.audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
+    primary_artist_credit,
 )
 from backend.app.services.on_demand_ingestion import (
     ingest_candidate_and_wait,
@@ -79,9 +80,15 @@ async def _catalog_inventory() -> tuple[
     ] = set()
 
     for artist, title in rows:
+        primary_artist = (
+            primary_artist_credit(
+                artist,
+            )
+        )
+
         artist_key = (
             normalize_track_identity(
-                artist,
+                primary_artist,
             )
         )
 
@@ -109,9 +116,7 @@ async def _catalog_inventory() -> tuple[
         ):
             artists_by_key[
                 artist_key
-            ] = str(
-                artist,
-            ).strip()
+            ] = primary_artist
 
     artists = sorted(
         artists_by_key.values(),
@@ -129,7 +134,9 @@ def _candidate_identity(
 ) -> tuple[str, str]:
     return (
         normalize_track_identity(
-            candidate.artist,
+            primary_artist_credit(
+                candidate.artist,
+            )
         ),
         normalize_track_title_identity(
             candidate.title,
