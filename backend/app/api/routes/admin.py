@@ -40,6 +40,7 @@ from ...services.media_identity import (
     catalog_identity_diagnostics,
     duplicate_track_groups,
     find_duplicate_track as find_indexed_duplicate_track,
+    group_duplicate_tracks,
     sync_track_media_identity,
 )
 from ...services.audio_metadata import (
@@ -73,6 +74,16 @@ router = APIRouter(
 
 
 logger = logging.getLogger(__name__)
+
+
+def _duplicate_track_groups(
+    tracks: list[Track],
+) -> list[dict]:
+    # Compatibility wrapper for older callers/tests.
+    # The actual grouping rules live in media_identity.
+    return group_duplicate_tracks(
+        tracks,
+    )
 
 
 async def _find_duplicate_track(
