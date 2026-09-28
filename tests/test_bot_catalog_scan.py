@@ -331,3 +331,96 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
     assert scan["ingest_failed"] == 0
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_gap_scan_uses_primary_artist_for_collaborations(
+    monkeypatch,
+) -> None:
+    engine, factory = (
+        await _catalog_factory(
+            [
+                (
+                    "Morgan Wallen & Lil Durk",
+                    "Broadway Girls",
+                ),
+            ]
+        )
+    )
+
+    queries: list[str] = []
+    remembered: list[str] = []
+
+    async def fake_search(
+        query: str,
+        *,
+        kind: str,
+        limit: int,
+    ):
+        queries.append(
+            query,
+        )
+
+        assert kind == "artist"
+        assert limit == 500
+
+        return [
+            _candidate(
+                artist="Morgan Wallen",
+                title="Broadway Girls",
+                suffix="existing-collab",
+            ),
+            _candidate(
+                artist="Morgan Wallen",
+                title="Actually Missing",
+                suffix="missing-primary",
+            ),
+        ]
+
+    async def fake_remember(
+        candidates,
+    ):
+        remembered.extend(
+            candidate.key
+            for candidate
+            in candidates
+        )
+
+    monkeypatch.setattr(
+        bot.worker,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+    monkeypatch.setattr(
+        bot.worker,
+        "search_catalog_metadata",
+        fake_search,
+    )
+    monkeypatch.setattr(
+        bot.worker,
+        "remember_candidates",
+        fake_remember,
+    )
+
+    await bot.worker.run_scan(
+        auto_ingest=False,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+
+    scan = (
+        bot.service.get_state()
+        .catalog_scan
+    )
+
+    assert queries == [
+        "Morgan Wallen",
+    ]
+    assert scan["artist_total"] == 1
+    assert scan["missing_discovered"] == 1
+    assert remembered == [
+        "music:test-missing-primary",
+    ]
+
+    await engine.dispose()
