@@ -605,3 +605,86 @@ async def test_catalog_scan_persists_pending_items_for_restart_resume(
     assert snapshot["state"] == "discovering"
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_catalog_scan_item_claim_is_idempotent(
+    monkeypatch,
+) -> None:
+    engine, factory = (
+        await _catalog_factory(
+            [
+                (
+                    "Claim Artist",
+                    "Existing Song",
+                ),
+            ]
+        )
+    )
+
+    monkeypatch.setattr(
+        bot_jobs,
+        "get_session_factory",
+        lambda:
+            factory,
+    )
+
+    scan = await bot_jobs.create_catalog_scan(
+        auto_ingest=True,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+
+    candidate = _candidate(
+        artist="Claim Artist",
+        title="Claim Me",
+        suffix="claim-me",
+    )
+
+    added = await bot_jobs.persist_discovered_candidates(
+        scan.id,
+        [
+            candidate,
+        ],
+    )
+
+    assert added == 1
+
+    pending = await bot_jobs.pending_scan_items(
+        scan.id,
+    )
+
+    assert len(pending) == 1
+
+    item_id = pending[0][0]
+
+    first_claim = await bot_jobs.mark_item_started(
+        scan.id,
+        item_id,
+    )
+
+    second_claim = await bot_jobs.mark_item_started(
+        scan.id,
+        item_id,
+    )
+
+    assert first_claim is True
+    assert second_claim is False
+
+    async with factory() as session:
+        item = await session.get(
+            BotCatalogScanItem,
+            item_id,
+        )
+        persisted_scan = await session.get(
+            BotCatalogScan,
+            scan.id,
+        )
+
+        assert item is not None
+        assert item.state == "ingesting"
+        assert item.attempts == 1
+        assert persisted_scan is not None
+        assert persisted_scan.ingest_started == 1
+
+    await engine.dispose()
