@@ -22,6 +22,9 @@ from ...models.account import (
     UserSession,
 )
 from ...security.passwords import hash_password, verify_password
+from ...time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 from ...security.rate_limit import (
     enforce_rate_limit,
 )
@@ -403,22 +406,6 @@ def set_refresh_cookie(
         ),
         samesite="lax",
         path="/api/auth",
-    )
-
-
-def _as_utc_aware(
-    value: datetime | None,
-) -> datetime | None:
-    if value is None:
-        return None
-
-    if value.tzinfo is None:
-        return value.replace(
-            tzinfo=UTC,
-        )
-
-    return value.astimezone(
-        UTC,
     )
 
 
