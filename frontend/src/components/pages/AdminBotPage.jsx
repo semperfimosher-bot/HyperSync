@@ -12,6 +12,9 @@ import {
 import Icon from
   "../ui/Icon.jsx";
 
+import useQuietRefresh from
+  "../../hooks/useQuietRefresh.js";
+
 
 const ACTIVE_SCAN_STATES =
   new Set([
@@ -370,37 +373,23 @@ export default function AdminBotPage() {
   ]);
 
 
-  useEffect(() => {
-    const delay =
-      (
-        scanActive ||
-        activeProvisionCount >
-          0
-      )
-        ? 1400
-        : 6000;
-
-    const timer =
-      window.setInterval(
-        () => {
-          void refreshStatus({
-            quiet:
-              true,
-          });
-        },
-        delay,
-      );
-
-    return () => {
-      window.clearInterval(
-        timer,
-      );
-    };
-  }, [
-    activeProvisionCount,
-    refreshStatus,
-    scanActive,
-  ]);
+  useQuietRefresh(
+    () =>
+      refreshStatus({
+        quiet:
+          true,
+      }),
+    {
+      intervalMs:
+        (
+          scanActive ||
+          activeProvisionCount >
+            0
+        )
+          ? 1400
+          : 6000,
+    },
+  );
 
 
   const startGapScan =
