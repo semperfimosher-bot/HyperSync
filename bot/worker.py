@@ -18,13 +18,13 @@ from backend.app.database import (
     get_engine,
     get_session_factory,
 )
-from backend.app.models.media import (
-    Track,
-)
 from backend.app.services.audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
     primary_artist_credit,
+)
+from backend.app.services.media_identity import (
+    catalog_primary_artist_inventory,
 )
 from backend.app.services.bot_catalog_jobs import (
     active_catalog_scan,
@@ -204,79 +204,9 @@ async def _catalog_inventory() -> tuple[
     )
 
     async with session_factory() as session:
-        result = await session.execute(
-            select(
-                Track.artist,
-                Track.title,
-            )
-            .where(
-                Track.is_published.is_(
-                    True,
-                )
-            )
+        return await catalog_primary_artist_inventory(
+            session,
         )
-
-        rows = list(
-            result.all()
-        )
-
-    artists_by_key: dict[
-        str,
-        str,
-    ] = {}
-
-    existing_identities: set[
-        tuple[str, str]
-    ] = set()
-
-    for artist, title in rows:
-        primary_artist = (
-            primary_artist_credit(
-                artist,
-            )
-        )
-
-        artist_key = (
-            normalize_track_identity(
-                primary_artist,
-            )
-        )
-
-        title_key = (
-            normalize_track_title_identity(
-                title,
-            )
-        )
-
-        if (
-            artist_key
-            and title_key
-        ):
-            existing_identities.add(
-                (
-                    artist_key,
-                    title_key,
-                )
-            )
-
-        if (
-            artist_key
-            and artist_key
-            not in artists_by_key
-        ):
-            artists_by_key[
-                artist_key
-            ] = primary_artist
-
-    artists = sorted(
-        artists_by_key.values(),
-        key=str.casefold,
-    )
-
-    return (
-        artists,
-        existing_identities,
-    )
 
 
 def _candidate_identity(
