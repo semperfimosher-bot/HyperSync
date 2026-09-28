@@ -1859,7 +1859,7 @@ async def finish_listening(
      # A user hitting Next at 98% should
      # not be punished like someone
      # skipping after 5 seconds.
-     
+
     completed = (
         payload.outcome
         == "completed"
