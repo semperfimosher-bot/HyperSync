@@ -39,6 +39,10 @@ from ...services.media_identity import (
     find_duplicate_track as find_indexed_duplicate_track,
     sync_track_media_identity,
 )
+from ...services.media_deletion import (
+    process_media_deletion_job,
+    queue_media_deletion,
+)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
     normalize_track_identity,
@@ -2347,6 +2351,7 @@ async def delete_tracks_bulk(
             "deleted_count": 0,
             "failed": [],
             "deleted_b2_versions": 0,
+            "storage_cleanup_pending": [],
         }
 
     if len(unique_track_ids) > 2000:
@@ -2379,92 +2384,9 @@ async def delete_tracks_bulk(
         for track in tracks
     }
 
-    bucket = get_b2_bucket()
-
-    storage_limit = (
-        asyncio.Semaphore(
-            12,
-        )
-    )
-
-    async def delete_storage(
-        track: Track,
-    ):
-        async with storage_limit:
-            try:
-                deleted_versions = (
-                    await _delete_track_object_versions(
-                        bucket,
-                        track,
-                    )
-                )
-
-                return (
-                    track,
-                    deleted_versions,
-                    None,
-                )
-
-            except Exception as exc:
-                return (
-                    track,
-                    0,
-                    str(
-                        exc,
-                    ),
-                )
-
-    storage_results = (
-        await asyncio.gather(
-            *(
-                delete_storage(
-                    track,
-                )
-                for track in tracks
-            )
-        )
-    )
-
-    deleted_track_ids: list[str] = []
-    failed: list[dict[str, str]] = []
-    deleted_b2_versions = 0
-
-    for (
-        track,
-        deleted_versions,
-        error_message,
-    ) in storage_results:
-        if error_message is not None:
-            failed.append(
-                {
-                    "track_id":
-                        str(
-                            track.id,
-                        ),
-                    "message":
-                        (
-                            "Failed to permanently "
-                            "remove track files from "
-                            f"B2: {error_message}"
-                        ),
-                }
-            )
-
-            continue
-
-        await session.delete(
-            track,
-        )
-
-        deleted_track_ids.append(
-            str(
-                track.id,
-            )
-        )
-
-        deleted_b2_versions += int(
-            deleted_versions,
-        )
+    failed: list[
+        dict[str, str]
+    ] = []
 
     for track_id in unique_track_ids:
         if track_id in track_by_id:
@@ -2481,7 +2403,29 @@ async def delete_tracks_bulk(
             }
         )
 
+    deletion_jobs = []
+
     try:
+        for track in tracks:
+            job = await queue_media_deletion(
+                session,
+                track,
+            )
+
+            deletion_jobs.append(
+                (
+                    track.id,
+                    job.id,
+                )
+            )
+
+            await session.delete(
+                track,
+            )
+
+        # This is the integrity boundary: do not touch B2
+        # until the Track deletes and durable cleanup jobs
+        # have committed together.
         await session.commit()
 
     except Exception as exc:
@@ -2492,11 +2436,116 @@ async def delete_tracks_bulk(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Track files were removed from "
-                "storage, but the database bulk "
-                f"delete failed: {exc}"
+                "Database bulk delete failed before "
+                "storage cleanup started: "
+                f"{exc}"
             ),
         ) from exc
+
+    bucket = None
+    bucket_error = None
+
+    try:
+        bucket = get_b2_bucket()
+    except Exception as exc:
+        bucket_error = str(
+            exc,
+        )[:500]
+
+    storage_limit = asyncio.Semaphore(
+        8,
+    )
+
+    async def cleanup_one(
+        track_id: UUID,
+        job_id: UUID,
+    ):
+        if bucket is None:
+            return (
+                track_id,
+                None,
+                bucket_error
+                or "B2 storage unavailable.",
+            )
+
+        async with storage_limit:
+            cleanup = (
+                await process_media_deletion_job(
+                    job_id,
+                    bucket=bucket,
+                )
+            )
+
+            return (
+                track_id,
+                cleanup,
+                (
+                    cleanup.error
+                    if cleanup is not None
+                    and not cleanup.complete
+                    else None
+                ),
+            )
+
+    cleanup_results = (
+        await asyncio.gather(
+            *(
+                cleanup_one(
+                    track_id,
+                    job_id,
+                )
+                for (
+                    track_id,
+                    job_id,
+                )
+                in deletion_jobs
+            )
+        )
+    )
+
+    deleted_b2_versions = 0
+    storage_cleanup_pending: list[
+        dict[str, str]
+    ] = []
+
+    for (
+        track_id,
+        cleanup,
+        cleanup_error,
+    ) in cleanup_results:
+        if cleanup is not None:
+            deleted_b2_versions += int(
+                cleanup.deleted_versions
+                or 0
+            )
+
+        if (
+            cleanup is None
+            or not cleanup.complete
+        ):
+            storage_cleanup_pending.append(
+                {
+                    "track_id":
+                        str(
+                            track_id,
+                        ),
+                    "message":
+                        (
+                            cleanup_error
+                            or (
+                                "Storage cleanup is queued "
+                                "for automatic retry."
+                            )
+                        ),
+                }
+            )
+
+    deleted_track_ids = [
+        str(
+            track.id,
+        )
+        for track in tracks
+    ]
 
     return {
         "success":
@@ -2514,6 +2563,8 @@ async def delete_tracks_bulk(
             failed,
         "deleted_b2_versions":
             deleted_b2_versions,
+        "storage_cleanup_pending":
+            storage_cleanup_pending,
     }
 
 
@@ -2523,7 +2574,10 @@ async def delete_track(
     user: AdminUser,
     session: DatabaseSession,
 ):
-    """Permanently delete a track and all of its B2 versions."""
+    """
+    Delete a track transactionally and clean up every B2
+    version through the durable media-deletion outbox.
+    """
 
     track = await session.get(
         Track,
@@ -2532,36 +2586,103 @@ async def delete_track(
 
     if track is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
             detail="Track not found.",
         )
 
-    bucket = get_b2_bucket()
+    object_key = (
+        track.b2_object_key
+    )
+    artwork_object_key = (
+        track.artwork_object_key
+    )
 
     try:
-        deleted_versions = (
-            await _delete_track_object_versions(
-                bucket,
+        deletion_job = (
+            await queue_media_deletion(
+                session,
                 track,
             )
         )
+
+        await session.delete(
+            track,
+        )
+
+        # B2 is intentionally untouched until this commit
+        # succeeds. A DB failure can no longer leave a live
+        # catalog row pointing to erased audio.
+        await session.commit()
 
     except Exception as exc:
         await session.rollback()
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(f"Failed to permanently remove track files from B2: {exc}"),
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Database delete failed before "
+                "storage cleanup started: "
+                f"{exc}"
+            ),
         ) from exc
 
-    await session.delete(track)
+    cleanup = None
+    cleanup_error = None
 
-    await session.commit()
+    try:
+        bucket = get_b2_bucket()
+
+        cleanup = (
+            await process_media_deletion_job(
+                deletion_job.id,
+                bucket=bucket,
+            )
+        )
+
+    except Exception as exc:
+        cleanup_error = str(
+            exc,
+        )[:500]
+
+    cleanup_pending = (
+        cleanup is None
+        or not cleanup.complete
+    )
 
     return {
         "success": True,
-        "deleted_track_id": str(track_id),
-        "deleted_object_key": track.b2_object_key,
-        "deleted_artwork_object_key": track.artwork_object_key,
-        "deleted_b2_versions": deleted_versions,
+        "deleted_track_id":
+            str(
+                track_id,
+            ),
+        "deleted_object_key":
+            object_key,
+        "deleted_artwork_object_key":
+            artwork_object_key,
+        "deleted_b2_versions":
+            (
+                int(
+                    cleanup.deleted_versions
+                    or 0
+                )
+                if cleanup is not None
+                else 0
+            ),
+        "storage_cleanup_pending":
+            cleanup_pending,
+        "storage_cleanup_message":
+            (
+                (
+                    cleanup.error
+                    if cleanup is not None
+                    else cleanup_error
+                )
+                if cleanup_pending
+                else None
+            ),
     }
+
