@@ -251,13 +251,15 @@ export default function AdminBotPage() {
             scan.artists_scanned,
           ) || 0;
 
+        if (
+          scan.state ===
+          "complete"
+        ) {
+          return 100;
+        }
+
         if (total <= 0) {
-          return (
-            scan.state ===
-              "complete"
-              ? 100
-              : 0
-          );
+          return 0;
         }
 
         const discovery =
