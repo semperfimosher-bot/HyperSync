@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hmac
+import logging
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -69,6 +70,9 @@ router = APIRouter(
     prefix="/admin",
     tags=["administration"],
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 async def _lock_track_upload_identity(
@@ -1537,6 +1541,13 @@ async def finalize_direct_track_upload(
             )
         except Exception:
             await session.rollback()
+            logger.exception(
+                (
+                    "Track upload succeeded but generated "
+                    "playlist refresh failed for %s."
+                ),
+                track.id,
+            )
 
         return response_payload
 
@@ -1955,6 +1966,13 @@ async def upload_track(
             )
         except Exception:
             await session.rollback()
+            logger.exception(
+                (
+                    "Track upload succeeded but generated "
+                    "playlist refresh failed for %s."
+                ),
+                track.id,
+            )
 
         return response_payload
 
