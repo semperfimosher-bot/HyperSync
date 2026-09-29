@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:offline": "node --test src/player/mediaSessionState.test.js src/playerPersistence.test.js src/mediaStore.test.js src/mediaCache.test.js src/mediaCacheResponse.test.js src/mediaNetworkCache.test.js src/mediaPlayback.test.js src/mediaRange.test.js src/mediaResponse.test.js src/mediaStreamResponse.test.js src/offlineDownloads.test.js src/offlineOwnership.test.js src/libraryEntities.test.js src/player/playerRuntime.test.js src/playerQueue.test.js src/serviceWorker.test.js src/serviceWorkerRegistration.test.js src/pwaInstall.test.js src/clientDataReset.test.js src/globalResetSync.test.js src/authStorage.test.js src/authRefreshPersistence.test.js src/appShellBoundaries.test.js src/uploadIdentity.test.js src/uploadConcurrency.test.js src/pageWarmCache.test.js src/catalogSelection.test.js src/catalogOrdering.test.js src/messageNotifications.test.js src/playlistDownloadUpdates.test.js src/duplicateCleanup.test.js src/playlistTrackSearch.test.js src/playlistPins.test.js src/lyricsSync.test.js src/playbackDevices.test.js src/playbackClock.test.js src/homeRecentlyPlayed.test.js src/onDemandMusic.test.js src/musicShare.test.js src/sharedMusicNavigation.test.js src/smartPlaylistQuery.test.js"
+    "test:offline": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "music-metadata": "11.15.0",
