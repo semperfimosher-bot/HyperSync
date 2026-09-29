@@ -498,7 +498,7 @@ async def _ingest_missing(
                     await handle_failure(
                         item_id,
                         candidate,
-                        error,
+                        error or "Ingest did not reach ready state.",
                     )
 
             except asyncio.CancelledError:

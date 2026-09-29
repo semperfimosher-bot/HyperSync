@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 from difflib import SequenceMatcher
-from typing import TypedDict
+from typing import TypedDict, cast
 from uuid import UUID
 
 import httpx
@@ -550,10 +550,7 @@ def _candidate_match(
     )
 
     try:
-        search_score = float(
-            raw_score
-            or 0,
-        )
+        search_score = float(cast(str, raw_score or 0))
     except (
         TypeError,
         ValueError,
@@ -945,6 +942,7 @@ async def lookup_apple_track_metadata(
             )
         )
 
+        result: ExternalTrackMetadata | None
         if not matches:
             result = None
 
@@ -1050,10 +1048,7 @@ async def _get_json(
     client: httpx.AsyncClient,
     path: str,
     *,
-    params: dict[
-        str,
-        object,
-    ],
+    params: dict[str, str | int | float | bool],
     throttle: bool,
 ) -> dict[str, object]:
     if throttle:
@@ -1314,16 +1309,11 @@ async def _lookup_musicbrainz_track_metadata(
                 key=lambda item: (
                     -item[0],
                     item[1],
-                    -float(
-                        item[2].get(
-                            "score",
-                            0,
-                        )
-                        or 0
-                    ),
+                    -float(cast(str, item[2].get("score", 0) or 0)),
                 )
             )
 
+            result: ExternalTrackMetadata | None
             if not matches:
                 result = None
 
@@ -1613,10 +1603,7 @@ async def _lastfm_get_json(
     client: httpx.AsyncClient,
     *,
     method: str,
-    params: dict[
-        str,
-        object,
-    ],
+    params: dict[str, str | int | float | bool],
     throttle: bool = True,
 ) -> dict[str, object]:
     if throttle:
@@ -1932,7 +1919,7 @@ async def lookup_lastfm_track_metadata(
                     ):
                         release_year = None
 
-                result = {
+                result: ExternalTrackMetadata | None = {
                     "source":
                         "lastfm",
                     "recording_id":

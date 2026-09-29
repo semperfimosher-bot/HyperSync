@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -292,7 +293,7 @@ async def test_admin_delete_restores_published_track_when_b2_fails(
         ) as exc_info:
             await admin_routes.delete_track(
                 track_id,
-                SimpleNamespace(),
+                cast(User, SimpleNamespace()),
                 session,
             )
 

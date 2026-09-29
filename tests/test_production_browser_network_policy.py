@@ -1,10 +1,11 @@
 from pathlib import Path
+from typing import Any, cast
 
 from backend.app.config import Settings
 
 
 def test_public_frontend_url_is_always_a_cors_origin() -> None:
-    settings = Settings(
+    settings = cast(Any, Settings)(
         frontend_origins="https://preview.example.com/",
         frontend_public_url="https://hypersynced.app/",
         _env_file=None,
@@ -17,7 +18,7 @@ def test_public_frontend_url_is_always_a_cors_origin() -> None:
 
 
 def test_public_frontend_cors_origin_is_not_duplicated() -> None:
-    settings = Settings(
+    settings = cast(Any, Settings)(
         frontend_origins=(
             "https://hypersynced.app/,"
             "http://localhost:5173/"

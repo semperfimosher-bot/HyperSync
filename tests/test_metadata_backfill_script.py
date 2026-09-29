@@ -1,8 +1,10 @@
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+from backend.app.models.media import Track
 from scripts.backfill_track_metadata import (
     acceptable_metadata,
     apply_missing_metadata,
@@ -18,10 +20,10 @@ def track(
     genre=None,
     release_year=None,
 ):
-    return SimpleNamespace(
+    return cast(Track, SimpleNamespace(
         genre=genre,
         release_year=release_year,
-    )
+    ))
 
 
 def test_missing_metadata_detects_blank_genre_or_year() -> None:

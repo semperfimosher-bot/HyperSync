@@ -4,7 +4,7 @@ from datetime import (
     UTC,
     datetime,
 )
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import (
@@ -12,6 +12,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.engine import CursorResult
 
 from ..database import (
     get_session_factory,
@@ -486,7 +487,7 @@ async def request_scan_cancel(
         await session.commit()
 
         return bool(
-            result.rowcount,
+            cast(CursorResult[Any], result).rowcount,
         )
 
 
@@ -619,7 +620,7 @@ async def mark_item_started(
         )
 
         claimed = bool(
-            result.rowcount,
+            cast(CursorResult[Any], result).rowcount,
         )
 
         if claimed:
@@ -730,7 +731,7 @@ async def record_item_failure(
             )
         )
 
-        if not item_result.rowcount:
+        if not cast(CursorResult[Any], item_result).rowcount:
             await session.rollback()
             return (
                 "ignored",
@@ -831,7 +832,7 @@ async def mark_item_finished(
             )
         )
 
-        if result.rowcount:
+        if cast(CursorResult[Any], result).rowcount:
             values: dict[str, Any] = {}
 
             if ready:

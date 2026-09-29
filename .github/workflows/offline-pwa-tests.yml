@@ -132,6 +132,9 @@ jobs:
       - name: Lint backend, bot, scripts, and tests
         run: python -m ruff check backend bot scripts tests
 
+      - name: Type-check backend, bot, scripts, and tests
+        run: python -m pyright
+
       - name: Audit backend dependencies
         run: python -m pip_audit -r requirements.backend.txt
 

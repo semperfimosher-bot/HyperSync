@@ -305,19 +305,9 @@ def apply_missing_metadata(
             is not None
         )
 
-    if (
-        track.release_year
-        is None
-        and metadata.get(
-            "release_year",
-        )
-        is not None
-    ):
-        year = int(
-            metadata[
-                "release_year"
-            ]
-        )
+    release_year = metadata.get("release_year")
+    if track.release_year is None and release_year is not None:
+        year = int(release_year)
 
         if 1900 <= year <= 2100:
             track.release_year = year
@@ -580,6 +570,7 @@ def report_metadata(
             "recording_id",
         )
     )
+    provider_release_year = row.get("provider_release_year")
 
     return {
         "source":
@@ -612,15 +603,8 @@ def report_metadata(
             ),
         "release_year":
             (
-                int(
-                    row.get(
-                        "provider_release_year",
-                    )
-                )
-                if row.get(
-                    "provider_release_year",
-                )
-                is not None
+                int(provider_release_year)
+                if provider_release_year is not None
                 else None
             ),
         "confidence":

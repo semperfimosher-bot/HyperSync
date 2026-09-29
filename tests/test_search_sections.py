@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -18,6 +18,7 @@ from backend.app.api.routes.search import (
     extract_featured_artists,
 )
 from backend.app.models.account import User
+from backend.app.models.media import Track
 from backend.app.services.search import (
     ParsedSearch,
     parse_search_query,
@@ -979,6 +980,7 @@ async def test_direct_genre_candidate_query_has_no_limit():
         None,
     )
 
+    assert execute_mock.await_args is not None
     statement = execute_mock.await_args.args[0]
 
     assert getattr(
@@ -997,8 +999,13 @@ async def test_direct_genre_candidate_query_has_no_limit():
 
 
 
+def _track_stub(**fields: Any) -> Track:
+    """Use a small attribute-only stand-in for read-only Track helpers."""
+    return cast(Track, SimpleNamespace(**fields))
+
+
 def test_direct_genre_matching_ignores_literal_title_words() -> None:
-    actual_country = SimpleNamespace(
+    actual_country = _track_stub(
         id=uuid4(),
         title="Something Else",
         artist="Actual Country Artist",
@@ -1012,7 +1019,7 @@ def test_direct_genre_matching_ignores_literal_title_words() -> None:
         ),
     )
 
-    fake_country_word = SimpleNamespace(
+    fake_country_word = _track_stub(
         id=uuid4(),
         title="Country Money",
         artist="Rap Artist",
@@ -1044,21 +1051,21 @@ def test_direct_genre_matching_ignores_literal_title_words() -> None:
 
 
 def test_direct_genre_prefers_exact_over_related_family() -> None:
-    exact = SimpleNamespace(
+    exact = _track_stub(
         title="Exact",
         artist="Artist",
         album=None,
         genre="Country",
     )
 
-    subgenre = SimpleNamespace(
+    subgenre = _track_stub(
         title="Subgenre",
         artist="Artist",
         album=None,
         genre="Country Pop",
     )
 
-    related = SimpleNamespace(
+    related = _track_stub(
         title="Related",
         artist="Artist",
         album=None,
@@ -1096,22 +1103,22 @@ def test_direct_genre_prefers_exact_over_related_family() -> None:
 
 
 def test_track_credits_artist_requires_primary_artist() -> None:
-    primary = SimpleNamespace(
+    primary = _track_stub(
         title="Primary Song",
         artist="Justin Bieber",
     )
 
-    primary_collaboration = SimpleNamespace(
+    primary_collaboration = _track_stub(
         title="Collab Song",
         artist="Justin Bieber & Post Malone",
     )
 
-    secondary_collaboration = SimpleNamespace(
+    secondary_collaboration = _track_stub(
         title="Collab Song",
         artist="Post Malone & Justin Bieber",
     )
 
-    featured = SimpleNamespace(
+    featured = _track_stub(
         title="Collab Song (feat. Justin Bieber)",
         artist="Post Malone",
     )
@@ -1142,22 +1149,22 @@ async def test_artist_catalog_candidates_keep_only_primary_artist_tracks() -> No
     artist_name = "Justin Bieber"
 
     tracks = [
-        SimpleNamespace(
+        _track_stub(
             id=uuid4(),
             title="Ghost",
             artist="Justin Bieber",
         ),
-        SimpleNamespace(
+        _track_stub(
             id=uuid4(),
             title="Primary Collaboration",
             artist="Justin Bieber & Post Malone",
         ),
-        SimpleNamespace(
+        _track_stub(
             id=uuid4(),
             title="Secondary Collaboration",
             artist="Post Malone & Justin Bieber",
         ),
-        SimpleNamespace(
+        _track_stub(
             id=uuid4(),
             title="Deja Vu (feat. Justin Bieber)",
             artist="Post Malone",
@@ -1174,7 +1181,7 @@ async def test_artist_catalog_candidates_keep_only_primary_artist_tracks() -> No
 
     session = cast(
         AsyncSession,
-        SimpleNamespace(
+        _track_stub(
             execute=AsyncMock(
                 return_value=FakeResult(),
             ),
@@ -1200,14 +1207,14 @@ def test_songs_by_artist_requires_primary_artist_match() -> None:
         "songs by Justin Bieber",
     )
 
-    featured_track = SimpleNamespace(
+    featured_track = _track_stub(
         title="Deja Vu (feat. Justin Bieber)",
         artist="Post Malone",
         album="Stoney",
         genre="Pop",
     )
 
-    primary_collaboration = SimpleNamespace(
+    primary_collaboration = _track_stub(
         title="Shared Song",
         artist="Justin Bieber & Post Malone",
         album="Shared",
@@ -1235,21 +1242,21 @@ def test_general_artist_search_uses_only_main_artist_credit() -> None:
         "morgan",
     )
 
-    primary_collaboration = SimpleNamespace(
+    primary_collaboration = _track_stub(
         title="Primary Collaboration",
         artist="Morgan Wallen & Tate McRae",
         album="Shared Album",
         genre="Country",
     )
 
-    secondary_collaboration = SimpleNamespace(
+    secondary_collaboration = _track_stub(
         title="Secondary Collaboration",
         artist="Tate McRae & Morgan Wallen",
         album="Shared Album",
         genre="Pop",
     )
 
-    featured_only = SimpleNamespace(
+    featured_only = _track_stub(
         title="Feature Song (feat. Morgan Wallen)",
         artist="Tate McRae",
         album="Feature Album",
@@ -1304,11 +1311,11 @@ def test_album_results_collapse_multi_artist_credit_to_main_artist() -> None:
 
 def test_artist_credit_resolution_expands_unique_prefix_but_not_ambiguous_prefix() -> None:
     unique_tracks = [
-        SimpleNamespace(
+        _track_stub(
             title="Ghost",
             artist="Justin Bieber",
         ),
-        SimpleNamespace(
+        _track_stub(
             title="Deja Vu (feat. Justin Bieber)",
             artist="Post Malone",
         ),
@@ -1323,11 +1330,11 @@ def test_artist_credit_resolution_expands_unique_prefix_but_not_ambiguous_prefix
     )
 
     ambiguous_tracks = [
-        SimpleNamespace(
+        _track_stub(
             title="One",
             artist="Justin Bieber",
         ),
-        SimpleNamespace(
+        _track_stub(
             title="Two",
             artist="Justin Timberlake",
         ),

@@ -7,7 +7,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
@@ -129,7 +129,7 @@ def _duration(
 ) -> int | None:
     try:
         number = float(
-            value,
+            cast(str, value),
         )
     except (
         TypeError,
@@ -482,7 +482,7 @@ def _search_sync(
     }
 
     with yt_dlp.YoutubeDL(
-        options,
+        cast(Any, options),
     ) as ydl:
         payload = ydl.extract_info(
             (
@@ -503,7 +503,7 @@ def _search_sync(
         else None
     )
 
-    return [
+    return cast(list[dict[str, Any]], [
         entry
         for entry in (
             entries
@@ -517,7 +517,7 @@ def _search_sync(
             entry,
             dict,
         )
-    ]
+    ])
 
 
 def _webpage_url(
@@ -609,7 +609,7 @@ def _resolve_sync(
     }
 
     with yt_dlp.YoutubeDL(
-        options,
+        cast(Any, options),
     ) as ydl:
         info = ydl.extract_info(
             webpage_url,
@@ -628,7 +628,7 @@ def _resolve_sync(
         "url",
     )
 
-    if not is_allowed_direct_media_url(
+    if not isinstance(direct_url, str) or not is_allowed_direct_media_url(
         direct_url,
     ):
         raise RuntimeError(
@@ -786,7 +786,7 @@ def _download_sync(
         }
 
         with yt_dlp.YoutubeDL(
-            options,
+            cast(Any, options),
         ) as ydl:
             info = ydl.extract_info(
                 source.webpage_url,

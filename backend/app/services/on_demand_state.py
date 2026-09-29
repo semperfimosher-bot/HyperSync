@@ -6,7 +6,7 @@ from datetime import (
     datetime,
     timedelta,
 )
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -16,6 +16,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import (
     SQLAlchemyError,
 )
@@ -638,7 +639,7 @@ async def save_provision(
             await session.commit()
 
             return bool(
-                result.rowcount,
+                cast(CursorResult[Any], result).rowcount,
             )
 
     except SQLAlchemyError:

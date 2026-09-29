@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from sqlalchemy import (
     delete,
     func,
@@ -225,7 +227,7 @@ async def find_duplicate_track(
     )
 
     if indexed is not None:
-        return indexed
+        return cast(Track, indexed)
 
     # Compatibility fallback while legacy rows are
     # being backfilled. Once indexed, future lookups

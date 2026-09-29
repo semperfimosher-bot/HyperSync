@@ -6,7 +6,7 @@ from datetime import (
     datetime,
     timedelta,
 )
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from fastapi import (
@@ -292,7 +292,7 @@ def _shared_music_response(
         return None
 
     return SharedMusicItem(
-        kind=message.shared_kind,
+        kind=cast(SharedMusicKind, message.shared_kind),
         key=message.shared_key,
         title=message.shared_title,
         subtitle=(

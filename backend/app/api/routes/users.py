@@ -2881,8 +2881,9 @@ async def live_playback_device(
                             source_device_id=(
                                 device_id
                             ),
-                            action=message.get(
-                                "action",
+                            action=cast(
+                                PlaybackRemoteAction,
+                                message.get("action"),
                             ),
                             value=message.get(
                                 "value",
@@ -3077,7 +3078,7 @@ async def live_playback_device(
 
         is_current_socket = False
 
-        if should_cleanup:
+        if should_cleanup and user is not None:
             is_current_socket = (
                 await playback_realtime_hub.disconnect(
                     user.id,
@@ -3088,6 +3089,7 @@ async def live_playback_device(
 
         if (
             should_cleanup
+            and user is not None
             and is_current_socket
         ):
             # A socket close can be temporary: Vite reloads,

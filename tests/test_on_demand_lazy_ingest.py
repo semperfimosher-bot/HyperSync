@@ -3,9 +3,11 @@ from datetime import (
     datetime,
 )
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
@@ -16,6 +18,7 @@ from backend.app.api.routes import (
 )
 from backend.app.models.account import (
     AccountType,
+    User,
 )
 from backend.app.models.base import Base
 from backend.app.models.media import (
@@ -32,7 +35,7 @@ from backend.app.services import (
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
-from bot.youtube_source import DownloadedAudio
+from bot.youtube_source import DownloadedAudio, YouTubeSource
 
 
 def _candidate() -> CatalogTrackCandidate:
@@ -289,13 +292,13 @@ async def test_queue_route_prewarms_and_starts_ingest_without_recording_play(
             candidate_key=
                 candidate.key,
         ),
-        SimpleNamespace(),
-        SimpleNamespace(
+        cast(Request, SimpleNamespace()),
+        cast(User, SimpleNamespace(
             id=
                 uuid4(),
             account_type=
                 AccountType.REGISTERED,
-        ),
+        )),
     )
 
     assert prepare_calls == [
@@ -426,9 +429,9 @@ async def test_played_on_demand_track_enters_recent_history_after_ingest(
         )
     )
 
-    session.source = SimpleNamespace(
+    session.source = cast(YouTubeSource, SimpleNamespace(
         source_id="youtube-test-source",
-    )
+    ))
 
     user_id = uuid4()
     track_id = uuid4()
