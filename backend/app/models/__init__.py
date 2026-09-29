@@ -1,9 +1,9 @@
 from .account import (
     AccountType,
     ListeningEvent,
+    PasswordRecovery,
     PlaybackCommand,
     PlaybackDevice,
-    PasswordRecovery,
     User,
     UserAppState,
     UserFollow,
@@ -15,11 +15,11 @@ from .artist import (
     ArtistFollow,
     ArtistProfile,
 )
+from .base import Base
 from .bot import (
     BotCatalogScan,
     BotCatalogScanItem,
 )
-from .base import Base
 from .media import (
     Track,
     TrackArtistCredit,

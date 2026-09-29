@@ -13,16 +13,14 @@ from sqlalchemy.ext.asyncio import (
 
 import bot.service
 import bot.worker
-
 from backend.app.api.routes.bot import (
     AdminBotScanRequest,
 )
-
+from backend.app.models.base import Base
 from backend.app.models.bot import (
     BotCatalogScan,
     BotCatalogScanItem,
 )
-from backend.app.models.base import Base
 from backend.app.models.media import Track
 from backend.app.services import (
     bot_catalog_jobs as bot_jobs,

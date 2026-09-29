@@ -9,14 +9,13 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_database_session
 from ..models.account import User, UserRole, UserSession
-from ..time_utils import (
-    as_utc_aware as _as_utc_aware,
-)
 from ..security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
 )
-
+from ..time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 
 bearer_scheme = HTTPBearer(
     auto_error=False,

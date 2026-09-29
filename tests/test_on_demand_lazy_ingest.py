@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from bot.youtube_source import DownloadedAudio
-
 from backend.app.api.routes import (
     on_demand as on_demand_routes,
 )
@@ -34,6 +32,7 @@ from backend.app.services import (
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
+from bot.youtube_source import DownloadedAudio
 
 
 def _candidate() -> CatalogTrackCandidate:

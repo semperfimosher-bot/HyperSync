@@ -6,9 +6,9 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from backend.app.api.routes import admin as admin_routes
 from backend.app.database import get_session_factory
 from backend.app.main import app
-from backend.app.api.routes import admin as admin_routes
 from backend.app.models.account import User, UserRole
 from backend.app.models.media import Track
 from backend.app.security.passwords import hash_password

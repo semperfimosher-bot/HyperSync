@@ -5,13 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bot.runtime import (
-    active_background_tasks,
-    shutdown_background_tasks,
-    spawn_background_task,
-)
 import backend.app.main as app_main
-
 from backend.app.main import (
     _activity_description,
 )
@@ -20,6 +14,11 @@ from backend.app.services.artists import (
 )
 from backend.app.services.audio_metadata import (
     normalize_track_identity,
+)
+from bot.runtime import (
+    active_background_tasks,
+    shutdown_background_tasks,
+    spawn_background_task,
 )
 
 

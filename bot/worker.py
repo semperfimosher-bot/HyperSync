@@ -9,10 +9,6 @@ from sqlalchemy import (
 )
 
 import bot.service
-from bot.runtime import (
-    spawn_background_task,
-)
-
 from backend.app.database import (
     get_engine,
     get_session_factory,
@@ -21,9 +17,6 @@ from backend.app.services.audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
     primary_artist_credit,
-)
-from backend.app.services.media_identity import (
-    catalog_primary_artist_inventory,
 )
 from backend.app.services.bot_catalog_jobs import (
     active_catalog_scan,
@@ -42,6 +35,9 @@ from backend.app.services.bot_catalog_jobs import (
     set_scan_discovery_start,
     set_scan_phase,
 )
+from backend.app.services.media_identity import (
+    catalog_primary_artist_inventory,
+)
 from backend.app.services.on_demand_ingestion import (
     ingest_candidate_and_wait,
     remember_candidates,
@@ -50,7 +46,9 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
     search_catalog_metadata,
 )
-
+from bot.runtime import (
+    spawn_background_task,
+)
 
 _catalog_scan_lock = asyncio.Lock()
 _catalog_scan_cancel = asyncio.Event()
@@ -620,11 +618,11 @@ async def run_scan(
                 bot.service.catalog_scan_finish()
 
                 bot.service.job_completed(
-                    (
+
                         "Catalog gap scan completed: "
                         "no artists are currently "
                         "in the catalog."
-                    )
+
                 )
                 return
 
@@ -656,10 +654,10 @@ async def run_scan(
                 )
 
                 bot.service.job_completed(
-                    (
+
                         "Catalog gap scan cancelled "
                         "during discovery."
-                    )
+
                 )
                 return
 
@@ -768,10 +766,10 @@ async def run_scan(
             )
 
             bot.service.job_failed(
-                (
+
                     "Catalog gap scan failed: "
                     f"{message[:300]}"
-                )
+
             )
 
         finally:

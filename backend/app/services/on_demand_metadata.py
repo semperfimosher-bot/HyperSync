@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import math
 import re
 import unicodedata
 from dataclasses import (
@@ -49,7 +48,7 @@ class CatalogTrackCandidate:
     def from_dict(
         cls,
         payload: dict[str, Any],
-    ) -> "CatalogTrackCandidate":
+    ) -> CatalogTrackCandidate:
         def optional_str(
             key: str,
         ) -> str | None:

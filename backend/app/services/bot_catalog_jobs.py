@@ -24,7 +24,6 @@ from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
 
-
 ACTIVE_SCAN_STATES = (
     "queued",
     "discovering",

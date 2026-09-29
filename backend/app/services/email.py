@@ -1,3 +1,4 @@
+# ruff: noqa: E501  # HTML email literals keep their original markup.
 from __future__ import annotations
 
 import asyncio

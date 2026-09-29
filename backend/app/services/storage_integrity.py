@@ -10,7 +10,6 @@ from botocore.exceptions import (
 from ..models.media import Track
 from .b2 import head_b2_object
 
-
 _MISSING_CODES = {
     "404",
     "NoSuchKey",

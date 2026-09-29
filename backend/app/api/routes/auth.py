@@ -1,8 +1,8 @@
+import hmac
+import logging
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from hashlib import sha256
-import hmac
-import logging
 from secrets import randbelow, token_urlsafe
 from uuid import uuid4
 
@@ -22,11 +22,13 @@ from ...models.account import (
     UserSession,
 )
 from ...security.passwords import hash_password, verify_password
-from ...time_utils import (
-    as_utc_aware as _as_utc_aware,
-)
 from ...security.rate_limit import (
     enforce_rate_limit,
+)
+from ...security.tokens import (
+    create_access_token,
+    create_refresh_token,
+    hash_refresh_token,
 )
 from ...services.admin_notifications import (
     record_admin_activity,
@@ -35,10 +37,8 @@ from ...services.email import (
     EmailDeliveryError,
     send_password_recovery_email,
 )
-from ...security.tokens import (
-    create_access_token,
-    create_refresh_token,
-    hash_refresh_token,
+from ...time_utils import (
+    as_utc_aware as _as_utc_aware,
 )
 from ..dependencies import OptionalCurrentUser
 
@@ -195,9 +195,7 @@ def _hash_recovery_otp(
 ) -> str:
     return hmac.new(
         _password_recovery_secret(),
-        f"{recovery_id}:{otp}".encode(
-            "utf-8",
-        ),
+        f"{recovery_id}:{otp}".encode(),
         sha256,
     ).hexdigest()
 

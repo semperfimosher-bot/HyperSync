@@ -45,7 +45,6 @@ from .catalog import (
     _track_media_version,
 )
 
-
 router = APIRouter(
     prefix="/artists",
     tags=["artists"],
@@ -199,10 +198,6 @@ async def _artist_profile_response(
     profile: ArtistProfile,
     viewer: User | None,
 ) -> ArtistProfileResponse:
-    normalized = (
-        profile.normalized_name
-    )
-
     tracks = (
         await load_published_artist_tracks(
             session,

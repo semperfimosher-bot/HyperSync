@@ -1,3 +1,6 @@
+from backend.app.services.on_demand_ingestion import (
+    is_allowed_artwork_url,
+)
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
@@ -5,9 +8,6 @@ from bot.youtube_source import (
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
-)
-from backend.app.services.on_demand_ingestion import (
-    is_allowed_artwork_url,
 )
 
 

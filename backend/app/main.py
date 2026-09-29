@@ -23,11 +23,18 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
+from .security.tokens import (
+    InvalidAccessTokenError,
+    decode_access_token,
+)
 from .services.admin_notifications import (
     record_admin_activity,
 )
 from .services.artists import (
     backfill_missing_artist_profiles,
+)
+from .services.media_identity import (
+    backfill_missing_media_identities,
 )
 from .services.message_retention import (
     cleanup_expired_messages,
@@ -35,13 +42,6 @@ from .services.message_retention import (
 from .services.on_demand_ingestion import (
     reset_transient_state,
     resume_on_demand_ingests_on_startup,
-)
-from .services.media_identity import (
-    backfill_missing_media_identities,
-)
-from .security.tokens import (
-    InvalidAccessTokenError,
-    decode_access_token,
 )
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hmac
-
 from datetime import (
     UTC,
     datetime,
@@ -57,7 +56,6 @@ from ..dependencies import (
     CurrentUser,
     DatabaseSession,
 )
-
 
 router = APIRouter(
     prefix="/messages",

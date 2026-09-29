@@ -129,6 +129,9 @@ jobs:
       - name: Run full backend regression suite
         run: python -m pytest -q
 
+      - name: Lint backend, bot, scripts, and tests
+        run: python -m ruff check backend bot scripts tests
+
       - name: Audit backend dependencies
         run: python -m pip_audit -r requirements.backend.txt
 

@@ -12,7 +12,6 @@ from backend.app.models.media import Track
 from backend.app.services import (
     music_metadata,
 )
-
 from backend.app.services.music_metadata import (
     _merge_external_metadata,
     lookup_apple_track_metadata,

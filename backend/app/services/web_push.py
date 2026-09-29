@@ -17,7 +17,6 @@ from ..config import get_settings
 from ..database import get_session_factory
 from ..models.messaging import PushSubscription
 
-
 logger = logging.getLogger(
     __name__,
 )

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
-import pytest
 
 from backend.app.models.base import Base
 from backend.app.models.media import (
@@ -415,7 +414,8 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
 
 
 @pytest.mark.asyncio
-async def test_catalog_primary_artist_inventory_prefers_indexed_sidecars_and_falls_back_for_legacy_rows() -> None:
+async def test_catalog_inventory_prefers_sidecars_and_falls_back_for_legacy_rows(
+) -> None:
     engine, factory = await _factory()
 
     async with factory() as session:

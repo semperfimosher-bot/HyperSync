@@ -38,12 +38,12 @@ from ...models.playlist import (
     Playlist,
     PlaylistTrack,
 )
+from ...services.artists import (
+    load_published_artist_tracks,
+)
 from ...services.audio_metadata import (
     primary_artist_credit,
     split_artist_credits,
-)
-from ...services.artists import (
-    load_published_artist_tracks,
 )
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,

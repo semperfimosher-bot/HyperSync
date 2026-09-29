@@ -817,7 +817,8 @@ async def test_stale_playback_device_can_refresh_itself_without_stale_update() -
 
 
 @pytest.mark.asyncio
-async def test_playback_device_expires_after_background_tolerant_ttl_and_releases_audio_owner() -> None:
+async def test_playback_device_expires_after_background_tolerant_ttl_and_releases_audio_owner(
+) -> None:
     run_id = uuid4().hex[:8]
     username = f"device-expiry-{run_id}"
     track_id = uuid4()

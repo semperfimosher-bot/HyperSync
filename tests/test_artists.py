@@ -6,13 +6,12 @@ from datetime import (
     timedelta,
 )
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
-import pytest
 
 from backend.app.api.routes import (
     artists as artist_routes,

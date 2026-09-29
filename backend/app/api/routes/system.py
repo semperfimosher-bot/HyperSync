@@ -7,7 +7,6 @@ from ..dependencies import (
     DatabaseSession,
 )
 
-
 router = APIRouter(
     prefix="/system",
     tags=["system"],

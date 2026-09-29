@@ -7,10 +7,20 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from mutagen._file import File as MutagenFile
-from pydantic import BaseModel
 from mutagen.flac import Picture
+from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
@@ -27,21 +37,14 @@ from ...models.account import (
     UserProfile,
 )
 from ...models.media import Track
-from ...services.audio_compression import (
-    AudioProbe,
-    compress_audio_for_storage,
-    should_attempt_audio_compression,
-)
 from ...services.artists import (
     artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
-from ...services.media_identity import (
-    catalog_identity_diagnostics,
-    duplicate_track_groups,
-    find_duplicate_track as find_indexed_duplicate_track,
-    group_duplicate_tracks,
-    sync_track_media_identity,
+from ...services.audio_compression import (
+    AudioProbe,
+    compress_audio_for_storage,
+    should_attempt_audio_compression,
 )
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
@@ -61,15 +64,24 @@ from ...services.generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
 )
+from ...services.media_identity import (
+    catalog_identity_diagnostics,
+    duplicate_track_groups,
+    group_duplicate_tracks,
+    sync_track_media_identity,
+)
+from ...services.media_identity import (
+    find_duplicate_track as find_indexed_duplicate_track,
+)
 from ...services.music_metadata import (
     enrich_track_metadata,
     enrich_track_metadata_by_id,
 )
-from ...services.storage_integrity import (
-    audit_track_storage,
-)
 from ...services.on_demand_state import (
     durable_state_diagnostics,
+)
+from ...services.storage_integrity import (
+    audit_track_storage,
 )
 from ..dependencies import AdminUser, DatabaseSession
 
@@ -658,8 +670,6 @@ async def admin_diagnostics(
         "message":
             "B2 storage unavailable.",
     }
-
-    tracks: list[Track] = []
 
     try:
         await session.execute(
@@ -2085,7 +2095,7 @@ async def backfill_track_metadata(
                 )
             )
 
-            def _read_bytes() -> bytes:
+            def _read_bytes(downloaded=downloaded) -> bytes:
                 buffer = BytesIO()
 
                 downloaded.save(

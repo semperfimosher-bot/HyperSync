@@ -21,7 +21,6 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 
-
 _REJECT_TERMS = (
     "live",
     "remix",

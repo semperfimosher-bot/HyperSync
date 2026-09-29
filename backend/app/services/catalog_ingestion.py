@@ -15,17 +15,8 @@ from .artists import (
     artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
-from .media_identity import (
-    find_duplicate_track,
-    sync_track_media_identity,
-    track_identity_lock_key,
-)
 from .audio_compression import (
     compress_audio_for_storage,
-)
-from .audio_metadata import (
-    normalize_track_identity,
-    normalize_track_title_identity,
 )
 from .b2 import (
     delete_all_object_versions,
@@ -35,10 +26,14 @@ from .generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
 )
+from .media_identity import (
+    find_duplicate_track,
+    sync_track_media_identity,
+    track_identity_lock_key,
+)
 from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
-
 
 logger = logging.getLogger(__name__)
 

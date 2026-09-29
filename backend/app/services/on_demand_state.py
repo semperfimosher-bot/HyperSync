@@ -39,7 +39,6 @@ from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
 
-
 logger = logging.getLogger(
     __name__,
 )

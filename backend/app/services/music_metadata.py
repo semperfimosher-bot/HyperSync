@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from difflib import SequenceMatcher
 import re
 import time
 import unicodedata
+from difflib import SequenceMatcher
 from typing import TypedDict
 from uuid import UUID
 
