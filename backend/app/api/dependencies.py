@@ -130,6 +130,11 @@ async def authenticate_access_token(
             },
         )
 
+    # Authentication only reads on the successful path. Finish that transaction
+    # before the route performs rate limiting or waits for external services.
+    # The shared request session stays usable and expire_on_commit=False keeps
+    # the eagerly loaded user/profile attached for routes that update them.
+    await session.commit()
     return user
 
 
