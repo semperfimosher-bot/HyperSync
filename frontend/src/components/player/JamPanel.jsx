@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as player from "../../audioPlayer.js";
 import { apiRequest } from "../../api/client.js";
 import { createJam, getCurrentJam, jamAction, joinJam, shouldApplyJamRefresh } from "../../jamSessions.js";
-import { jamPlaybackAction, jamPlaybackStillWanted } from "../../jamSync.js";
+import { jamPlaybackAction, jamPlaybackStillWanted, shouldAdvanceJamOnEnded } from "../../jamSync.js";
 import "./jamPanel.css";
 
 const errorText = (error) => error?.detail || error?.message || "Jam is unavailable. Try again.";
@@ -25,7 +25,6 @@ export default function JamPanel({ currentUser, onOpenAuth }) {
   const optInNow = useRef(false);
   const syncing = useRef(false);
   const joinAttempt = useRef(null);
-  const lastAdvance = useRef(null);
   const userId = currentUser?.id;
   activeUser.current = userId;
   optInNow.current = optIn;
@@ -140,7 +139,8 @@ export default function JamPanel({ currentUser, onOpenAuth }) {
       if (!optIn || !current || managedTrack.current !== trackId
         || current.current_track_id !== trackId) return false;
       if (managedItem.current !== current.current_item_id) return true;
-      if (current.host_id === activeUser.current) {
+      if (shouldAdvanceJamOnEnded(current, { userId: activeUser.current, trackId,
+        managedTrackId: managedTrack.current, managedItemId: managedItem.current, optIn })) {
         void jamAction(current, "/playback", { action: "next" }).then(apply).catch((failure) => {
           if (failure?.status === 409) void refresh();
           else setError(errorText(failure));
@@ -210,6 +210,10 @@ export default function JamPanel({ currentUser, onOpenAuth }) {
           </> : <>
             <p>{jam.mode === "everyone" ? "Everyone can listen on their own device." : "Music plays on the host device."}</p>
             <p className="jam-current">{jam.current_track ? `${jam.current_track.title} · ${jam.current_track.artist}` : "Add a track to get started."}</p>
+            {host && jam.current_track && !jam.current_track.duration_seconds ? <p>
+              This track has no saved length. Keep listening on the host device, enable guest controls,
+              or use Next when it ends.
+            </p> : null}
             {((host || jam.mode === "everyone") && !optIn) ? (
               <button disabled={busy} onClick={() => setOptIn(true)}>Listen on this device</button>
             ) : optIn ? <button onClick={() => { setOptIn(false); if (managedTrack.current && player.getState().trackId === managedTrack.current) player.silenceLocalPlayback(); }}>Stop listening here</button> : null}
