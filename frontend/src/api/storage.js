@@ -10,6 +10,35 @@ export const REMEMBER_ME_KEY =
 export const CACHED_USER_KEY =
   "hypersync_user_profile";
 
+function safeStorage(name) {
+  return {
+    getItem(key) {
+      try {
+        return globalThis[name]?.getItem(key) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    setItem(key, value) {
+      try {
+        globalThis[name]?.setItem(key, value);
+      } catch {
+        // Storage can be disabled while memory-only auth remains available.
+      }
+    },
+    removeItem(key) {
+      try {
+        globalThis[name]?.removeItem(key);
+      } catch {
+        // Clearing a blocked store must not interrupt logout.
+      }
+    },
+  };
+}
+
+const localStorage = safeStorage("localStorage");
+const sessionStorage = safeStorage("sessionStorage");
+
 const STORAGES = [
   localStorage,
   sessionStorage,

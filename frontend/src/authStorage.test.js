@@ -172,3 +172,34 @@ test(
     );
   },
 );
+
+test("blocked browser storage does not crash authentication startup", async () => {
+  const localDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const sessionDescriptor = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+
+  for (const name of ["localStorage", "sessionStorage"]) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      get() {
+        throw new DOMException("Storage access denied", "SecurityError");
+      },
+    });
+  }
+
+  try {
+    const storage = await import(`./api/storage.js?blocked=${Date.now()}`);
+    assert.equal(storage.shouldRestoreSession(), false);
+    assert.doesNotThrow(() => storage.saveAuthSession("memory-token"));
+    assert.equal(storage.getAccessToken(), "memory-token");
+    assert.doesNotThrow(() => storage.cacheUserProfile({ id: "user-1" }));
+    assert.doesNotThrow(() => storage.clearAuthSession());
+  } finally {
+    for (const [name, descriptor] of [
+      ["localStorage", localDescriptor],
+      ["sessionStorage", sessionDescriptor],
+    ]) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+});

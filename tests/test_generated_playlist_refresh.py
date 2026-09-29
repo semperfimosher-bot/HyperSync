@@ -6,8 +6,10 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.database import get_session_factory
+from backend.app.models import Base
 from backend.app.models.account import User
 from backend.app.models.media import Track
 from backend.app.models.playlist import (
@@ -397,7 +399,10 @@ def test_chill_evening_query_uses_calm_genre_families() -> None:
 @pytest.mark.asyncio
 async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> None:
     run_id = uuid4().hex[:8]
-    session_factory = get_session_factory()
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
         user = User(
@@ -527,6 +532,8 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
             first_country.id,
             second_country.id,
         }
+
+    await engine.dispose()
 
 
 

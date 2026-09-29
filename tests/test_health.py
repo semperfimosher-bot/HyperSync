@@ -6,6 +6,7 @@ from pytest import MonkeyPatch
 
 from backend.app import main as main_module
 from backend.app.api.routes import health as health_route
+from backend.app.config import get_settings
 from backend.app.main import app
 
 
@@ -20,7 +21,7 @@ async def test_root() -> None:
         response = await client.get("/")
 
     assert response.status_code == 200
-    assert response.json()["application"] == "HyperSync"
+    assert response.json()["application"] == get_settings().app_name
 
 
 @pytest.mark.asyncio
@@ -73,13 +74,13 @@ async def test_lifespan_warms_database_before_serving(
 
     async with main_module.lifespan(app):
         assert calls == [
-            "demo",
             "database",
+            "demo",
         ]
 
     assert calls == [
-        "demo",
         "database",
+        "demo",
         "close",
     ]
 
