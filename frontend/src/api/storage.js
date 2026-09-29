@@ -10,6 +10,35 @@ export const REMEMBER_ME_KEY =
 export const CACHED_USER_KEY =
   "hypersync_user_profile";
 
+function safeStorage(name) {
+  return {
+    getItem(key) {
+      try {
+        return globalThis[name]?.getItem(key) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    setItem(key, value) {
+      try {
+        globalThis[name]?.setItem(key, value);
+      } catch {
+        // Storage can be disabled while memory-only auth remains available.
+      }
+    },
+    removeItem(key) {
+      try {
+        globalThis[name]?.removeItem(key);
+      } catch {
+        // Clearing a blocked store must not interrupt logout.
+      }
+    },
+  };
+}
+
+const localStorage = safeStorage("localStorage");
+const sessionStorage = safeStorage("sessionStorage");
+
 const STORAGES = [
   localStorage,
   sessionStorage,
@@ -30,6 +59,15 @@ for (const storage of STORAGES) {
     ACCESS_TOKEN_KEY,
   );
 }
+
+export function shouldRememberSession() {
+  return (
+    localStorage.getItem(
+      REMEMBER_ME_KEY,
+    ) !== "false"
+  );
+}
+
 
 export function getActiveStorage() {
   for (const storage of STORAGES) {
@@ -72,9 +110,7 @@ export function cacheUserProfile(
   user,
   {
     remember =
-      localStorage.getItem(
-        REMEMBER_ME_KEY,
-      ) !== "false",
+      shouldRememberSession(),
   } = {},
 ) {
   if (!user) {

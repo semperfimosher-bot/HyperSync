@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 import httpx
@@ -31,9 +31,11 @@ from ...services.on_demand_ingestion import (
     get_provision_session,
     prepare_candidate,
     provision_status,
+    record_provision_play,
     search_and_remember,
     source_headers,
     stream_token_matches,
+    warm_candidate_keys,
 )
 from ..dependencies import (
     CurrentUser,
@@ -51,6 +53,15 @@ class PrepareOnDemandRequest(
     candidate_key: str = Field(
         min_length=1,
         max_length=160,
+    )
+
+
+class WarmOnDemandRequest(
+    BaseModel,
+):
+    candidate_keys: list[str] = Field(
+        min_length=1,
+        max_length=500,
     )
 
 
@@ -80,10 +91,10 @@ async def search_on_demand(
         min_length=2,
         max_length=180,
     ),
-    limit: int | None = Query(
-        default=None,
+    limit: int = Query(
+        default=500,
         ge=1,
-        le=15,
+        le=500,
     ),
 ):
     _require_registered(
@@ -139,6 +150,203 @@ async def search_on_demand(
             in candidates
         ],
     }
+
+
+@router.get("/artist")
+async def search_on_demand_artist(
+    request: Request,
+    user: CurrentUser,
+    name: str = Query(
+        min_length=2,
+        max_length=180,
+    ),
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=500,
+    ),
+):
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-search",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_search_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    candidates = (
+        await search_and_remember(
+            name,
+            limit=limit,
+            kind="artist",
+            prewarm=False,
+        )
+    )
+
+    return {
+        "artist":
+            name.strip(),
+        "tracks": [
+            {
+                **candidate.as_dict(),
+                "source_type":
+                    "on_demand",
+                "provision_key":
+                    candidate.key,
+                "match_label":
+                    "AVAILABLE ON DEMAND",
+                "matched_field":
+                    "external",
+                "user_play_count":
+                    0,
+                "global_play_count":
+                    0,
+            }
+            for candidate
+            in candidates
+        ],
+    }
+
+
+@router.post("/warm")
+async def warm_on_demand(
+    payload: WarmOnDemandRequest,
+    request: Request,
+    user: CurrentUser,
+):
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-warm",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_prepare_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    sessions = await warm_candidate_keys(
+        payload.candidate_keys,
+    )
+
+    return {
+        "warmed":
+            len(sessions),
+        "sessions":
+            sessions,
+    }
+
+
+@router.post("/queue")
+async def queue_on_demand(
+    payload: PrepareOnDemandRequest,
+    request: Request,
+    user: CurrentUser,
+):
+    """
+    Queueing is an explicit commitment to play this recording soon.
+
+    Unlike ordinary search/prewarm preparation, this resolves the
+    temporary stream and starts publication immediately so the next
+    track has both a ready stream and a B2/catalog ingest already
+    running before the current song ends.
+    """
+    _require_registered(
+        user,
+    )
+
+    settings = get_settings()
+
+    await enforce_rate_limit(
+        request,
+        scope="on-demand-prepare",
+        identity=str(
+            user.id,
+        ),
+        include_client=False,
+        limit=(
+            settings
+            .on_demand_prepare_rate_limit
+        ),
+        window_seconds=(
+            settings
+            .on_demand_rate_window_seconds
+        ),
+    )
+
+    try:
+        result = await prepare_candidate(
+            payload.candidate_key,
+            start_ingest=True,
+        )
+
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_410_GONE
+            ),
+            detail=str(
+                exc,
+            ),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=(
+                "Unable to prepare this queued recording "
+                f"right now: {str(exc)[:240]}"
+            ),
+        ) from exc
+
+    if (
+        result.get(
+            "state",
+        )
+        == "failed"
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=(
+                result.get(
+                    "error",
+                )
+                or "Unable to prepare this queued recording."
+            ),
+        )
+
+    return result
 
 
 @router.post("/prepare")
@@ -211,6 +419,35 @@ async def prepare_on_demand(
                     "error",
                 )
                 or "Unable to prepare this recording."
+            ),
+        )
+
+    return result
+
+
+@router.post(
+    "/{provision_id}/played",
+)
+async def mark_on_demand_played(
+    provision_id: UUID,
+    user: CurrentUser,
+):
+    _require_registered(
+        user,
+    )
+
+    result = await record_provision_play(
+        provision_id,
+        user.id,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
+            detail=(
+                "Provisioning session not found."
             ),
         )
 

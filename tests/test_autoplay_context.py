@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 from typing import cast
 
+from backend.app.api.routes.recommendations import (
+    AutoplayRequest,
+    _catalog_uuid_list,
+    _catalog_uuid_or_none,
+)
 from backend.app.models.media import Track
 from backend.app.services.autoplay import (
     CONTEXT_DECAY,
@@ -211,4 +216,108 @@ def test_genre_family_keeps_country_away_from_rap() -> None:
         != _genre_family(
             "Hip-Hop/Rap",
         )
+    )
+
+
+def test_autoplay_request_tolerates_temporary_on_demand_ids() -> None:
+    valid = (
+        "9e061d5c-5ae4-4db9-8bb1-ef55bdd7af33"
+    )
+
+    payload = AutoplayRequest(
+        current_track_id=valid,
+        exclude_track_ids=[
+            "ondemand:temporary",
+            valid,
+            "not-a-uuid",
+        ],
+        context_track_ids=[
+            "ondemand:older",
+            valid,
+        ],
+        limit=8,
+    )
+
+    assert str(
+        _catalog_uuid_or_none(
+            payload.current_track_id,
+        )
+    ) == valid
+
+    assert [
+        str(
+            track_id,
+        )
+        for track_id in
+        _catalog_uuid_list(
+            payload.exclude_track_ids,
+            limit=100,
+        )
+    ] == [
+        valid,
+    ]
+
+    assert [
+        str(
+            track_id,
+        )
+        for track_id in
+        _catalog_uuid_list(
+            payload.context_track_ids,
+            limit=12,
+        )
+    ] == [
+        valid,
+    ]
+
+
+def test_autoplay_temporary_current_track_becomes_none() -> None:
+    assert (
+        _catalog_uuid_or_none(
+            "ondemand:temporary-current",
+        )
+        is None
+    )
+
+
+def test_autoplay_request_model_accepts_stale_mixed_browser_state() -> None:
+    payload = AutoplayRequest(
+        current_track_id={
+            "stale":
+                True,
+        },
+        exclude_track_ids=[
+            "ondemand:temporary",
+            None,
+            {
+                "id":
+                    "bad",
+            },
+        ]
+        * 80,
+        context_track_ids="stale-string",
+        limit="999",
+    )
+
+    assert (
+        _catalog_uuid_or_none(
+            payload.current_track_id,
+        )
+        is None
+    )
+
+    assert (
+        _catalog_uuid_list(
+            payload.exclude_track_ids,
+            limit=100,
+        )
+        == []
+    )
+
+    assert (
+        _catalog_uuid_list(
+            payload.context_track_ids,
+            limit=12,
+        )
+        == []
     )

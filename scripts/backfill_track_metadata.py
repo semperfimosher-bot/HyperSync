@@ -11,7 +11,6 @@ from uuid import UUID
 
 from sqlalchemy import func, or_, select
 
-
 REPO_ROOT = (
     Path(__file__)
     .resolve()
@@ -38,7 +37,6 @@ from backend.app.services.music_metadata import (  # noqa: E402
     ExternalTrackMetadata,
     lookup_external_track_metadata,
 )
-
 
 DEFAULT_MIN_CONFIDENCE = 0.90
 
@@ -307,19 +305,9 @@ def apply_missing_metadata(
             is not None
         )
 
-    if (
-        track.release_year
-        is None
-        and metadata.get(
-            "release_year",
-        )
-        is not None
-    ):
-        year = int(
-            metadata[
-                "release_year"
-            ]
-        )
+    release_year = metadata.get("release_year")
+    if track.release_year is None and release_year is not None:
+        year = int(release_year)
 
         if 1900 <= year <= 2100:
             track.release_year = year
@@ -503,13 +491,13 @@ def load_completed_dry_run_report(
                 )
             except json.JSONDecodeError as exc:
                 raise ValueError(
-                    (
+
                         "Invalid JSON in report at line "
                         + str(
                             line_number,
                         )
                         + "."
-                    )
+
                 ) from exc
 
             if not isinstance(
@@ -517,13 +505,13 @@ def load_completed_dry_run_report(
                 dict,
             ):
                 raise ValueError(
-                    (
+
                         "Invalid report row at line "
                         + str(
                             line_number,
                         )
                         + "."
-                    )
+
                 )
 
             if (
@@ -582,6 +570,7 @@ def report_metadata(
             "recording_id",
         )
     )
+    provider_release_year = row.get("provider_release_year")
 
     return {
         "source":
@@ -614,15 +603,8 @@ def report_metadata(
             ),
         "release_year":
             (
-                int(
-                    row.get(
-                        "provider_release_year",
-                    )
-                )
-                if row.get(
-                    "provider_release_year",
-                )
-                is not None
+                int(provider_release_year)
+                if provider_release_year is not None
                 else None
             ),
         "confidence":
@@ -705,16 +687,16 @@ async def apply_report(
     }
 
     print(
-        (
+
             "Applying completed dry-run metadata report: "
             + str(
                 report_path,
             )
-        )
+
     )
 
     print(
-        (
+
             "Original dry run matched "
             + str(
                 (
@@ -728,7 +710,7 @@ async def apply_report(
                 )
             )
             + " track(s)."
-        )
+
     )
 
     for (
@@ -1153,7 +1135,7 @@ async def run_backfill(
         )
 
         print(
-            (
+
                 "HyperSync metadata backfill: "
                 + str(
                     total,
@@ -1163,7 +1145,7 @@ async def run_backfill(
                     if args.repair_genres
                     else " track(s) need genre and/or release year."
                 )
-            )
+
         )
 
         if args.dry_run:

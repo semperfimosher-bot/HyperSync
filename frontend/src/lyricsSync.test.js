@@ -345,3 +345,36 @@ test(
     );
   },
 );
+
+
+test(
+  "catalog lyrics only accepts permanent track UUIDs",
+  async () => {
+    const lyrics =
+      await loadLyricsModule();
+
+    const trackId =
+      "9e061d5c-5ae4-4db9-8bb1-ef55bdd7af33";
+
+    assert.equal(
+      lyrics.catalogLyricsTrackId(
+        trackId,
+      ),
+      trackId,
+    );
+
+    assert.equal(
+      lyrics.catalogLyricsTrackId(
+        "ondemand:82df75c9-d816-40a7-9263-c461c3d9b2dd",
+      ),
+      null,
+    );
+
+    assert.equal(
+      lyrics.catalogLyricsTrackId(
+        "not-a-track-id",
+      ),
+      null,
+    );
+  },
+);

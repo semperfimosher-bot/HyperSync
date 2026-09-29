@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,7 +11,7 @@ if str(REPO_ROOT) not in sys.path:
         str(REPO_ROOT),
     )
 
-from backend.app.config import get_settings
+from backend.app.config import get_settings  # noqa: E402  # repo root is added above
 
 
 def main() -> None:

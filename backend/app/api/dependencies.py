@@ -13,15 +13,9 @@ from ..security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
 )
-
-
-def _as_utc_aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
+from ..time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 
 bearer_scheme = HTTPBearer(
     auto_error=False,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -10,13 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
-from .artists import ensure_artist_profile
+from .artists import (
+    artist_names_for_credit,
+    ensure_artist_profiles_for_credit,
+)
 from .audio_compression import (
     compress_audio_for_storage,
-)
-from .audio_metadata import (
-    normalize_track_identity,
-    normalize_track_title_identity,
 )
 from .b2 import (
     delete_all_object_versions,
@@ -26,9 +26,16 @@ from .generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
 )
+from .media_identity import (
+    find_duplicate_track,
+    sync_track_media_identity,
+    track_identity_lock_key,
+)
 from .on_demand_metadata import (
     CatalogTrackCandidate,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,14 +63,9 @@ async def lock_track_identity(
     ):
         return
 
-    identity = (
-        normalize_track_identity(
-            artist,
-        )
-        + "\x1f"
-        + normalize_track_title_identity(
-            title,
-        )
+    identity = track_identity_lock_key(
+        title=title,
+        artist=artist,
     )
 
     await session.execute(
@@ -78,46 +80,6 @@ async def lock_track_identity(
                 identity,
         },
     )
-
-
-async def find_duplicate_track(
-    session: AsyncSession,
-    *,
-    title: str,
-    artist: str,
-) -> Track | None:
-    title_key = (
-        normalize_track_title_identity(
-            title,
-        )
-    )
-
-    artist_key = (
-        normalize_track_identity(
-            artist,
-        )
-    )
-
-    result = await session.execute(
-        select(
-            Track,
-        )
-    )
-
-    for track in result.scalars().all():
-        if (
-            normalize_track_title_identity(
-                track.title,
-            )
-            == title_key
-            and normalize_track_identity(
-                track.artist,
-            )
-            == artist_key
-        ):
-            return track
-
-    return None
 
 
 def _valid_release_year(
@@ -379,18 +341,28 @@ async def publish_authorized_audio(
                 track,
             )
 
-            await ensure_artist_profile(
+            await ensure_artist_profiles_for_credit(
                 session,
                 track.artist,
+                include_combined=False,
+            )
+
+            await sync_track_media_identity(
+                session,
+                track,
             )
 
             await session.commit()
 
             try:
-                await ensure_artist_playlist(
-                    session,
+                for artist_name in artist_names_for_credit(
                     track.artist,
-                )
+                    include_combined=False,
+                ):
+                    await ensure_artist_playlist(
+                        session,
+                        artist_name,
+                    )
 
                 await refresh_smart_playlists_for_track(
                     session,
@@ -399,6 +371,14 @@ async def publish_authorized_audio(
 
             except Exception:
                 await session.rollback()
+                logger.exception(
+                    (
+                        "Catalog publish succeeded but "
+                        "generated playlist refresh failed "
+                        "for track %s."
+                    ),
+                    track.id,
+                )
 
             return CatalogPublishResult(
                 track_id=track.id,
@@ -445,7 +425,13 @@ async def publish_authorized_audio(
                         audio_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean unreferenced "
+                            "audio object %s."
+                        ),
+                        audio_object_key,
+                    )
 
             if (
                 uploaded_artwork
@@ -458,4 +444,10 @@ async def publish_authorized_audio(
                         artwork_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean unreferenced "
+                            "artwork object %s."
+                        ),
+                        artwork_object_key,
+                    )

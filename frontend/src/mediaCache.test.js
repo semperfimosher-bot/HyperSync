@@ -86,7 +86,7 @@ test(
 
     assert.equal(
       url,
-      "https://api.hypersynced.app/api/on-demand/session-id/stream?token=test-token",
+      "/api/on-demand/session-id/stream?token=test-token",
     );
 
     assert.equal(

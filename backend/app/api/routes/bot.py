@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -11,6 +9,9 @@ from pydantic import (
     Field,
 )
 
+from bot.runtime import (
+    spawn_background_task,
+)
 from bot.service import (
     get_state,
     queue_job,
@@ -18,10 +19,19 @@ from bot.service import (
     stop_bot,
 )
 from bot.worker import (
+    cancel_scan,
     run_process,
     run_scan,
+    scan_running,
 )
 
+from ...services.bot_catalog_jobs import (
+    ActiveCatalogScanError,
+    catalog_scan_is_active,
+    create_catalog_scan,
+    request_scan_cancel,
+    scan_snapshot,
+)
 from ...services.on_demand_ingestion import (
     active_provisions,
     prepare_candidate,
@@ -38,6 +48,21 @@ class AdminBotIngestRequest(
         max_length=160,
     )
 
+class AdminBotScanRequest(
+    BaseModel,
+):
+    auto_ingest: bool = False
+    track_limit_per_artist: int = Field(
+        default=500,
+        ge=1,
+        le=500,
+    )
+    ingest_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=4,
+    )
+
 router = APIRouter(
     prefix="/admin/bot",
     tags=["admin-bot"],
@@ -50,6 +75,10 @@ async def bot_status(
 ):
     state = get_state()
 
+    persisted_scan = (
+        await scan_snapshot()
+    )
+
     return {
         "running": state.running,
         "status": state.status,
@@ -57,6 +86,10 @@ async def bot_status(
         "queued_jobs": state.queued_jobs,
         "completed_jobs": state.completed_jobs,
         "failed_jobs": state.failed_jobs,
+        "catalog_scan": (
+            persisted_scan
+            or state.catalog_scan
+        ),
         "provisions":
             await active_provisions(),
         "events": [
@@ -88,16 +121,111 @@ async def bot_stop(
 @router.post("/scan")
 async def bot_scan(
     user: AdminUser,
+    payload: AdminBotScanRequest | None = None,
 ):
+    request = (
+        payload
+        or AdminBotScanRequest()
+    )
+
+    if (
+        scan_running()
+        or await catalog_scan_is_active()
+    ):
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=(
+                "A catalog gap scan is already running."
+            ),
+        )
+
+    try:
+        scan = await create_catalog_scan(
+            auto_ingest=(
+                request.auto_ingest
+            ),
+            track_limit_per_artist=(
+                request.track_limit_per_artist
+            ),
+            ingest_concurrency=(
+                request.ingest_concurrency
+            ),
+        )
+    except ActiveCatalogScanError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_409_CONFLICT
+            ),
+            detail=str(
+                exc,
+            ),
+        ) from exc
+
     queue_job()
 
-    asyncio.create_task(
-        run_scan(),
+    spawn_background_task(
+        run_scan(
+            auto_ingest=(
+                request.auto_ingest
+            ),
+            track_limit_per_artist=(
+                request.track_limit_per_artist
+            ),
+            ingest_concurrency=(
+                request.ingest_concurrency
+            ),
+            scan_id=scan.id,
+        ),
+        name=(
+            "catalog-scan:"
+            + str(
+                scan.id,
+            )
+        ),
     )
 
     return {
         "accepted": True,
-        "message": "Catalog scan queued.",
+        "auto_ingest":
+            request.auto_ingest,
+        "scan_id":
+            str(
+                scan.id,
+            ),
+        "message": (
+            "Catalog gap scan queued with auto-ingest."
+            if request.auto_ingest
+            else "Catalog gap discovery scan queued."
+        ),
+    }
+
+
+@router.post("/scan/cancel")
+async def bot_scan_cancel(
+    user: AdminUser,
+):
+    del user
+
+    memory_accepted = cancel_scan()
+
+    durable_accepted = (
+        await request_scan_cancel()
+    )
+
+    accepted = (
+        memory_accepted
+        or durable_accepted
+    )
+
+    return {
+        "accepted": accepted,
+        "message": (
+            "Catalog gap scan cancellation requested."
+            if accepted
+            else "No catalog gap scan is running."
+        ),
     }
 
 
@@ -107,8 +235,9 @@ async def bot_process(
 ):
     queue_job()
 
-    asyncio.create_task(
+    spawn_background_task(
         run_process(),
+        name="bot-process-queue",
     )
 
     return {
@@ -167,6 +296,7 @@ async def bot_ingest(
     try:
         return await prepare_candidate(
             payload.candidate_key,
+            start_ingest=True,
         )
 
     except KeyError as exc:

@@ -78,7 +78,9 @@ export default function MessageNotificationPanel({
             ) => {
               const adminActivity =
                 notification.type ===
-                "admin_activity";
+                  "admin_activity" ||
+                notification.type ===
+                  "admin_account_notification";
 
               return (
                 <div
@@ -146,8 +148,8 @@ export default function MessageNotificationPanel({
                   <button
                     className="message-notification-row__delete"
                     type="button"
-                    aria-label="Delete notification"
-                    title="Delete notification"
+                    aria-label="Dismiss notification"
+                    title="Dismiss notification"
                     onClick={() => {
                       onDeleteNotification?.(
                         notification,

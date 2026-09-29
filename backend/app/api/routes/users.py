@@ -28,7 +28,7 @@ from pydantic import (
     Field,
     ValidationError,
 )
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import (
     insert as postgresql_insert,
 )
@@ -81,7 +81,7 @@ router = APIRouter(
 
 
 PLAYBACK_DEVICE_ONLINE_TTL = timedelta(
-    seconds=5,
+    seconds=90,
 )
 
 PLAYBACK_DEVICE_LIST_LIMIT = 20
@@ -1153,15 +1153,33 @@ async def prune_offline_playback_devices(
         PLAYBACK_DEVICE_ONLINE_TTL
     )
 
+    connected_device_ids = (
+        await playback_realtime_hub
+        .connected_device_ids(
+            user.id,
+        )
+    )
+
+    stale_conditions = [
+        PlaybackDevice.user_id
+        == user.id,
+        PlaybackDevice.last_seen_at
+        < cutoff,
+    ]
+
+    if connected_device_ids:
+        stale_conditions.append(
+            PlaybackDevice.device_id.not_in(
+                connected_device_ids,
+            )
+        )
+
     stale_result = await session.execute(
         delete(
             PlaybackDevice,
         )
         .where(
-            PlaybackDevice.user_id
-            == user.id,
-            PlaybackDevice.last_seen_at
-            < cutoff,
+            *stale_conditions,
         )
         .returning(
             PlaybackDevice.device_id,
@@ -1225,6 +1243,31 @@ async def list_playback_devices(
         )
     )
 
+    connected_device_ids = (
+        await playback_realtime_hub
+        .connected_device_ids(
+            user.id,
+        )
+    )
+
+    online_cutoff = (
+        reference -
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+    online_condition = (
+        PlaybackDevice.last_seen_at
+        >= online_cutoff
+    )
+
+    if connected_device_ids:
+        online_condition = or_(
+            online_condition,
+            PlaybackDevice.device_id.in_(
+                connected_device_ids,
+            ),
+        )
+
     result = await session.execute(
         select(
             PlaybackDevice,
@@ -1232,11 +1275,7 @@ async def list_playback_devices(
         .where(
             PlaybackDevice.user_id
             == user.id,
-            PlaybackDevice.last_seen_at
-            >= (
-                reference -
-                PLAYBACK_DEVICE_ONLINE_TTL
-            ),
+            online_condition,
         )
         .order_by(
             PlaybackDevice.last_seen_at.desc(),
@@ -1268,7 +1307,9 @@ async def list_playback_devices(
                 else "browser",
             ),
             is_online=(
-                playback_device_is_online(
+                device.device_id
+                in connected_device_ids
+                or playback_device_is_online(
                     device.last_seen_at,
                     now=reference,
                 )
@@ -1726,6 +1767,18 @@ async def record_listening(
     event_id = event.id
 
     await session.commit()
+
+    await playback_realtime_hub.broadcast(
+        user.id,
+        {
+            "type":
+                "listening_history_changed",
+            "track_id":
+                str(
+                    track.id,
+                ),
+        },
+    )
 
 
     return {
@@ -2320,8 +2373,15 @@ async def update_my_playback_state(
 
         if (
             active_device is not None
-            and playback_device_is_online(
-                active_device.last_seen_at,
+            and (
+                playback_device_is_online(
+                    active_device.last_seen_at,
+                )
+                or await playback_realtime_hub
+                .is_connected(
+                    user.id,
+                    state.playback_device_id,
+                )
             )
         ):
             # Another live device currently owns audio output.
@@ -2766,18 +2826,15 @@ async def live_playback_device(
         )
 
         while True:
-            try:
-                message = (
-                    await asyncio.wait_for(
-                        websocket.receive_json(),
-                        timeout=5,
-                    )
-                )
-            except TimeoutError:
-                await websocket.close(
-                    code=4000,
-                )
-                break
+            # Do not expire an authenticated playback socket just
+            # because its JavaScript heartbeat was throttled.
+            # Mobile browsers commonly suspend timers while the
+            # screen is locked or another app is foregrounded.
+            # The WebSocket itself remains the strongest presence
+            # signal and disconnect cleanup handles a real close.
+            message = (
+                await websocket.receive_json()
+            )
 
             if not isinstance(
                 message,
@@ -2824,8 +2881,9 @@ async def live_playback_device(
                             source_device_id=(
                                 device_id
                             ),
-                            action=message.get(
-                                "action",
+                            action=cast(
+                                PlaybackRemoteAction,
+                                message.get("action"),
                             ),
                             value=message.get(
                                 "value",
@@ -3020,7 +3078,7 @@ async def live_playback_device(
 
         is_current_socket = False
 
-        if should_cleanup:
+        if should_cleanup and user is not None:
             is_current_socket = (
                 await playback_realtime_hub.disconnect(
                     user.id,
@@ -3031,6 +3089,7 @@ async def live_playback_device(
 
         if (
             should_cleanup
+            and user is not None
             and is_current_socket
         ):
             # A socket close can be temporary: Vite reloads,
@@ -3041,8 +3100,8 @@ async def live_playback_device(
             # HTTP polling may already be refreshing that same
             # device, which previously raced this DELETE and
             # produced SQLAlchemy StaleDataError. The existing
-            # five-second presence TTL removes truly offline
-            # devices and releases playback ownership instead.
+            # background-tolerant presence TTL removes truly
+            # offline devices and releases playback ownership.
             await playback_realtime_hub.broadcast(
                 user.id,
                 {
@@ -3089,9 +3148,20 @@ async def send_playback_device_command(
         UTC,
     )
 
-    if not playback_device_is_online(
-        target.last_seen_at,
-        now=now,
+    target_connected = (
+        await playback_realtime_hub
+        .is_connected(
+            user.id,
+            target_device_id,
+        )
+    )
+
+    if (
+        not target_connected
+        and not playback_device_is_online(
+            target.last_seen_at,
+            now=now,
+        )
     ):
         await session.execute(
             delete(

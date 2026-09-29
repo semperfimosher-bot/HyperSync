@@ -27,6 +27,13 @@ from ...models.playlist import (
     PlaylistTrack,
     SavedPlaylist,
 )
+from ...services.admin_notifications import (
+    record_admin_activity,
+)
+from ...services.generated_playlists import (
+    ensure_smart_playlist,
+    refresh_generated_playlist_if_stale,
+)
 from ..dependencies import (
     CurrentUser,
     DatabaseSession,
@@ -37,14 +44,6 @@ from .catalog import (
     _track_artwork_version,
     _track_audio_url,
     _track_media_version,
-)
-
-from ...services.admin_notifications import (
-    record_admin_activity,
-)
-from ...services.generated_playlists import (
-    ensure_smart_playlist,
-    refresh_generated_playlist_if_stale,
 )
 
 router = APIRouter(

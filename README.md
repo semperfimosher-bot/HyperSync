@@ -644,6 +644,12 @@ Mobile and desktop controls must read and modify the same player state.
 
 ## 11. Queue
 
+### Jam sessions
+
+Registered users can start an invite-only Jam from the player bar. The host chooses **Host device** or **Every device**, shares the generated link, and can change playback location, queue order, guest controls, or membership. Participants can add published catalog tracks. Listening on a device requires tapping **Listen on this device**; browsers may require another gesture after a reload. A host can rotate the invite or end the Jam, and participants can leave. The host must start a new Jam after ending one.
+
+Jam state lives in the database, so backend replicas share one revisioned queue and timeline. Clients poll every two seconds and correct significant drift. Invitations expire after 24 hours, are stored only as hashes, and never appear in regular snapshots. One account can join one active Jam at a time; a Jam supports 20 members and 200 queue entries. The current version has no automatic inactive-session expiry: a host should end a session when finished. The existing solo player remains available outside Jam. Lock-screen media controls use the browser's existing Media Session integration; physical device behavior depends on browser and operating system.
+
 The queue should support:
 
 - Play next

@@ -1,3 +1,8 @@
+import pytest
+
+from backend.app.services import (
+    on_demand_metadata,
+)
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
     merge_catalog_candidates,
@@ -173,3 +178,128 @@ def test_album_mode_orders_tracks_by_album_track_number() -> None:
         "one",
         "two",
     ]
+
+
+
+@pytest.mark.asyncio
+async def test_metadata_search_supports_500_artist_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidates = [
+        _candidate(
+            provider="deezer",
+            key=f"track-{index}",
+            title=f"Song {index}",
+            artist="Example Artist",
+            deezer_id=str(index),
+        )
+        for index in range(500)
+    ]
+
+    requested_limits: list[int] = []
+
+    async def fake_deezer(
+        query: str,
+        *,
+        limit: int,
+        artist_only: bool = False,
+    ) -> list[CatalogTrackCandidate]:
+        assert query == "Example Artist"
+        assert artist_only is True
+        requested_limits.append(
+            limit,
+        )
+        return candidates
+
+    async def fake_itunes(
+        query: str,
+        *,
+        limit: int,
+        artist_only: bool = False,
+    ) -> list[CatalogTrackCandidate]:
+        assert query == "Example Artist"
+        assert artist_only is True
+        requested_limits.append(
+            limit,
+        )
+        return []
+
+    monkeypatch.setattr(
+        on_demand_metadata,
+        "_search_deezer",
+        fake_deezer,
+    )
+
+    monkeypatch.setattr(
+        on_demand_metadata,
+        "_search_itunes",
+        fake_itunes,
+    )
+
+    result = (
+        await on_demand_metadata
+        .search_catalog_metadata(
+            "Example Artist",
+            limit=500,
+            kind="artist",
+        )
+    )
+
+    assert len(result) == 500
+
+    assert requested_limits == [
+        500,
+        500,
+    ]
+
+
+def test_artist_mode_rejects_longer_fuzzy_artist_names() -> None:
+    exact = _candidate(
+        provider="deezer",
+        key="exact",
+        title="Exact Song",
+        artist="Morgan Wallen",
+        deezer_id="10",
+    )
+
+    fuzzy = _candidate(
+        provider="itunes",
+        key="fuzzy",
+        title="Tribute Song",
+        artist="Morgan Wallen Tribute Band",
+        apple_id="11",
+    )
+
+    result = rank_catalog_candidates_for_kind(
+        [
+            fuzzy,
+            exact,
+        ],
+        query="Morgan Wallen",
+        kind="artist",
+        limit=10,
+    )
+
+    assert [
+        item.key
+        for item in result
+    ] == [
+        "exact",
+    ]
+
+
+def test_catalog_candidate_round_trips_through_shared_payload_decoder() -> None:
+    candidate = _candidate(
+        provider="deezer",
+        key="round-trip",
+        title="Round Trip",
+        artist="Example Artist",
+        deezer_id="12345",
+        genre="Country",
+    )
+
+    restored = CatalogTrackCandidate.from_dict(
+        candidate.as_dict(),
+    )
+
+    assert restored == candidate

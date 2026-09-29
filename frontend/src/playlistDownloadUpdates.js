@@ -78,3 +78,108 @@ export function playlistUpdateKey(
     ),
   ].join("|");
 }
+
+
+
+export function mergeDetectedPlaylistUpdates(
+  current,
+  detected,
+) {
+  const currentItems =
+    Array.isArray(
+      current,
+    )
+      ? current
+      : [];
+
+  const detectedItems =
+    Array.isArray(
+      detected,
+    )
+      ? detected
+      : [];
+
+  return detectedItems.map(
+    (update) => {
+      const existing =
+        currentItems.find(
+          (item) =>
+            item?.key ===
+            update?.key,
+        );
+
+      return (
+        existing?.status ===
+          "downloading"
+          ? existing
+          : update
+      );
+    },
+  );
+}
+
+
+export function missingPlaylistDownloadProgress(
+  missingTracks,
+  trackProgress,
+) {
+  const tracks =
+    Array.isArray(
+      missingTracks,
+    )
+      ? missingTracks
+      : [];
+
+  if (
+    tracks.length ===
+    0
+  ) {
+    return 1;
+  }
+
+  const progress =
+    tracks.reduce(
+      (
+        total,
+        track,
+      ) => {
+        const raw =
+          Number(
+            trackProgress?.[
+              String(
+                track?.id ??
+                  "",
+              )
+            ]?.progress ??
+              0,
+          );
+
+        return (
+          total +
+          (
+            Number.isFinite(
+              raw,
+            )
+              ? Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    raw,
+                  ),
+                )
+              : 0
+          )
+        );
+      },
+      0,
+    ) /
+    tracks.length;
+
+  return (
+    Number.isFinite(
+      progress,
+    )
+      ? progress
+      : 0
+  );
+}

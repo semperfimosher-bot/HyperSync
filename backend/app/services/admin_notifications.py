@@ -13,7 +13,6 @@ from ..models.account import (
 )
 from ..models.messaging import AdminNotification
 
-
 logger = logging.getLogger(
     __name__,
 )

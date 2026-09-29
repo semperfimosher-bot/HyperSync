@@ -18,10 +18,26 @@ from .models.base import Base
 from .models.media import Track
 
 
+def resolve_database_url() -> str:
+    settings = get_settings()
+    database_url = settings.sqlalchemy_database_url.strip()
+
+    if database_url:
+        return database_url
+
+    if settings.environment == "production":
+        raise RuntimeError(
+            "DATABASE_URL is required in production; "
+            "refusing to fall back to local SQLite."
+        )
+
+    return "sqlite+aiosqlite:///./local_dev.db"
+
+
 @lru_cache
 def get_engine() -> AsyncEngine:
     settings = get_settings()
-    database_url = settings.sqlalchemy_database_url or "sqlite+aiosqlite:///./local_dev.db"
+    database_url = resolve_database_url()
 
     engine_kwargs = {
         "pool_pre_ping": True,

@@ -33,6 +33,92 @@ class ResolvedTrackMetadata(
     release_year: int | None
 
 
+_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
+    (
+        r"\s+"
+        r"(?:&|\band\b|\bx\b|\bwith\b|"
+        r"\bfeat(?:uring)?\.?|\bft\.?)"
+        r"\s+"
+    ),
+    flags=re.IGNORECASE,
+)
+
+
+def split_artist_credits(
+    artist: object,
+) -> tuple[str, ...]:
+    raw = " ".join(
+        str(
+            artist
+            if artist is not None
+            else ""
+        )
+        .strip()
+        .split()
+    )
+
+    if not raw:
+        return ()
+
+    parts = [
+        " ".join(
+            part
+            .strip()
+            .split()
+        )
+        for part in (
+            _ARTIST_CREDIT_SPLIT_PATTERN
+            .split(
+                raw,
+            )
+        )
+        if part.strip()
+    ]
+
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for part in parts:
+        key = unicodedata.normalize(
+            "NFKC",
+            part,
+        ).casefold()
+
+        if (
+            not key
+            or key in seen
+        ):
+            continue
+
+        seen.add(
+            key,
+        )
+        result.append(
+            part,
+        )
+
+    return tuple(
+        result
+        or [
+            raw,
+        ]
+    )
+
+
+def primary_artist_credit(
+    artist: object,
+) -> str:
+    credits = split_artist_credits(
+        artist,
+    )
+
+    return (
+        credits[0]
+        if credits
+        else ""
+    )
+
+
 def normalize_track_identity(
     value: object,
 ) -> str:

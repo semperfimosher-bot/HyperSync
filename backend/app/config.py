@@ -166,8 +166,8 @@ class Settings(BaseSettings):
     apple_search_min_interval_seconds: float = 3.1
     apple_search_cache_hours: int = 24
 
-    on_demand_search_limit: int = 8
-    on_demand_prewarm_limit: int = 3
+    on_demand_search_limit: int = 500
+    on_demand_prewarm_limit: int = 8
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
     on_demand_rate_window_seconds: int = 60
@@ -195,11 +195,27 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [
+        origins = [
             origin.strip().rstrip("/")
             for origin in self.frontend_origins.split(",")
             if origin.strip()
         ]
+
+        public_origin = (
+            self.frontend_public_url
+            .strip()
+            .rstrip("/")
+        )
+
+        if (
+            public_origin
+            and public_origin not in origins
+        ):
+            origins.append(
+                public_origin,
+            )
+
+        return origins
 
     @property
     def push_allowed_host_suffixes(

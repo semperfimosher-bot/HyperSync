@@ -27,6 +27,9 @@ from ..models.playlist import (
     Playlist,
     PlaylistTrack,
 )
+from .artists import (
+    load_published_artist_tracks,
+)
 from .search import normalize_text
 
 GENERATOR_VERSION = 3
@@ -36,7 +39,7 @@ MIN_GENERATED_TRACKS = 2
 # Artist-generated playlists should include the full published
 # HyperSync catalog for that artist, bounded only to keep a
 # single playlist from growing without limit.
-MAX_GENERATED_TRACKS = 700
+MAX_GENERATED_TRACKS = 500
 
 MAX_SMART_GENERATED_TRACKS = 120
 
@@ -782,28 +785,28 @@ async def generated_playlist_needs_refresh(
             > generated_utc
         )
 
-    catalog_result = await session.execute(
-        select(
-            func.count(
-                Track.id,
-            ),
-            func.max(
-                Track.updated_at,
-            ),
-        ).where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.artist.ilike(
-                playlist.generated_query,
-            ),
+    matching_tracks = (
+        await load_published_artist_tracks(
+            session,
+            playlist.generated_query,
+            primary_only=False,
         )
     )
 
-    (
-        matching_track_count,
-        latest_track_update,
-    ) = catalog_result.one()
+    matching_track_count = len(
+        matching_tracks,
+    )
+
+    latest_track_update = max(
+        (
+            track.updated_at
+            for track
+            in matching_tracks
+            if track.updated_at
+            is not None
+        ),
+        default=None,
+    )
 
     playlist_count_result = (
         await session.execute(
@@ -1087,16 +1090,19 @@ async def ensure_smart_playlist(
             generated_at=now,
         )
 
-        session.add(
-            playlist,
-        )
-
         try:
-            await session.flush()
+            # The unique generated_key is the concurrency
+            # guard, but a collision must not roll back
+            # unrelated work already present in the caller's
+            # session. Keep the insert inside a savepoint.
+            async with session.begin_nested():
+                session.add(
+                    playlist,
+                )
+
+                await session.flush()
 
         except IntegrityError:
-            await session.rollback()
-
             return (
                 await _find_smart_playlist(
                     session,
@@ -1252,60 +1258,72 @@ async def _rank_artist_tracks(
     session: AsyncSession,
     artist_name: str,
 ) -> list[Track]:
-    play_counts = (
+    tracks = (
+        await load_published_artist_tracks(
+            session,
+            artist_name,
+            primary_only=False,
+        )
+    )
+
+    if not tracks:
+        return []
+
+    track_ids = [
+        track.id
+        for track in tracks
+    ]
+
+    result = await session.execute(
         select(
-            ListeningEvent.track_id.label(
-                "track_id",
-            ),
+            ListeningEvent.track_id,
             func.count(
                 ListeningEvent.id,
-            ).label(
-                "play_count",
             ),
+        )
+        .where(
+            ListeningEvent.track_id.in_(
+                track_ids,
+            )
         )
         .group_by(
             ListeningEvent.track_id,
         )
-        .subquery()
     )
 
-    result = await session.execute(
-        select(
-            Track,
+    play_counts = {
+        track_id: int(
+            count
+            or 0
         )
-        .outerjoin(
-            play_counts,
-            play_counts.c.track_id
-            == Track.id,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
+        for (
+            track_id,
+            count,
+        ) in result.all()
+    }
 
-            # Exact artist, case insensitive.
-            Track.artist.ilike(
-                artist_name,
-            ),
-        )
-        .order_by(
-            func.coalesce(
-                play_counts.c.play_count,
+    tracks.sort(
+        key=lambda track: (
+            -play_counts.get(
+                track.id,
                 0,
-            ).desc(),
-
-            Track.created_at.desc(),
-
-            Track.title.asc(),
-        )
-        .limit(
-            MAX_GENERATED_TRACKS,
+            ),
+            -(
+                track.created_at.timestamp()
+                if track.created_at
+                is not None
+                else 0.0
+            ),
+            track.title.casefold(),
+            str(
+                track.id,
+            ),
         )
     )
 
-    return list(
-        result.scalars().all()
-    )
+    return tracks[
+        :MAX_GENERATED_TRACKS
+    ]
 
 
 async def ensure_artist_playlist(
@@ -1397,21 +1415,20 @@ async def ensure_artist_playlist(
             generated_at=now,
         )
 
-        session.add(
-            playlist,
-        )
-
         try:
-            await session.flush()
+            # Two people may search the same artist at the
+            # same time. Let the unique generated_key choose
+            # the winner, but isolate that race in a savepoint
+            # so a losing insert cannot roll back unrelated
+            # caller work.
+            async with session.begin_nested():
+                session.add(
+                    playlist,
+                )
+
+                await session.flush()
 
         except IntegrityError:
-            # Two people searched the same
-            # artist at the same time.
-            #
-            # The unique generated_key means
-            # only one playlist can survive.
-            await session.rollback()
-
             return (
                 await get_cached_artist_playlist(
                     session,

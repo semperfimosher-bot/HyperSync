@@ -34,8 +34,6 @@ from backend.app.services.web_push import (
 )
 
 
-
-
 def test_push_endpoints_are_restricted_to_known_https_services() -> None:
     assert (
         validate_push_endpoint(
@@ -200,6 +198,208 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
 
         assert cleared_feed.unread_count == 0
         assert cleared_feed.notifications == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admin_sees_other_accounts_pending_notifications_without_private_body() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
+                    UserProfile.__tablename__
+                ],
+                Base.metadata.tables[
+                    Message.__tablename__
+                ],
+                Base.metadata.tables[
+                    AdminNotification.__tablename__
+                ],
+            ],
+        )
+
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        admin = User(
+            account_type=AccountType.REGISTERED,
+            email="global-admin@example.test",
+            username="global-admin",
+            username_normalized="global-admin",
+            password_hash="hash",
+            role=UserRole.ADMIN,
+        )
+
+        sender = User(
+            account_type=AccountType.REGISTERED,
+            email="global-sender@example.test",
+            username="global-sender",
+            username_normalized="global-sender",
+            password_hash="hash",
+        )
+
+        recipient = User(
+            account_type=AccountType.REGISTERED,
+            email="global-recipient@example.test",
+            username="global-recipient",
+            username_normalized="global-recipient",
+            password_hash="hash",
+        )
+
+        session.add_all(
+            [
+                admin,
+                sender,
+                recipient,
+            ]
+        )
+
+        await session.flush()
+
+        message = Message(
+            sender_id=sender.id,
+            recipient_id=recipient.id,
+            body="private-secret-that-admin-must-not-see",
+            viewed_at=None,
+        )
+
+        session.add(
+            message,
+        )
+
+        await session.flush()
+
+        account_notification = AdminNotification(
+            recipient_id=recipient.id,
+            kind=(
+                message_routes
+                .DIRECT_MESSAGE_NOTIFICATION_KIND
+            ),
+            title="New message",
+            body="",
+            source_message_id=message.id,
+        )
+
+        session.add(
+            account_notification,
+        )
+
+        await session.commit()
+
+        feed = (
+            await message_routes.message_notifications(
+                admin,
+                session,
+            )
+        )
+
+        global_items = [
+            item
+            for item in feed.notifications
+            if item.type
+            == "admin_account_notification"
+        ]
+
+        assert feed.unread_count == 1
+        assert len(global_items) == 1
+
+        item = global_items[0]
+
+        assert (
+            item.recipient_username
+            == "global-recipient"
+        )
+        assert (
+            item.actor_username
+            == "global-sender"
+        )
+        assert (
+            "private-secret"
+            not in item.body
+        )
+        assert (
+            "contents are hidden"
+            in item.body
+        )
+
+        preserved_notification = (
+            await session.get(
+                AdminNotification,
+                account_notification.id,
+            )
+        )
+
+        assert (
+            preserved_notification
+            is not None
+        )
+
+        await message_routes.read_admin_account_notification(
+            account_notification.id,
+            admin,
+            session,
+        )
+
+        preserved_notification = (
+            await session.get(
+                AdminNotification,
+                account_notification.id,
+            )
+        )
+
+        assert (
+            preserved_notification
+            is not None
+        )
+        assert (
+            preserved_notification.viewed_at
+            is not None
+        )
+
+        preserved_message = (
+            await session.get(
+                Message,
+                message.id,
+            )
+        )
+
+        assert preserved_message is not None
+        assert (
+            preserved_message.body
+            == "private-secret-that-admin-must-not-see"
+        )
+        assert (
+            preserved_message.viewed_at
+            is None
+        )
+
+        cleared_feed = (
+            await message_routes.message_notifications(
+                admin,
+                session,
+            )
+        )
+
+        assert cleared_feed.unread_count == 0
+        assert not [
+            item
+            for item in
+            cleared_feed.notifications
+            if item.type
+            == "admin_account_notification"
+        ]
 
     await engine.dispose()
 

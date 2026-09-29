@@ -1,20 +1,31 @@
+from datetime import (
+    UTC,
+    datetime,
+)
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.app.database import get_session_factory
+from backend.app.models import Base
 from backend.app.models.account import User
 from backend.app.models.media import Track
 from backend.app.models.playlist import (
+    Playlist,
     PlaylistTrack,
     SavedPlaylist,
+)
+from backend.app.services import (
+    generated_playlists,
 )
 from backend.app.services.generated_playlists import (
     MAX_GENERATED_TRACKS,
     ensure_artist_playlist,
     ensure_smart_playlist,
     refresh_smart_playlists_for_track,
+    smart_cache_key,
     smart_track_score,
 )
 
@@ -139,7 +150,7 @@ async def test_saved_generated_playlist_refreshes_in_place_for_new_music() -> No
 
 
 @pytest.mark.asyncio
-async def test_generated_artist_playlist_includes_full_catalog_up_to_700_tracks() -> None:
+async def test_generated_artist_playlist_respects_configured_track_cap() -> None:
     run_id = uuid4().hex[:8]
     artist = f"Generated Full Catalog {run_id}"
 
@@ -223,7 +234,7 @@ async def test_generated_artist_playlist_includes_full_catalog_up_to_700_tracks(
             ).scalars().all()
         )
 
-        assert len(rows) == 700
+        assert len(rows) == MAX_GENERATED_TRACKS
 
         matching_ids = {
             track.id
@@ -388,7 +399,10 @@ def test_chill_evening_query_uses_calm_genre_families() -> None:
 @pytest.mark.asyncio
 async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> None:
     run_id = uuid4().hex[:8]
-    session_factory = get_session_factory()
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
         user = User(
@@ -519,6 +533,8 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
             second_country.id,
         }
 
+    await engine.dispose()
+
 
 
 @pytest.mark.asyncio
@@ -604,3 +620,132 @@ async def test_smart_playlist_gains_future_matching_upload() -> None:
         assert final_count == (
             initial_count + 1
         )
+
+
+@pytest.mark.asyncio
+async def test_generated_playlist_collision_does_not_rollback_unrelated_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    query = (
+        "collision "
+        + run_id
+    )
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        user = User(
+            id=uuid4(),
+            username=(
+                "collision-"
+                + run_id
+            ),
+            username_normalized=(
+                "collision-"
+                + run_id
+            ),
+            email=(
+                "collision-"
+                + run_id
+                + "@example.com"
+            ),
+            password_hash="test-password-hash",
+            account_type="registered",
+            is_active=True,
+        )
+
+        unrelated = Track(
+            id=uuid4(),
+            title="Unrelated",
+            artist="Unrelated Artist",
+            album="Unrelated Album",
+            genre=None,
+            b2_object_key=(
+                "audio/"
+                + run_id
+                + "-unrelated.mp3"
+            ),
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        winner = Playlist(
+            owner_id=user.id,
+            title=query,
+            description="Existing winner",
+            visibility="generated",
+            generated_key=smart_cache_key(
+                user.id,
+                query,
+            ),
+            generated_query=query,
+            generated_kind="smart",
+            generator_version=3,
+            generated_at=datetime.now(
+                UTC,
+            ),
+        )
+
+        session.add_all(
+            [
+                user,
+                unrelated,
+                winner,
+            ]
+        )
+        await session.commit()
+
+        # Simulate the classic race: the initial lookup misses,
+        # another request has already inserted the same unique
+        # generated_key, and this caller also has unrelated
+        # pending work in its transaction.
+        unrelated.genre = "Country"
+
+        original_find = (
+            generated_playlists
+            ._find_smart_playlist
+        )
+        find_calls = 0
+
+        async def racing_find(
+            active_session,
+            user_id,
+            active_query,
+        ):
+            nonlocal find_calls
+            find_calls += 1
+
+            if find_calls == 1:
+                return None
+
+            return await original_find(
+                active_session,
+                user_id,
+                active_query,
+            )
+
+        monkeypatch.setattr(
+            generated_playlists,
+            "_find_smart_playlist",
+            racing_find,
+        )
+
+        resolved = await ensure_smart_playlist(
+            session,
+            user.id,
+            query,
+        )
+
+        assert resolved is not None
+        assert resolved.id == winner.id
+        assert unrelated.genre == "Country"
+
+        await session.commit()
+
+        persisted = await session.get(
+            Track,
+            unrelated.id,
+        )
+
+        assert persisted is not None
+        assert persisted.genre == "Country"

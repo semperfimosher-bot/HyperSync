@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from backend.app.api.routes import admin as admin_routes
 from backend.app.database import get_session_factory
 from backend.app.main import app
 from backend.app.models.account import User, UserRole
@@ -32,9 +36,10 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
     assert login.status_code == 200, login.text
     return login.json()["access_token"]
 
-    @pytest.mark.asyncio
-    async def test_catalog_search_filters_tracks_by_query() -> None:
-        run_id = uuid4().hex  # noqa: F841
+@pytest.mark.asyncio
+async def test_catalog_search_filters_tracks_by_query() -> None:
+    run_id = uuid4().hex
+    title = f"Acoustic Sunrise {run_id}"
 
     session_factory = get_session_factory()
 
@@ -43,11 +48,11 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
             [
                 Track(
                     id=uuid4(),
-                    title="Acoustic Sunrise",
+                    title=title,
                     artist="Coastal Echo",
                     album="Morning Tide",
-                    b2_object_key="audio/acoustic.wav",
-                    artwork_object_key="artwork/acoustic.jpg",
+                    b2_object_key=f"audio/acoustic-{run_id}.wav",
+                    artwork_object_key=f"artwork/acoustic-{run_id}.jpg",
                     mime_type="audio/wav",
                     file_size=123,
                     duration_seconds=180,
@@ -59,12 +64,12 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/catalog/tracks", params={"q": "sunrise"})
+        response = await client.get("/api/catalog/tracks", params={"q": run_id})
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert len(payload) == 1
-    assert payload[0]["title"] == "Acoustic Sunrise"
+    assert payload[0]["title"] == title
     assert payload[0]["artist"] == "Coastal Echo"
     assert payload[0]["artwork_url"].endswith(
         "/catalog/tracks/" + str(payload[0]["id"]) + "/artwork"
@@ -239,3 +244,69 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
         )
 
         assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_restores_published_track_when_b2_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+
+    async with get_session_factory()() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Keep Me",
+                artist="Failure Safe Artist",
+                album="Failure Safe Album",
+                b2_object_key=(
+                    f"audio/failure-safe-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=2048,
+                duration_seconds=90,
+                is_published=True,
+            )
+        )
+        await session.commit()
+
+    class FailingBucket:
+        def list_file_versions(
+            self,
+            file_name: str | None = None,
+        ):
+            raise RuntimeError(
+                "simulated B2 outage"
+            )
+
+    monkeypatch.setattr(
+        admin_routes,
+        "get_b2_bucket",
+        lambda:
+            FailingBucket(),
+    )
+
+    async with get_session_factory()() as session:
+        with pytest.raises(
+            HTTPException,
+        ) as exc_info:
+            await admin_routes.delete_track(
+                track_id,
+                cast(User, SimpleNamespace()),
+                session,
+            )
+
+        assert (
+            exc_info.value.status_code
+            == 500
+        )
+
+    async with get_session_factory()() as session:
+        preserved = await session.get(
+            Track,
+            track_id,
+        )
+
+        assert preserved is not None
+        assert preserved.is_published is True

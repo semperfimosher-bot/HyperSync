@@ -11,6 +11,14 @@ import {
 } from "../../api/client.js";
 
 import {
+  queueOnDemandTrack,
+} from "../../searchApi.js";
+
+import {
+  isOnDemandTrackId,
+} from "../../onDemandMusic.js";
+
+import {
   addLikedTrackOfflinePin,
   downloadTrackForOffline,
   getLikedSongsDownloadPinRef,
@@ -40,12 +48,15 @@ import {
 
 function playerTrack(
   track,
+  overrides = {},
 ) {
   return {
     id:
+      overrides.id ??
       track.id,
 
     audioUrl:
+      overrides.audioUrl ??
       track.audio_url ??
       track.audioUrl ??
       null,
@@ -95,6 +106,33 @@ function playerTrack(
     releaseYear:
       track.release_year ??
       track.releaseYear ??
+      null,
+
+    onDemand:
+      overrides.onDemand ??
+      Boolean(
+        track.onDemand ??
+        track.on_demand ??
+        track.source_type ===
+          "on_demand",
+      ),
+
+    provisionKey:
+      overrides.provisionKey ??
+      track.provision_key ??
+      track.provisionKey ??
+      null,
+
+    provisionId:
+      overrides.provisionId ??
+      track.provision_id ??
+      track.provisionId ??
+      null,
+
+    catalogTrackId:
+      overrides.catalogTrackId ??
+      track.catalog_track_id ??
+      track.catalogTrackId ??
       null,
   };
 }
@@ -178,6 +216,20 @@ export default function TrackActionMenu({
     currentUser?.account_type ===
     "registered";
 
+  const onDemandTrack =
+    Boolean(
+      track &&
+      (
+        track.source_type ===
+          "on_demand" ||
+        track.onDemand ||
+        track.on_demand ||
+        isOnDemandTrackId(
+          track.id,
+        )
+      )
+    );
+
   const offlineOwnerKey =
     getOfflineOwnerKey(
       currentUser,
@@ -224,7 +276,8 @@ export default function TrackActionMenu({
     if (
       !menu ||
       !track ||
-      !isRegistered
+      !isRegistered ||
+      onDemandTrack
     ) {
       return;
     }
@@ -282,6 +335,7 @@ export default function TrackActionMenu({
     menu,
     track?.id,
     isRegistered,
+    onDemandTrack,
     likedSongsDownloadPinRef,
     manualDownloadPinRef,
     offlineOwnerKey,
@@ -349,7 +403,10 @@ export default function TrackActionMenu({
       track,
     );
 
-    if (!track?.id) {
+    if (
+      !track?.id ||
+      onDemandTrack
+    ) {
       return;
     }
 
@@ -593,6 +650,161 @@ export default function TrackActionMenu({
       );
     } finally {
       setBusy("");
+    }
+  }
+
+
+  async function prepareTrackForQueue() {
+    if (!onDemandTrack) {
+      return playerTrack(
+        track,
+      );
+    }
+
+    if (!isRegistered) {
+      requireAccount();
+
+      return null;
+    }
+
+    const candidateKey =
+      String(
+        track.provision_key ??
+        track.provisionKey ??
+        "",
+      ).trim();
+
+    if (!candidateKey) {
+      throw new Error(
+        "This on-demand song is missing its provisioning key.",
+      );
+    }
+
+    const prepared =
+      await queueOnDemandTrack(
+        candidateKey,
+      );
+
+    const permanentTrackId =
+      prepared?.track_id ??
+      null;
+
+    const provisionId =
+      prepared?.provision_id ??
+      null;
+
+    const playbackId =
+      permanentTrackId ??
+      (
+        "ondemand:" +
+        String(
+          provisionId ??
+          candidateKey,
+        )
+      );
+
+    const audioUrl =
+      permanentTrackId
+        ? (
+            "/api/audio/" +
+            encodeURIComponent(
+              permanentTrackId,
+            )
+          )
+        : prepared?.stream_url;
+
+    if (!audioUrl) {
+      throw new Error(
+        "The queued song could not be prewarmed.",
+      );
+    }
+
+    return playerTrack(
+      track,
+      {
+        id:
+          playbackId,
+        audioUrl,
+        onDemand:
+          !permanentTrackId,
+        provisionKey:
+          candidateKey,
+        provisionId,
+        catalogTrackId:
+          permanentTrackId,
+      },
+    );
+  }
+
+
+  async function queueTrack(
+    mode,
+  ) {
+    if (busy) {
+      return;
+    }
+
+    const busyKey =
+      mode === "next"
+        ? "play-next"
+        : "add-queue";
+
+    setBusy(
+      busyKey,
+    );
+
+    setNotice(
+      onDemandTrack
+        ? "Preparing and publishing queued song..."
+        : "",
+    );
+
+    try {
+      const queuedTrack =
+        await prepareTrackForQueue();
+
+      if (!queuedTrack) {
+        return;
+      }
+
+      const added =
+        mode === "next"
+          ? player.playTrackNext(
+              queuedTrack,
+            )
+          : player.addTrackToQueue(
+              queuedTrack,
+            );
+
+      if (!added) {
+        throw new Error(
+          "Unable to update the playback queue.",
+        );
+      }
+
+      setNotice(
+        mode === "next"
+          ? (
+              onDemandTrack
+                ? "Prewarmed and publishing • will play next"
+                : "Will play next"
+            )
+          : (
+              onDemandTrack
+                ? "Prewarmed and publishing • added to queue"
+                : "Added to queue"
+            ),
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare this queued song.",
+      );
+    } finally {
+      setBusy(
+        "",
+      );
     }
   }
 
@@ -964,15 +1176,14 @@ export default function TrackActionMenu({
             <button
               type="button"
               role="menuitem"
+              disabled={
+                Boolean(
+                  busy,
+                )
+              }
               onClick={() => {
-                player.playTrackNext(
-                  playerTrack(
-                    track,
-                  ),
-                );
-
-                setNotice(
-                  "Will play next",
+                void queueTrack(
+                  "next",
                 );
               }}
             >
@@ -984,7 +1195,10 @@ export default function TrackActionMenu({
               </span>
 
               <span>
-                Play next
+                {busy ===
+                "play-next"
+                  ? "Preparing..."
+                  : "Play next"}
               </span>
             </button>
 
@@ -992,10 +1206,41 @@ export default function TrackActionMenu({
             <button
               type="button"
               role="menuitem"
+              disabled={
+                Boolean(
+                  busy,
+                )
+              }
               onClick={() => {
-                void openPlaylists();
+                void queueTrack(
+                  "append",
+                );
               }}
             >
+              <span className="track-action-icon">
+                <Icon
+                  name="plus"
+                  size={15}
+                />
+              </span>
+
+              <span>
+                {busy ===
+                "add-queue"
+                  ? "Preparing..."
+                  : "Add to queue"}
+              </span>
+            </button>
+
+
+            {!onDemandTrack ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  void openPlaylists();
+                }}
+              >
               <span className="track-action-icon">
                 <Icon
                   name="plus"
@@ -1011,7 +1256,8 @@ export default function TrackActionMenu({
                 name="chevron"
                 size={13}
               />
-            </button>
+              </button>
+            ) : null}
 
 
             <button
@@ -1127,7 +1373,8 @@ export default function TrackActionMenu({
             <div className="track-action-menu__divider" />
 
 
-            {!menu.hideLikeAction ? (
+            {!menu.hideLikeAction &&
+            !onDemandTrack ? (
               <button
                 type="button"
                 role="menuitem"
@@ -1158,18 +1405,19 @@ export default function TrackActionMenu({
             ) : null}
 
 
-            <button
-              type="button"
-              role="menuitem"
-              disabled={
-                downloaded ||
-                busy ===
-                  "download"
-              }
-              onClick={() => {
-                void downloadTrack();
-              }}
-            >
+            {!onDemandTrack ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={
+                  downloaded ||
+                  busy ===
+                    "download"
+                }
+                onClick={() => {
+                  void downloadTrack();
+                }}
+              >
               <span className="track-action-icon">
                 <Icon
                   name={
@@ -1186,7 +1434,8 @@ export default function TrackActionMenu({
                   ? "Downloaded for offline"
                   : "Download for offline"}
               </span>
-            </button>
+              </button>
+            ) : null}
 
           </>
         )}

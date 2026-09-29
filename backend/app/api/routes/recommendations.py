@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import (
@@ -32,32 +33,130 @@ router = APIRouter(
 )
 
 
+def _catalog_uuid_or_none(
+    value: Any,
+) -> UUID | None:
+    if value is None:
+        return None
+
+    if isinstance(
+        value,
+        UUID,
+    ):
+        return value
+
+    try:
+        return UUID(
+            str(
+                value,
+            ).strip()
+        )
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+        return None
+
+
+def _catalog_uuid_list(
+    values: Any,
+    *,
+    limit: int,
+) -> list[
+    UUID
+]:
+    if not isinstance(
+        values,
+        (
+            list,
+            tuple,
+            set,
+        ),
+    ):
+        return []
+
+    result: list[
+        UUID
+    ] = []
+    seen: set[
+        UUID
+    ] = set()
+
+    for value in values:
+        track_id = (
+            _catalog_uuid_or_none(
+                value,
+            )
+        )
+
+        if (
+            track_id is None
+            or track_id in seen
+        ):
+            continue
+
+        seen.add(
+            track_id,
+        )
+
+        result.append(
+            track_id,
+        )
+
+        if (
+            len(
+                result,
+            )
+            >= limit
+        ):
+            break
+
+    return result
+
+
+def _autoplay_limit(
+    value: Any,
+) -> int:
+    try:
+        parsed = int(
+            value,
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 8
+
+    return max(
+        1,
+        min(
+            parsed,
+            20,
+        ),
+    )
+
+
 class AutoplayRequest(
     BaseModel,
 ):
-    current_track_id: (
-        UUID | None
-    ) = None
+    # Autoplay is best-effort playback support.
+    # Keep this request deliberately permissive:
+    # stale browser/service-worker state must not
+    # be able to turn recommendation refill into
+    # a FastAPI 422. The route sanitizes every
+    # value before it reaches the service layer.
+    current_track_id: Any = None
 
-    exclude_track_ids: list[
-        UUID
-    ] = Field(
+    exclude_track_ids: Any = Field(
         default_factory=list,
-        max_length=100,
     )
 
-    context_track_ids: list[
-        UUID
-    ] = Field(
+    context_track_ids: Any = Field(
         default_factory=list,
-        max_length=12,
     )
 
-    limit: int = Field(
-        default=8,
-        ge=1,
-        le=20,
-    )
+    limit: Any = 8
 
 
 class AutoplayTrackResponse(
@@ -107,16 +206,26 @@ async def autoplay(
                 else None
             ),
             current_track_id=(
-                payload.current_track_id
+                _catalog_uuid_or_none(
+                    payload.current_track_id
+                )
             ),
             exclude_track_ids=set(
-                payload.exclude_track_ids
+                _catalog_uuid_list(
+                    payload.exclude_track_ids,
+                    limit=100,
+                )
             ),
             context_track_ids=(
-                payload.context_track_ids
+                _catalog_uuid_list(
+                    payload.context_track_ids,
+                    limit=12,
+                )
             ),
             limit=(
-                payload.limit
+                _autoplay_limit(
+                    payload.limit
+                )
             ),
         )
     )

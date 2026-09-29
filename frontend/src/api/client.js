@@ -3,13 +3,12 @@ import {
   getAccessToken,
   hasStoredSession,
   saveAuthSession,
+  shouldRememberSession,
 } from "./storage.js";
 
 export const API_BASE =
   import.meta.env?.VITE_API_BASE_URL ??
-  (import.meta.env?.DEV
-    ? "/api"
-    : "https://api.hypersynced.app/api");
+  "/api";
 
 let refreshInFlight = null;
 
@@ -48,6 +47,9 @@ function pathRequiresAuthentication(
     ) ||
     path.startsWith(
       "/messages",
+    ) ||
+    path.startsWith(
+      "/jams",
     ) ||
     path.startsWith(
       "/admin",
@@ -294,9 +296,7 @@ export async function refreshAccessToken() {
       await response.json();
 
     const remember =
-      localStorage.getItem(
-        "hypersync_remember_me",
-      ) !== "false";
+      shouldRememberSession();
 
     saveAuthSession(
       data.access_token,

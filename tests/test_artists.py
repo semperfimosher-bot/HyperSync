@@ -6,13 +6,12 @@ from datetime import (
     timedelta,
 )
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
-import pytest
 
 from backend.app.api.routes import (
     artists as artist_routes,
@@ -27,9 +26,17 @@ from backend.app.models.artist import (
     ArtistProfile,
 )
 from backend.app.models.base import Base
-from backend.app.models.media import Track
+from backend.app.models.media import (
+    Track,
+    TrackArtistCredit,
+    TrackIdentity,
+)
 from backend.app.services.artists import (
+    backfill_missing_artist_profiles,
     ensure_artist_profile,
+)
+from backend.app.services.media_identity import (
+    sync_track_media_identity,
 )
 
 
@@ -48,6 +55,12 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
                 ],
                 Base.metadata.tables[
                     Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackIdentity.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackArtistCredit.__tablename__
                 ],
                 Base.metadata.tables[
                     ListeningEvent.__tablename__
@@ -227,6 +240,12 @@ async def test_existing_catalog_artist_is_created_lazily() -> None:
                     Track.__tablename__
                 ],
                 Base.metadata.tables[
+                    TrackIdentity.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackArtistCredit.__tablename__
+                ],
+                Base.metadata.tables[
                     ListeningEvent.__tablename__
                 ],
                 Base.metadata.tables[
@@ -275,5 +294,211 @@ async def test_existing_catalog_artist_is_created_lazily() -> None:
         ).scalars().all()
 
         assert len(profile_count) == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_artist_profiles_include_collaboration_credits() -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    User.__tablename__
+                ],
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackIdentity.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackArtistCredit.__tablename__
+                ],
+                Base.metadata.tables[
+                    ListeningEvent.__tablename__
+                ],
+                Base.metadata.tables[
+                    ArtistProfile.__tablename__
+                ],
+                Base.metadata.tables[
+                    ArtistFollow.__tablename__
+                ],
+            ],
+        )
+
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        track = Track(
+            title="Collaboration Song",
+            artist=(
+                "Bailey Zimmerman & Brandon Lake"
+            ),
+            album="Collaboration Album",
+            b2_object_key=(
+                "audio/collaboration-song.mp3"
+            ),
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add(
+            track,
+        )
+
+        await session.commit()
+
+        bailey = await artist_routes.get_artist_profile(
+            "Bailey Zimmerman",
+            session,
+            None,
+        )
+
+        brandon = await artist_routes.get_artist_profile(
+            "Brandon Lake",
+            session,
+            None,
+        )
+
+        assert bailey.track_count == 1
+        assert brandon.track_count == 1
+
+        assert [
+            item.id
+            for item in bailey.tracks
+        ] == [
+            track.id,
+        ]
+
+        assert [
+            item.id
+            for item in brandon.tracks
+        ] == [
+            track.id,
+        ]
+
+        profiles = list(
+            (
+                await session.execute(
+                    select(
+                        ArtistProfile,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert {
+            profile.name
+            for profile in profiles
+        } == {
+            "Bailey Zimmerman",
+            "Brandon Lake",
+        }
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_artist_profile_backfill_converges_legacy_track_credits(
+    monkeypatch,
+) -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackIdentity.__tablename__
+                ],
+                Base.metadata.tables[
+                    TrackArtistCredit.__tablename__
+                ],
+                Base.metadata.tables[
+                    ArtistProfile.__tablename__
+                ],
+            ],
+        )
+
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async with session_factory() as session:
+        track = Track(
+            title="Legacy Collaboration",
+            artist="Bailey Zimmerman & Brandon Lake",
+            album="Archive",
+            b2_object_key="audio/legacy-collab.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add(
+            track,
+        )
+
+        await sync_track_media_identity(
+            session,
+            track,
+        )
+
+        await session.commit()
+
+    from backend.app import database as database_module
+
+    monkeypatch.setattr(
+        database_module,
+        "get_session_factory",
+        lambda:
+            session_factory,
+    )
+
+    processed = (
+        await backfill_missing_artist_profiles(
+            batch_size=50,
+        )
+    )
+
+    assert processed == 2
+
+    async with session_factory() as session:
+        profiles = list(
+            (
+                await session.execute(
+                    select(
+                        ArtistProfile,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert {
+            profile.name
+            for profile
+            in profiles
+        } == {
+            "Bailey Zimmerman",
+            "Brandon Lake",
+        }
 
     await engine.dispose()

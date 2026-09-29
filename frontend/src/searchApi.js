@@ -3,6 +3,13 @@ import {
 } from "./api/client.js";
 
 
+const SEARCH_CACHE_TTL_MS =
+  10_000;
+
+const searchCache =
+  new Map();
+
+
 export const SEARCH_SORT_OPTIONS = [
   {
     value: "smart",
@@ -34,11 +41,50 @@ export function searchHypersync(
       sort: sortMode,
     });
 
+  const cacheKey =
+    params.toString();
+
+  if (!options.bypassCache) {
+    const cached =
+      searchCache.get(
+        cacheKey,
+      );
+
+    if (
+      cached &&
+      Date.now() -
+        cached.savedAt <=
+        SEARCH_CACHE_TTL_MS
+    ) {
+      return Promise.resolve(
+        cached.value,
+      );
+    }
+  }
+
   return apiRequest(
     `/search?${params.toString()}`,
     {
       signal:
         options.signal,
+    },
+  ).then(
+    (value) => {
+      if (
+        !options.signal
+          ?.aborted
+      ) {
+        searchCache.set(
+          cacheKey,
+          {
+            savedAt:
+              Date.now(),
+            value,
+          },
+        );
+      }
+
+      return value;
     },
   );
 }
@@ -76,6 +122,8 @@ export function searchOnDemandMusic(
     new URLSearchParams({
       q:
         query,
+      limit:
+        "500",
     });
 
   return apiRequest(
@@ -83,6 +131,122 @@ export function searchOnDemandMusic(
     {
       signal:
         options.signal,
+    },
+  );
+}
+
+
+export function searchOnDemandArtistMusic(
+  artistName,
+  options = {},
+) {
+  const requestedLimit =
+    Math.max(
+      1,
+      Math.min(
+        500,
+        Number.isFinite(
+          Number(
+            options.limit,
+          ),
+        )
+          ? Math.floor(
+              Number(
+                options.limit,
+              ),
+            )
+          : 500,
+      ),
+    );
+
+  const params =
+    new URLSearchParams({
+      name:
+        artistName,
+      limit:
+        String(
+          requestedLimit,
+        ),
+    });
+
+  return apiRequest(
+    `/on-demand/artist?${params.toString()}`,
+    {
+      signal:
+        options.signal,
+    },
+  );
+}
+
+
+export function warmOnDemandTracks(
+  candidateKeys,
+) {
+  const keys =
+    Array.from(
+      new Set(
+        (
+          Array.isArray(
+            candidateKeys,
+          )
+            ? candidateKeys
+            : []
+        )
+          .map(
+            (key) =>
+              String(
+                key ?? "",
+              ).trim(),
+          )
+          .filter(
+            Boolean,
+          ),
+      ),
+    )
+      .slice(
+        0,
+        500,
+      );
+
+  if (!keys.length) {
+    return Promise.resolve({
+      warmed:
+        0,
+      sessions:
+        [],
+    });
+  }
+
+  return apiRequest(
+    "/on-demand/warm",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          candidate_keys:
+            keys,
+        }),
+    },
+  );
+}
+
+
+export function queueOnDemandTrack(
+  candidateKey,
+) {
+  return apiRequest(
+    "/on-demand/queue",
+    {
+      method:
+        "POST",
+
+      body:
+        JSON.stringify({
+          candidate_key:
+            candidateKey,
+        }),
     },
   );
 }

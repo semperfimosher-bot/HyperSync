@@ -10,19 +10,9 @@ from sqlalchemy.exc import IntegrityError
 
 from ..database import get_session_factory
 from ..models.system import RateLimitBucket
-
-
-def _as_utc_aware(
-    value: datetime,
-) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(
-            tzinfo=UTC,
-        )
-
-    return value.astimezone(
-        UTC,
-    )
+from ..time_utils import (
+    as_utc_aware as _as_utc_aware,
+)
 
 
 def _client_identifier(

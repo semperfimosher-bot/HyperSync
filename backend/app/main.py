@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import (
     asynccontextmanager,
@@ -8,6 +9,13 @@ from contextlib import (
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from bot.runtime import (
+    shutdown_background_tasks,
+)
+from bot.worker import (
+    resume_catalog_scan_on_startup,
+)
+
 from .api.router import api_router
 from .config import get_settings
 from .database import (
@@ -15,19 +23,35 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
-from .services.admin_notifications import (
-    record_admin_activity,
-)
-from .services.message_retention import (
-    cleanup_expired_messages,
-)
 from .security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
 )
+from .services.admin_notifications import (
+    record_admin_activity,
+)
+from .services.artists import (
+    backfill_missing_artist_profiles,
+)
+from .services.media_identity import (
+    backfill_missing_media_identities,
+)
+from .services.message_retention import (
+    cleanup_expired_messages,
+)
+from .services.on_demand_ingestion import (
+    reset_transient_state,
+    resume_on_demand_ingests_on_startup,
+)
+
+logger = logging.getLogger(__name__)
+
 
 DATABASE_KEEPALIVE_SECONDS = 240.0
+DATABASE_STARTUP_ATTEMPTS = 6
+DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
@@ -39,6 +63,7 @@ _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/messages/notifications/",
     "/api/messages/messages/",
     "/api/recommendations/autoplay",
+    "/api/on-demand/",
     "/api/admin/tracks/upload/prepare",
     "/api/admin/tracks/upload/cancel",
     "/api/auth/refresh",
@@ -140,20 +165,25 @@ def _activity_description(
             "User profile or social activity",
         )
 
+    if (
+        path.startswith(
+            "/api/admin/bot/",
+        )
+        or path.startswith(
+            "/api/bot/",
+        )
+    ):
+        return (
+            "bot",
+            "Bot control activity",
+        )
+
     if path.startswith(
         "/api/admin/",
     ):
         return (
             "admin",
             "Administrator action",
-        )
-
-    if path.startswith(
-        "/api/bot/",
-    ):
-        return (
-            "bot",
-            "Bot control activity",
         )
 
     return (
@@ -192,6 +222,31 @@ def _request_actor_user_id(
 
 
 
+async def wait_for_database_ready() -> None:
+    for attempt in range(
+        1,
+        DATABASE_STARTUP_ATTEMPTS + 1,
+    ):
+        try:
+            await check_database()
+            return
+        except Exception:
+            if (
+                attempt
+                >= DATABASE_STARTUP_ATTEMPTS
+            ):
+                raise
+
+            await asyncio.sleep(
+                min(
+                    float(
+                        2 ** (attempt - 1)
+                    ),
+                    DATABASE_STARTUP_MAX_DELAY_SECONDS,
+                )
+            )
+
+
 async def keep_database_warm() -> None:
     while True:
         await asyncio.sleep(
@@ -211,21 +266,91 @@ async def run_message_retention_cleanup() -> None:
         try:
             await cleanup_expired_messages()
         except Exception:
-            # Retention cleanup must never take down the API.
-            pass
+            # Retention cleanup must never take down the API,
+            # but silent failures make production drift hard
+            # to diagnose.
+            logger.exception(
+                "Message retention cleanup failed.",
+            )
 
         await asyncio.sleep(
             MESSAGE_RETENTION_CLEANUP_SECONDS,
         )
 
 
+async def run_media_identity_backfill() -> None:
+    while True:
+        try:
+            processed = (
+                await backfill_missing_media_identities(
+                    batch_size=250,
+                )
+            )
+        except Exception:
+            # Identity sidecars are an optimization and
+            # compatibility layer. A temporary backfill
+            # failure must not take down the API or disable
+            # maintenance for the lifetime of this process.
+            logger.exception(
+                "Media identity backfill failed; retrying.",
+            )
+
+            await asyncio.sleep(
+                MEDIA_IDENTITY_RETRY_SECONDS,
+            )
+            continue
+
+        if processed == 0:
+            try:
+                artist_profiles_processed = (
+                    await backfill_missing_artist_profiles(
+                        batch_size=250,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Artist profile backfill failed; retrying.",
+                )
+
+                await asyncio.sleep(
+                    MEDIA_IDENTITY_RETRY_SECONDS,
+                )
+                continue
+
+            if artist_profiles_processed == 0:
+                return
+
+        # Yield between batches so startup maintenance
+        # never monopolizes the event loop.
+        await asyncio.sleep(
+            0,
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Pay any database wake-up/connection cost before any
+    # startup routine touches the database. This keeps a
+    # sleeping or temporarily unavailable database inside
+    # the retry envelope instead of failing earlier in
+    # ensure_demo_data().
+    await wait_for_database_ready()
+
     await ensure_demo_data()
 
-    # Pay any database wake-up/connection cost
-    # during backend startup instead of login.
-    await check_database()
+    bot_resume_task = (
+        await resume_catalog_scan_on_startup()
+    )
+
+    resumed_on_demand_ingests = (
+        await resume_on_demand_ingests_on_startup()
+    )
+
+    if resumed_on_demand_ingests:
+        logger.info(
+            "Resumed %s interrupted on-demand ingest(s).",
+            resumed_on_demand_ingests,
+        )
 
     keepalive_task = asyncio.create_task(
         keep_database_warm(),
@@ -235,11 +360,34 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_message_retention_cleanup(),
     )
 
+    media_identity_task = asyncio.create_task(
+        run_media_identity_backfill(),
+    )
+
     try:
         yield
     finally:
         keepalive_task.cancel()
         retention_task.cancel()
+
+        if not media_identity_task.done():
+            media_identity_task.cancel()
+
+            with suppress(
+                asyncio.CancelledError,
+            ):
+                await media_identity_task
+
+        if (
+            bot_resume_task is not None
+            and not bot_resume_task.done()
+        ):
+            bot_resume_task.cancel()
+
+            with suppress(
+                asyncio.CancelledError,
+            ):
+                await bot_resume_task
 
         with suppress(
             asyncio.CancelledError,
@@ -250,6 +398,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             asyncio.CancelledError,
         ):
             await retention_task
+
+        # Any route-started bot task must stop before the
+        # database engine closes. Durable catalog scans remain
+        # resumable and will be picked up on the next startup.
+        await shutdown_background_tasks()
+
+        # On-demand source resolution and ingest tasks keep
+        # references to DB/B2 work of their own. Drain them
+        # explicitly before the database engine disappears.
+        await reset_transient_state()
 
         await close_database()
 
@@ -305,20 +463,30 @@ async def admin_activity_notifications(
     ):
         kind, title = description
 
-        await record_admin_activity(
-            kind=kind,
-            title=title,
-            body=(
-                request.method.upper()
-                + " "
-                + request.url.path
-            ),
-            actor_user_id=(
-                _request_actor_user_id(
-                    request,
-                )
-            ),
-        )
+        try:
+            await record_admin_activity(
+                kind=kind,
+                title=title,
+                body=(
+                    request.method.upper()
+                    + " "
+                    + request.url.path
+                ),
+                actor_user_id=(
+                    _request_actor_user_id(
+                        request,
+                    )
+                ),
+            )
+        except Exception:
+            # Activity notifications are observability.
+            # They must never turn an already-successful
+            # core request into a user-visible failure.
+            logger.exception(
+                "Unable to record admin activity for %s %s",
+                request.method.upper(),
+                request.url.path,
+            )
 
     return response
 

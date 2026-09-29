@@ -1,3 +1,84 @@
+const CATALOG_TRACK_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+export function catalogTrackIdOrNull(
+  value,
+) {
+  const id =
+    String(
+      value ?? "",
+    ).trim();
+
+  return (
+    CATALOG_TRACK_ID_PATTERN.test(
+      id,
+    )
+      ? id
+      : null
+  );
+}
+
+
+export function filterCatalogTrackIds(
+  values,
+  limit = 100,
+) {
+  const source =
+    Array.isArray(
+      values,
+    )
+      ? values
+      : [];
+
+  const cap =
+    Math.max(
+      0,
+      Math.floor(
+        Number(
+          limit,
+        ) || 0,
+      ),
+    );
+
+  const result = [];
+  const seen = new Set();
+
+  for (const value of source) {
+    const id =
+      catalogTrackIdOrNull(
+        value,
+      );
+
+    if (
+      !id ||
+      seen.has(
+        id,
+      )
+    ) {
+      continue;
+    }
+
+    seen.add(
+      id,
+    );
+
+    result.push(
+      id,
+    );
+
+    if (
+      result.length >=
+      cap
+    ) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+
 export function buildTrackQueue(
   tracks = [],
 ) {
@@ -51,6 +132,24 @@ export function buildTrackQueue(
         durationSeconds:
           track.durationSeconds ??
           track.duration_seconds ??
+          null,
+
+        onDemand:
+          Boolean(
+            track.onDemand ??
+            track.on_demand ??
+            track.source_type ===
+              "on_demand",
+          ),
+
+        provisionKey:
+          track.provisionKey ??
+          track.provision_key ??
+          null,
+
+        provisionId:
+          track.provisionId ??
+          track.provision_id ??
           null,
 
         title:
@@ -130,6 +229,62 @@ export function insertQueueEntryAsNext(
     ...currentAndPast,
     entry,
     ...upcoming,
+  ];
+}
+
+
+export function appendQueueEntry(
+  queue,
+  currentIndex,
+  entry,
+) {
+  const source =
+    Array.isArray(queue)
+      ? queue
+      : [];
+
+  if (!entry?.id) {
+    return source;
+  }
+
+  const safeCurrentIndex =
+    Number.isInteger(
+      currentIndex,
+    )
+      ? Math.min(
+          Math.max(
+            currentIndex,
+            -1,
+          ),
+          source.length - 1,
+        )
+      : -1;
+
+  const currentAndPast =
+    source.slice(
+      0,
+      safeCurrentIndex + 1,
+    );
+
+  const upcoming =
+    source
+      .slice(
+        safeCurrentIndex + 1,
+      )
+      .filter(
+        (item) =>
+          String(
+            item?.id ?? "",
+          ) !==
+          String(
+            entry.id,
+          ),
+      );
+
+  return [
+    ...currentAndPast,
+    ...upcoming,
+    entry,
   ];
 }
 

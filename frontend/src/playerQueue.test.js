@@ -66,6 +66,12 @@ test(
           null,
         durationSeconds:
           null,
+        onDemand:
+          false,
+        provisionKey:
+          null,
+        provisionId:
+          null,
       },
     },
     {
@@ -85,6 +91,12 @@ test(
           null,
         durationSeconds:
           null,
+        onDemand:
+          false,
+        provisionKey:
+          null,
+        provisionId:
+          null,
       },
     },
     {
@@ -103,6 +115,12 @@ test(
         artworkVersion:
           null,
         durationSeconds:
+          null,
+        onDemand:
+          false,
+        provisionKey:
+          null,
+        provisionId:
           null,
       },
     },
@@ -488,3 +506,179 @@ test(
   },
 );
 
+
+
+test(
+  "buildTrackQueue preserves lazy on-demand provisioning metadata",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const queue =
+      queueModule.buildTrackQueue([
+        {
+          id:
+            "ondemand:music:track",
+          source_type:
+            "on_demand",
+          provision_key:
+            "music:track",
+          title:
+            "Metadata Song",
+          artist:
+            "Metadata Artist",
+        },
+      ]);
+
+    assert.equal(
+      queue[0].meta.onDemand,
+      true,
+    );
+
+    assert.equal(
+      queue[0].meta.provisionKey,
+      "music:track",
+    );
+
+    assert.equal(
+      queue[0].meta.provisionId,
+      null,
+    );
+  },
+);
+
+
+test(
+  "appendQueueEntry adds a manual track after all upcoming tracks",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const queue = [
+      {
+        id:
+          "current",
+      },
+      {
+        id:
+          "up-next",
+      },
+      {
+        id:
+          "later",
+      },
+    ];
+
+    const appended = {
+      id:
+        "manual-end",
+      meta: {
+        title:
+          "Manual Queue Track",
+      },
+    };
+
+    assert.deepEqual(
+      queueModule.appendQueueEntry(
+        queue,
+        0,
+        appended,
+      ),
+      [
+        queue[0],
+        queue[1],
+        queue[2],
+        appended,
+      ],
+    );
+  },
+);
+
+
+test(
+  "appendQueueEntry moves an existing upcoming track to the queue end",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const current = {
+      id:
+        "current",
+    };
+
+    const queue = [
+      current,
+      {
+        id:
+          "move-me",
+      },
+      {
+        id:
+          "other",
+      },
+    ];
+
+    const moved = {
+      id:
+        "move-me",
+      meta: {
+        title:
+          "Fresh Queue Metadata",
+      },
+    };
+
+    assert.deepEqual(
+      queueModule.appendQueueEntry(
+        queue,
+        0,
+        moved,
+      ),
+      [
+        current,
+        queue[2],
+        moved,
+      ],
+    );
+  },
+);
+
+
+test(
+  "autoplay catalog ID filtering drops temporary on-demand IDs",
+  async () => {
+    const queueModule =
+      await loadQueueModule();
+
+    const valid =
+      "9e061d5c-5ae4-4db9-8bb1-ef55bdd7af33";
+
+    assert.equal(
+      queueModule.catalogTrackIdOrNull(
+        valid,
+      ),
+      valid,
+    );
+
+    assert.equal(
+      queueModule.catalogTrackIdOrNull(
+        "ondemand:temporary-track",
+      ),
+      null,
+    );
+
+    assert.deepEqual(
+      queueModule.filterCatalogTrackIds(
+        [
+          "ondemand:old",
+          valid,
+          valid,
+          "not-a-uuid",
+        ],
+        12,
+      ),
+      [
+        valid,
+      ],
+    );
+  },
+);

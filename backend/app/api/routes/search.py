@@ -38,6 +38,13 @@ from ...models.playlist import (
     Playlist,
     PlaylistTrack,
 )
+from ...services.artists import (
+    load_published_artist_tracks,
+)
+from ...services.audio_metadata import (
+    primary_artist_credit,
+    split_artist_credits,
+)
 from ...services.generated_playlists import (
     MIN_GENERATED_TRACKS,
     ensure_artist_playlist,
@@ -92,48 +99,26 @@ NEW_RELEASE_LIMIT = 100
 NEW_RELEASE_WINDOW_DAYS = 14
 SMART_VIBE_CANDIDATE_LIMIT = 500
 
-_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
-    (
-        r"\s+"
-        r"(?:&|\band\b|\bx\b|\bwith\b|"
-        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
-        r"\s+"
-    ),
-    flags=re.IGNORECASE,
-)
-
-
 def _artist_field_credits(
     artist: str | None,
 ) -> tuple[str, ...]:
-    if not artist:
-        return ()
-
     raw = str(
-        artist,
+        artist
+        or ""
     ).strip()
 
     if not raw:
         return ()
 
-    credits = [
-        raw,
-        *(
-            part.strip()
-            for part in (
-                _ARTIST_CREDIT_SPLIT_PATTERN
-                .split(
-                    raw,
-                )
-            )
-            if part.strip()
-        ),
-    ]
-
     found: list[str] = []
     seen: set[str] = set()
 
-    for credit in credits:
+    for credit in (
+        raw,
+        *split_artist_credits(
+            raw,
+        ),
+    ):
         normalized = normalize_text(
             credit,
         )
@@ -147,7 +132,6 @@ def _artist_field_credits(
         seen.add(
             normalized,
         )
-
         found.append(
             credit,
         )
@@ -160,31 +144,8 @@ def _artist_field_credits(
 def _primary_artist_credit(
     artist: str | None,
 ) -> str:
-    if not artist:
-        return ""
-
-    raw = str(
+    return primary_artist_credit(
         artist,
-    ).strip()
-
-    if not raw:
-        return ""
-
-    parts = [
-        part.strip()
-        for part in (
-            _ARTIST_CREDIT_SPLIT_PATTERN
-            .split(
-                raw,
-            )
-        )
-        if part.strip()
-    ]
-
-    return (
-        parts[0]
-        if parts
-        else raw
     )
 
 
@@ -259,42 +220,12 @@ async def _load_artist_catalog_candidates(
     session: AsyncSession,
     artist_name: str,
 ) -> list[Track]:
-    pattern = (
-        "%"
-        + artist_name
-        + "%"
+    return await load_published_artist_tracks(
+        session,
+        artist_name,
+        primary_only=True,
+        limit=TRACK_CANDIDATE_LIMIT,
     )
-
-    result = await session.execute(
-        select(
-            Track,
-        )
-        .where(
-            Track.is_published.is_(
-                True,
-            ),
-            Track.artist.ilike(
-                pattern,
-            ),
-        )
-        .order_by(
-            Track.artist.asc(),
-            Track.title.asc(),
-        )
-    )
-
-    matches = [
-        track
-        for track in result.scalars().all()
-        if _track_credits_artist(
-            track,
-            artist_name,
-        )
-    ]
-
-    return matches[
-        :TRACK_CANDIDATE_LIMIT
-    ]
 
 
 class SearchPlaylistResult(

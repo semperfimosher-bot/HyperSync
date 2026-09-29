@@ -18,7 +18,6 @@ from mutagen.id3._frames import (
 )
 from mutagen.mp3 import MP3
 
-
 LOSSLESS_OR_UNCOMPRESSED_CODECS = {
     "alac",
     "ape",

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import hmac
-
 from datetime import (
     UTC,
     datetime,
     timedelta,
 )
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from fastapi import (
@@ -57,7 +56,6 @@ from ..dependencies import (
     CurrentUser,
     DatabaseSession,
 )
-
 
 router = APIRouter(
     prefix="/messages",
@@ -170,11 +168,25 @@ class AdminActivityNotification(BaseModel):
     created_at: datetime
 
 
+class AdminAccountNotification(BaseModel):
+    type: Literal[
+        "admin_account_notification"
+    ] = "admin_account_notification"
+    notification_id: UUID
+    kind: str
+    title: str
+    body: str
+    actor_username: str | None = None
+    recipient_username: str
+    created_at: datetime
+
+
 class NotificationResponse(BaseModel):
     unread_count: int
     notifications: list[
         MessageNotification
         | AdminActivityNotification
+        | AdminAccountNotification
     ]
 
 
@@ -280,7 +292,7 @@ def _shared_music_response(
         return None
 
     return SharedMusicItem(
-        kind=message.shared_kind,
+        kind=cast(SharedMusicKind, message.shared_kind),
         key=message.shared_key,
         title=message.shared_title,
         subtitle=(
@@ -1126,6 +1138,7 @@ async def message_notifications(
     notifications: list[
         MessageNotification
         | AdminActivityNotification
+        | AdminAccountNotification
     ] = []
 
     for notification in direct_notifications:
@@ -1236,6 +1249,150 @@ async def message_notifications(
             ]
         )
 
+        account_result = await session.execute(
+            select(
+                AdminNotification,
+            )
+            .where(
+                AdminNotification.recipient_id
+                != user.id,
+                AdminNotification.kind
+                == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                AdminNotification.viewed_at
+                .is_(
+                    None,
+                ),
+                AdminNotification.source_message_id
+                .is_not(
+                    None,
+                ),
+            )
+            .order_by(
+                AdminNotification.created_at.desc(),
+            )
+            .limit(20)
+        )
+
+        account_rows = list(
+            account_result
+            .scalars()
+            .all()
+        )
+
+        account_message_ids = [
+            row.source_message_id
+            for row in account_rows
+            if row.source_message_id
+            is not None
+        ]
+
+        account_messages_result = (
+            await session.execute(
+                select(
+                    Message,
+                ).where(
+                    Message.id.in_(
+                        account_message_ids,
+                    )
+                )
+            )
+            if account_message_ids
+            else None
+        )
+
+        account_messages = {
+            message.id:
+                message
+            for message in (
+                account_messages_result
+                .scalars()
+                .all()
+                if account_messages_result
+                is not None
+                else []
+            )
+        }
+
+        account_user_ids = {
+            user_id
+            for message in
+            account_messages.values()
+            for user_id in (
+                message.sender_id,
+                message.recipient_id,
+            )
+        }
+
+        account_users = await _load_users(
+            session,
+            account_user_ids,
+        )
+
+        for row in account_rows:
+            message = account_messages.get(
+                row.source_message_id,
+            )
+
+            if message is None:
+                continue
+
+            sender = account_users.get(
+                message.sender_id,
+            )
+
+            recipient = account_users.get(
+                message.recipient_id,
+            )
+
+            if recipient is None:
+                continue
+
+            sender_username = (
+                sender.username
+                if sender is not None
+                else None
+            )
+
+            recipient_username = (
+                recipient.username
+                or "unknown"
+            )
+
+            notifications.append(
+                AdminAccountNotification(
+                    notification_id=(
+                        row.id
+                    ),
+                    kind=(
+                        DIRECT_MESSAGE_NOTIFICATION_KIND
+                    ),
+                    title=(
+                        "Notification for @"
+                        + recipient_username
+                    ),
+                    body=(
+                        "New private message"
+                        + (
+                            " from @"
+                            + sender_username
+                            if sender_username
+                            else ""
+                        )
+                        + ". Message contents are hidden "
+                        + "from the administrator view."
+                    ),
+                    actor_username=(
+                        sender_username
+                    ),
+                    recipient_username=(
+                        recipient_username
+                    ),
+                    created_at=(
+                        row.created_at
+                    ),
+                )
+            )
+
     notifications.sort(
         key=lambda notification:
             notification.created_at,
@@ -1286,6 +1443,35 @@ async def message_notifications(
 
         admin_total = int(
             admin_count_result.scalar_one()
+            or 0
+        )
+
+        account_count_result = (
+            await session.execute(
+                select(
+                    func.count(
+                        AdminNotification.id,
+                    ),
+                ).where(
+                    AdminNotification.recipient_id
+                    != user.id,
+                    AdminNotification.kind
+                    == DIRECT_MESSAGE_NOTIFICATION_KIND,
+                    AdminNotification.viewed_at
+                    .is_(
+                        None,
+                    ),
+                    AdminNotification
+                    .source_message_id
+                    .is_not(
+                        None,
+                    ),
+                )
+            )
+        )
+
+        admin_total += int(
+            account_count_result.scalar_one()
             or 0
         )
 
@@ -1349,6 +1535,60 @@ async def read_message_notification(
             == message.id,
         )
     )
+
+    await session.commit()
+
+
+@router.post(
+    "/admin-account-notifications/{notification_id}/read",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def read_admin_account_notification(
+    notification_id: UUID,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> None:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Administrator access required."
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            AdminNotification,
+        ).where(
+            AdminNotification.id
+            == notification_id,
+            AdminNotification.recipient_id
+            != user.id,
+            AdminNotification.kind
+            == DIRECT_MESSAGE_NOTIFICATION_KIND,
+            AdminNotification.source_message_id
+            .is_not(
+                None,
+            ),
+        )
+    )
+
+    notification = (
+        result.scalar_one_or_none()
+    )
+
+    if notification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Account notification not found."
+            ),
+        )
+
+    if notification.viewed_at is None:
+        notification.viewed_at = datetime.now(
+            UTC,
+        )
 
     await session.commit()
 

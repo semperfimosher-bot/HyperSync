@@ -5,6 +5,8 @@ import {
   buildLibraryAlbums,
   buildLibraryArtists,
   mergeLibraryTracks,
+  primaryArtistCredit,
+  splitArtistCredits,
 } from "./libraryEntities.js";
 
 
@@ -342,3 +344,86 @@ test(
   },
 );
 
+
+
+test(
+  "collaboration credits become individual artist groups",
+  () => {
+    const tracks = [
+      {
+        id: "collab",
+        title: "Collaboration",
+        artist:
+          "Bailey Zimmerman & Brandon Lake",
+        album: "Collab Album",
+      },
+      {
+        id: "bailey-solo",
+        title: "Solo",
+        artist:
+          "Bailey Zimmerman",
+        album: "Solo Album",
+      },
+    ];
+
+    assert.deepEqual(
+      splitArtistCredits(
+        "Bailey Zimmerman & Brandon Lake",
+      ),
+      [
+        "Bailey Zimmerman",
+        "Brandon Lake",
+      ],
+    );
+
+    assert.equal(
+      primaryArtistCredit(
+        "Morgan Wallen feat. Lil Durk",
+      ),
+      "Morgan Wallen",
+    );
+
+    const artists =
+      buildLibraryArtists(
+        tracks,
+      );
+
+    assert.deepEqual(
+      artists.map(
+        (artist) =>
+          artist.name,
+      ),
+      [
+        "Bailey Zimmerman",
+        "Brandon Lake",
+      ],
+    );
+
+    assert.equal(
+      artists.find(
+        (artist) =>
+          artist.name ===
+          "Bailey Zimmerman",
+      )?.track_count,
+      2,
+    );
+
+    assert.equal(
+      artists.find(
+        (artist) =>
+          artist.name ===
+          "Brandon Lake",
+      )?.track_count,
+      1,
+    );
+
+    assert.equal(
+      artists.some(
+        (artist) =>
+          artist.name ===
+          "Bailey Zimmerman & Brandon Lake",
+      ),
+      false,
+    );
+  },
+);

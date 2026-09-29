@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import math
 import re
 import unicodedata
 from dataclasses import (
@@ -19,6 +18,7 @@ from ..config import get_settings
 from .audio_metadata import (
     normalize_track_identity,
     normalize_track_title_identity,
+    primary_artist_credit,
 )
 
 
@@ -43,6 +43,119 @@ class CatalogTrackCandidate:
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(
+        cls,
+        payload: dict[str, Any],
+    ) -> CatalogTrackCandidate:
+        def optional_str(
+            key: str,
+        ) -> str | None:
+            value = payload.get(
+                key,
+            )
+
+            return (
+                str(
+                    value,
+                )
+                if value
+                is not None
+                else None
+            )
+
+        def optional_int(
+            key: str,
+        ) -> int | None:
+            value = payload.get(
+                key,
+            )
+
+            return (
+                int(
+                    value,
+                )
+                if value
+                is not None
+                else None
+            )
+
+        explicit_value = payload.get(
+            "explicit",
+        )
+
+        return cls(
+            key=str(
+                payload.get(
+                    "key",
+                    "",
+                )
+            ),
+            title=str(
+                payload.get(
+                    "title",
+                    "",
+                )
+            ),
+            artist=str(
+                payload.get(
+                    "artist",
+                    "",
+                )
+            ),
+            album=optional_str(
+                "album",
+            ),
+            duration_seconds=optional_int(
+                "duration_seconds",
+            ),
+            artwork_url=optional_str(
+                "artwork_url",
+            ),
+            genre=optional_str(
+                "genre",
+            ),
+            release_year=optional_int(
+                "release_year",
+            ),
+            explicit=(
+                bool(
+                    explicit_value,
+                )
+                if explicit_value
+                is not None
+                else None
+            ),
+            track_number=optional_int(
+                "track_number",
+            ),
+            disc_number=optional_int(
+                "disc_number",
+            ),
+            isrc=optional_str(
+                "isrc",
+            ),
+            deezer_track_id=optional_str(
+                "deezer_track_id",
+            ),
+            apple_track_id=optional_str(
+                "apple_track_id",
+            ),
+            provider=str(
+                payload.get(
+                    "provider",
+                    "",
+                )
+            ),
+            confidence=float(
+                payload.get(
+                    "confidence",
+                    0.0,
+                )
+                or 0.0
+            ),
+        )
 
 
 def _normalized_text(
@@ -181,46 +294,6 @@ def _large_itunes_artwork(
         r"\d+x\d+bb",
         "600x600bb",
         url,
-    )
-
-
-_ARTIST_CREDIT_SPLIT_PATTERN = re.compile(
-    (
-        r"\s+"
-        r"(?:&|\band\b|\bx\b|\bwith\b|"
-        r"\bfeat(?:uring)?\.?\b|\bft\.?\b)"
-        r"\s+"
-    ),
-    flags=re.IGNORECASE,
-)
-
-
-def _primary_artist_credit(
-    artist: str | None,
-) -> str:
-    raw = str(
-        artist
-        or ""
-    ).strip()
-
-    if not raw:
-        return ""
-
-    parts = [
-        part.strip()
-        for part in (
-            _ARTIST_CREDIT_SPLIT_PATTERN
-            .split(
-                raw,
-            )
-        )
-        if part.strip()
-    ]
-
-    return (
-        parts[0]
-        if parts
-        else raw
     )
 
 
@@ -753,8 +826,28 @@ async def _search_deezer(
     query: str,
     *,
     limit: int,
+    artist_only: bool = False,
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
+
+    requested_limit = max(
+        1,
+        min(
+            int(limit),
+            500,
+        ),
+    )
+
+    provider_query = (
+        'artist:"'
+        + query.replace(
+            '"',
+            " ",
+        ).strip()
+        + '"'
+        if artist_only
+        else query
+    )
 
     async with httpx.AsyncClient(
         base_url=(
@@ -776,63 +869,101 @@ async def _search_deezer(
                 .musicbrainz_user_agent,
         },
     ) as client:
-        try:
-            response = await client.get(
-                "/search/track",
-                params={
-                    "q":
-                        query,
-                    "limit":
-                        max(
-                            1,
-                            min(
-                                limit,
-                                25,
-                            ),
-                        ),
-                },
+        candidates: list[
+            CatalogTrackCandidate
+        ] = []
+
+        index = 0
+
+        while (
+            len(candidates)
+            < requested_limit
+        ):
+            page_limit = min(
+                100,
+                requested_limit
+                - len(candidates),
             )
 
-            response.raise_for_status()
-
-            payload = response.json()
-
-        except (
-            httpx.HTTPError,
-            ValueError,
-        ):
-            return []
-
-        if not isinstance(
-            payload,
-            dict,
-        ):
-            return []
-
-        raw_items = payload.get(
-            "data",
-        )
-
-        if not isinstance(
-            raw_items,
-            list,
-        ):
-            return []
-
-        candidates = [
-            candidate
-            for item in raw_items
-            if isinstance(
-                item,
-                dict,
-            )
-            for candidate in [
-                _deezer_candidate(
-                    item,
-                    query=query,
+            try:
+                response = await client.get(
+                    "/search/track",
+                    params={
+                        "q":
+                            provider_query,
+                        "limit":
+                            page_limit,
+                        "index":
+                            index,
+                    },
                 )
+
+                response.raise_for_status()
+
+                payload = response.json()
+
+            except (
+                httpx.HTTPError,
+                ValueError,
+            ):
+                break
+
+            if not isinstance(
+                payload,
+                dict,
+            ):
+                break
+
+            raw_items = payload.get(
+                "data",
+            )
+
+            if (
+                not isinstance(
+                    raw_items,
+                    list,
+                )
+                or not raw_items
+            ):
+                break
+
+            page_candidates = [
+                candidate
+                for item in raw_items
+                if isinstance(
+                    item,
+                    dict,
+                )
+                for candidate in [
+                    _deezer_candidate(
+                        item,
+                        query=query,
+                    )
+                ]
+                if candidate is not None
             ]
-            if candidate is not None
+
+            candidates.extend(
+                page_candidates,
+            )
+
+            index += len(
+                raw_items,
+            )
+
+            if (
+                not payload.get(
+                    "next",
+                )
+                or len(
+                    raw_items,
+                )
+                < page_limit
+            ):
+                break
+
+        candidates = candidates[
+            :requested_limit
         ]
 
         detail_count = min(
@@ -876,6 +1007,7 @@ async def _search_itunes(
     query: str,
     *,
     limit: int,
+    artist_only: bool = False,
 ) -> list[CatalogTrackCandidate]:
     settings = get_settings()
 
@@ -917,11 +1049,19 @@ async def _search_itunes(
                             1,
                             min(
                                 limit,
-                                25,
+                                200,
                             ),
                         ),
                     "explicit":
                         "Yes",
+                    **(
+                        {
+                            "attribute":
+                                "artistTerm",
+                        }
+                        if artist_only
+                        else {}
+                    ),
                 },
             )
 
@@ -1268,7 +1408,7 @@ def rank_catalog_candidates_for_kind(
 
     for candidate in candidates:
         if normalized_kind == "artist":
-            field = _primary_artist_credit(
+            field = primary_artist_credit(
                 candidate.artist,
             )
 
@@ -1278,23 +1418,14 @@ def rank_catalog_candidates_for_kind(
                 )
             )
 
-            score = _similarity(
-                query,
-                field,
-            )
-
             if (
-                normalized_query
-                and normalized_query
-                in normalized_field
+                not normalized_query
+                or normalized_field
+                != normalized_query
             ):
-                score = max(
-                    score,
-                    0.98,
-                )
-
-            if score < 0.55:
                 continue
+
+            score = 1.0
 
         elif normalized_kind == "album":
             if not candidate.album:
@@ -1406,33 +1537,47 @@ async def search_catalog_metadata(
             int(
                 limit,
             ),
-            25,
+            500,
         ),
     )
 
     provider_limit = min(
         max(
-            requested_limit * 2,
+            requested_limit,
             8,
         ),
-        25,
+        500,
+    )
+
+    artist_only = (
+        kind.strip().casefold()
+        == "artist"
     )
 
     deezer, itunes = await asyncio.gather(
         _search_deezer(
             clean_query,
             limit=provider_limit,
+            artist_only=artist_only,
         ),
         _search_itunes(
             clean_query,
             limit=provider_limit,
+            artist_only=artist_only,
         ),
     )
 
     merged = merge_catalog_candidates(
         deezer,
         itunes,
-        limit=provider_limit,
+        limit=min(
+            700,
+            provider_limit
+            + min(
+                provider_limit,
+                200,
+            ),
+        ),
     )
 
     return rank_catalog_candidates_for_kind(

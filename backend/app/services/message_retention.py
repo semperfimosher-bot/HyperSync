@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_session_factory
 from ..models.messaging import Message
 
-
 MESSAGE_RETENTION_AFTER_VIEW = timedelta(
     days=7,
 )

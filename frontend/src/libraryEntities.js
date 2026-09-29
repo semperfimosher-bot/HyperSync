@@ -16,6 +16,91 @@ function cleanLabel(
 }
 
 
+const ARTIST_CREDIT_SPLIT_PATTERN =
+  /\s+(?:&|and|x|with|feat(?:uring)?\.?|ft\.?)\s+/i;
+
+
+export function splitArtistCredits(
+  value,
+) {
+  const raw =
+    cleanLabel(
+      value,
+    );
+
+  if (!raw) {
+    return [];
+  }
+
+  const seen =
+    new Set();
+
+  const credits =
+    [];
+
+  raw
+    .split(
+      ARTIST_CREDIT_SPLIT_PATTERN,
+    )
+    .map(
+      (part) =>
+        cleanLabel(
+          part,
+        ),
+    )
+    .filter(
+      Boolean,
+    )
+    .forEach(
+      (credit) => {
+        const key =
+          credit
+            .normalize(
+              "NFKC",
+            )
+            .toLocaleLowerCase();
+
+        if (
+          !key ||
+          seen.has(
+            key,
+          )
+        ) {
+          return;
+        }
+
+        seen.add(
+          key,
+        );
+
+        credits.push(
+          credit,
+        );
+      },
+    );
+
+  return (
+    credits.length > 0
+      ? credits
+      : [
+          raw,
+        ]
+  );
+}
+
+
+export function primaryArtistCredit(
+  value,
+) {
+  return (
+    splitArtistCredits(
+      value,
+    )[0] ??
+    ""
+  );
+}
+
+
 function normalizedKey(
   value,
 ) {
@@ -210,63 +295,74 @@ export function buildLibraryArtists(
       tracks,
     )
   ) {
-    const name =
-      cleanLabel(
+    const names =
+      splitArtistCredits(
         track?.artist,
-        "Unknown Artist",
       );
 
-    const key =
-      normalizedKey(
-        name,
-      );
+    const artistNames =
+      names.length > 0
+        ? names
+        : [
+            "Unknown Artist",
+          ];
 
-    let artist =
-      artists.get(
-        key,
-      );
-
-    if (!artist) {
-      artist = {
-        key,
-        name,
-        artwork_url:
-          track?.artwork_url ??
-          null,
-        tracks: [],
-        albums:
-          new Set(),
-      };
-
-      artists.set(
-        key,
-        artist,
-      );
-    }
-
-    artist.tracks.push(
-      track,
-    );
-
-    if (
-      !artist.artwork_url &&
-      track?.artwork_url
+    for (
+      const name
+      of artistNames
     ) {
-      artist.artwork_url =
-        track.artwork_url;
-    }
-
-    const album =
-      cleanLabel(
-        track?.album,
-      );
-
-    if (album) {
-      artist.albums.add(
+      const key =
         normalizedKey(
-          album,
-        ),
+          name,
+        );
+
+      let artist =
+        artists.get(
+          key,
+        );
+
+      if (!artist) {
+        artist = {
+          key,
+          name,
+          artwork_url:
+            track?.artwork_url ??
+            null,
+          tracks: [],
+          albums:
+            new Set(),
+        };
+
+        artists.set(
+          key,
+          artist,
+        );
+      }
+
+      artist.tracks.push(
+        track,
       );
+
+      if (
+        !artist.artwork_url &&
+        track?.artwork_url
+      ) {
+        artist.artwork_url =
+          track.artwork_url;
+      }
+
+      const album =
+        cleanLabel(
+          track?.album,
+        );
+
+      if (album) {
+        artist.albums.add(
+          normalizedKey(
+            album,
+          ),
+        );
+      }
     }
   }
 

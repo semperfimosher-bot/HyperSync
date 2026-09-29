@@ -188,3 +188,30 @@ def test_extracts_release_year_from_common_date_tags() -> None:
         )
         is None
     )
+
+
+def test_artist_credit_split_handles_common_feature_separators() -> None:
+    audio_metadata = load_audio_metadata_module()
+
+    assert audio_metadata is not None
+
+    assert audio_metadata.split_artist_credits(
+        "Morgan Wallen feat. Lil Durk",
+    ) == (
+        "Morgan Wallen",
+        "Lil Durk",
+    )
+
+    assert audio_metadata.split_artist_credits(
+        "Artist One ft. Artist Two",
+    ) == (
+        "Artist One",
+        "Artist Two",
+    )
+
+    assert audio_metadata.split_artist_credits(
+        "Bailey Zimmerman & Brandon Lake",
+    ) == (
+        "Bailey Zimmerman",
+        "Brandon Lake",
+    )

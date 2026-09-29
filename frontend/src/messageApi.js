@@ -104,6 +104,23 @@ export async function markAdminNotificationRead(
 }
 
 
+export async function markAdminAccountNotificationRead(
+  notificationId,
+) {
+  return apiRequest(
+    "/messages/admin-account-notifications/" +
+      encodeURIComponent(
+        notificationId,
+      ) +
+      "/read",
+    {
+      method:
+        "POST",
+    },
+  );
+}
+
+
 export async function getPushConfig() {
   return apiRequest(
     "/messages/push/config",

@@ -1,15 +1,26 @@
 import asyncio
 import base64
 import hmac
+import logging
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from mutagen._file import File as MutagenFile
-from pydantic import BaseModel
 from mutagen.flac import Picture
+from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
@@ -26,18 +37,17 @@ from ...models.account import (
     UserProfile,
 )
 from ...models.media import Track
+from ...services.artists import (
+    artist_names_for_credit,
+    ensure_artist_profiles_for_credit,
+)
 from ...services.audio_compression import (
     AudioProbe,
     compress_audio_for_storage,
     should_attempt_audio_compression,
 )
-from ...services.artists import (
-    ensure_artist_profile,
-)
 from ...services.audio_metadata import (
     extract_embedded_audio_metadata,
-    normalize_track_identity,
-    normalize_track_title_identity,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -47,13 +57,31 @@ from ...services.b2 import (
     get_b2_bucket,
     head_b2_object,
 )
+from ...services.catalog_ingestion import (
+    lock_track_identity,
+)
 from ...services.generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
 )
+from ...services.media_identity import (
+    catalog_identity_diagnostics,
+    duplicate_track_groups,
+    group_duplicate_tracks,
+    sync_track_media_identity,
+)
+from ...services.media_identity import (
+    find_duplicate_track as find_indexed_duplicate_track,
+)
 from ...services.music_metadata import (
     enrich_track_metadata,
     enrich_track_metadata_by_id,
+)
+from ...services.on_demand_state import (
+    durable_state_diagnostics,
+)
+from ...services.storage_integrity import (
+    audit_track_storage,
 )
 from ..dependencies import AdminUser, DatabaseSession
 
@@ -63,154 +91,17 @@ router = APIRouter(
 )
 
 
-async def _lock_track_upload_identity(
-    session: DatabaseSession,
-    *,
-    title: str,
-    artist: str,
-) -> None:
-    bind = session.get_bind()
-
-    if (
-        bind is None
-        or bind.dialect.name
-        != "postgresql"
-    ):
-        return
-
-    identity = (
-        normalize_track_identity(
-            artist,
-        )
-        + "\x1f"
-        + normalize_track_title_identity(
-            title,
-        )
-    )
-
-    await session.execute(
-        text(
-            "SELECT "
-            "pg_advisory_xact_lock("
-            "hashtext(:identity)"
-            ")"
-        ),
-        {
-            "identity":
-                identity,
-        },
-    )
+logger = logging.getLogger(__name__)
 
 
 def _duplicate_track_groups(
     tracks: list[Track],
 ) -> list[dict]:
-    groups: dict[
-        tuple[str, str],
-        list[Track],
-    ] = {}
-
-    for track in tracks:
-        key = (
-            normalize_track_identity(
-                track.artist,
-            ),
-            normalize_track_title_identity(
-                track.title,
-            ),
-        )
-
-        groups.setdefault(
-            key,
-            [],
-        ).append(
-            track,
-        )
-
-    duplicates: list[dict] = []
-
-    for (
-        artist_key,
-        title_key,
-    ), grouped_tracks in groups.items():
-        if len(grouped_tracks) < 2:
-            continue
-
-        ordered_tracks = sorted(
-            grouped_tracks,
-            key=lambda item: (
-                getattr(
-                    item,
-                    "created_at",
-                    None,
-                )
-                is None,
-                getattr(
-                    item,
-                    "created_at",
-                    None,
-                ),
-                str(
-                    item.id,
-                ),
-            ),
-        )
-
-        first = ordered_tracks[0]
-
-        duplicates.append(
-            {
-                "artist_key":
-                    artist_key,
-                "title_key":
-                    title_key,
-                "artist":
-                    first.artist,
-                "title":
-                    first.title,
-                "count":
-                    len(
-                        ordered_tracks,
-                    ),
-                "keep_track_id":
-                    str(
-                        first.id,
-                    ),
-                "tracks": [
-                    {
-                        "id":
-                            str(
-                                item.id,
-                            ),
-                        "title":
-                            item.title,
-                        "artist":
-                            item.artist,
-                        "album":
-                            item.album,
-                        "b2_object_key":
-                            item.b2_object_key,
-                    }
-                    for item in ordered_tracks
-                ],
-            }
-        )
-
-    duplicates.sort(
-        key=lambda group: (
-            -int(
-                group["count"],
-            ),
-            str(
-                group["artist_key"],
-            ),
-            str(
-                group["title_key"],
-            ),
-        )
+    # Compatibility wrapper for older callers/tests.
+    # The actual grouping rules live in media_identity.
+    return group_duplicate_tracks(
+        tracks,
     )
-
-    return duplicates
 
 
 async def _find_duplicate_track(
@@ -219,45 +110,11 @@ async def _find_duplicate_track(
     title: str,
     artist: str,
 ) -> Track | None:
-    title_key = (
-        normalize_track_title_identity(
-            title,
-        )
+    return await find_indexed_duplicate_track(
+        session,
+        title=title,
+        artist=artist,
     )
-
-    artist_key = (
-        normalize_track_identity(
-            artist,
-        )
-    )
-
-    result = (
-        await session.execute(
-            select(
-                Track,
-            )
-        )
-    )
-
-    for track in (
-        result
-        .scalars()
-        .all()
-    ):
-        if (
-            normalize_track_title_identity(
-                track.title,
-            )
-            == title_key
-            and
-            normalize_track_identity(
-                track.artist,
-            )
-            == artist_key
-        ):
-            return track
-
-    return None
 
 
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
@@ -805,6 +662,7 @@ async def admin_diagnostics(
         "healthy": False,
         "track_count": 0,
         "duplicate_groups": 0,
+        "identity_backfill_pending": 0,
     }
 
     storage_status = {
@@ -812,8 +670,6 @@ async def admin_diagnostics(
         "message":
             "B2 storage unavailable.",
     }
-
-    tracks: list[Track] = []
 
     try:
         await session.execute(
@@ -828,32 +684,15 @@ async def admin_diagnostics(
                 "Database query succeeded.",
         }
 
-        result = await session.execute(
-            select(
-                Track,
-            )
-        )
-
-        tracks = list(
-            result.scalars().all()
-        )
-
-        duplicate_groups = (
-            _duplicate_track_groups(
-                tracks,
+        catalog_counts = (
+            await catalog_identity_diagnostics(
+                session,
             )
         )
 
         catalog_status = {
             "healthy": True,
-            "track_count":
-                len(
-                    tracks,
-                ),
-            "duplicate_groups":
-                len(
-                    duplicate_groups,
-                ),
+            **catalog_counts,
         }
 
     except Exception as exc:
@@ -886,6 +725,10 @@ async def admin_diagnostics(
             exc,
         )
 
+    durability_status = (
+        await durable_state_diagnostics()
+    )
+
     bot_state = get_state()
 
     return {
@@ -896,6 +739,8 @@ async def admin_diagnostics(
         },
         "database":
             database_status,
+        "durability":
+            durability_status,
         "storage":
             storage_status,
         "catalog":
@@ -921,15 +766,39 @@ async def admin_diagnostics(
 
 
 @router.get(
-    "/duplicates",
+    "/media-integrity",
 )
-async def scan_catalog_duplicates(
+async def scan_media_integrity(
     user: AdminUser,
     session: DatabaseSession,
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=2000,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
 ):
     result = await session.execute(
         select(
             Track,
+        )
+        .where(
+            Track.is_published.is_(
+                True,
+            )
+        )
+        .order_by(
+            Track.created_at.asc(),
+            Track.id.asc(),
+        )
+        .offset(
+            offset,
+        )
+        .limit(
+            limit,
         )
     )
 
@@ -937,17 +806,41 @@ async def scan_catalog_duplicates(
         result.scalars().all()
     )
 
-    duplicate_groups = (
-        _duplicate_track_groups(
-            tracks,
-        )
+    audit = await audit_track_storage(
+        tracks,
+    )
+
+    return {
+        **audit,
+        "offset":
+            offset,
+        "limit":
+            limit,
+        "has_more":
+            len(
+                tracks,
+            )
+            == limit,
+    }
+
+
+@router.get(
+    "/duplicates",
+)
+async def scan_catalog_duplicates(
+    user: AdminUser,
+    session: DatabaseSession,
+):
+    (
+        scanned_tracks,
+        duplicate_groups,
+    ) = await duplicate_track_groups(
+        session,
     )
 
     return {
         "scanned_tracks":
-            len(
-                tracks,
-            ),
+            scanned_tracks,
         "duplicate_group_count":
             len(
                 duplicate_groups,
@@ -1229,6 +1122,13 @@ async def cancel_direct_track_upload(
 
     except Exception:
         deleted_versions = 0
+        logger.exception(
+            (
+                "Unable to clean cancelled direct-upload "
+                "object %s."
+            ),
+            payload.object_key,
+        )
 
     return {
         "success": True,
@@ -1382,7 +1282,7 @@ async def finalize_direct_track_upload(
                 ),
             )
 
-        await _lock_track_upload_identity(
+        await lock_track_identity(
             session,
             title=clean_title,
             artist=clean_artist,
@@ -1499,9 +1399,15 @@ async def finalize_direct_track_upload(
             track,
         )
 
-        await ensure_artist_profile(
+        await ensure_artist_profiles_for_credit(
             session,
             track.artist,
+            include_combined=False,
+        )
+
+        await sync_track_media_identity(
+            session,
+            track,
         )
 
         await session.commit()
@@ -1558,10 +1464,14 @@ async def finalize_direct_track_upload(
         }
 
         try:
-            await ensure_artist_playlist(
-                session,
+            for artist_name in artist_names_for_credit(
                 track.artist,
-            )
+                include_combined=False,
+            ):
+                await ensure_artist_playlist(
+                    session,
+                    artist_name,
+                )
 
             await refresh_smart_playlists_for_track(
                 session,
@@ -1569,6 +1479,13 @@ async def finalize_direct_track_upload(
             )
         except Exception:
             await session.rollback()
+            logger.exception(
+                (
+                    "Track upload succeeded but generated "
+                    "playlist refresh failed for %s."
+                ),
+                track.id,
+            )
 
         return response_payload
 
@@ -1597,7 +1514,13 @@ async def finalize_direct_track_upload(
                     object_key,
                 )
             except Exception:
-                pass
+                logger.exception(
+                    (
+                        "Unable to clean failed direct-upload "
+                        "audio object %s."
+                    ),
+                    object_key,
+                )
 
             if artwork_object_key:
                 try:
@@ -1606,7 +1529,13 @@ async def finalize_direct_track_upload(
                         artwork_object_key,
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        (
+                            "Unable to clean failed direct-upload "
+                            "artwork object %s."
+                        ),
+                        artwork_object_key,
+                    )
 
 
 @router.post("/tracks/upload")
@@ -1670,7 +1599,7 @@ async def upload_track(
             embedded=embedded_metadata,
         )
 
-        await _lock_track_upload_identity(
+        await lock_track_identity(
             session,
             title=(
                 resolved_metadata[
@@ -1896,9 +1825,15 @@ async def upload_track(
 
         session.add(track)
 
-        await ensure_artist_profile(
+        await ensure_artist_profiles_for_credit(
             session,
             track.artist,
+            include_combined=False,
+        )
+
+        await sync_track_media_identity(
+            session,
+            track,
         )
 
         await session.commit()
@@ -1966,10 +1901,14 @@ async def upload_track(
         # failure must not turn a successfully
         # committed upload into a false upload error.
         try:
-            await ensure_artist_playlist(
-                session,
+            for artist_name in artist_names_for_credit(
                 track.artist,
-            )
+                include_combined=False,
+            ):
+                await ensure_artist_playlist(
+                    session,
+                    artist_name,
+                )
 
             await refresh_smart_playlists_for_track(
                 session,
@@ -1977,6 +1916,13 @@ async def upload_track(
             )
         except Exception:
             await session.rollback()
+            logger.exception(
+                (
+                    "Track upload succeeded but generated "
+                    "playlist refresh failed for %s."
+                ),
+                track.id,
+            )
 
         return response_payload
 
@@ -2149,7 +2095,7 @@ async def backfill_track_metadata(
                 )
             )
 
-            def _read_bytes() -> bytes:
+            def _read_bytes(downloaded=downloaded) -> bytes:
                 buffer = BytesIO()
 
                 downloaded.save(
@@ -2335,6 +2281,62 @@ async def backfill_track_metadata(
             failed,
     }
 
+async def _stage_tracks_for_storage_delete(
+    session: DatabaseSession,
+    tracks: list[Track],
+) -> dict[UUID, bool]:
+    """Hide tracks before destructive object-store mutation."""
+
+    original = {
+        track.id:
+            bool(
+                track.is_published,
+            )
+        for track in tracks
+    }
+
+    for track in tracks:
+        track.is_published = False
+
+    try:
+        await session.commit()
+
+    except Exception:
+        await session.rollback()
+        raise
+
+    return original
+
+
+async def _restore_staged_tracks(
+    session: DatabaseSession,
+    original: dict[UUID, bool],
+    track_ids: set[UUID],
+) -> None:
+    if not track_ids:
+        return
+
+    result = await session.execute(
+        select(
+            Track,
+        ).where(
+            Track.id.in_(
+                track_ids,
+            )
+        )
+    )
+
+    for track in result.scalars().all():
+        track.is_published = (
+            original.get(
+                track.id,
+                True,
+            )
+        )
+
+    await session.commit()
+
+
 @router.post(
     "/tracks/delete-bulk",
 )
@@ -2388,6 +2390,24 @@ async def delete_tracks_bulk(
         for track in tracks
     }
 
+    try:
+        original_publication = (
+            await _stage_tracks_for_storage_delete(
+                session,
+                tracks,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Unable to safely stage tracks for deletion. "
+                "No storage objects were removed."
+            ),
+        ) from exc
+
     bucket = get_b2_bucket()
 
     storage_limit = (
@@ -2423,20 +2443,66 @@ async def delete_tracks_bulk(
                     ),
                 )
 
-    storage_results = (
-        await asyncio.gather(
-            *(
-                delete_storage(
-                    track,
+    storage_queue: asyncio.Queue[
+        Track
+    ] = asyncio.Queue()
+
+    for track in tracks:
+        storage_queue.put_nowait(
+            track,
+        )
+
+    storage_results: list[
+        tuple[
+            Track,
+            int,
+            str | None,
+        ]
+    ] = []
+
+    async def storage_worker() -> None:
+        while True:
+            try:
+                track = (
+                    storage_queue
+                    .get_nowait()
                 )
-                for track in tracks
+            except asyncio.QueueEmpty:
+                return
+
+            try:
+                storage_results.append(
+                    await delete_storage(
+                        track,
+                    )
+                )
+            finally:
+                storage_queue.task_done()
+
+    workers = [
+        asyncio.create_task(
+            storage_worker(),
+        )
+        for _index in range(
+            min(
+                12,
+                len(
+                    tracks,
+                ),
             )
         )
-    )
+    ]
+
+    if workers:
+        await asyncio.gather(
+            *workers,
+        )
 
     deleted_track_ids: list[str] = []
     failed: list[dict[str, str]] = []
     deleted_b2_versions = 0
+
+    failed_storage_ids: set[UUID] = set()
 
     for (
         track,
@@ -2444,6 +2510,10 @@ async def delete_tracks_bulk(
         error_message,
     ) in storage_results:
         if error_message is not None:
+            failed_storage_ids.add(
+                track.id,
+            )
+
             failed.append(
                 {
                     "track_id":
@@ -2457,6 +2527,13 @@ async def delete_tracks_bulk(
                             f"B2: {error_message}"
                         ),
                 }
+            )
+
+            track.is_published = (
+                original_publication.get(
+                    track.id,
+                    True,
+                )
             )
 
             continue
@@ -2496,14 +2573,33 @@ async def delete_tracks_bulk(
     except Exception as exc:
         await session.rollback()
 
+        # The initial staging commit remains durable. Any
+        # track whose B2 files were already removed therefore
+        # stays unpublished instead of becoming a broken
+        # public catalog row. Restore only storage failures in
+        # a fresh transaction when possible.
+        try:
+            await _restore_staged_tracks(
+                session,
+                original_publication,
+                failed_storage_ids,
+            )
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "Unable to restore publication state after "
+                "bulk-delete database failure.",
+            )
+
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Track files were removed from "
-                "storage, but the database bulk "
-                f"delete failed: {exc}"
+                "Storage deletion completed, but final "
+                "database cleanup failed. Affected tracks "
+                "were quarantined from the public catalog "
+                "instead of leaving broken media entries."
             ),
         ) from exc
 
@@ -2545,6 +2641,37 @@ async def delete_track(
             detail="Track not found.",
         )
 
+    deleted_object_key = (
+        track.b2_object_key
+    )
+    deleted_artwork_object_key = (
+        track.artwork_object_key
+    )
+    original_publication = {
+        track.id:
+            bool(
+                track.is_published,
+            )
+    }
+
+    try:
+        await _stage_tracks_for_storage_delete(
+            session,
+            [
+                track,
+            ],
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Unable to safely stage the track for "
+                "deletion. No storage objects were removed."
+            ),
+        ) from exc
+
     bucket = get_b2_bucket()
 
     try:
@@ -2558,19 +2685,61 @@ async def delete_track(
     except Exception as exc:
         await session.rollback()
 
+        try:
+            await _restore_staged_tracks(
+                session,
+                original_publication,
+                {
+                    track_id,
+                },
+            )
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "Unable to restore track publication after "
+                "B2 deletion failure for %s.",
+                track_id,
+            )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(f"Failed to permanently remove track files from B2: {exc}"),
+            detail=(
+                "Failed to permanently remove track files "
+                "from B2. The catalog track was restored."
+            ),
         ) from exc
 
-    await session.delete(track)
+    try:
+        current = await session.get(
+            Track,
+            track_id,
+        )
 
-    await session.commit()
+        if current is not None:
+            await session.delete(
+                current,
+            )
+
+        await session.commit()
+
+    except Exception as exc:
+        await session.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "Track files were removed from storage, but "
+                "final database cleanup failed. The track "
+                "was quarantined from the public catalog."
+            ),
+        ) from exc
 
     return {
         "success": True,
         "deleted_track_id": str(track_id),
-        "deleted_object_key": track.b2_object_key,
-        "deleted_artwork_object_key": track.artwork_object_key,
+        "deleted_object_key": deleted_object_key,
+        "deleted_artwork_object_key": deleted_artwork_object_key,
         "deleted_b2_versions": deleted_versions,
     }

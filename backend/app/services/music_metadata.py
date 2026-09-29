@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
-from difflib import SequenceMatcher
 import re
 import time
 import unicodedata
-from typing import TypedDict
+from difflib import SequenceMatcher
+from typing import TypedDict, cast
 from uuid import UUID
 
 import httpx
@@ -21,6 +22,8 @@ from .generated_playlists import (
 from .on_demand_metadata import (
     resolve_exact_track_metadata,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ExternalTrackMetadata(TypedDict):
@@ -547,10 +550,7 @@ def _candidate_match(
     )
 
     try:
-        search_score = float(
-            raw_score
-            or 0,
-        )
+        search_score = float(cast(str, raw_score or 0))
     except (
         TypeError,
         ValueError,
@@ -942,6 +942,7 @@ async def lookup_apple_track_metadata(
             )
         )
 
+        result: ExternalTrackMetadata | None
         if not matches:
             result = None
 
@@ -1047,10 +1048,7 @@ async def _get_json(
     client: httpx.AsyncClient,
     path: str,
     *,
-    params: dict[
-        str,
-        object,
-    ],
+    params: dict[str, str | int | float | bool],
     throttle: bool,
 ) -> dict[str, object]:
     if throttle:
@@ -1311,16 +1309,11 @@ async def _lookup_musicbrainz_track_metadata(
                 key=lambda item: (
                     -item[0],
                     item[1],
-                    -float(
-                        item[2].get(
-                            "score",
-                            0,
-                        )
-                        or 0
-                    ),
+                    -float(cast(str, item[2].get("score", 0) or 0)),
                 )
             )
 
+            result: ExternalTrackMetadata | None
             if not matches:
                 result = None
 
@@ -1610,10 +1603,7 @@ async def _lastfm_get_json(
     client: httpx.AsyncClient,
     *,
     method: str,
-    params: dict[
-        str,
-        object,
-    ],
+    params: dict[str, str | int | float | bool],
     throttle: bool = True,
 ) -> dict[str, object]:
     if throttle:
@@ -1929,7 +1919,7 @@ async def lookup_lastfm_track_metadata(
                     ):
                         release_year = None
 
-                result = {
+                result: ExternalTrackMetadata | None = {
                     "source":
                         "lastfm",
                     "recording_id":
@@ -2244,6 +2234,14 @@ async def enrich_track_metadata(
 
         changed = True
 
+    # Snapshot the committed metadata before any follow-up
+    # helper can fail or roll back the shared ORM session.
+    # A rollback can expire ORM attributes even though the
+    # metadata commit itself already succeeded.
+    final_genre = track.genre
+    final_release_year = track.release_year
+    track_id = track.id
+
     if changed:
         await session.commit()
 
@@ -2253,7 +2251,19 @@ async def enrich_track_metadata(
                 track,
             )
         except Exception:
+            # Playlist refresh is secondary maintenance. Clear
+            # its failed transaction without making the already
+            # committed metadata result depend on an expired
+            # Track instance.
             await session.rollback()
+            logger.exception(
+                (
+                    "Track metadata update succeeded but "
+                    "generated playlist refresh failed "
+                    "for track %s."
+                ),
+                track_id,
+            )
 
     return {
         "matched":
@@ -2273,9 +2283,9 @@ async def enrich_track_metadata(
                 "confidence"
             ],
         "genre":
-            track.genre,
+            final_genre,
         "release_year":
-            track.release_year,
+            final_release_year,
     }
 
 

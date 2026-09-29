@@ -11,7 +11,10 @@ import {
 } from "./mediaCache.js";
 
 import {
+  appendQueueEntry,
   buildTrackQueue,
+  catalogTrackIdOrNull,
+  filterCatalogTrackIds,
   getNextQueueIndex,
   getQueueTrackAtIndex,
   insertQueueEntryAsNext,
@@ -31,6 +34,11 @@ import {
 } from "./player/playbackSession.js";
 
 import {
+  mediaSessionIdentity,
+  mediaSessionPlaybackState,
+} from "./player/mediaSessionState.js";
+
+import {
   clearPersistedPlayerState,
   readPersistedPlayerState,
   writePersistedPlayerState,
@@ -42,6 +50,7 @@ import {
 
 import {
   isOnDemandTrackId,
+  onDemandPollDelay,
 } from "./onDemandMusic.js";
 
 
@@ -157,8 +166,122 @@ let playbackError =
 let remotePlaybackController =
   null;
 
+let jamTrackEndedController = null;
+
+export function setJamTrackEndedController(controller) {
+  jamTrackEndedController = typeof controller === "function" ? controller : null;
+}
+
 let forceLocalPlaybackDepth =
   0;
+
+const queuedAudioWarmups =
+  new Map();
+
+
+function warmQueuedAudioEntry(
+  entry,
+) {
+  if (
+    !entry?.id ||
+    !entry?.meta?.audioUrl ||
+    (
+      !entry.meta.onDemand &&
+      !isOnDemandTrackId(
+        entry.id,
+      )
+    ) ||
+    typeof globalThis.fetch !==
+      "function"
+  ) {
+    return null;
+  }
+
+  const source =
+    resolveMediaUrl(
+      entry.meta.audioUrl,
+    );
+
+  if (!source) {
+    return null;
+  }
+
+  const key = [
+    String(
+      entry.id,
+    ),
+    source,
+  ].join(
+    "|",
+  );
+
+  const existing =
+    queuedAudioWarmups.get(
+      key,
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  const task =
+    (async () => {
+      try {
+        const response =
+          await globalThis.fetch(
+            source,
+            {
+              method:
+                "GET",
+              headers: {
+                Range:
+                  "bytes=0-524287",
+              },
+              credentials:
+                "include",
+            },
+          );
+
+        if (
+          !response?.ok &&
+          response?.status !==
+            206
+        ) {
+          return false;
+        }
+
+        const reader =
+          response.body
+            ?.getReader?.();
+
+        if (reader) {
+          try {
+            await reader.read();
+          } finally {
+            await reader.cancel()
+              .catch(
+                () => {},
+              );
+          }
+        }
+
+        return true;
+      } catch {
+        return false;
+      } finally {
+        queuedAudioWarmups.delete(
+          key,
+        );
+      }
+    })();
+
+  queuedAudioWarmups.set(
+    key,
+    task,
+  );
+
+  return task;
+}
 
 
 export function setRemotePlaybackController(
@@ -269,17 +392,277 @@ function dispatchRemotePlaybackInBackground(
 }
 
 
-function beginListeningEvent(
+function promoteOnDemandPlayback(
+  provisionId,
   trackId,
 ) {
+  const permanentTrackId =
+    String(
+      trackId ?? "",
+    ).trim();
+
   if (
+    !permanentTrackId ||
+    !provisionId ||
+    currentTrackMeta
+      ?.provisionId !==
+      provisionId
+  ) {
+    return false;
+  }
+
+  const previousTrackId =
+    currentTrackId;
+
+  const catalogAudioUrl =
+    "/api/audio/" +
+    encodeURIComponent(
+      permanentTrackId,
+    );
+
+  currentTrackId =
+    permanentTrackId;
+
+  currentTrackMeta =
+    normalizeTrackMeta({
+      ...currentTrackMeta,
+      audioUrl:
+        catalogAudioUrl,
+      onDemand:
+        false,
+      catalogTrackId:
+        permanentTrackId,
+    });
+
+  if (
+    loadedAudioTrackId ===
+      previousTrackId
+  ) {
+    loadedAudioTrackId =
+      permanentTrackId;
+  }
+
+  let queueChanged =
+    false;
+
+  currentQueue =
+    currentQueue.map(
+      (entry) => {
+        if (
+          String(
+            entry?.id ?? "",
+          ) !==
+            String(
+              previousTrackId ?? "",
+            )
+        ) {
+          return entry;
+        }
+
+        queueChanged =
+          true;
+
+        return {
+          id:
+            permanentTrackId,
+          meta:
+            normalizeTrackMeta({
+              ...(entry?.meta ?? {}),
+              ...currentTrackMeta,
+              audioUrl:
+                catalogAudioUrl,
+              onDemand:
+                false,
+              catalogTrackId:
+                permanentTrackId,
+            }),
+        };
+      },
+    );
+
+  if (queueChanged) {
+    queueRevision +=
+      1;
+  }
+
+  rememberAutoplayTrack(
+    permanentTrackId,
+  );
+
+  persistPlayerState({
+    force:
+      true,
+  });
+
+  notify();
+
+  void ensureAutoplayQueue({
+    force:
+      true,
+  }).catch(
+    () => {},
+  );
+
+  return true;
+}
+
+
+function waitForOnDemandHistory(
+  provisionId,
+  attempts = 0,
+  consecutiveFailures = 0,
+) {
+  if (
+    !provisionId ||
+    attempts >= 80
+  ) {
+    return;
+  }
+
+  globalThis.setTimeout?.(
+    async () => {
+      let nextFailures =
+        consecutiveFailures;
+
+      try {
+        const status =
+          await apiRequest(
+            `/on-demand/${encodeURIComponent(
+              provisionId,
+            )}/status`,
+          );
+
+        if (
+          status?.state ===
+            "ready"
+        ) {
+          if (
+            status?.track_id
+          ) {
+            promoteOnDemandPlayback(
+              provisionId,
+              status.track_id,
+            );
+          }
+
+          notifyListeningHistoryChanged();
+          return;
+        }
+
+        if (
+          status?.state ===
+            "failed"
+        ) {
+          return;
+        }
+
+        nextFailures = 0;
+      } catch (error) {
+        const statusCode =
+          Number(
+            error?.status ??
+            0,
+          );
+
+        if (
+          statusCode === 404 ||
+          statusCode === 410
+        ) {
+          return;
+        }
+
+        nextFailures =
+          Math.min(
+            consecutiveFailures + 1,
+            5,
+          );
+      }
+
+      waitForOnDemandHistory(
+        provisionId,
+        attempts + 1,
+        nextFailures,
+      );
+    },
+    onDemandPollDelay(
+      consecutiveFailures,
+    ),
+  );
+}
+
+function beginListeningEvent(
+  trackId,
+  meta = {},
+) {
+  if (!getAccessToken()) {
+    activeListeningEvent =
+      null;
+
+    return;
+  }
+
+  const provisional =
     isOnDemandTrackId(
       trackId,
     )
-    || !getAccessToken()
-  ) {
+    || Boolean(
+      meta?.onDemand ??
+      meta?.on_demand ??
+      false,
+    );
+
+  if (provisional) {
     activeListeningEvent =
       null;
+
+    const provisionId =
+      meta?.provisionId ??
+      meta?.provision_id ??
+      null;
+
+    if (!provisionId) {
+      return;
+    }
+
+    void apiRequest(
+      `/on-demand/${encodeURIComponent(
+        provisionId,
+      )}/played`,
+      {
+        method:
+          "POST",
+      },
+    )
+      .then(
+        (data) => {
+          if (
+            data?.recorded
+          ) {
+            if (
+              data?.track_id
+            ) {
+              promoteOnDemandPlayback(
+                provisionId,
+                data.track_id,
+              );
+            }
+
+            notifyListeningHistoryChanged();
+            return;
+          }
+
+          if (
+            data?.pending
+          ) {
+            waitForOnDemandHistory(
+              provisionId,
+            );
+          }
+        },
+      )
+      .catch(
+        () => {},
+      );
 
     return;
   }
@@ -346,7 +729,6 @@ function beginListeningEvent(
     },
   );
 }
-
 
 function finishListeningEvent(
   outcome,
@@ -448,6 +830,21 @@ function normalizeTrackMeta(
         meta.on_demand ??
         false,
       ),
+
+    provisionKey:
+      meta.provisionKey ??
+      meta.provision_key ??
+      null,
+
+    provisionId:
+      meta.provisionId ??
+      meta.provision_id ??
+      null,
+
+    catalogTrackId:
+      meta.catalogTrackId ??
+      meta.catalog_track_id ??
+      null,
 
     title:
       meta.title ??
@@ -959,6 +1356,27 @@ async function ensureAutoplayQueue({
     ),
   );
 
+  const autoplayCurrentTrackId =
+    catalogTrackIdOrNull(
+      currentTrackMeta
+        ?.catalogTrackId,
+    ) ??
+    catalogTrackIdOrNull(
+      currentTrackId,
+    );
+
+  const autoplayExcludeTrackIds =
+    filterCatalogTrackIds(
+      excludeTrackIds,
+      100,
+    );
+
+  const autoplayContextTrackIds =
+    filterCatalogTrackIds(
+      getAutoplayContextTrackIds(),
+      AUTOPLAY_CONTEXT_SIZE,
+    );
+
 
   let requestPromise;
 
@@ -976,15 +1394,13 @@ async function ensureAutoplayQueue({
               body:
                 JSON.stringify({
                   current_track_id:
-                    String(
-                      currentTrackId,
-                    ),
+                    autoplayCurrentTrackId,
 
                   exclude_track_ids:
-                    excludeTrackIds,
+                    autoplayExcludeTrackIds,
 
                   context_track_ids:
-                    getAutoplayContextTrackIds(),
+                    autoplayContextTrackIds,
 
                   limit:
                     AUTOPLAY_BATCH_SIZE,
@@ -1097,9 +1513,14 @@ function updateMediaSession(
     return;
   }
 
+  const identity = mediaSessionIdentity(
+    state,
+    audio.getAttribute("src"),
+  );
+
   try {
     if (
-      state.trackId &&
+      identity &&
       typeof globalThis.MediaMetadata ===
         "function"
     ) {
@@ -1128,7 +1549,7 @@ function updateMediaSession(
 
       const signature =
         JSON.stringify([
-          state.trackId,
+          identity,
           state.title,
           state.artist,
           album,
@@ -1162,7 +1583,7 @@ function updateMediaSession(
         lastMediaSessionSignature =
           signature;
       }
-    } else if (!state.trackId) {
+    } else if (!identity) {
       mediaSession.metadata =
         null;
 
@@ -1171,13 +1592,10 @@ function updateMediaSession(
     }
 
     mediaSession.playbackState =
-      state.trackId
-        ? (
-            state.paused
-              ? "paused"
-              : "playing"
-          )
-        : "none";
+      mediaSessionPlaybackState(
+        state,
+        audio.getAttribute("src"),
+      );
 
     if (
       typeof mediaSession
@@ -1323,6 +1741,10 @@ export function getState() {
 
     durationSeconds:
       currentTrackMeta?.durationSeconds ??
+      null,
+
+    catalogTrackId:
+      currentTrackMeta?.catalogTrackId ??
       null,
 
     queue:
@@ -1627,6 +2049,12 @@ function attachEvents() {
         : getSafeCurrentTime(),
     );
 
+    try {
+      if (jamTrackEndedController?.(currentTrackId) === true) return;
+    } catch {
+      // A Jam callback must never prevent ordinary queue progression.
+    }
+
     void playNextQueueTrack()
       .catch(
         () => {},
@@ -1638,6 +2066,70 @@ function attachEvents() {
 
 attachEvents();
 restorePersistedPlayerState();
+
+
+function handleBackgroundPlaybackLifecycle() {
+  const hidden =
+    globalThis.document
+      ?.visibilityState ===
+      "hidden";
+
+  persistPlayerState({
+    force:
+      true,
+  });
+
+  updateMediaSession(
+    getState(),
+  );
+
+  if (
+    currentTrackId &&
+    !audio.paused
+  ) {
+    void ensureAutoplayQueue()
+      .catch(
+        () => {},
+      );
+
+    if (hidden) {
+      void Promise.resolve(
+        warmCurrentTrackForResume(),
+      ).catch(
+        () => {},
+      );
+    }
+  }
+
+  if (!hidden) {
+    notify();
+  }
+}
+
+
+if (
+  globalThis.document
+    ?.addEventListener
+) {
+  globalThis.document.addEventListener(
+    "visibilitychange",
+    handleBackgroundPlaybackLifecycle,
+  );
+}
+
+if (
+  globalThis.addEventListener
+) {
+  globalThis.addEventListener(
+    "pagehide",
+    handleBackgroundPlaybackLifecycle,
+  );
+
+  globalThis.addEventListener(
+    "pageshow",
+    handleBackgroundPlaybackLifecycle,
+  );
+}
 
 
 function warmCurrentTrackForResume() {
@@ -2270,6 +2762,93 @@ function applyTrackMetadata(
 }
 
 
+async function resolveOnDemandPlaybackMeta(
+  trackId,
+  meta = {},
+) {
+  const normalized =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  const provisional =
+    isOnDemandTrackId(
+      trackId,
+    )
+    || normalized.onDemand;
+
+  if (
+    !provisional ||
+    normalized.audioUrl
+  ) {
+    return normalized;
+  }
+
+  const candidateKey =
+    normalized.provisionKey;
+
+  if (!candidateKey) {
+    throw new Error(
+      "This on-demand track is missing its metadata key.",
+    );
+  }
+
+  const prepared =
+    await apiRequest(
+      "/on-demand/prepare",
+      {
+        method:
+          "POST",
+
+        body:
+          JSON.stringify({
+            candidate_key:
+              candidateKey,
+          }),
+      },
+    );
+
+  const permanentTrackId =
+    prepared?.track_id ??
+    null;
+
+  const streamPath =
+    permanentTrackId
+      ? (
+          "/api/audio/" +
+          encodeURIComponent(
+            permanentTrackId,
+          )
+        )
+      : prepared?.stream_url;
+
+  const audioUrl =
+    resolveMediaUrl(
+      streamPath,
+    );
+
+  if (!audioUrl) {
+    throw new Error(
+      "Audio is still preparing. Try again in a moment.",
+    );
+  }
+
+  return normalizeTrackMeta({
+    ...meta,
+    audioUrl,
+    onDemand:
+      true,
+    provisionKey:
+      candidateKey,
+    provisionId:
+      prepared?.provision_id ??
+      null,
+    catalogTrackId:
+      permanentTrackId,
+  });
+}
+
+
 async function playTrackInternal(
   trackId,
   meta = {},
@@ -2305,6 +2884,68 @@ async function playTrackInternal(
     meta,
   );
 
+  let playbackMeta =
+    normalizeTrackMeta(
+      meta,
+    );
+
+  if (
+    isOnDemandTrackId(
+      trackId,
+    )
+    || playbackMeta.onDemand
+  ) {
+    try {
+      playbackMeta =
+        await resolveOnDemandPlaybackMeta(
+          trackId,
+          playbackMeta,
+        );
+
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        )
+      ) {
+        return null;
+      }
+
+      currentTrackMeta =
+        playbackMeta;
+
+      currentArtworkUrl =
+        playbackMeta.artworkUrl;
+
+      currentTrackTitle =
+        playbackMeta.title;
+
+      currentTrackArtist =
+        playbackMeta.artist;
+
+      notify();
+
+    } catch (error) {
+      if (
+        !isPlaybackSessionCurrent(
+          session,
+        )
+      ) {
+        return null;
+      }
+
+      setPlaybackPhase(
+        "error",
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare on-demand playback.",
+      );
+
+      notify();
+
+      throw error;
+    }
+  }
+
 
   const useStableMediaRoute =
     Boolean(
@@ -2320,7 +2961,7 @@ async function playTrackInternal(
     audioSource =
       await prepareTrackAudioSource(
         trackId,
-        meta,
+        playbackMeta,
         {
           useStableMediaRoute,
           preferCachedBlob:
@@ -2460,7 +3101,7 @@ persistPlayerState({
  */
 void recordTrackPlayback(
   trackId,
-  meta,
+  playbackMeta,
 ).catch(
   () => {},
 );
@@ -2469,11 +3110,14 @@ void recordTrackPlayback(
 /*
  * Start a backend listening session.
  *
- * beginListeningEvent already handles
- * authentication and performs the POST.
+ * Catalog tracks write directly to the
+ * listening endpoint. On-demand tracks
+ * mark their provision as played so the
+ * event can be attached after lazy ingest.
  */
 beginListeningEvent(
   trackId,
+  playbackMeta,
 );
 
 
@@ -2792,7 +3436,18 @@ export async function playQueueIndex(
     return false;
   }
 
+  const provisional =
+    isOnDemandTrackId(
+      track.id,
+    )
+    || Boolean(
+      track.meta?.onDemand ??
+      track.meta?.on_demand ??
+      false,
+    );
+
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
@@ -2911,7 +3566,18 @@ export async function playTrackQueue(
       currentQueueIndex
     ];
 
+  const provisional =
+    isOnDemandTrackId(
+      track.id,
+    )
+    || Boolean(
+      track.meta?.onDemand ??
+      track.meta?.on_demand ??
+      false,
+    );
+
   if (
+    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
@@ -3001,6 +3667,14 @@ export function playTrackNext(
 
   notify();
 
+  void Promise.resolve(
+    warmQueuedAudioEntry(
+      entry,
+    ),
+  ).catch(
+    () => {},
+  );
+
   return true;
 }
 
@@ -3008,9 +3682,41 @@ export function playTrackNext(
 export function addTrackToQueue(
   track,
 ) {
-  return playTrackNext(
-    track,
+  const entries =
+    buildTrackQueue([
+      track,
+    ]);
+
+  const entry =
+    entries[0];
+
+  if (!entry) {
+    return false;
+  }
+
+  ensureCurrentTrackInQueue();
+
+  currentQueue =
+    appendQueueEntry(
+      currentQueue,
+      currentQueueIndex,
+      entry,
+    );
+
+  queueRevision +=
+    1;
+
+  notify();
+
+  void Promise.resolve(
+    warmQueuedAudioEntry(
+      entry,
+    ),
+  ).catch(
+    () => {},
   );
+
+  return true;
 }
 
 export async function playUrl(

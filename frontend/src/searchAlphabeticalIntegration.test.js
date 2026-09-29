@@ -26,7 +26,7 @@ test(
 
     assert.match(
       searchPageSource,
-      /const\s+displayResults\s*=\s*useMemo\([\s\S]*?orderSearchResultsForDisplay\(\s*results\s*,?\s*\)/,
+      /const\s+displayResults\s*=\s*useMemo\([\s\S]*?orderSearchResultsForDisplay\(\s*combinedResults\s*,?\s*\)/,
       "Expected SearchPage to memoize display-ordered results.",
     );
 

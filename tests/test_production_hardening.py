@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 from fastapi.requests import Request
 from httpx import ASGITransport, AsyncClient
 
+import backend.app.database as database_module
 from backend.app.api.routes.audio import (
     resolve_local_audio_fallback,
 )
@@ -298,6 +301,42 @@ def test_refresh_cookie_ignores_untrusted_forwarded_proto(
     )
 
     get_settings.cache_clear()
+
+
+def test_production_database_requires_explicit_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="production",
+            sqlalchemy_database_url="",
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="DATABASE_URL is required in production",
+    ):
+        database_module.resolve_database_url()
+
+
+def test_development_database_preserves_sqlite_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        database_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            environment="development",
+            sqlalchemy_database_url="",
+        ),
+    )
+
+    assert database_module.resolve_database_url() == (
+        "sqlite+aiosqlite:///./local_dev.db"
+    )
 
     request = Request(
         {

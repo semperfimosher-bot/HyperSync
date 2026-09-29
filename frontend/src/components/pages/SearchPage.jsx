@@ -33,12 +33,19 @@ import {
   prepareOnDemandTrack,
   saveSearchPreferences,
   searchHypersync,
+  searchOnDemandArtistMusic,
   searchOnDemandMusic,
+  warmOnDemandTracks,
 } from "../../searchApi.js";
 
 import {
+  buildOnDemandArtistPlaylist,
+  inferOnDemandArtistName,
   isOnDemandTrackId,
   normalizeOnDemandTrack,
+  onDemandArtistLookupQuery,
+  onDemandPollDelay,
+  prioritizeSearchPlaybackTracks,
 } from "../../onDemandMusic.js";
 
 import {
@@ -210,6 +217,101 @@ function formatDuration(seconds) {
   return (
     `${minutes}:${remainder}`
   );
+}
+
+
+function searchPlaybackQueueEntry(
+  track,
+  overrides = {},
+) {
+  const onDemand =
+    track?.source_type ===
+      "on_demand" ||
+    isOnDemandTrackId(
+      track?.id,
+    );
+
+  return {
+    id:
+      overrides.id ??
+      track?.id,
+
+    audioUrl:
+      overrides.audioUrl ??
+      track?.audio_url ??
+      track?.audioUrl ??
+      null,
+
+    artworkUrl:
+      resolveArtworkUrl(
+        track?.artwork_url ??
+        track?.artworkUrl ??
+        null,
+      ),
+
+    mimeType:
+      track?.mime_type ??
+      track?.mimeType ??
+      null,
+
+    fileSize:
+      track?.file_size ??
+      track?.fileSize ??
+      null,
+
+    mediaVersion:
+      track?.media_version ??
+      track?.mediaVersion ??
+      null,
+
+    title:
+      track?.title ??
+      "",
+
+    artist:
+      track?.artist ??
+      "",
+
+    album:
+      track?.album ??
+      "",
+
+    genre:
+      track?.genre ??
+      "",
+
+    releaseYear:
+      track?.release_year ??
+      track?.releaseYear ??
+      null,
+
+    durationSeconds:
+      track?.duration_seconds ??
+      track?.durationSeconds ??
+      null,
+
+    onDemand:
+      overrides.onDemand ??
+      onDemand,
+
+    provisionKey:
+      overrides.provisionKey ??
+      track?.provision_key ??
+      track?.provisionKey ??
+      null,
+
+    provisionId:
+      overrides.provisionId ??
+      track?.provision_id ??
+      track?.provisionId ??
+      null,
+
+    catalogTrackId:
+      overrides.catalogTrackId ??
+      track?.catalog_track_id ??
+      track?.catalogTrackId ??
+      null,
+  };
 }
 
 
@@ -642,6 +744,11 @@ useEffect(() => {
   ] = useState([]);
 
   const [
+    onDemandArtistTracks,
+    setOnDemandArtistTracks,
+  ] = useState([]);
+
+  const [
     preparingOnDemandKey,
     setPreparingOnDemandKey,
   ] = useState("");
@@ -707,7 +814,10 @@ useEffect(() => {
       const playlistId =
         openedPlaylist?.id;
 
-      if (!playlistId) {
+      if (
+        !playlistId ||
+        openedPlaylist?.transient
+      ) {
         return;
       }
 
@@ -732,7 +842,8 @@ useEffect(() => {
     {
       enabled:
         Boolean(
-          openedPlaylist?.id,
+          openedPlaylist?.id &&
+          !openedPlaylist?.transient,
         ),
       intervalMs:
         20_000,
@@ -858,6 +969,10 @@ useEffect(() => {
         [],
       );
 
+      setOnDemandArtistTracks(
+        [],
+      );
+
       setLoading(false);
       setSearchError("");
 
@@ -891,6 +1006,10 @@ useEffect(() => {
       setSearchError("");
 
       setOnDemandTracks(
+        [],
+      );
+
+      setOnDemandArtistTracks(
         [],
       );
     }
@@ -1014,6 +1133,8 @@ useEffect(() => {
                 {
                   signal:
                     controller.signal,
+                  bypassCache:
+                    quietRefresh,
                 },
               );
 
@@ -1065,6 +1186,12 @@ useEffect(() => {
               "",
             );
 
+            if (!quietRefresh) {
+              setLoading(
+                false,
+              );
+            }
+
             const remoteData =
               await onDemandPromise;
 
@@ -1091,6 +1218,176 @@ useEffect(() => {
             setOnDemandTracks(
               remoteTracks,
             );
+
+            let artistName =
+              inferOnDemandArtistName(
+                normalizedQuery,
+                remoteTracks,
+              );
+
+            let artistSeedTracks =
+              [];
+
+            if (!artistName) {
+              const lookupName =
+                onDemandArtistLookupQuery(
+                  normalizedQuery,
+                );
+
+              const normalizedLookupName =
+                lookupName
+                  ?.normalize(
+                    "NFKC",
+                  )
+                  .toLocaleLowerCase() ??
+                "";
+
+              const catalogHasLookupArtist =
+                Boolean(
+                  normalizedLookupName,
+                ) &&
+                (
+                  Array.isArray(
+                    data?.artists,
+                  )
+                    ? data.artists
+                    : []
+                ).some(
+                  (artist) =>
+                    String(
+                      artist?.name ??
+                        "",
+                    )
+                      .normalize(
+                        "NFKC",
+                      )
+                      .toLocaleLowerCase() ===
+                    normalizedLookupName,
+                );
+
+              if (
+                lookupName &&
+                !catalogHasLookupArtist
+              ) {
+                const artistProbe =
+                  await searchOnDemandArtistMusic(
+                    lookupName,
+                    {
+                      signal:
+                        controller.signal,
+                      limit:
+                        25,
+                    },
+                  ).catch(
+                    () => null,
+                  );
+
+                if (
+                  controller.signal
+                    .aborted
+                ) {
+                  return;
+                }
+
+                artistSeedTracks =
+                  Array.isArray(
+                    artistProbe?.tracks,
+                  )
+                    ? artistProbe.tracks
+                        .map(
+                          normalizeOnDemandTrack,
+                        )
+                        .filter(
+                          Boolean,
+                        )
+                    : [];
+
+                artistName =
+                  inferOnDemandArtistName(
+                    lookupName,
+                    artistSeedTracks,
+                  );
+              }
+            }
+
+            const normalizedArtist =
+              artistName
+                ?.normalize(
+                  "NFKC",
+                )
+                .toLocaleLowerCase() ??
+              "";
+
+            const catalogHasArtist =
+              Boolean(
+                normalizedArtist,
+              ) &&
+              (
+                Array.isArray(
+                  data?.artists,
+                )
+                  ? data.artists
+                  : []
+              ).some(
+                (artist) =>
+                  String(
+                    artist?.name ??
+                      "",
+                  )
+                    .normalize(
+                      "NFKC",
+                    )
+                    .toLocaleLowerCase() ===
+                  normalizedArtist,
+              );
+
+            if (
+              artistName &&
+              !catalogHasArtist
+            ) {
+              const artistData =
+                await searchOnDemandArtistMusic(
+                  artistName,
+                  {
+                    signal:
+                      controller.signal,
+                    limit:
+                      500,
+                  },
+                ).catch(
+                  () => null,
+                );
+
+              if (
+                controller.signal
+                  .aborted
+              ) {
+                return;
+              }
+
+              const fullArtistTracks =
+                Array.isArray(
+                  artistData?.tracks,
+                )
+                  ? artistData.tracks
+                      .map(
+                        normalizeOnDemandTrack,
+                      )
+                      .filter(
+                        Boolean,
+                      )
+                  : [];
+
+              setOnDemandArtistTracks(
+                fullArtistTracks.length > 0
+                  ? fullArtistTracks
+                  : artistSeedTracks,
+              );
+            } else {
+              setOnDemandArtistTracks(
+                [],
+              );
+            }
           } catch (error) {
             if (
               error?.name ===
@@ -1151,7 +1448,7 @@ useEffect(() => {
             }
           }
         },
-        220,
+        80,
       );
 
     return () => {
@@ -1171,34 +1468,136 @@ useEffect(() => {
     sortMode,
   ]);
 
+  const onDemandArtistPlaylist =
+    useMemo(
+      () => {
+        const playlistMetadataTracks =
+          onDemandArtistTracks.length > 0
+            ? onDemandArtistTracks
+            : onDemandTracks;
+
+        const artistName =
+          inferOnDemandArtistName(
+            normalizedQuery,
+            playlistMetadataTracks,
+          )
+          ?? inferOnDemandArtistName(
+            normalizedQuery,
+            onDemandTracks,
+          );
+
+        if (!artistName) {
+          return null;
+        }
+
+        const normalizedArtist =
+          artistName
+            .normalize(
+              "NFKC",
+            )
+            .toLocaleLowerCase();
+
+        const alreadyInCatalog =
+          (
+            Array.isArray(
+              results.artists,
+            )
+              ? results.artists
+              : []
+          ).some(
+            (artist) =>
+              String(
+                artist?.name ??
+                  "",
+              )
+                .normalize(
+                  "NFKC",
+                )
+                .toLocaleLowerCase() ===
+              normalizedArtist,
+          );
+
+        if (alreadyInCatalog) {
+          return null;
+        }
+
+        return buildOnDemandArtistPlaylist({
+          artistName,
+          catalogTracks:
+            results.tracks,
+          onDemandTracks:
+            playlistMetadataTracks,
+        });
+      },
+      [
+        normalizedQuery,
+        onDemandArtistTracks,
+        onDemandTracks,
+        results.artists,
+        results.tracks,
+      ],
+    );
+
+
   const combinedResults =
     useMemo(
-      () => ({
-        ...results,
+      () => {
+        const playlists =
+          Array.isArray(
+            results.playlists,
+          )
+            ? [
+                ...results.playlists,
+              ]
+            : [];
 
-        counts: {
-          ...results.counts,
-          tracks:
-            Number(
-              results.counts
-                ?.tracks ??
-              0,
-            )
-            + onDemandTracks.length,
-        },
+        if (onDemandArtistPlaylist) {
+          playlists.push(
+            onDemandArtistPlaylist,
+          );
+        }
 
-        tracks: [
-          ...(
-            Array.isArray(
-              results.tracks,
-            )
-              ? results.tracks
-              : []
-          ),
-          ...onDemandTracks,
-        ],
-      }),
+        return {
+          ...results,
+
+          counts: {
+            ...results.counts,
+            tracks:
+              Number(
+                results.counts
+                  ?.tracks ??
+                0,
+              )
+              + onDemandTracks.length,
+            playlists:
+              Number(
+                results.counts
+                  ?.playlists ??
+                0,
+              )
+              + (
+                onDemandArtistPlaylist
+                  ? 1
+                  : 0
+              ),
+          },
+
+          tracks: [
+            ...(
+              Array.isArray(
+                results.tracks,
+              )
+                ? results.tracks
+                : []
+            ),
+            ...onDemandTracks,
+          ],
+
+          playlists,
+        };
+      },
       [
+        onDemandArtistPlaylist,
         onDemandTracks,
         results,
       ],
@@ -1270,6 +1669,7 @@ useEffect(() => {
       provisionId,
       candidateKey,
       attempts = 0,
+      consecutiveFailures = 0,
     ) => {
       if (
         !provisionId ||
@@ -1286,6 +1686,9 @@ useEffect(() => {
               .delete(
                 timer,
               );
+
+            let nextFailures =
+              consecutiveFailures;
 
             try {
               const status =
@@ -1322,18 +1725,39 @@ useEffect(() => {
                 return;
               }
 
-            } catch {
-              // A later quiet search can still
-              // discover the completed catalog row.
+              nextFailures = 0;
+
+            } catch (error) {
+              const statusCode =
+                Number(
+                  error?.status ??
+                  0,
+                );
+
+              if (
+                statusCode === 404 ||
+                statusCode === 410
+              ) {
+                return;
+              }
+
+              nextFailures =
+                Math.min(
+                  consecutiveFailures + 1,
+                  5,
+                );
             }
 
             pollOnDemandReady(
               provisionId,
               candidateKey,
               attempts + 1,
+              nextFailures,
             );
           },
-          1500,
+          onDemandPollDelay(
+            consecutiveFailures,
+          ),
         );
 
       provisionPollTimersRef
@@ -1342,7 +1766,6 @@ useEffect(() => {
           timer,
         );
     };
-
 
   async function playTrack(
     trackIndex,
@@ -1438,44 +1861,68 @@ useEffect(() => {
           );
         }
 
-        await player.playTrack(
-          playbackId,
-          {
-            audioUrl,
+        const relevantTracks =
+          prioritizeSearchPlaybackTracks(
+            displayResults.tracks,
+            selected,
+            500,
+          );
 
-            artworkUrl:
-              resolveArtworkUrl(
-                selected
-                  .artwork_url,
+        const queue =
+          relevantTracks.map(
+            (
+              track,
+              index,
+            ) =>
+              searchPlaybackQueueEntry(
+                track,
+                index === 0
+                  ? {
+                      id:
+                        playbackId,
+                      audioUrl,
+                      onDemand:
+                        !permanentTrackId,
+                      provisionKey:
+                        candidateKey,
+                      provisionId:
+                        prepared
+                          ?.provision_id ??
+                        null,
+                      catalogTrackId:
+                        permanentTrackId,
+                    }
+                  : {},
               ),
+          );
 
-            title:
-              selected.title,
+        const warmAheadKeys =
+          relevantTracks
+            .slice(
+              1,
+              17,
+            )
+            .map(
+              (track) =>
+                track?.provision_key ??
+                track?.provisionKey ??
+                null,
+            )
+            .filter(
+              Boolean,
+            );
 
-            artist:
-              selected.artist,
+        if (warmAheadKeys.length) {
+          void warmOnDemandTracks(
+            warmAheadKeys,
+          ).catch(
+            () => {},
+          );
+        }
 
-            album:
-              selected.album ??
-              "",
-
-            genre:
-              selected.genre ??
-              "",
-
-            releaseYear:
-              selected
-                .release_year ??
-              null,
-
-            durationSeconds:
-              selected
-                .duration_seconds ??
-              null,
-
-            onDemand:
-              !permanentTrackId,
-          },
+        await player.playTrackQueue(
+          queue,
+          0,
         );
 
         if (
@@ -1785,6 +2232,52 @@ useEffect(() => {
   setPlaylistError("");
 
   try {
+    if (
+      onDemandArtistPlaylist &&
+      String(
+        onDemandArtistPlaylist.id,
+      ) ===
+        String(
+          playlistId,
+        )
+    ) {
+      const playlist =
+        onDemandArtistPlaylist;
+
+      setOpenedPlaylist(
+        playlist,
+      );
+
+      setPlaylistDownload({
+        status: "idle",
+        progress: 0,
+        trackProgress: {},
+      });
+
+      const warmKeys =
+        (
+          playlist.tracks ??
+          []
+        )
+          .map(
+            (track) =>
+              track?.provision_key ??
+              track?.provisionKey ??
+              null,
+          )
+          .filter(
+            Boolean,
+          );
+
+      void warmOnDemandTracks(
+        warmKeys,
+      ).catch(
+        () => {},
+      );
+
+      return;
+    }
+
     const [
       playlist,
       downloadedPlaylists,
@@ -2043,6 +2536,28 @@ function playOpenedPlaylist(
           track.release_year ??
           track.releaseYear ??
           null,
+
+        durationSeconds:
+          track.duration_seconds ??
+          track.durationSeconds ??
+          null,
+
+        onDemand:
+          track.source_type ===
+            "on_demand" ||
+          isOnDemandTrackId(
+            track.id,
+          ),
+
+        provisionKey:
+          track.provision_key ??
+          track.provisionKey ??
+          null,
+
+        provisionId:
+          track.provision_id ??
+          track.provisionId ??
+          null,
       }),
     );
 
@@ -2107,6 +2622,7 @@ async function playSearchCollection(
 async function toggleOpenedPlaylistSaved() {
   if (
     !openedPlaylist ||
+    openedPlaylist.transient ||
     playlistActionBusy
   ) {
     return;
@@ -2213,6 +2729,7 @@ async function confirmRemoveOpenedPlaylistDownload() {
 async function downloadOpenedPlaylist() {
   if (
     !openedPlaylist ||
+    openedPlaylist.transient ||
     playlistDownload.status ===
       "downloading"
   ) {
@@ -3102,6 +3619,7 @@ async function downloadOpenedPlaylist() {
             type="button"
             className="hs-search-playlist-action"
             disabled={
+              openedPlaylist.transient ||
               !openedPlaylist.tracks?.length ||
               playlistDownload.status ===
                 "downloading"
@@ -3148,6 +3666,7 @@ async function downloadOpenedPlaylist() {
     type="button"
     className="hs-search-playlist-action"
     disabled={
+      openedPlaylist.transient ||
       playlistActionBusy
     }
     title={
@@ -3354,8 +3873,14 @@ async function downloadOpenedPlaylist() {
                 }
                 role="button"
                 tabIndex={0}
-                {...trackActionMenu.getTriggerProps(
-                  track,
+                {...(
+                  track.source_type ===
+                    "on_demand"
+                    ? {}
+                    : trackActionMenu
+                        .getTriggerProps(
+                          track,
+                        )
                 )}
                 className={[
                   "hs-search-track",
@@ -3919,7 +4444,7 @@ async function downloadOpenedPlaylist() {
 
 
           {showPlaylists &&
-          results.playlists?.length > 0 ? (
+          displayResults.playlists?.length > 0 ? (
 
             <section className="hs-search-section">
 
@@ -3937,7 +4462,7 @@ async function downloadOpenedPlaylist() {
 
                 <strong>
                   {
-                    results.counts
+                    combinedResults.counts
                       .playlists
                   }
                 </strong>
@@ -3947,7 +4472,7 @@ async function downloadOpenedPlaylist() {
 
               <div className="hs-search-track-list">
 
-                {results.playlists.map(
+                {displayResults.playlists.map(
                   (
                     playlist,
                     playlistIndex,
@@ -4013,6 +4538,39 @@ async function downloadOpenedPlaylist() {
                               onSelect:
                                 async () => {
                                   try {
+                                    if (
+                                      playlist.transient
+                                    ) {
+                                      const warmKeys =
+                                        (
+                                          playlist.tracks ??
+                                          []
+                                        )
+                                          .map(
+                                            (track) =>
+                                              track?.provision_key ??
+                                              track?.provisionKey ??
+                                              null,
+                                          )
+                                          .filter(
+                                            Boolean,
+                                          );
+
+                                      void warmOnDemandTracks(
+                                        warmKeys,
+                                      ).catch(
+                                        () => {},
+                                      );
+
+                                      playOpenedPlaylist(
+                                        0,
+                                        playlist.tracks ??
+                                          [],
+                                      );
+
+                                      return;
+                                    }
+
                                     const fullPlaylist =
                                       await getPlaylist(
                                         playlist.id,
@@ -4069,12 +4627,21 @@ async function downloadOpenedPlaylist() {
                                   ? "check"
                                   : "download",
                               disabled:
+                                Boolean(
+                                  playlist.transient,
+                                ) ||
                                 rowDownload?.status ===
                                   "downloaded" ||
                                 rowDownload?.status ===
                                   "downloading",
                               onSelect:
                                 async () => {
+                                  if (
+                                    playlist.transient
+                                  ) {
+                                    return;
+                                  }
+
                                   if (!isRegistered) {
                                     onOpenAuth?.();
                                     return;

@@ -9,6 +9,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from backend.app.api.routes import (
+    users as user_routes,
+)
 from backend.app.database import (
     get_engine,
     get_session_factory,
@@ -188,6 +191,104 @@ async def test_playback_state_syncs_across_devices() -> None:
         assert takeover_payload["paused"] is True
 
         assert takeover_payload["device_id"] == "device-two"
+
+
+@pytest.mark.asyncio
+async def test_listening_history_change_is_broadcast_to_account_devices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    username = f"history-realtime-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Realtime History Song",
+                artist="HyperSync Devices",
+                album="Shared History",
+                b2_object_key=(
+                    f"audio/history-realtime-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    broadcasts: list[
+        tuple[
+            object,
+            dict,
+        ]
+    ] = []
+
+    async def fake_broadcast(
+        user_id,
+        payload,
+    ) -> None:
+        broadcasts.append(
+            (
+                user_id,
+                payload,
+            )
+        )
+
+    monkeypatch.setattr(
+        user_routes.playback_realtime_hub,
+        "broadcast",
+        fake_broadcast,
+    )
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        response = await client.post(
+            "/api/users/me/listening",
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+            },
+            json={
+                "track_id":
+                    str(
+                        track_id,
+                    ),
+            },
+        )
+
+        assert response.status_code == 201, response.text
+
+        assert len(
+            broadcasts,
+        ) == 1
+
+        _, payload = broadcasts[0]
+
+        assert payload == {
+            "type":
+                "listening_history_changed",
+            "track_id":
+                str(
+                    track_id,
+                ),
+        }
 
 
 @pytest.mark.asyncio
@@ -716,9 +817,10 @@ async def test_stale_playback_device_can_refresh_itself_without_stale_update() -
 
 
 @pytest.mark.asyncio
-async def test_playback_device_expires_after_five_seconds_and_releases_audio_owner() -> None:
+async def test_playback_device_expires_after_background_tolerant_ttl_and_releases_audio_owner(
+) -> None:
     run_id = uuid4().hex[:8]
-    username = f"device-five-second-{run_id}"
+    username = f"device-expiry-{run_id}"
     track_id = uuid4()
 
     session_factory = get_session_factory()
@@ -727,7 +829,7 @@ async def test_playback_device_expires_after_five_seconds_and_releases_audio_own
         session.add(
             Track(
                 id=track_id,
-                title="Five Second Presence",
+                title="Background Tolerant Presence",
                 artist="HyperSync Devices",
                 album="Connect",
                 b2_object_key=(
@@ -815,7 +917,7 @@ async def test_playback_device_expires_after_five_seconds_and_releases_audio_own
             device.last_seen_at = (
                 datetime.now(UTC)
                 - timedelta(
-                    seconds=6,
+                    minutes=3,
                 )
             )
 
@@ -857,6 +959,148 @@ async def test_playback_device_expires_after_five_seconds_and_releases_audio_own
                 "paused"
             ]
             is True
+        )
+
+
+@pytest.mark.asyncio
+async def test_backgrounded_playback_device_keeps_owner_within_presence_grace() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"device-background-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="Background Playback",
+                artist="HyperSync Devices",
+                album="Connect",
+                b2_object_key=(
+                    f"audio/device-background-{run_id}.mp3"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+
+        await session.commit()
+
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+
+        headers = {
+            "Authorization":
+                f"Bearer {token}",
+        }
+
+        phone_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "background-phone",
+                "name":
+                    "Phone",
+                "device_type":
+                    "mobile",
+            },
+        )
+
+        assert phone_poll.status_code == 200, phone_poll.text
+
+        playback = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id":
+                    str(track_id),
+                "position_seconds":
+                    31,
+                "paused":
+                    False,
+                "device_id":
+                    "background-phone",
+            },
+        )
+
+        assert playback.status_code == 200, playback.text
+
+        async with session_factory() as session:
+            user = (
+                await session.execute(
+                    select(User).where(
+                        User.username
+                        == username,
+                    )
+                )
+            ).scalar_one()
+
+            device = await session.get(
+                PlaybackDevice,
+                (
+                    user.id,
+                    "background-phone",
+                ),
+            )
+
+            assert device is not None
+
+            device.last_seen_at = (
+                datetime.now(UTC)
+                - timedelta(
+                    seconds=30,
+                )
+            )
+
+            await session.commit()
+
+        desktop_poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id":
+                    "desktop-controller",
+                "name":
+                    "Desktop",
+                "device_type":
+                    "desktop",
+            },
+        )
+
+        assert desktop_poll.status_code == 200, desktop_poll.text
+
+        payload = desktop_poll.json()
+
+        assert {
+            device["device_id"]
+            for device in payload["devices"]
+        } == {
+            "background-phone",
+            "desktop-controller",
+        }
+
+        assert (
+            payload["playback_state"]["device_id"]
+            == "background-phone"
+        )
+
+        assert (
+            payload["playback_state"]["paused"]
+            is False
         )
 
 

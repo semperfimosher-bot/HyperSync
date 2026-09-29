@@ -82,9 +82,14 @@ export default function NotificationDetailOverlay({
     return null;
   }
 
+  const accountNotification =
+    notification.type ===
+      "admin_account_notification";
+
   const adminActivity =
     notification.type ===
-    "admin_activity";
+      "admin_activity" ||
+    accountNotification;
 
   const sharedMusic =
     adminActivity
@@ -166,9 +171,11 @@ export default function NotificationDetailOverlay({
 
           <div>
             <span className="hs-eyebrow">
-              {adminActivity
-                ? "ADMIN ACTIVITY"
-                : "MESSAGE"}
+              {accountNotification
+                ? "ACCOUNT NOTIFICATION"
+                : adminActivity
+                  ? "ADMIN ACTIVITY"
+                  : "MESSAGE"}
             </span>
 
             <h2 id="notification-detail-title">
@@ -208,6 +215,16 @@ export default function NotificationDetailOverlay({
                     || "activity"}
                 </strong>
               </div>
+
+              {accountNotification ? (
+                <div>
+                  <span>Account</span>
+                  <strong>
+                    @{notification
+                      .recipient_username}
+                  </strong>
+                </div>
+              ) : null}
             </>
           ) : (
             <>

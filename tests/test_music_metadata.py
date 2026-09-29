@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from backend.app.models.base import Base
+from backend.app.models.media import Track
+from backend.app.services import (
+    music_metadata,
+)
 from backend.app.services.music_metadata import (
     _merge_external_metadata,
     lookup_apple_track_metadata,
@@ -590,3 +599,103 @@ def test_lastfm_genre_remains_when_apple_has_no_genre() -> None:
 
     assert result is not None
     assert result["genre"] == "Country"
+
+
+@pytest.mark.asyncio
+async def test_metadata_enrichment_survives_playlist_refresh_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+    )
+
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Base.metadata.tables[
+                    Track.__tablename__
+                ],
+            ],
+        )
+
+    factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+    )
+
+    async def fake_lookup(
+        **_kwargs,
+    ):
+        return {
+            "source":
+                "test-provider",
+            "recording_id":
+                "recording-1",
+            "genre":
+                "Country",
+            "release_year":
+                2025,
+            "confidence":
+                0.99,
+        }
+
+    async def failed_playlist_refresh(
+        _session,
+        _track,
+    ) -> int:
+        raise RuntimeError(
+            "playlist refresh failed",
+        )
+
+    monkeypatch.setattr(
+        music_metadata,
+        "lookup_external_track_metadata",
+        fake_lookup,
+    )
+
+    monkeypatch.setattr(
+        music_metadata,
+        "refresh_smart_playlists_for_track",
+        failed_playlist_refresh,
+    )
+
+    async with factory() as session:
+        track = Track(
+            title="Metadata Song",
+            artist="Metadata Artist",
+            album="Metadata Album",
+            genre=None,
+            release_year=None,
+            b2_object_key="audio/metadata-song.mp3",
+            mime_type="audio/mpeg",
+            is_published=True,
+        )
+
+        session.add(
+            track,
+        )
+        await session.commit()
+
+        track_id = track.id
+
+        result = await music_metadata.enrich_track_metadata(
+            session,
+            track,
+        )
+
+        assert result["matched"] is True
+        assert result["changed"] is True
+        assert result["genre"] == "Country"
+        assert result["release_year"] == 2025
+
+        persisted = await session.get(
+            Track,
+            track_id,
+        )
+
+        assert persisted is not None
+        assert persisted.genre == "Country"
+        assert persisted.release_year == 2025
+
+    await engine.dispose()
