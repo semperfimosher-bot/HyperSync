@@ -1065,6 +1065,7 @@ async def test_local_provision_adopts_durable_terminal_result(
     candidate = _candidate()
     provision_id = uuid4()
     track_id = uuid4()
+    now = on_demand_ingestion._now()
 
     local = (
         on_demand_ingestion
@@ -1072,8 +1073,8 @@ async def test_local_provision_adopts_durable_terminal_result(
             id=provision_id,
             candidate=candidate,
             state="stream-ready",
-            created_at=0.0,
-            updated_at=0.0,
+            created_at=now,
+            updated_at=now,
             stream_token="test-token",
         )
     )

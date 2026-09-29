@@ -35,9 +35,10 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
     assert login.status_code == 200, login.text
     return login.json()["access_token"]
 
-    @pytest.mark.asyncio
-    async def test_catalog_search_filters_tracks_by_query() -> None:
-        run_id = uuid4().hex  # noqa: F841
+@pytest.mark.asyncio
+async def test_catalog_search_filters_tracks_by_query() -> None:
+    run_id = uuid4().hex
+    title = f"Acoustic Sunrise {run_id}"
 
     session_factory = get_session_factory()
 
@@ -46,11 +47,11 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
             [
                 Track(
                     id=uuid4(),
-                    title="Acoustic Sunrise",
+                    title=title,
                     artist="Coastal Echo",
                     album="Morning Tide",
-                    b2_object_key="audio/acoustic.wav",
-                    artwork_object_key="artwork/acoustic.jpg",
+                    b2_object_key=f"audio/acoustic-{run_id}.wav",
+                    artwork_object_key=f"artwork/acoustic-{run_id}.jpg",
                     mime_type="audio/wav",
                     file_size=123,
                     duration_seconds=180,
@@ -62,12 +63,12 @@ async def _create_user_and_login(client: AsyncClient, username: str, password: s
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/catalog/tracks", params={"q": "sunrise"})
+        response = await client.get("/api/catalog/tracks", params={"q": run_id})
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert len(payload) == 1
-    assert payload[0]["title"] == "Acoustic Sunrise"
+    assert payload[0]["title"] == title
     assert payload[0]["artist"] == "Coastal Echo"
     assert payload[0]["artwork_url"].endswith(
         "/catalog/tracks/" + str(payload[0]["id"]) + "/artwork"
