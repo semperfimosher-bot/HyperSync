@@ -34,6 +34,11 @@ import {
 } from "./player/playbackSession.js";
 
 import {
+  mediaSessionIdentity,
+  mediaSessionPlaybackState,
+} from "./player/mediaSessionState.js";
+
+import {
   clearPersistedPlayerState,
   readPersistedPlayerState,
   writePersistedPlayerState,
@@ -1502,9 +1507,14 @@ function updateMediaSession(
     return;
   }
 
+  const identity = mediaSessionIdentity(
+    state,
+    audio.getAttribute("src"),
+  );
+
   try {
     if (
-      state.trackId &&
+      identity &&
       typeof globalThis.MediaMetadata ===
         "function"
     ) {
@@ -1533,7 +1543,7 @@ function updateMediaSession(
 
       const signature =
         JSON.stringify([
-          state.trackId,
+          identity,
           state.title,
           state.artist,
           album,
@@ -1567,7 +1577,7 @@ function updateMediaSession(
         lastMediaSessionSignature =
           signature;
       }
-    } else if (!state.trackId) {
+    } else if (!identity) {
       mediaSession.metadata =
         null;
 
@@ -1576,13 +1586,10 @@ function updateMediaSession(
     }
 
     mediaSession.playbackState =
-      state.trackId
-        ? (
-            state.paused
-              ? "paused"
-              : "playing"
-          )
-        : "none";
+      mediaSessionPlaybackState(
+        state,
+        audio.getAttribute("src"),
+      );
 
     if (
       typeof mediaSession
