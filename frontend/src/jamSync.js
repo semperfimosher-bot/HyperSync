@@ -15,9 +15,10 @@ export function jamPlaybackStillWanted(snapshot, { userId, activeUserId, jamId, 
 export function shouldAdvanceJamOnEnded(snapshot, {
   userId, trackId, managedTrackId, managedItemId, optIn,
 }) {
-  return Boolean(optIn && snapshot?.current_track_id === trackId
+  return Boolean(optIn && !snapshot?.paused && snapshot?.current_track_id === trackId
     && managedTrackId === trackId && managedItemId === snapshot.current_item_id
-    && (snapshot.host_id === userId || snapshot.allow_guest_control));
+    && (snapshot.host_id === userId
+      || (snapshot.mode === "everyone" && snapshot.allow_guest_control)));
 }
 
 export function jamPlaybackAction(snapshot, { userId, optIn, managedTrackId, managedItemId, local, nowMs }) {

@@ -63,6 +63,12 @@ test("natural end advances only the owned queue item with playback permission", 
   assert.equal(shouldAdvanceJamOnEnded({ ...current, allow_guest_control: true }, {
     userId: "guest", trackId: "track-a", managedTrackId: "track-a",
     managedItemId: "second", optIn: true }), true);
+  assert.equal(shouldAdvanceJamOnEnded({ ...current, allow_guest_control: true, mode: "host" }, {
+    userId: "guest", trackId: "track-a", managedTrackId: "track-a",
+    managedItemId: "second", optIn: true }), false);
+  assert.equal(shouldAdvanceJamOnEnded({ ...current, allow_guest_control: true, paused: true }, {
+    userId: "guest", trackId: "track-a", managedTrackId: "track-a",
+    managedItemId: "second", optIn: true }), false);
   assert.equal(shouldAdvanceJamOnEnded(current, { userId: "host", trackId: "track-a",
     managedTrackId: "track-a", managedItemId: "first", optIn: true }), false);
 });
