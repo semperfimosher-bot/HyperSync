@@ -33,6 +33,7 @@ import TrackArtwork from
 
 import PlaybackDevicesPanel from
   "./PlaybackDevicesPanel.jsx";
+import JamPanel from "./JamPanel.jsx";
 
 
 export default function PlayerBar({
@@ -1134,6 +1135,8 @@ export default function PlayerBar({
         </div>
       ) : null}
 
+
+      <JamPanel currentUser={currentUser} onOpenAuth={onOpenAuth} />
 
       <TrackActionMenu
         menu={

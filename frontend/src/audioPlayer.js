@@ -166,6 +166,12 @@ let playbackError =
 let remotePlaybackController =
   null;
 
+let jamTrackEndedController = null;
+
+export function setJamTrackEndedController(controller) {
+  jamTrackEndedController = typeof controller === "function" ? controller : null;
+}
+
 let forceLocalPlaybackDepth =
   0;
 
@@ -2042,6 +2048,12 @@ function attachEvents() {
         ? audio.duration
         : getSafeCurrentTime(),
     );
+
+    try {
+      if (jamTrackEndedController?.(currentTrackId) === true) return;
+    } catch {
+      // A Jam callback must never prevent ordinary queue progression.
+    }
 
     void playNextQueueTrack()
       .catch(

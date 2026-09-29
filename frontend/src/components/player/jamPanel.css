@@ -1,0 +1,23 @@
+.jam-control { flex: 0 0 auto; position: relative; z-index: 80; }
+.jam-trigger { border: 1px solid rgba(48, 196, 255, .45); border-radius: 999px; background: #103049; color: #e7f8ff; padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.jam-trigger:hover, .jam-trigger:focus-visible { border-color: #65d7ff; background: #174362; }
+.jam-panel { position: fixed; right: 16px; bottom: 92px; width: min(390px, calc(100vw - 32px)); max-height: min(72vh, 650px); overflow-y: auto; box-sizing: border-box; padding: 18px; border: 1px solid rgba(81, 190, 235, .45); border-radius: 18px; background: #0c1c2a; color: #edf8ff; box-shadow: 0 20px 60px rgba(0, 0, 0, .65); font-size: 13px; }
+.jam-panel header { display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+.jam-panel header button { font-size: 24px; line-height: 1; border: 0; background: none; color: inherit; cursor: pointer; }
+.jam-panel p { color: #abc5d5; }
+.jam-panel .jam-current { color: #f2fafc; font-weight: 700; }
+.jam-panel button { border: 1px solid #34617a; border-radius: 9px; background: #17415d; color: #f0fbff; padding: 7px 10px; cursor: pointer; font: inherit; }
+.jam-panel button:hover:not(:disabled), .jam-panel button:focus-visible { background: #23658a; }
+.jam-panel button:disabled { opacity: .5; cursor: wait; }
+.jam-panel input:not([type="checkbox"]), .jam-panel select { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid #45718b; border-radius: 8px; background: #112c40; color: #fff; padding: 8px; font: inherit; }
+.jam-panel form, .jam-settings, .jam-members { margin-top: 16px; }
+.jam-panel label { display: block; margin-bottom: 7px; color: #c5e7f4; }
+.jam-panel label input[type="checkbox"] { margin-right: 7px; }
+.jam-actions { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+.jam-actions button { flex: 0 0 auto; }
+.jam-settings { display: grid; gap: 9px; }
+.jam-panel ul, .jam-panel ol { list-style-position: inside; padding: 0; margin: 8px 0 14px; }
+.jam-panel li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid rgba(125, 192, 220, .15); }
+.jam-panel .jam-error { color: #ffb9ae; padding: 9px; background: rgba(200, 65, 54, .16); border-radius: 8px; }
+.jam-panel .jam-exit { margin-top: 12px; border-color: #9a5360; }
+@media (max-width: 767px) { .jam-trigger { padding: 6px 9px; font-size: 11px; } .jam-panel { bottom: 75px; right: 8px; width: calc(100vw - 16px); max-height: 72vh; } }

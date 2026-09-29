@@ -20,6 +20,7 @@ from .bot import (
     BotCatalogScan,
     BotCatalogScanItem,
 )
+from .jam import JamMember, JamQueueItem, JamSession
 from .media import (
     Track,
     TrackArtistCredit,
@@ -64,6 +65,9 @@ __all__ = [
     "OnDemandPendingListener",
     "OnDemandProvision",
     "ListeningEvent",
+    "JamSession",
+    "JamMember",
+    "JamQueueItem",
     "PlaybackCommand",
     "PlaybackDevice",
     "PasswordRecovery",
