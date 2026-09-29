@@ -662,9 +662,14 @@ async def run_scan(
                 return
 
             if auto_ingest:
+                batch_size = max(
+                    16,
+                    min(128, int(ingest_concurrency) * 16),
+                )
                 pending = (
                     await pending_scan_items(
                         scan_id,
+                        limit=batch_size,
                     )
                 )
 
@@ -680,13 +685,16 @@ async def run_scan(
                         phase,
                     )
 
-                    await _ingest_missing(
-                        scan_id,
-                        pending,
-                        concurrency=(
-                            ingest_concurrency
-                        ),
-                    )
+                    while pending and not await _scan_cancelled(scan_id):
+                        await _ingest_missing(
+                            scan_id,
+                            pending,
+                            concurrency=ingest_concurrency,
+                        )
+                        pending = await pending_scan_items(
+                            scan_id,
+                            limit=batch_size,
+                        )
 
             cancelled = (
                 await _scan_cancelled(

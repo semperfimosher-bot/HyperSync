@@ -252,8 +252,48 @@ async def test_catalog_gap_scan_discovers_only_missing_tracks(
 
 
 @pytest.mark.asyncio
+async def test_pending_scan_items_reads_bounded_batches(monkeypatch) -> None:
+    engine, factory = await _catalog_factory([("Batch Artist", "Existing Song")])
+    monkeypatch.setattr(bot_jobs, "get_session_factory", lambda: factory)
+
+    scan = await bot_jobs.create_catalog_scan(
+        auto_ingest=True,
+        track_limit_per_artist=500,
+        ingest_concurrency=2,
+    )
+    candidates = [
+        _candidate(
+            artist="Batch Artist",
+            title=f"Missing {index}",
+            suffix=f"batch-{index}",
+        )
+        for index in range(5)
+    ]
+    assert await bot_jobs.persist_discovered_candidates(scan.id, candidates) == 5
+
+    first = await bot_jobs.pending_scan_items(scan.id, limit=2)
+    assert len(first) == 2
+
+    for item_id, _ in first:
+        assert await bot_jobs.mark_item_started(scan.id, item_id)
+        await bot_jobs.mark_item_finished(
+            scan.id, item_id, ready=True, track_id=uuid4()
+        )
+
+    second = await bot_jobs.pending_scan_items(scan.id, limit=2)
+    assert len(second) == 2
+    assert {candidate.key for _, candidate in first}.isdisjoint(
+        {candidate.key for _, candidate in second}
+    )
+
+    await engine.dispose()
+
+
+@pytest.mark.parametrize("candidate_count", [1, 17])
+@pytest.mark.asyncio
 async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
     monkeypatch,
+    candidate_count: int,
 ) -> None:
     engine, factory = (
         await _catalog_factory(
@@ -266,11 +306,15 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
         )
     )
 
-    candidate = _candidate(
-        artist="Artist A",
-        title="Missing A",
-        suffix="missing-a",
-    )
+    candidates = [
+        _candidate(
+            artist="Artist A",
+            title=f"Missing A {index}",
+            suffix=f"missing-a-{index}",
+        )
+        for index in range(candidate_count)
+    ]
+    expected_keys = {candidate.key for candidate in candidates}
 
     async def fake_search(
         query: str,
@@ -281,28 +325,17 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
         del kind
         del limit
         assert query == "Artist A"
-        return [
-            candidate,
-        ]
+        return candidates
 
     async def fake_remember(
-        candidates,
+        remembered,
     ):
-        assert [
-            item.key
-            for item
-            in candidates
-        ] == [
-            candidate.key,
-        ]
+        assert {item.key for item in remembered}.issubset(expected_keys)
 
     async def fake_ingest(
         candidate_key: str,
     ):
-        assert (
-            candidate_key
-            == candidate.key
-        )
+        assert candidate_key in expected_keys
 
         return {
             "state":
@@ -314,6 +347,15 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
             "error":
                 None,
         }
+
+    original_pending = bot.worker.pending_scan_items
+    read_limits: list[int | None] = []
+
+    async def observe_pending(scan_id, *, limit=None):
+        read_limits.append(limit)
+        if limit is None:
+            return await original_pending(scan_id)
+        return await original_pending(scan_id, limit=limit)
 
     monkeypatch.setattr(
         bot.worker,
@@ -342,11 +384,12 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
         "ingest_candidate_and_wait",
         fake_ingest,
     )
+    monkeypatch.setattr(bot.worker, "pending_scan_items", observe_pending)
 
     await bot.worker.run_scan(
         auto_ingest=True,
         track_limit_per_artist=500,
-        ingest_concurrency=2,
+        ingest_concurrency=(1 if candidate_count > 1 else 2),
     )
 
     scan = (
@@ -355,10 +398,11 @@ async def test_catalog_gap_scan_auto_ingests_through_existing_pipeline(
     )
 
     assert scan["state"] == "complete"
-    assert scan["missing_discovered"] == 1
-    assert scan["ingest_started"] == 1
-    assert scan["ingest_ready"] == 1
+    assert scan["missing_discovered"] == candidate_count
+    assert scan["ingest_started"] == candidate_count, scan
+    assert scan["ingest_ready"] == candidate_count
     assert scan["ingest_failed"] == 0
+    assert read_limits and all(limit is not None for limit in read_limits)
 
     await engine.dispose()
 
