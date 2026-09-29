@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { expectedJamPosition, jamPlaybackAction, jamPlaybackStillWanted } from "./jamSync.js";
+import { expectedJamPosition, jamPlaybackAction, jamPlaybackStillWanted,
+  shouldAdvanceJamOnEnded } from "./jamSync.js";
 
 const snapshot = {
   host_id: "host",
@@ -51,6 +52,19 @@ test("a delayed play is discarded after opt-out, removal, or account change", ()
   assert.equal(jamPlaybackStillWanted(null, target), false);
   assert.equal(jamPlaybackStillWanted(state, { ...target, activeUserId: "other" }), false);
   assert.equal(jamPlaybackStillWanted({ ...state, current_item_id: "next" }, target), false);
+});
+
+test("natural end advances only the owned queue item with playback permission", () => {
+  const current = { ...snapshot, current_item_id: "second", allow_guest_control: false };
+  assert.equal(shouldAdvanceJamOnEnded(current, { userId: "host", trackId: "track-a",
+    managedTrackId: "track-a", managedItemId: "second", optIn: true }), true);
+  assert.equal(shouldAdvanceJamOnEnded(current, { userId: "guest", trackId: "track-a",
+    managedTrackId: "track-a", managedItemId: "second", optIn: true }), false);
+  assert.equal(shouldAdvanceJamOnEnded({ ...current, allow_guest_control: true }, {
+    userId: "guest", trackId: "track-a", managedTrackId: "track-a",
+    managedItemId: "second", optIn: true }), true);
+  assert.equal(shouldAdvanceJamOnEnded(current, { userId: "host", trackId: "track-a",
+    managedTrackId: "track-a", managedItemId: "first", optIn: true }), false);
 });
 
 test("reconnect changes track and only seeks when drift exceeds threshold", () => {

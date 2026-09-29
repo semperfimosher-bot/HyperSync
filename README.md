@@ -650,6 +650,8 @@ Registered users can start an invite-only Jam from the player bar. The host choo
 
 Jam state lives in the database, so backend replicas share one revisioned queue and timeline. Clients poll every two seconds and correct significant drift. Invitations expire after 24 hours, are stored only as hashes, and never appear in regular snapshots. One account can join one active Jam at a time; a Jam supports 20 members and 200 queue entries. The current version has no automatic inactive-session expiry: a host should end a session when finished. The existing solo player remains available outside Jam. Lock-screen media controls use the browser's existing Media Session integration; physical device behavior depends on browser and operating system.
 
+When a catalog track has no saved duration, playback advances when the host's listening device reaches the end. If the host enables guest playback controls, a listening guest can advance it too. Otherwise the host can use **Next**. This avoids trusting an unapproved guest to skip tracks.
+
 The queue should support:
 
 - Play next

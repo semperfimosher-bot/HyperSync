@@ -12,6 +12,14 @@ export function jamPlaybackStillWanted(snapshot, { userId, activeUserId, jamId, 
     && snapshot.current_item_id === itemId);
 }
 
+export function shouldAdvanceJamOnEnded(snapshot, {
+  userId, trackId, managedTrackId, managedItemId, optIn,
+}) {
+  return Boolean(optIn && snapshot?.current_track_id === trackId
+    && managedTrackId === trackId && managedItemId === snapshot.current_item_id
+    && (snapshot.host_id === userId || snapshot.allow_guest_control));
+}
+
 export function jamPlaybackAction(snapshot, { userId, optIn, managedTrackId, managedItemId, local, nowMs }) {
   const ownsLocalTrack = Boolean(managedTrackId && local?.trackId === managedTrackId);
   if (!snapshot) return ownsLocalTrack && !local.paused ? { type: "pause" } : null;
