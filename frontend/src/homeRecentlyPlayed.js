@@ -64,3 +64,11 @@ export function subscribeListeningHistoryChanged(
     );
   };
 }
+
+export function canRecordListeningHistory(accessToken, storedSession) {
+  return Boolean(accessToken || storedSession);
+}
+
+export function isCurrentHistoryResponse(request, latestRequest, owner, currentOwner) {
+  return request === latestRequest && owner === currentOwner;
+}

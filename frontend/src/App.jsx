@@ -55,6 +55,8 @@ import NotificationDetailOverlay from
 import PageErrorBoundary from
   "./components/ui/PageErrorBoundary.jsx";
 
+import JamPanel from "./components/player/JamPanel.jsx";
+
 import PlayerBar from
   "./components/player/PlayerBar.jsx";
 
@@ -4741,6 +4743,7 @@ const clearPlaylistToOpen =
         }
       />
 
+      <JamPanel currentUser={currentUser} homeActive={activePage === "home"} onOpenAuth={() => openAuth("signin")} />
       <PlayerBar
         playlistUpdate={
           activePlaylistUpdate
