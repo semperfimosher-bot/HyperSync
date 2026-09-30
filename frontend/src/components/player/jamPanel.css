@@ -1,7 +1,7 @@
 .jam-control { flex: 0 0 auto; position: relative; z-index: 80; }
 .jam-trigger { border: 1px solid rgba(48, 196, 255, .45); border-radius: 999px; background: #103049; color: #e7f8ff; padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .jam-trigger:hover, .jam-trigger:focus-visible { border-color: #65d7ff; background: #174362; }
-.jam-panel { position: fixed; right: 16px; bottom: 92px; width: min(390px, calc(100vw - 32px)); max-height: min(72vh, 650px); overflow-y: auto; box-sizing: border-box; padding: 18px; border: 1px solid rgba(81, 190, 235, .45); border-radius: 18px; background: #0c1c2a; color: #edf8ff; box-shadow: 0 20px 60px rgba(0, 0, 0, .65); font-size: 13px; }
+.jam-panel { position: fixed; z-index: 80; right: 16px; bottom: 92px; width: min(390px, calc(100vw - 32px)); max-height: min(72vh, 650px); overflow-y: auto; box-sizing: border-box; padding: 18px; border: 1px solid rgba(81, 190, 235, .45); border-radius: 18px; background: #0c1c2a; color: #edf8ff; box-shadow: 0 20px 60px rgba(0, 0, 0, .65); font-size: 13px; }
 .jam-panel header { display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
 .jam-panel header button { font-size: 24px; line-height: 1; border: 0; background: none; color: inherit; cursor: pointer; }
 .jam-panel p { color: #abc5d5; }

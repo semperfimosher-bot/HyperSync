@@ -1,0 +1,49 @@
+import { test, expect } from './fixtures.js';
+import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
+
+test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context }) => {
+  await login(page, identity);
+  await startTrack(page, manifest.tracks[0]);
+  await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+  // Service-worker fetches must handle navigation while disconnected.
+  await page.unroute('**/*');
+  await navigate(page, 'Library');
+  await page.getByRole('tab', { name: /^Songs/ }).click();
+  await expect(page.locator('main')).toContainText(manifest.tracks[0].title);
+  await context.setOffline(true);
+  await page.reload();
+  await navigate(page, 'Library');
+  await page.getByRole('tab', { name: /^Songs/ }).click();
+  await page.getByText(manifest.tracks[0].title, { exact: true }).first().click();
+  await expectPlaybackAdvancing(page, manifest.tracks[0]);
+});
+
+test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
+  await login(page, identity);
+  const track = manifest.tracks[2];
+  let aborted = 0;
+  const pattern = `**/api/audio/${track.id}**`;
+  await context.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
+  await navigate(page, 'Search');
+  await page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first().fill(track.title);
+  const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
+  await expect.poll(() => aborted).toBeGreaterThan(0);
+  await expect(page.getByRole('menuitem', { name: 'Download for offline', exact: true })).toBeEnabled();
+  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await navigate(page, 'Library');
+  await page.getByRole('tab', { name: /^Songs/ }).click();
+  await expect(page.locator('.hs-library-page:visible').getByText(track.title, { exact: true })).toHaveCount(0);
+  await context.unroute(pattern);
+  await navigate(page, 'Search');
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toBeVisible();
+});

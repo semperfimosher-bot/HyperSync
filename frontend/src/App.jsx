@@ -3630,11 +3630,14 @@ export default function App() {
   ]);
 
 
+  const appViewRevisionRef = useRef(0);
+
   const searchStateTimerRef =
     useRef(null);
 
   const cancelPendingSearchSave =
   useCallback(() => {
+    appViewRevisionRef.current += 1;
     if (
       searchStateTimerRef.current
     ) {
@@ -3650,7 +3653,8 @@ export default function App() {
 
 const restoreSavedAppView =
   useCallback(
-    async (user) => {
+    async (user, revision = ++appViewRevisionRef.current) => {
+      const stillCurrent = () => revision === appViewRevisionRef.current;
       const params =
         new URLSearchParams(
           window.location.search,
@@ -3674,6 +3678,7 @@ const restoreSavedAppView =
         user?.account_type ===
           "registered"
       ) {
+        if (!stillCurrent()) return;
         setMessageToOpen(
           linkedUsername,
         );
@@ -3711,6 +3716,8 @@ const restoreSavedAppView =
             "/users/me/app-state",
           );
 
+        if (!stillCurrent()) return;
+
         const restored =
           normalizeAppViewState(
             state,
@@ -3729,6 +3736,7 @@ const restoreSavedAppView =
           restored.profileUsername,
         );
       } catch {
+        if (!stillCurrent()) return;
         setActivePage(
           "home",
         );
@@ -3873,6 +3881,7 @@ const persistAppView =
     }
 
     let cancelled = false;
+    const sessionViewRevision = appViewRevisionRef.current;
 
     const syncSession = () => {
       restoreSession().then(async (user) => {
@@ -3885,7 +3894,8 @@ const persistAppView =
       setAuthOpen(false);
 
       await restoreSavedAppView(
-      user,
+        user,
+        sessionViewRevision,
       );
 
       return;
@@ -4073,6 +4083,7 @@ const clearPlaylistToOpen =
   const openArtistProfile =
     useCallback(
       (artistName) => {
+        appViewRevisionRef.current += 1;
         const cleanName =
           String(
             artistName ?? "",

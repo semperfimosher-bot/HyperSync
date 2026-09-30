@@ -405,6 +405,10 @@ useQuietRefresh(
   return (
     <div className="page-stack home-page"
       {...homeTrigger}
+      onClickCapture={(event) => {
+        // A long-press suppresses its original click, not a later menu choice.
+        if (!event.target.closest(".track-action-layer")) homeTrigger.onClickCapture(event);
+      }}
       onContextMenu={(event) => { if (allowHomeMenu(event)) homeTrigger.onContextMenu(event); }}
       onPointerDown={(event) => { if (allowHomeMenu(event)) homeTrigger.onPointerDown(event); }}
       tabIndex={0}

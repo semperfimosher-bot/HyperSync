@@ -78,5 +78,8 @@ async def run_async_migrations() -> None:
 
 if context.is_offline_mode():
     run_migrations_offline()
+elif config.attributes.get("connection") is not None:
+    # Allow an owner-managed connection for isolated migration verification.
+    run_migrations(config.attributes["connection"])
 else:
     asyncio.run(run_async_migrations())
