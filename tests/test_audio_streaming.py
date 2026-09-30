@@ -140,6 +140,7 @@ async def test_b2_streams_are_bounded_and_return_capacity_after_completion(
         with pytest.raises(HTTPException) as raised:
             await audio_route.stream_b2_file(FakeDownload())
         assert raised.value.status_code == 503
+        assert raised.value.headers is not None
         assert raised.value.headers["Retry-After"] == "2"
     finally:
         release_writer.set()

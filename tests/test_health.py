@@ -53,7 +53,7 @@ async def test_database_pool_timeout_returns_retryable_service_unavailable() -> 
 
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "2"
-    assert json.loads(response.body) == {
+    assert json.loads(bytes(response.body)) == {
         "detail": "Service is temporarily busy. Please retry shortly."
     }
 
@@ -73,7 +73,7 @@ async def test_database_connection_failure_returns_retryable_service_unavailable
 
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "2"
-    assert json.loads(response.body) == {
+    assert json.loads(bytes(response.body)) == {
         "detail": "Database is temporarily unavailable. Please retry shortly."
     }
 
