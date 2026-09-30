@@ -9,10 +9,8 @@ from contextlib import (
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import (
-    OperationalError as SQLAlchemyOperationalError,
-    TimeoutError as SQLAlchemyPoolTimeoutError,
-)
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyPoolTimeoutError
 
 from bot.runtime import (
     shutdown_background_tasks,

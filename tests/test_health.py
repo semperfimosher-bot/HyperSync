@@ -5,10 +5,8 @@ from unittest.mock import Mock
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
-from sqlalchemy.exc import (
-    OperationalError as SQLAlchemyOperationalError,
-    TimeoutError as SQLAlchemyPoolTimeoutError,
-)
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyPoolTimeoutError
 
 from backend.app import main as main_module
 from backend.app.api.routes import health as health_route
