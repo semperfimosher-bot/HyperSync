@@ -1477,6 +1477,7 @@ ENVIRONMENT=
 
 BACKEND_HOST=
 BACKEND_PORT=
+UVICORN_LIMIT_CONCURRENCY=100
 FRONTEND_ORIGINS=
 
 DATABASE_URL=
@@ -1496,6 +1497,7 @@ B2_BUCKET_NAME=
 B2_AUDIO_PREFIX=
 B2_ARTWORK_PREFIX=
 B2_PROFILE_PREFIX=
+AUDIO_STREAM_MAX_CONCURRENCY=16
 
 LOCAL_TEMP_ROOT=
 LOCAL_UPLOAD_ROOT=
@@ -1513,6 +1515,8 @@ Rules:
 - `.env` must never be committed.
 - `.env.example` contains placeholders only.
 - Frontend variables must never contain private secrets.
+- `AUDIO_STREAM_MAX_CONCURRENCY` bounds active B2 download workers for audio, artwork, and avatars per API process (default 16, maximum 64). Excess streams receive HTTP 503 with `Retry-After: 2` and can be retried after capacity is available.
+- `UVICORN_LIMIT_CONCURRENCY` caps in-flight requests per API process (default 100), limiting overload while preserving capacity for active playback WebSockets. Requests above the cap receive backpressure instead of allowing unbounded active request tasks.
 - Production secrets belong in Northflank secret configuration.
 - Exposed secrets must be rotated.
 

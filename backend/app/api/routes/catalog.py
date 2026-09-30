@@ -410,9 +410,15 @@ async def get_track_lyrics(
                 detail="Track not found.",
             )
 
+        track_id = track.id
+        track_title = track.title
+        track_artist = track.artist
+        track_album = track.album
+        track_duration_seconds = track.duration_seconds
+
         cached = await session.get(
             TrackLyrics,
-            track.id,
+            track_id,
         )
 
         if cached is not None and cached.lrclib_id is not None:
@@ -443,12 +449,17 @@ async def get_track_lyrics(
                     cached,
                 )
 
+        # LRCLIB can take several seconds to respond. Release the database
+        # connection before waiting on that external service, then reload the
+        # cache row before saving in case another request filled it meanwhile.
+        await session.rollback()
+
         try:
             fetched = await fetch_lrclib_lyrics(
-                title=track.title,
-                artist=track.artist,
-                album=track.album,
-                duration_seconds=(track.duration_seconds),
+                title=track_title,
+                artist=track_artist,
+                album=track_album,
+                duration_seconds=track_duration_seconds,
             )
 
         except LrclibRateLimitedError as exc:
@@ -468,9 +479,14 @@ async def get_track_lyrics(
                 detail=("Lyrics service is temporarily unavailable."),
             ) from exc
 
+        cached = await session.get(
+            TrackLyrics,
+            track_id,
+        )
+
         if cached is None:
             lyrics_row = TrackLyrics(
-                track_id=track.id,
+                track_id=track_id,
             )
 
             session.add(
@@ -560,8 +576,9 @@ async def get_track_artwork(track_id: UUID):
             content_type = "image/jpeg"
 
         cache_seconds = max(settings.b2_presigned_url_ttl_seconds, 300)
+        body = await stream_b2_file(downloaded)
         return StreamingResponse(
-            stream_b2_file(downloaded),
+            body,
             media_type=content_type,
             headers={
                 "Cache-Control": (
@@ -570,6 +587,8 @@ async def get_track_artwork(track_id: UUID):
                 "Vary": "Origin",
             },
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,

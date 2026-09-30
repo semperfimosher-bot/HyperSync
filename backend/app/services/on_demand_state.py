@@ -16,6 +16,12 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import (
+    insert as postgresql_insert,
+)
+from sqlalchemy.dialects.sqlite import (
+    insert as sqlite_insert,
+)
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import (
     SQLAlchemyError,
@@ -182,6 +188,31 @@ async def persist_candidates(
             now = _now()
             expiry = _expires_at()
 
+            # Provider results can overlap across requests. Collapse duplicate
+            # keys in one batch and use a database upsert so concurrent batches
+            # cannot race between SELECT and INSERT on the candidate PK.
+            unique_candidates = {
+                candidate.key: candidate
+                for candidate in candidates
+            }
+            rows = [
+                {
+                    "candidate_key": candidate.key,
+                    "payload": candidate.as_dict(),
+                    "expires_at": expiry,
+                }
+                for candidate in unique_candidates.values()
+            ]
+
+            dialect_name = session.get_bind().dialect.name
+            if dialect_name == "postgresql":
+                dialect_insert = postgresql_insert
+            elif dialect_name == "sqlite":
+                dialect_insert = sqlite_insert
+            else:
+                _warn_once("candidate persistence with unsupported database")
+                return False
+
             await session.execute(
                 delete(
                     OnDemandCandidate,
@@ -191,57 +222,23 @@ async def persist_candidates(
                 )
             )
 
-            keys = [
-                candidate.key
-                for candidate
-                in candidates
-            ]
-
-            existing_result = (
-                await session.execute(
-                    select(
-                        OnDemandCandidate,
-                    ).where(
-                        OnDemandCandidate
-                        .candidate_key.in_(
-                            keys,
-                        )
-                    )
+            statement = dialect_insert(
+                OnDemandCandidate,
+            ).values(
+                rows,
+            )
+            await session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[
+                        OnDemandCandidate.candidate_key,
+                    ],
+                    set_={
+                        "payload": statement.excluded.payload,
+                        "expires_at": statement.excluded.expires_at,
+                        "updated_at": now,
+                    },
                 )
             )
-
-            existing = {
-                row.candidate_key:
-                    row
-                for row
-                in existing_result
-                .scalars()
-                .all()
-            }
-
-            for candidate in candidates:
-                row = existing.get(
-                    candidate.key,
-                )
-
-                if row is None:
-                    session.add(
-                        OnDemandCandidate(
-                            candidate_key=(
-                                candidate.key
-                            ),
-                            payload=(
-                                candidate.as_dict()
-                            ),
-                            expires_at=expiry,
-                        )
-                    )
-                else:
-                    row.payload = (
-                        candidate.as_dict()
-                    )
-                    row.expires_at = expiry
-                    row.updated_at = now
 
             await session.commit()
 

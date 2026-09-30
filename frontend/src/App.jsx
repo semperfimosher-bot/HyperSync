@@ -167,7 +167,7 @@ const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
   750;
 
 const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
-  1000;
+  10000;
 
 const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
   750;
@@ -2573,6 +2573,9 @@ export default function App() {
     let liveReconnectTimer =
       null;
 
+    let liveReconnectAttempts =
+      0;
+
     const deviceId =
       playbackDeviceIdRef.current;
 
@@ -3365,6 +3368,10 @@ export default function App() {
           notifyListeningHistoryChanged();
         }
 
+        if (event.type === "ready") {
+          liveReconnectAttempts = 0;
+        }
+
         if (
           event.type ===
             "presence_changed"
@@ -3391,7 +3398,11 @@ export default function App() {
 
               void connectLive();
             },
-            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+            Math.min(
+              30000,
+              ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS *
+                2 ** liveReconnectAttempts++,
+            ) * (0.8 + Math.random() * 0.4),
           );
       };
 
@@ -3525,7 +3536,12 @@ export default function App() {
         pollInterval =
           window.setInterval(
             () => {
-              void pollDevice();
+              // HTTP polling is the fallback for a disconnected realtime
+              // socket. Polling every second alongside a healthy socket
+              // needlessly holds database connections under active use.
+              if (!liveConnection?.isReady?.()) {
+                void pollDevice();
+              }
             },
             ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
           );
@@ -3535,7 +3551,9 @@ export default function App() {
 
     const handleFocus =
       () => {
-        void pollDevice();
+        if (!liveConnection?.isReady?.()) {
+          void pollDevice();
+        }
         void connectLive();
       };
 
@@ -3545,7 +3563,9 @@ export default function App() {
           document.visibilityState ===
             "visible"
         ) {
-          void pollDevice();
+          if (!liveConnection?.isReady?.()) {
+            void pollDevice();
+          }
           void connectLive();
         }
       };

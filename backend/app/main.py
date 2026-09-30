@@ -8,6 +8,11 @@ from contextlib import (
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import (
+    OperationalError as SQLAlchemyOperationalError,
+    TimeoutError as SQLAlchemyPoolTimeoutError,
+)
 
 from bot.runtime import (
     shutdown_background_tasks,
@@ -430,6 +435,45 @@ app = FastAPI(
         else None
     ),
 )
+
+
+@app.exception_handler(SQLAlchemyPoolTimeoutError)
+async def database_pool_timeout_response(
+    request: Request,
+    exc: SQLAlchemyPoolTimeoutError,
+) -> JSONResponse:
+    # Pool exhaustion is temporary overload, not an unhandled application
+    # failure. Return retry guidance without exposing connection details.
+    logger.warning(
+        "Database connection pool exhausted; returning a retryable response."
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Service is temporarily busy. Please retry shortly."
+        },
+        headers={"Retry-After": "2"},
+    )
+
+
+@app.exception_handler(SQLAlchemyOperationalError)
+async def database_unavailable_response(
+    request: Request,
+    exc: SQLAlchemyOperationalError,
+) -> JSONResponse:
+    # Connection resets and other driver-level operational failures should be
+    # retryable service errors, not opaque internal-server failures.
+    logger.warning(
+        "Database operation failed (%s); returning a retryable response.",
+        type(exc.orig).__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database is temporarily unavailable. Please retry shortly."
+        },
+        headers={"Retry-After": "2"},
+    )
 
 app.add_middleware(
     CORSMiddleware,
