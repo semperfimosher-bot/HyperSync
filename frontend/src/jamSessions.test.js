@@ -15,3 +15,13 @@ test("a pending poll cannot replace a newer mutation or new Jam", () => {
   assert.equal(shouldApplyJamRefresh("user", "user", null, current, null), false);
   assert.equal(shouldApplyJamRefresh("user", "user", before, before, current), true);
 });
+
+test("Home's Jam action requests the persistent controller", async () => {
+  const { OPEN_JAM_EVENT, requestJamPanel } = await import("./jamSessions.js");
+  const target = new EventTarget();
+  let opened = 0;
+  target.addEventListener(OPEN_JAM_EVENT, () => { opened += 1; });
+  requestJamPanel(target);
+  assert.equal(opened, 1);
+  assert.doesNotThrow(() => requestJamPanel(null));
+});

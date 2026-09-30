@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import * as player from "../../audioPlayer.js";
 import { apiRequest } from "../../api/client.js";
-import { createJam, getCurrentJam, jamAction, joinJam, shouldApplyJamRefresh } from "../../jamSessions.js";
+import { OPEN_JAM_EVENT, createJam, getCurrentJam, jamAction, joinJam, shouldApplyJamRefresh } from "../../jamSessions.js";
 import { jamPlaybackAction, jamPlaybackStillWanted, shouldAdvanceJamOnEnded } from "../../jamSync.js";
 import "./jamPanel.css";
 
 const errorText = (error) => error?.detail || error?.message || "Jam is unavailable. Try again.";
 
-export default function JamPanel({ currentUser, onOpenAuth }) {
+export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
   const [open, setOpen] = useState(false);
   const [jam, setJam] = useState(null);
   const [invite, setInvite] = useState("");
@@ -181,16 +181,15 @@ export default function JamPanel({ currentUser, onOpenAuth }) {
     void run(() => mutate("/queue/reorder", { item_ids: itemIds }));
   };
 
+  useEffect(() => {
+    const show = () => { if (!homeActive) return; if (registered) setOpen(true); else onOpenAuth?.(); };
+    window.addEventListener(OPEN_JAM_EVENT, show);
+    return () => window.removeEventListener(OPEN_JAM_EVENT, show);
+  }, [homeActive, registered, onOpenAuth]);
+
   return (
-    <div className="jam-control">
-      <button type="button" className="jam-trigger" aria-expanded={open}
-        onClick={() => {
-          if (!registered) { onOpenAuth?.(); return; }
-          setOpen(!open);
-        }}>
-        {jam ? "Jam · Live" : "Start a Jam"}
-      </button>
-      {open && registered ? (
+    <div className="jam-control" style={{ display: "contents" }}>
+      {homeActive && open && registered ? (
         <section className="jam-panel" aria-label="Jam session">
           <header><strong>{jam ? "Your Jam" : "Listen together"}</strong>
             <button type="button" aria-label="Close Jam panel" onClick={() => setOpen(false)}>×</button>

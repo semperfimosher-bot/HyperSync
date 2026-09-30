@@ -4,6 +4,7 @@ import {
 
 import {
   getAccessToken,
+  hasStoredSession,
 } from "./api/storage.js";
 
 import {
@@ -46,6 +47,7 @@ import {
 
 import {
   notifyListeningHistoryChanged,
+  canRecordListeningHistory,
 } from "./homeRecentlyPlayed.js";
 
 import {
@@ -594,7 +596,7 @@ function beginListeningEvent(
   trackId,
   meta = {},
 ) {
-  if (!getAccessToken()) {
+  if (!canRecordListeningHistory(getAccessToken(), hasStoredSession())) {
     activeListeningEvent =
       null;
 

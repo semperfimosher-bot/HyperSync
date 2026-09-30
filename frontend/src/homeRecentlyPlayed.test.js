@@ -5,7 +5,14 @@ import {
   getHomeRecentlyPlayed,
   notifyListeningHistoryChanged,
   subscribeListeningHistoryChanged,
+  canRecordListeningHistory,
 } from "./homeRecentlyPlayed.js";
+
+test("remembered sessions record history while their access token is refreshing", () => {
+  assert.equal(canRecordListeningHistory(null, true), true);
+  assert.equal(canRecordListeningHistory("token", false), true);
+  assert.equal(canRecordListeningHistory(null, false), false);
+});
 
 
 test(
@@ -105,3 +112,10 @@ test(
     );
   },
 );
+
+ test("older history responses cannot overwrite newer playback or another account", async () => {
+  const { isCurrentHistoryResponse } = await import("./homeRecentlyPlayed.js");
+  assert.equal(isCurrentHistoryResponse(1, 2, "alice", "alice"), false);
+  assert.equal(isCurrentHistoryResponse(2, 2, "alice", "bob"), false);
+  assert.equal(isCurrentHistoryResponse(2, 2, "alice", "alice"), true);
+});
