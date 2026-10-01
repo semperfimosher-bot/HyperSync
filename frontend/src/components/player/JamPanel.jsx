@@ -24,6 +24,7 @@ export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
   const activeUser = useRef(null);
   const optInNow = useRef(false);
   const syncing = useRef(false);
+  const refreshInFlight = useRef(false);
   const joinAttempt = useRef(null);
   const userId = currentUser?.id;
   activeUser.current = userId;
@@ -38,7 +39,8 @@ export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!registered) return;
+    if (!registered || refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       const requestUserId = userId;
       const before = latest.current;
@@ -48,6 +50,8 @@ export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
     } catch (failure) {
       // Keep the last known snapshot through a transient network outage.
       setError(errorText(failure));
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [apply, registered, userId]);
 
@@ -57,10 +61,22 @@ export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
       setOptIn(false);
       return undefined;
     }
-    void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, 2000);
-    return () => window.clearInterval(timer);
-  }, [registered, refresh, apply]);
+    let cancelled = false;
+    let timer = null;
+    const schedule = () => {
+      if (cancelled) return;
+      const interval = latest.current ? 5000 : (open ? 10000 : 30000);
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState !== "hidden") await refresh();
+        schedule();
+      }, interval);
+    };
+    void refresh().finally(schedule);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [registered, refresh, apply, open]);
 
   useEffect(() => {
     if (managedTrack.current && player.getState().trackId === managedTrack.current) {

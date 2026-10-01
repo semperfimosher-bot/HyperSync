@@ -1,8 +1,12 @@
 import asyncio
+import json
+from unittest.mock import Mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyPoolTimeoutError
 
 from backend.app import main as main_module
 from backend.app.api.routes import health as health_route
@@ -36,6 +40,42 @@ async def test_live_health() -> None:
 
     assert response.status_code == 200
     assert response.json()["api"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_database_pool_timeout_returns_retryable_service_unavailable() -> None:
+    error = SQLAlchemyPoolTimeoutError("pool exhausted")
+
+    response = await main_module.database_pool_timeout_response(
+        request=Mock(),
+        exc=error,
+    )
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "2"
+    assert json.loads(bytes(response.body)) == {
+        "detail": "Service is temporarily busy. Please retry shortly."
+    }
+
+
+@pytest.mark.asyncio
+async def test_database_connection_failure_returns_retryable_service_unavailable() -> None:
+    error = SQLAlchemyOperationalError(
+        "connect",
+        {},
+        ConnectionResetError("connection reset by peer"),
+    )
+
+    response = await main_module.database_unavailable_response(
+        request=Mock(),
+        exc=error,
+    )
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "2"
+    assert json.loads(bytes(response.body)) == {
+        "detail": "Database is temporarily unavailable. Please retry shortly."
+    }
 
 
 @pytest.mark.asyncio

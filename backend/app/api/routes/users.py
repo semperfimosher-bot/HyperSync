@@ -1125,10 +1125,9 @@ async def touch_playback_device(
         )
 
     # Presence is written with one database statement instead of
-    # loading an ORM row and mutating it. The HTTP poll and live
-    # WebSocket heartbeat can arrive at the same time, and stale
-    # cleanup may also be running. An upsert makes all three cases
-    # safe without an ORM UPDATE expecting a row that was deleted.
+    # loading an ORM row and mutating it. HTTP polling and WebSocket
+    # connect/disconnect updates can race with stale cleanup, so an
+    # upsert avoids ORM updates against rows that cleanup deleted.
     await session.execute(
         statement,
     )
@@ -2637,6 +2636,7 @@ async def live_playback_device(
     websocket: WebSocket,
 ):
     await websocket.accept()
+    session_factory = get_session_factory()
 
     user: User | None = None
     device_id = ""
@@ -2718,10 +2718,6 @@ async def live_playback_device(
                 code=4401,
             )
             return
-
-        session_factory = (
-            get_session_factory()
-        )
 
         async with session_factory() as session:
             try:
@@ -2826,12 +2822,9 @@ async def live_playback_device(
         )
 
         while True:
-            # Do not expire an authenticated playback socket just
-            # because its JavaScript heartbeat was throttled.
-            # Mobile browsers commonly suspend timers while the
-            # screen is locked or another app is foregrounded.
-            # The WebSocket itself remains the strongest presence
-            # signal and disconnect cleanup handles a real close.
+            # A heartbeat keeps the WebSocket active but does not need
+            # a database connection. The hub tracks connected presence;
+            # connect/disconnect events persist the grace-period timestamp.
             message = (
                 await websocket.receive_json()
             )
@@ -3034,36 +3027,10 @@ async def live_playback_device(
 
                 continue
 
-            if message_type not in {
-                "heartbeat",
-                "presence",
-            }:
-                continue
-
-            async with session_factory() as session:
-                now = datetime.now(
-                    UTC,
-                )
-
-                await touch_playback_device(
-                    session,
-                    user,
-                    device_id=device_id,
-                    name=name,
-                    device_type=cast(
-                        PlaybackDeviceKind,
-                        device_type,
-                    ),
-                    now=now,
-                )
-
-                await prune_offline_playback_devices(
-                    session,
-                    user,
-                    now=now,
-                )
-
-                await session.commit()
+            # Heartbeats and presence frames keep the socket active. The
+            # in-memory hub is the source of truth while connected, so these
+            # frames do not need a database checkout.
+            continue
 
     except WebSocketDisconnect:
         pass
@@ -3096,12 +3063,30 @@ async def live_playback_device(
             # Wi-Fi changes, mobile backgrounding, and normal
             # reconnects all create short disconnect windows.
             #
-            # Do not delete the shared playback_devices row here.
-            # HTTP polling may already be refreshing that same
-            # device, which previously raced this DELETE and
-            # produced SQLAlchemy StaleDataError. The existing
-            # background-tolerant presence TTL removes truly
-            # offline devices and releases playback ownership.
+            # Persist the disconnect time once to preserve the short
+            # reconnect grace period. The open socket and heartbeats do
+            # not hold or repeatedly acquire database connections.
+            try:
+                async with session_factory() as session:
+                    await touch_playback_device(
+                        session,
+                        user,
+                        device_id=device_id,
+                        name=name,
+                        device_type=cast(
+                            PlaybackDeviceKind,
+                            device_type,
+                        ),
+                        now=datetime.now(UTC),
+                    )
+                    await session.commit()
+            except Exception:
+                logger.warning(
+                    "Unable to persist playback device disconnect for %s",
+                    device_id,
+                    exc_info=True,
+                )
+
             await playback_realtime_hub.broadcast(
                 user.id,
                 {
@@ -4016,15 +4001,17 @@ async def get_user_avatar(
         if not content_type:
             content_type = "image/jpeg"
 
+        body = await stream_b2_file(downloaded)
         return StreamingResponse(
-            stream_b2_file(
-                downloaded,
-            ),
+            body,
             media_type=content_type,
             headers={
                 "Cache-Control": ("public, max-age=300, stale-while-revalidate=600"),
             },
         )
+
+    except HTTPException:
+        raise
 
     except Exception as exc:
         raise HTTPException(

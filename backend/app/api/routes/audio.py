@@ -21,6 +21,20 @@ router = APIRouter(
 
 
 STREAM_CHUNK_SIZE = 1024 * 1024
+# Each active B2 stream needs a dedicated blocking writer thread in addition
+# to an async request. Bound this independently of the DB pool so a burst of
+# long-lived media requests cannot create an unbounded number of OS threads.
+_b2_stream_slots: threading.BoundedSemaphore | None = None
+_b2_stream_slots_lock = threading.Lock()
+
+
+def _get_b2_stream_slots() -> threading.BoundedSemaphore:
+    global _b2_stream_slots
+    with _b2_stream_slots_lock:
+        if _b2_stream_slots is None:
+            limit = min(max(1, int(get_settings().audio_stream_max_concurrency)), 64)
+            _b2_stream_slots = threading.BoundedSemaphore(limit)
+        return _b2_stream_slots
 
 
 def range_error(
@@ -187,65 +201,86 @@ def safe_filename(
     return f"{filename}.mp3"
 
 
-async def stream_b2_file(
-    downloaded,
-):
-    read_fd, write_fd = os.pipe()
+async def stream_b2_file(downloaded):
+    """Prepare a bounded B2 stream before response headers are sent.
 
-    error: list[BaseException] = []
-
-    def download() -> None:
-        try:
-            with os.fdopen(
-                write_fd,
-                "wb",
-                buffering=0,
-            ) as output:
-                downloaded.save(
-                    output,
-                    allow_seeking=False,
-                )
-
-        except BaseException as exc:
-            error.append(exc)
-
-            try:
-                os.close(write_fd)
-            except OSError:
-                pass
-
-    thread = threading.Thread(
-        target=download,
-        daemon=True,
-    )
-
-    thread.start()
-
-    try:
-        while True:
-            chunk = await asyncio.to_thread(
-                os.read,
-                read_fd,
-                STREAM_CHUNK_SIZE,
-            )
-
-            if not chunk:
-                break
-
-            yield chunk
-
-        await asyncio.to_thread(
-            thread.join,
+    The SDK's ``save`` call blocks, so each live stream requires a writer
+    thread. Acquire capacity before returning the response to let the route
+    return a retryable 503 instead of starting unlimited threads.
+    """
+    slots = _get_b2_stream_slots()
+    if not slots.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audio streaming capacity is busy. Please retry shortly.",
+            headers={"Retry-After": "2"},
         )
 
-        if error:
-            raise error[0]
+    read_fd = write_fd = None
+    thread = None
+    error: list[BaseException] = []
 
-    finally:
+    try:
+        read_fd, write_fd = os.pipe()
+        reader_descriptor = read_fd
+        writer_descriptor = write_fd
+
+        def download() -> None:
+            try:
+                with os.fdopen(writer_descriptor, "wb", buffering=0) as output:
+                    downloaded.save(output, allow_seeking=False)
+            except BaseException as exc:
+                error.append(exc)
+                # fdopen's context manager owns and closes the descriptor,
+                # including when save() raises. Closing it again here could
+                # close a different request's descriptor after OS reuse.
+            finally:
+                # A slot tracks the dedicated OS writer, not how quickly a
+                # client drains bytes already buffered in the pipe.
+                slots.release()
+
+        thread = threading.Thread(target=download, daemon=True)
+        thread.start()
+    except BaseException:
+        for descriptor in (read_fd, write_fd):
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+        slots.release()
+        raise
+
+    assert read_fd is not None
+    assert thread is not None
+
+    async def body():
         try:
-            os.close(read_fd)
-        except OSError:
-            pass
+            while True:
+                chunk = await asyncio.to_thread(
+                    os.read,
+                    reader_descriptor,
+                    STREAM_CHUNK_SIZE,
+                )
+                if not chunk:
+                    break
+                yield chunk
+
+            await asyncio.to_thread(thread.join)
+            if error:
+                raise error[0]
+        finally:
+            try:
+                os.close(reader_descriptor)
+            except OSError:
+                pass
+            # Closing the reader releases a writer blocked on a disconnected
+            # client. Bound request cleanup if the upstream SDK is still
+            # waiting on its own network timeout; its slot remains held until
+            # the writer exits.
+            await asyncio.to_thread(thread.join, 5)
+
+    return body()
 
 
 def resolve_local_audio_fallback(
@@ -365,7 +400,10 @@ async def stream_audio(
             track.b2_object_key,
             range_=(start, end),
         )
-        body = stream_b2_file(downloaded)
+        body = await stream_b2_file(downloaded)
+
+    except HTTPException:
+        raise
 
     except Exception as storage_error:
         fallback_file = (

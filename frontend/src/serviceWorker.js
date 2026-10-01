@@ -1,3 +1,4 @@
+import { matchAppShell } from "./appShellCache.js";
 import {
   clearAllMediaDatabases,
   cleanupExpiredMedia,
@@ -1130,8 +1131,8 @@ globalThis.self?.addEventListener?.(
               );
 
             const cached =
-              await cache.match(
-                request,
+              await matchAppShell(
+                cache, request, self.location.origin,
               );
 
             if (cached) {

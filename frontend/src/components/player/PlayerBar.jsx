@@ -451,9 +451,7 @@ export default function PlayerBar({
         return;
       }
 
-      player.seekTo(
-        0,
-      );
+      void player.skipToPrevious();
     };
 
   const handleNext =

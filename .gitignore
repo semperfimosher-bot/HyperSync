@@ -27,3 +27,8 @@ local_dev.db
 # Never commit local merge/conflict recovery copies.
 *.conflict-backup
 *.conflict-backup-*
+
+# Verification evidence and disposable fixtures
+verification-results/
+frontend/test-results/
+frontend/playwright-report/

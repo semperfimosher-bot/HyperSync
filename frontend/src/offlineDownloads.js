@@ -654,21 +654,38 @@ export function getOfflineArtworkUrl(
 
 
 async function requestPersistentStorage() {
+  let timeoutId = null;
+
   try {
-    if (
+    const storage =
       globalThis.navigator
-        ?.storage
-        ?.persist
-    ) {
-      return await globalThis.navigator
-        .storage
-        .persist();
+        ?.storage;
+
+    if (typeof storage?.persist !== "function") {
+      return false;
     }
+
+    // Storage persistence is optional. Some browsers may wait for a
+    // permission decision, so it must never hold an offline download open.
+    return await Promise.race([
+      Promise.resolve()
+        .then(() => storage.persist())
+        .then(Boolean, () => false),
+      new Promise((resolve) => {
+        timeoutId = globalThis.setTimeout(
+          () => resolve(false),
+          500,
+        );
+      }),
+    ]);
   } catch {
     // Storage persistence is best effort.
+    return false;
+  } finally {
+    if (timeoutId !== null) {
+      globalThis.clearTimeout(timeoutId);
+    }
   }
-
-  return false;
 }
 
 
@@ -4040,3 +4057,4 @@ export async function isTrackDownloaded(
 
   return true;
 }
+

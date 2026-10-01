@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:offline": "node scripts/run-tests.mjs"
+    "test:offline": "node scripts/run-tests.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "music-metadata": "11.15.0",
@@ -15,6 +17,7 @@
     "react-dom": "19.2.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@vitejs/plugin-react": "6.0.3",
     "fake-indexeddb": "^6.2.5",
     "vite": "8.1.1"
