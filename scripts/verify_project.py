@@ -227,6 +227,19 @@ def execute_suite(args: argparse.Namespace) -> int:
                         result.status, result.detail = "failed", "No browser journeys executed"
                 elif result.status == "passed":
                     result.status, result.detail = "failed", "Missing browser result evidence"
+                print(f"browser-journeys: {result.status}", flush=True)
+                if result.detail:
+                    print(f"browser-journeys detail: {result.detail}", flush=True)
+                browser_log = run_dir / "browser-journeys.log"
+                if result.status != "passed" and browser_log.is_file():
+                    excerpt = browser_log.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    ).splitlines()[-100:]
+                    for line in excerpt:
+                        for secret in secrets:
+                            line = line.replace(secret, "[REDACTED]")
+                        print(f"browser-journeys log: {line}", flush=True)
                 app.close()
                 for log in environment.root.glob("server-*.log"):
                     text = log.read_text(errors="replace")
