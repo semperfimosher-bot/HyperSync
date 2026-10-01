@@ -7,8 +7,7 @@ test('Home context and keyboard menus open Jam and other pages preserve track me
   const panel = await openJam(page);
   await expect(panel).toBeVisible();
   await panel.getByRole('button', { name: 'Close Jam panel' }).click();
-  await page.locator('.home-page').focus();
-  await page.keyboard.press('Shift+F10');
+  await page.locator('.home-page').press('Shift+F10');
   await expect(page.getByRole('menuitem', { name: 'Jam', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await startTrack(page, manifest.tracks[0]);
@@ -63,3 +62,4 @@ test('active Jam survives navigation and a second member can join and reconnect'
     await guestContext.close();
   }
 });
+
