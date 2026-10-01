@@ -17,7 +17,10 @@ from bot.worker import (
 )
 
 from .api.router import api_router
-from .config import get_settings
+from .config import (
+    get_settings,
+    validate_runtime_configuration,
+)
 from .database import (
     check_database,
     close_database,
@@ -332,6 +335,8 @@ async def run_media_identity_backfill() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_runtime_configuration()
+
     # Pay any database wake-up/connection cost before any
     # startup routine touches the database. This keeps a
     # sleeping or temporarily unavailable database inside
