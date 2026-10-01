@@ -116,7 +116,6 @@ class Settings(BaseSettings):
     )
 
     admin_database_delete_password: str = ""
-
     admin_account_creation_password: str = ""
 
     bot_jwt_secret: str = ""
@@ -247,6 +246,65 @@ class Settings(BaseSettings):
     def sqlalchemy_migration_url(self) -> str:
         source = self.migration_database_url or self.database_url
         return _prepare_asyncpg_url(source)
+
+
+def validate_runtime_configuration(
+    settings: Settings | None = None,
+) -> None:
+    current = settings or get_settings()
+
+    if current.environment != "production":
+        return
+
+    failures: list[str] = []
+
+    if not current.database_url.strip():
+        failures.append("DATABASE_URL is required")
+
+    if len(current.jwt_secret.strip()) < 32:
+        failures.append("JWT_SECRET must contain at least 32 characters")
+
+    public_url = current.frontend_public_url.strip().lower()
+    if not public_url.startswith("https://"):
+        failures.append("FRONTEND_PUBLIC_URL must use HTTPS")
+
+    if any(
+        "localhost" in origin or "127.0.0.1" in origin
+        for origin in current.cors_origins
+    ):
+        failures.append("FRONTEND_ORIGINS must not contain localhost in production")
+
+    if "*" in current.cors_origins:
+        failures.append("FRONTEND_ORIGINS must not contain wildcard origins")
+
+    required_b2 = {
+        "B2_ENDPOINT": current.b2_endpoint,
+        "B2_KEY_ID": current.b2_key_id,
+        "B2_APPLICATION_KEY": current.b2_application_key,
+        "B2_BUCKET_NAME": current.b2_bucket_name,
+    }
+
+    missing_b2 = [
+        name
+        for name, value in required_b2.items()
+        if not str(value or "").strip()
+    ]
+
+    if missing_b2:
+        failures.append(
+            "missing B2 settings: " + ", ".join(missing_b2)
+        )
+
+    if (
+        current.b2_endpoint
+        and not current.b2_endpoint.strip().lower().startswith("https://")
+    ):
+        failures.append("B2_ENDPOINT must use HTTPS")
+
+    if failures:
+        raise RuntimeError(
+            "Invalid production configuration: " + "; ".join(failures)
+        )
 
 
 @lru_cache
