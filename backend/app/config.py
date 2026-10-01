@@ -58,10 +58,15 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
+    # Keep database concurrency bounded. These remain environment-configurable
+    # so production can be tuned to the actual Neon plan and replica count.
     db_pool_size: int = 5
-    db_max_overflow: int = 10
-    db_pool_timeout_seconds: int = 10
+    db_max_overflow: int = 5
+    db_pool_timeout_seconds: int = 5
     db_command_timeout_seconds: int = 30
+    api_max_concurrent_requests: int = 40
+    api_admission_timeout_seconds: float = 1.0
+    db_retry_after_seconds: int = 3
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
