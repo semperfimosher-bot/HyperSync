@@ -6,7 +6,13 @@ test('completed download survives disconnected reload and plays real cached audi
   await startTrack(page, manifest.tracks[0]);
   await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toBeVisible();
+  const downloaded = page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true });
+  const notice = page.locator('.track-action-menu__notice');
+  await expect.poll(async () => {
+    if (await downloaded.count()) return 'downloaded';
+    const message = (await notice.textContent().catch(() => ''))?.trim();
+    return message ? `failed: ${message}` : 'pending';
+  }).toBe('downloaded');
   await page.keyboard.press('Escape');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
@@ -34,7 +40,13 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
-  await expect.poll(() => aborted).toBeGreaterThan(0);
+  const notice = page.locator('.track-action-menu__notice');
+  await expect.poll(async () => {
+    if (aborted > 0) return 'aborted';
+    return (await notice.textContent().catch(() => ''))?.trim() || 'pending';
+  }).not.toBe('pending');
+  const downloadError = (await notice.textContent().catch(() => ''))?.trim();
+  expect(aborted, `The interrupted download should reach the simulated audio failure${downloadError ? `; UI reported: ${downloadError}` : ''}`).toBeGreaterThan(0);
   await expect(page.getByRole('menuitem', { name: 'Download for offline', exact: true })).toBeEnabled();
   await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
