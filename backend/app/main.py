@@ -17,11 +17,17 @@ from bot.worker import (
 )
 
 from .api.router import api_router
-from .config import get_settings
+from .config import (
+    get_settings,
+    validate_runtime_configuration,
+)
 from .database import (
     check_database,
     close_database,
     ensure_demo_data,
+)
+from .middleware.load_shed import (
+    install_load_shedding_middleware,
 )
 from .security.tokens import (
     InvalidAccessTokenError,
@@ -329,6 +335,8 @@ async def run_media_identity_backfill() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_runtime_configuration()
+
     # Pay any database wake-up/connection cost before any
     # startup routine touches the database. This keeps a
     # sleeping or temporarily unavailable database inside
@@ -440,6 +448,13 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+install_load_shedding_middleware(
+    app,
+    max_concurrent_requests=settings.api_max_concurrent_requests,
+    acquire_timeout_seconds=settings.api_admission_timeout_seconds,
+    retry_after_seconds=settings.db_retry_after_seconds,
+)
 
 @app.middleware("http")
 async def admin_activity_notifications(
