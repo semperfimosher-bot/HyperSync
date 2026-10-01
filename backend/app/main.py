@@ -23,6 +23,9 @@ from .database import (
     close_database,
     ensure_demo_data,
 )
+from .middleware.load_shed import (
+    install_load_shedding_middleware,
+)
 from .security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
@@ -440,6 +443,13 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+install_load_shedding_middleware(
+    app,
+    max_concurrent_requests=settings.api_max_concurrent_requests,
+    acquire_timeout_seconds=settings.api_admission_timeout_seconds,
+    retry_after_seconds=settings.db_retry_after_seconds,
+)
 
 @app.middleware("http")
 async def admin_activity_notifications(
