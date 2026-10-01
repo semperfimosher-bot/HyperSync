@@ -135,6 +135,23 @@ def execute_suite(args: argparse.Namespace) -> int:
                 results.append(result)
                 write_report(run_dir, metadata, results)
                 print(f"{name}: {result.status}", flush=True)
+                if result.status in {"failed", "blocked", "interrupted"}:
+                    if result.detail:
+                        print(f"{name} detail: {result.detail}", flush=True)
+                    log_path = run_dir / f"{name}.log"
+                    if log_path.is_file():
+                        # Keep CI logs actionable when the full report is
+                        # retained as an artifact. The runner redacts secrets
+                        # before writing this log; redact again at the point
+                        # of display as a defense in depth.
+                        excerpt = log_path.read_text(
+                            encoding="utf-8",
+                            errors="replace",
+                        ).splitlines()[-80:]
+                        for line in excerpt:
+                            for secret in secrets:
+                                line = line.replace(secret, "[REDACTED]")
+                            print(f"{name} log: {line}", flush=True)
                 if result.status == "interrupted":
                     interrupted = True
                     break
