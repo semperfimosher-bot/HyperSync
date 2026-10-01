@@ -28,7 +28,7 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   const track = manifest.tracks[2];
   let aborted = 0;
   const pattern = `**/api/audio/${track.id}**`;
-  await context.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
+  await page.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
   await navigate(page, 'Search');
   await page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first().fill(track.title);
   const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
@@ -41,9 +41,10 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('.hs-library-page:visible').getByText(track.title, { exact: true })).toHaveCount(0);
-  await context.unroute(pattern);
+  await page.unroute(pattern);
   await navigate(page, 'Search');
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toBeVisible();
 });
+
