@@ -62,7 +62,10 @@ async def test_admission_returns_retryable_503_and_keeps_liveness_open() -> None
     assert rejected.headers["retry-after"] == "1"
     assert "pool" not in rejected.text.lower()
     assert live_response.status_code == 200
-    assert ready_response.status_code == 200
+    # Readiness performs a database check in production, so it must be
+    # admission-controlled while liveness remains available under load.
+    assert ready_response.status_code == 503
+    assert ready_response.headers["retry-after"] == "1"
     assert accepted.status_code == 200
 
 
