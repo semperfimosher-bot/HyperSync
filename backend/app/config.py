@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_pool_timeout_seconds: int = 2
     db_command_timeout_seconds: int = 30
+    db_statement_timeout_ms: int = 30000
+    db_lock_timeout_ms: int = 5000
+    db_idle_transaction_timeout_ms: int = 30000
     api_max_concurrent_requests: int = 8
     api_admission_timeout_seconds: float = 1.0
 
@@ -204,6 +207,14 @@ class Settings(BaseSettings):
             raise ValueError("DB_MAX_OVERFLOW cannot be negative.")
         if self.db_pool_timeout_seconds < 1:
             raise ValueError("DB_POOL_TIMEOUT_SECONDS must be at least 1.")
+        if self.db_command_timeout_seconds < 1:
+            raise ValueError("DB_COMMAND_TIMEOUT_SECONDS must be at least 1.")
+        if self.db_statement_timeout_ms < 1:
+            raise ValueError("DB_STATEMENT_TIMEOUT_MS must be at least 1.")
+        if self.db_lock_timeout_ms < 1:
+            raise ValueError("DB_LOCK_TIMEOUT_MS must be at least 1.")
+        if self.db_idle_transaction_timeout_ms < 1:
+            raise ValueError("DB_IDLE_TRANSACTION_TIMEOUT_MS must be at least 1.")
         if self.api_max_concurrent_requests < 1:
             raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
         if self.api_admission_timeout_seconds < 0:
