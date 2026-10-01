@@ -42,6 +42,7 @@ def get_engine() -> AsyncEngine:
     engine_kwargs = {
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        "pool_use_lifo": True,
     }
 
     if database_url.startswith("sqlite"):
