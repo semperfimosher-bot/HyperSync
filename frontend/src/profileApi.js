@@ -6,6 +6,7 @@ import {
 export async function getMyProfile() {
   return apiRequest(
     "/users/me",
+    { cache: "no-store" },
   );
 }
 

@@ -23,3 +23,8 @@ export function shouldApplyJamRefresh(requestUserId, activeUserId, previous, cur
   if (next && current?.id === next.id && next.revision < current.revision) return false;
   return true;
 }
+
+export const OPEN_JAM_EVENT = "hypersynced:open-jam";
+export function requestJamPanel(target = globalThis.window) {
+  target?.dispatchEvent(new Event(OPEN_JAM_EVENT));
+}

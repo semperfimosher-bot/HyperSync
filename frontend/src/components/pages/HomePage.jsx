@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useRef,
 } from "react";
 
 import {
@@ -42,6 +43,7 @@ import {
 
 import {
   getHomeRecentlyPlayed,
+  isCurrentHistoryResponse,
   subscribeListeningHistoryChanged,
 } from "../../homeRecentlyPlayed.js";
 
@@ -126,11 +128,21 @@ function CachedArtwork({
   );
 }
 
+import HomeContextMenu from "../ui/HomeContextMenu.jsx";
+import useCollectionActionMenu from "../../hooks/useCollectionActionMenu.js";
+
 function HomePage({
   currentUser,
   onNavigate,
   onOpenAuth,
 }) {
+  const homeMenu = useCollectionActionMenu();
+  const homeTrigger = homeMenu.getTriggerProps({ key: "home" });
+  const historyRequest = useRef(0);
+  const historyOwner = useRef(currentUser?.id);
+  historyOwner.current = currentUser?.id;
+  const allowHomeMenu = (event) => !event.defaultPrevented && !event.target.closest("button, a, input, textarea, select, [role=menu], .track-action-layer");
+
   const online =
     useOnlineStatus();
 
@@ -180,6 +192,9 @@ const loadRecentlyPlayed =
     async ({
       quiet = false,
     } = {}) => {
+      const request = ++historyRequest.current;
+      const owner = currentUser?.id;
+      const isCurrent = () => isCurrentHistoryResponse(request, historyRequest.current, owner, historyOwner.current);
       if (!currentUser) {
         setRecentlyPlayed(
           [],
@@ -215,6 +230,7 @@ const loadRecentlyPlayed =
       if (offline) {
         const localTracks =
           await loadDownloadedFallback();
+        if (!isCurrent()) return;
 
         setRecentlyPlayed(
           localTracks,
@@ -227,10 +243,8 @@ const loadRecentlyPlayed =
               : "No downloaded tracks are available offline yet.",
           );
 
-          setRecentLoading(
-            false,
-          );
         }
+        setRecentLoading(false);
 
         return;
       }
@@ -238,6 +252,7 @@ const loadRecentlyPlayed =
       try {
         const profile =
           await getMyProfile();
+        if (!isCurrent()) return;
 
         setRecentlyPlayed(
           getHomeRecentlyPlayed(
@@ -251,6 +266,7 @@ const loadRecentlyPlayed =
       } catch (error) {
         const localTracks =
           await loadDownloadedFallback();
+        if (!isCurrent()) return;
 
         if (
           localTracks.length > 0
@@ -274,7 +290,7 @@ const loadRecentlyPlayed =
           );
         }
       } finally {
-        if (!quiet) {
+        if (isCurrent()) {
           setRecentLoading(
             false,
           );
@@ -290,6 +306,7 @@ const loadRecentlyPlayed =
 
 useEffect(() => {
   void loadRecentlyPlayed();
+  return () => { historyRequest.current += 1; };
 }, [
   loadRecentlyPlayed,
 ]);
@@ -386,7 +403,15 @@ useQuietRefresh(
   };
 
   return (
-    <div className="page-stack home-page">
+    <div className="page-stack home-page"
+      {...homeTrigger}
+      onContextMenu={(event) => { if (allowHomeMenu(event)) homeTrigger.onContextMenu(event); }}
+      onPointerDown={(event) => { if (allowHomeMenu(event)) homeTrigger.onPointerDown(event); }}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) homeTrigger.onContextMenu(event);
+      }}>
+      <HomeContextMenu menu={homeMenu.menu} onClose={homeMenu.closeMenu} />
 
       {/* =====================================================
           HYPERSYNC HERO
