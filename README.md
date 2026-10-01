@@ -1096,6 +1096,30 @@ The running API should use the pooled Neon URL.
 
 Alembic migrations should use the direct Neon URL.
 
+### Connection and request capacity
+
+The API pool defaults to 5 persistent connections plus 10 overflow
+connections, with a 2-second connection-acquisition timeout and a
+30-second database command timeout. The API admits at most 8 concurrent
+HTTP requests by default and waits at most 1 second for an admission slot.
+Requests over that limit receive `503 Service Unavailable` with
+`Retry-After: 1`; `/health/live` remains available during overload. SQLAlchemy
+pool-acquisition timeouts use the same response instead of leaking as a 500.
+
+`API_MAX_CONCURRENT_REQUESTS` must remain at least two below
+`DB_POOL_SIZE + DB_MAX_OVERFLOW`; startup validation rejects settings that
+consume the full pool. Uvicorn also caps accepted connections at 32 by default.
+When changing these values, multiply each process's pool capacity by every API
+replica and worker process that connects to the same database. Include the
+separate bot service if it uses the same database. Keep total connections
+within the provider's limit, and leave capacity for maintenance jobs and
+readiness checks.
+
+On-demand track and artist searches accept at most 100 results. The client
+requests the same cap, so the browser and API do not disagree about result
+size. Raise the cap only after adding pagination and checking provider and
+database work at that size.
+
 ### 22.1 Initial account tables
 
 - `users`

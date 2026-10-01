@@ -123,7 +123,7 @@ export function searchOnDemandMusic(
       q:
         query,
       limit:
-        "500",
+        "100",
     });
 
   return apiRequest(
@@ -144,7 +144,7 @@ export function searchOnDemandArtistMusic(
     Math.max(
       1,
       Math.min(
-        500,
+        100,
         Number.isFinite(
           Number(
             options.limit,
@@ -155,7 +155,7 @@ export function searchOnDemandArtistMusic(
                 options.limit,
               ),
             )
-          : 500,
+          : 100,
       ),
     );
 

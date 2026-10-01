@@ -8,6 +8,7 @@ from contextlib import (
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from bot.runtime import (
     shutdown_background_tasks,
@@ -22,6 +23,10 @@ from .database import (
     check_database,
     close_database,
     ensure_demo_data,
+)
+from .middleware.overload import (
+    DatabaseAdmissionMiddleware,
+    database_pool_timeout_handler,
 )
 from .security.tokens import (
     InvalidAccessTokenError,
@@ -432,11 +437,26 @@ app = FastAPI(
 )
 
 app.add_middleware(
+    DatabaseAdmissionMiddleware,
+    max_concurrent_requests=(
+        settings.api_max_concurrent_requests
+    ),
+    admission_timeout_seconds=(
+        settings.api_admission_timeout_seconds
+    ),
+)
+
+app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_exception_handler(
+    SQLAlchemyTimeoutError,
+    database_pool_timeout_handler,
 )
 
 app.include_router(api_router)

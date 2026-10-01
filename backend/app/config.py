@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -60,8 +61,10 @@ class Settings(BaseSettings):
     migration_database_url: str = ""
     db_pool_size: int = 5
     db_max_overflow: int = 10
-    db_pool_timeout_seconds: int = 10
+    db_pool_timeout_seconds: int = 2
     db_command_timeout_seconds: int = 30
+    api_max_concurrent_requests: int = 8
+    api_admission_timeout_seconds: float = 1.0
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -166,7 +169,7 @@ class Settings(BaseSettings):
     apple_search_min_interval_seconds: float = 3.1
     apple_search_cache_hours: int = 24
 
-    on_demand_search_limit: int = 500
+    on_demand_search_limit: int = 100
     on_demand_prewarm_limit: int = 8
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
@@ -192,6 +195,28 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
+
+    @model_validator(mode="after")
+    def validate_database_capacity(self) -> "Settings":
+        if self.db_pool_size < 1:
+            raise ValueError("DB_POOL_SIZE must be at least 1.")
+        if self.db_max_overflow < 0:
+            raise ValueError("DB_MAX_OVERFLOW cannot be negative.")
+        if self.db_pool_timeout_seconds < 1:
+            raise ValueError("DB_POOL_TIMEOUT_SECONDS must be at least 1.")
+        if self.api_max_concurrent_requests < 1:
+            raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
+        if self.api_admission_timeout_seconds < 0:
+            raise ValueError("API_ADMISSION_TIMEOUT_SECONDS cannot be negative.")
+
+        pool_capacity = self.db_pool_size + self.db_max_overflow
+        if self.api_max_concurrent_requests + 2 > pool_capacity:
+            raise ValueError(
+                "API_MAX_CONCURRENT_REQUESTS must leave at least two database "
+                "connections available for health checks and background work. "
+                "Tune it together with DB_POOL_SIZE and DB_MAX_OVERFLOW."
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

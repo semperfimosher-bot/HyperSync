@@ -39,4 +39,4 @@ CMD migration_attempt=1; \
         sleep "$sleep_seconds"; \
         migration_attempt=$((migration_attempt + 1)); \
     done; \
-    exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-127.0.0.1}" --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-1000} --backlog ${UVICORN_BACKLOG:-2048} --timeout-keep-alive ${UVICORN_KEEPALIVE_SECONDS:-10}
+    exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-127.0.0.1}" --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-32} --backlog ${UVICORN_BACKLOG:-256} --timeout-keep-alive ${UVICORN_KEEPALIVE_SECONDS:-10}
