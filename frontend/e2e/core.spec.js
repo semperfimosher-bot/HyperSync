@@ -49,6 +49,9 @@ test('pause resume and seek affect actual media', async ({ page, identity, manif
   await expectPlaybackAdvancing(page, manifest.tracks[0]);
 });
 
+test.describe('network race conditions', () => {
+test.use({ serviceWorkers: 'block' });
+
 test('delayed saved view cannot overwrite navigation after sign-in', async ({ page, identity }) => {
   let release;
   let captured;
@@ -158,3 +161,5 @@ test('navigation during remembered-session restore wins over saved view', async 
     await expect(page.locator('.desktop-topbar h1')).toHaveText('My Library');
   } finally { release(); }
 });
+});
+
