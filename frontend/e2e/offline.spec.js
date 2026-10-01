@@ -1,18 +1,48 @@
 import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
+function recordAudioRequests(page) {
+  const requests = [];
+  page.on('request', request => {
+    const url = request.url();
+    if (/\/api\/audio\/|\/__hypersync\/media\//.test(url)) requests.push(url);
+  });
+  return requests;
+}
+
+async function offlineMenuState(page, audioRequests) {
+  return page.evaluate(requests => {
+    const menu = document.querySelector('.track-action-menu');
+    return {
+      online: navigator.onLine,
+      menuText: menu?.innerText ?? null,
+      menuItems: [...(menu?.querySelectorAll('[role="menuitem"]') ?? [])].map(item => ({
+        text: item.innerText,
+        disabled: item.getAttribute('aria-disabled') === 'true' || item.hasAttribute('disabled'),
+      })),
+      notices: [...document.querySelectorAll('.track-action-menu__notice')].map(item => item.innerText),
+      audioRequests: requests,
+    };
+  }, audioRequests);
+}
+
 test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context }) => {
+  const audioRequests = recordAudioRequests(page);
   await login(page, identity);
   await startTrack(page, manifest.tracks[0]);
   await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
   const downloaded = page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true });
   const notice = page.locator('.track-action-menu__notice');
-  await expect.poll(async () => {
-    if (await downloaded.count()) return 'downloaded';
-    const message = (await notice.textContent().catch(() => ''))?.trim();
-    return message ? `failed: ${message}` : 'pending';
-  }).toBe('downloaded');
+  try {
+    await expect.poll(async () => {
+      if (await downloaded.count()) return 'downloaded';
+      const message = (await notice.textContent().catch(() => ''))?.trim();
+      return message ? `failed: ${message}` : 'pending';
+    }).toBe('downloaded');
+  } catch (error) {
+    throw new Error(`Offline download did not complete: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`);
+  }
   await page.keyboard.press('Escape');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
@@ -22,7 +52,7 @@ test('completed download survives disconnected reload and plays real cached audi
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('main')).toContainText(manifest.tracks[0].title);
   await context.setOffline(true);
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await page.getByText(manifest.tracks[0].title, { exact: true }).first().click();
@@ -30,6 +60,7 @@ test('completed download survives disconnected reload and plays real cached audi
 });
 
 test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
+  const audioRequests = recordAudioRequests(page);
   await login(page, identity);
   const track = manifest.tracks[2];
   let aborted = 0;
@@ -41,10 +72,14 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
   const notice = page.locator('.track-action-menu__notice');
-  await expect.poll(async () => {
-    if (aborted > 0) return 'aborted';
-    return (await notice.textContent().catch(() => ''))?.trim() || 'pending';
-  }).not.toBe('pending');
+  try {
+    await expect.poll(async () => {
+      if (aborted > 0) return 'aborted';
+      return (await notice.textContent().catch(() => ''))?.trim() || 'pending';
+    }).not.toBe('pending');
+  } catch (error) {
+    throw new Error(`Interrupted download stayed pending: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`);
+  }
   const downloadError = (await notice.textContent().catch(() => ''))?.trim();
   expect(aborted, `The interrupted download should reach the simulated audio failure${downloadError ? `; UI reported: ${downloadError}` : ''}`).toBeGreaterThan(0);
   await expect(page.getByRole('menuitem', { name: 'Download for offline', exact: true })).toBeEnabled();
