@@ -413,7 +413,12 @@ useQuietRefresh(
       onPointerDown={(event) => { if (allowHomeMenu(event)) homeTrigger.onPointerDown(event); }}
       tabIndex={0}
       onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) homeTrigger.onContextMenu(event);
+        if (
+          allowHomeMenu(event) &&
+          (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+        ) {
+          homeTrigger.onContextMenu(event);
+        }
       }}>
       <HomeContextMenu menu={homeMenu.menu} onClose={homeMenu.closeMenu} />
 

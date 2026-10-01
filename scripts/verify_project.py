@@ -213,8 +213,9 @@ def execute_suite(args: argparse.Namespace) -> int:
                                     if not errors:
                                         continue
                                     project = test.get("projectName", "browser")
+                                    title = spec.get("title", "journey")
                                     print(
-                                        f"browser failure [{project}] {spec.get('title', 'journey')}",
+                                        f"browser failure [{project}] {title}",
                                         flush=True,
                                     )
                                     for error in errors:
@@ -332,4 +333,3 @@ def execute_suite(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
