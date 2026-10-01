@@ -1,6 +1,10 @@
 import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
+// These journeys assert network failures and response ordering. A service
+// worker can answer the media request before Playwright's network route sees it.
+test.use({ serviceWorkers: 'block' });
+
 test('unavailable media has bounded retries and another track remains playable', async ({ page, identity, manifest, context }) => {
   await login(page, identity);
   let failedRequests = 0;
@@ -13,7 +17,7 @@ test('unavailable media has bounded retries and another track remains playable',
     `**/api/audio/${trackId}**`,
     `**/__hypersync/media/${trackId}/**`,
   ];
-  for (const pattern of audioPatterns) await context.route(pattern, failAudio);
+  for (const pattern of audioPatterns) await page.route(pattern, failAudio);
   await navigate(page, 'Search');
   await page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first().fill(manifest.tracks[0].title);
   await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click();
@@ -40,7 +44,7 @@ test('latest selection wins when an earlier audio response is delayed', async ({
     `**/api/audio/${trackId}**`,
     `**/__hypersync/media/${trackId}/**`,
   ];
-  for (const pattern of audioPatterns) await context.route(pattern, delayAudio);
+  for (const pattern of audioPatterns) await page.route(pattern, delayAudio);
   try {
     await navigate(page, 'Search');
     const query = page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first();
@@ -52,3 +56,4 @@ test('latest selection wins when an earlier audio response is delayed', async ({
     await expectPlaybackAdvancing(page, manifest.tracks[1]);
   } finally { release(); }
 });
+
