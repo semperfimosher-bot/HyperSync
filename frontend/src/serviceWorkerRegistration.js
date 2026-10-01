@@ -14,6 +14,25 @@ export async function registerHyperSyncServiceWorker(
     return null;
   }
 
+  /*
+   * Do not trigger a service-worker update check while the
+   * document is already offline. Module workers can have
+   * imported dependencies, and an update check can otherwise
+   * turn a working cached/offline app into a failed worker
+   * installation when those imports are not reachable.
+   *
+   * An existing active worker continues to control the page,
+   * so skipping registration here does not disable offline
+   * behavior. Registration resumes automatically on the next
+   * online page load.
+   */
+  if (
+    navigatorLike.onLine ===
+    false
+  ) {
+    return null;
+  }
+
   const scriptUrl =
     import.meta.env?.DEV
       ? "/sw-dev.js"

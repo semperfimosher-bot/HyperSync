@@ -30,6 +30,8 @@ test(
     };
 
     const navigatorLike = {
+      onLine:
+        true,
       serviceWorker: {
         async register(
           url,
@@ -71,6 +73,86 @@ test(
         updateViaCache:
           "none",
       },
+    );
+  },
+);
+
+
+test(
+  "offline pages do not start a service-worker update check",
+  async () => {
+    const registrationModule =
+      await loadRegistrationModule();
+
+    let registerCount =
+      0;
+
+    const navigatorLike = {
+      onLine:
+        false,
+      serviceWorker: {
+        async register() {
+          registerCount +=
+            1;
+
+          return {};
+        },
+      },
+    };
+
+    const registration =
+      await registrationModule.registerHyperSyncServiceWorker(
+        navigatorLike,
+      );
+
+    assert.equal(
+      registration,
+      null,
+    );
+
+    assert.equal(
+      registerCount,
+      0,
+    );
+  },
+);
+
+
+test(
+  "HyperSync still registers when online status is unknown",
+  async () => {
+    const registrationModule =
+      await loadRegistrationModule();
+
+    let registerCount =
+      0;
+
+    const expectedRegistration = {};
+
+    const navigatorLike = {
+      serviceWorker: {
+        async register() {
+          registerCount +=
+            1;
+
+          return expectedRegistration;
+        },
+      },
+    };
+
+    const registration =
+      await registrationModule.registerHyperSyncServiceWorker(
+        navigatorLike,
+      );
+
+    assert.equal(
+      registration,
+      expectedRegistration,
+    );
+
+    assert.equal(
+      registerCount,
+      1,
     );
   },
 );
