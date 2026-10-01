@@ -52,7 +52,7 @@ test('completed download survives disconnected reload and plays real cached audi
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('main')).toContainText(manifest.tracks[0].title);
   await context.setOffline(true);
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await page.getByText(manifest.tracks[0].title, { exact: true }).first().click();
@@ -62,6 +62,10 @@ test('completed download survives disconnected reload and plays real cached audi
 test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
+  await page.evaluate(async () => {
+    const { clearAllMediaDatabases } = await import('/src/mediaStore.js');
+    await clearAllMediaDatabases();
+  });
   const track = manifest.tracks[2];
   let aborted = 0;
   const pattern = `**/api/audio/${track.id}**`;
