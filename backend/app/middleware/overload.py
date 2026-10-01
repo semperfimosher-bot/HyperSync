@@ -11,9 +11,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 OVERLOAD_DETAIL = "The service is busy. Please retry shortly."
 RETRY_AFTER_SECONDS = "1"
 HEALTH_PATHS = {
-    "/health",
+    # Liveness must remain available during DB outages. Readiness probes
+    # execute SELECT 1, so they must pass through admission control rather
+    # than allowing an unbounded probe storm to consume DB connections.
     "/health/live",
-    "/health/ready",
 }
 
 
