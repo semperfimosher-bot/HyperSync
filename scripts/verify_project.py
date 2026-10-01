@@ -205,6 +205,28 @@ def execute_suite(args: argparse.Namespace) -> int:
                         for attempt in test.get("results", [])
                         for error in attempt.get("errors", [])
                     ]
+                    def report_browser_failures(suite: dict) -> None:
+                        for spec in suite.get("specs", []):
+                            for test in spec.get("tests", []):
+                                for attempt in test.get("results", []):
+                                    errors = attempt.get("errors", [])
+                                    if not errors:
+                                        continue
+                                    project = test.get("projectName", "browser")
+                                    print(
+                                        f"browser failure [{project}] {spec.get('title', 'journey')}",
+                                        flush=True,
+                                    )
+                                    for error in errors:
+                                        message = str(error.get("message", ""))
+                                        for secret in secrets:
+                                            message = message.replace(secret, "[REDACTED]")
+                                        print(message[:3000], flush=True)
+                        for child in suite.get("suites", []):
+                            report_browser_failures(child)
+
+                    for suite in browser_data.get("suites", []):
+                        report_browser_failures(suite)
                     missing_browser = any(
                         "Executable doesn't exist" in str(error.get("message", ""))
                         for error in browser_errors
@@ -310,3 +332,4 @@ def execute_suite(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
