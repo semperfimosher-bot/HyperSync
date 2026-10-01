@@ -153,3 +153,25 @@ def test_settings_reject_admission_capacity_that_uses_entire_pool() -> None:
             db_max_overflow=5,
             api_max_concurrent_requests=9,
         )
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "message"),
+    [
+        ("db_statement_timeout_ms", 0, "DB_STATEMENT_TIMEOUT_MS"),
+        ("db_lock_timeout_ms", 0, "DB_LOCK_TIMEOUT_MS"),
+        (
+            "db_idle_transaction_timeout_ms",
+            0,
+            "DB_IDLE_TRANSACTION_TIMEOUT_MS",
+        ),
+        ("db_command_timeout_seconds", 0, "DB_COMMAND_TIMEOUT_SECONDS"),
+    ],
+)
+def test_database_timeouts_must_be_positive(
+    setting: str,
+    value: int,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Settings(_env_file=None, **{setting: value})
