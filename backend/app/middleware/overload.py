@@ -135,7 +135,7 @@ class DatabaseAdmissionMiddleware:
 
 async def database_pool_timeout_handler(
     _request: Request,
-    _exc: SQLAlchemyTimeoutError,
+    _exc: Exception,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=503,
