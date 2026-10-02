@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
