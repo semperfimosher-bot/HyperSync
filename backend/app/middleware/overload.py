@@ -18,7 +18,15 @@ HEALTH_PATHS = {
 
 
 class DatabaseAdmissionMiddleware:
-    """Bound request work, without counting long-lived response streams."""
+    """Bound request setup, without counting long-lived streams or sockets.
+
+    This is an HTTP/WebSocket admission guard, not a substitute for the
+    SQLAlchemy connection pool's database-concurrency limit. Streaming
+    endpoints must finish database-backed setup before response headers and
+    must not perform database work from their body iterators. WebSocket
+    message handlers may continue after acceptance, so DB access there remains
+    bounded by the SQLAlchemy pool and its timeouts.
+    """
 
     def __init__(
         self,
@@ -114,9 +122,11 @@ class DatabaseAdmissionMiddleware:
                 )
             )
             if not permit_released and should_release:
-                # The endpoint has finished its request-time work. Do not let
-                # a StreamingResponse (audio/artwork/avatar) hold an API slot
-                # for the entire time the client downloads the response.
+                # Release the request-admission slot once response setup is
+                # complete. Current media routes fetch DB metadata and open
+                # their upstream/local source before returning StreamingResponse;
+                # their body iterators must remain DB-free. The SQLAlchemy pool
+                # is the hard limit for concurrent database connections.
                 self._semaphore.release()
                 permit_released = True
             await send(message)
