@@ -19,7 +19,7 @@ HEALTH_PATHS = {
 
 
 class DatabaseAdmissionMiddleware:
-    """Bound in-flight HTTP requests before they reach auth or database code."""
+    """Bound request work, without counting long-lived response streams."""
 
     def __init__(
         self,
@@ -98,16 +98,26 @@ class DatabaseAdmissionMiddleware:
                 )
             return
 
+        release_after_response_start = scope_type == "http"
         release_after_websocket_accept = scope_type == "websocket"
         permit_released = False
 
         async def guarded_send(message: Message) -> None:
             nonlocal permit_released
-            if (
-                release_after_websocket_accept
-                and not permit_released
-                and message["type"] == "websocket.accept"
-            ):
+            should_release = (
+                (
+                    release_after_response_start
+                    and message["type"] == "http.response.start"
+                )
+                or (
+                    release_after_websocket_accept
+                    and message["type"] == "websocket.accept"
+                )
+            )
+            if not permit_released and should_release:
+                # The endpoint has finished its request-time work. Do not let
+                # a StreamingResponse (audio/artwork/avatar) hold an API slot
+                # for the entire time the client downloads the response.
                 self._semaphore.release()
                 permit_released = True
             await send(message)
