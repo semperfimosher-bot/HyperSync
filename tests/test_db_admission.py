@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from starlette.types import Message, Receive, Scope, Send
 
 from backend.app.api.dependencies import get_current_user
 from backend.app.api.routes import on_demand
@@ -74,7 +75,7 @@ async def test_streaming_body_does_not_hold_admission_slot() -> None:
     headers_sent = asyncio.Event()
     release_body = asyncio.Event()
 
-    async def inner_app(scope, receive, send) -> None:
+    async def inner_app(scope: Scope, receive: Receive, send: Send) -> None:
         await send(
             {
                 "type": "http.response.start",
@@ -99,17 +100,17 @@ async def test_streaming_body_does_not_hold_admission_slot() -> None:
         admission_timeout_seconds=0.01,
     )
 
-    async def invoke(path: str) -> list[dict]:
-        messages: list[dict] = []
+    async def invoke(path: str) -> list[Message]:
+        messages: list[Message] = []
 
-        async def receive() -> dict:
+        async def receive() -> Message:
             return {
                 "type": "http.request",
                 "body": b"",
                 "more_body": False,
             }
 
-        async def send(message: dict) -> None:
+        async def send(message: Message) -> None:
             messages.append(message)
 
         scope = {
@@ -220,7 +221,7 @@ def test_settings_reject_admission_capacity_that_uses_entire_pool() -> None:
         match="leave at least two database connections",
     ):
         Settings(
-            _env_file=None,
+            _env_file=None,  # pyright: ignore[reportCallIssue]
             db_pool_size=5,
             db_max_overflow=5,
             api_max_concurrent_requests=9,
@@ -246,4 +247,4 @@ def test_database_timeouts_must_be_positive(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        Settings(_env_file=None, **{setting: value})
+        Settings(_env_file=None, **{setting: value})  # pyright: ignore[reportCallIssue]
