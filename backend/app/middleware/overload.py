@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -19,7 +18,15 @@ HEALTH_PATHS = {
 
 
 class DatabaseAdmissionMiddleware:
-    """Bound in-flight HTTP requests before they reach auth or database code."""
+    """Bound request setup, without counting long-lived streams or sockets.
+
+    This is an HTTP/WebSocket admission guard, not a substitute for the
+    SQLAlchemy connection pool's database-concurrency limit. Streaming
+    endpoints must finish database-backed setup before response headers and
+    must not perform database work from their body iterators. WebSocket
+    message handlers may continue after acceptance, so DB access there remains
+    bounded by the SQLAlchemy pool and its timeouts.
+    """
 
     def __init__(
         self,
@@ -98,16 +105,28 @@ class DatabaseAdmissionMiddleware:
                 )
             return
 
+        release_after_response_start = scope_type == "http"
         release_after_websocket_accept = scope_type == "websocket"
         permit_released = False
 
         async def guarded_send(message: Message) -> None:
             nonlocal permit_released
-            if (
-                release_after_websocket_accept
-                and not permit_released
-                and message["type"] == "websocket.accept"
-            ):
+            should_release = (
+                (
+                    release_after_response_start
+                    and message["type"] == "http.response.start"
+                )
+                or (
+                    release_after_websocket_accept
+                    and message["type"] == "websocket.accept"
+                )
+            )
+            if not permit_released and should_release:
+                # Release the request-admission slot once response setup is
+                # complete. Current media routes fetch DB metadata and open
+                # their upstream/local source before returning StreamingResponse;
+                # their body iterators must remain DB-free. The SQLAlchemy pool
+                # is the hard limit for concurrent database connections.
                 self._semaphore.release()
                 permit_released = True
             await send(message)
@@ -125,7 +144,7 @@ class DatabaseAdmissionMiddleware:
 
 async def database_pool_timeout_handler(
     _request: Request,
-    _exc: SQLAlchemyTimeoutError,
+    _exc: Exception,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=503,

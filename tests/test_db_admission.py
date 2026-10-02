@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from starlette.types import Message, Receive, Scope, Send
 
 from backend.app.api.dependencies import get_current_user
 from backend.app.api.routes import on_demand
@@ -67,6 +68,78 @@ async def test_admission_returns_retryable_503_and_keeps_liveness_open() -> None
     assert ready_response.status_code == 503
     assert ready_response.headers["retry-after"] == "1"
     assert accepted.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_streaming_body_does_not_hold_admission_slot() -> None:
+    headers_sent = asyncio.Event()
+    release_body = asyncio.Event()
+
+    async def inner_app(scope: Scope, receive: Receive, send: Send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+            }
+        )
+        if scope["path"] == "/stream":
+            headers_sent.set()
+            await release_body.wait()
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"ok",
+                "more_body": False,
+            }
+        )
+
+    middleware = DatabaseAdmissionMiddleware(
+        inner_app,
+        max_concurrent_requests=1,
+        admission_timeout_seconds=0.01,
+    )
+
+    async def invoke(path: str) -> list[Message]:
+        messages: list[Message] = []
+
+        async def receive() -> Message:
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        async def send(message: Message) -> None:
+            messages.append(message)
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+            "client": ("test", 1234),
+        }
+        await middleware(scope, receive, send)
+        return messages
+
+    streaming_request = asyncio.create_task(invoke("/stream"))
+    await headers_sent.wait()
+
+    # The first response is still streaming, but its request-time work has
+    # finished. A second request should therefore acquire the only slot.
+    second_response = await invoke("/other")
+    release_body.set()
+    first_response = await streaming_request
+
+    assert second_response[0]["status"] == 200
+    assert first_response[0]["status"] == 200
 
 
 @pytest.mark.asyncio
@@ -147,11 +220,12 @@ def test_settings_reject_admission_capacity_that_uses_entire_pool() -> None:
         ValueError,
         match="leave at least two database connections",
     ):
-        Settings(
-            _env_file=None,
-            db_pool_size=5,
-            db_max_overflow=5,
-            api_max_concurrent_requests=9,
+        Settings.model_validate(
+            {
+                "db_pool_size": 5,
+                "db_max_overflow": 5,
+                "api_max_concurrent_requests": 9,
+            }
         )
 
 
@@ -174,4 +248,4 @@ def test_database_timeouts_must_be_positive(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        Settings(_env_file=None, **{setting: value})
+        Settings.model_validate({setting: value})
