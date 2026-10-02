@@ -70,6 +70,78 @@ async def test_admission_returns_retryable_503_and_keeps_liveness_open() -> None
 
 
 @pytest.mark.asyncio
+async def test_streaming_body_does_not_hold_admission_slot() -> None:
+    headers_sent = asyncio.Event()
+    release_body = asyncio.Event()
+
+    async def inner_app(scope, receive, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+            }
+        )
+        if scope["path"] == "/stream":
+            headers_sent.set()
+            await release_body.wait()
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"ok",
+                "more_body": False,
+            }
+        )
+
+    middleware = DatabaseAdmissionMiddleware(
+        inner_app,
+        max_concurrent_requests=1,
+        admission_timeout_seconds=0.01,
+    )
+
+    async def invoke(path: str) -> list[dict]:
+        messages: list[dict] = []
+
+        async def receive() -> dict:
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        async def send(message: dict) -> None:
+            messages.append(message)
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+            "client": ("test", 1234),
+        }
+        await middleware(scope, receive, send)
+        return messages
+
+    streaming_request = asyncio.create_task(invoke("/stream"))
+    await headers_sent.wait()
+
+    # The first response is still streaming, but its request-time work has
+    # finished. A second request should therefore acquire the only slot.
+    second_response = await invoke("/other")
+    release_body.set()
+    first_response = await streaming_request
+
+    assert second_response[0]["status"] == 200
+    assert first_response[0]["status"] == 200
+
+
+@pytest.mark.asyncio
 async def test_sqlalchemy_pool_timeout_is_returned_as_retryable_503() -> None:
     test_app = FastAPI()
     test_app.add_exception_handler(
