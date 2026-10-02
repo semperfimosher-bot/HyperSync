@@ -247,4 +247,7 @@ def test_database_timeouts_must_be_positive(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        Settings(_env_file=None, **{setting: value})  # pyright: ignore[reportCallIssue]
+        Settings(
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            **{setting: value},
+        )
