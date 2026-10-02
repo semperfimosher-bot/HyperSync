@@ -42,6 +42,7 @@ def get_engine() -> AsyncEngine:
     engine_kwargs = {
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        "pool_use_lifo": True,
     }
 
     if database_url.startswith("sqlite"):
@@ -82,14 +83,17 @@ def get_engine() -> AsyncEngine:
 
         engine_kwargs["connect_args"] = {
             "ssl": ssl_context,
-            "command_timeout":
-                max(
-                    1,
-                    int(
-                        settings
-                        .db_command_timeout_seconds,
-                    ),
+            "command_timeout": max(1, int(settings.db_command_timeout_seconds)),
+            # Server-side limits still apply if a client task is stalled or
+            # cancelled. These bound runaway SQL, lock waits, and abandoned
+            # open transactions on PostgreSQL/Neon.
+            "server_settings": {
+                "statement_timeout": str(max(1, int(settings.db_statement_timeout_ms))),
+                "lock_timeout": str(max(1, int(settings.db_lock_timeout_ms))),
+                "idle_in_transaction_session_timeout": str(
+                    max(1, int(settings.db_idle_transaction_timeout_ms))
                 ),
+            },
         }
 
     return create_async_engine(
