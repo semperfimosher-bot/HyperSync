@@ -220,11 +220,12 @@ def test_settings_reject_admission_capacity_that_uses_entire_pool() -> None:
         ValueError,
         match="leave at least two database connections",
     ):
-        Settings(
-            _env_file=None,  # pyright: ignore[reportCallIssue]
-            db_pool_size=5,
-            db_max_overflow=5,
-            api_max_concurrent_requests=9,
+        Settings.model_validate(
+            {
+                "db_pool_size": 5,
+                "db_max_overflow": 5,
+                "api_max_concurrent_requests": 9,
+            }
         )
 
 
@@ -247,7 +248,4 @@ def test_database_timeouts_must_be_positive(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        Settings(
-            _env_file=None,  # pyright: ignore[reportCallIssue]
-            **{setting: value},
-        )
+        Settings.model_validate({setting: value})
