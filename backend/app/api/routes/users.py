@@ -3034,10 +3034,13 @@ async def live_playback_device(
 
                 continue
 
-            if message_type not in {
-                "heartbeat",
-                "presence",
-            }:
+            # A live WebSocket is the authoritative heartbeat for
+            # connected devices. Avoid a database session and write
+            # every time the client's 15-second heartbeat arrives.
+            if message_type == "heartbeat":
+                continue
+
+            if message_type != "presence":
                 continue
 
             async with session_factory() as session:
