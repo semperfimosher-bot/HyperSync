@@ -29,9 +29,13 @@ def main() -> None:
     )
 
     database_mode = (
-        "local SQLite"
-        if database_kind in {"none", "sqlite"}
-        else "remote PostgreSQL"
+        "Neon PostgreSQL"
+        if database_kind == "remote"
+        else (
+            "SQLite (tests only)"
+            if database_kind == "sqlite"
+            else "MISSING - Neon DATABASE_URL is required"
+        )
     )
 
     b2_ready = all(
