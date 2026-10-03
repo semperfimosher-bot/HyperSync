@@ -1095,7 +1095,8 @@ async def _run_ingest(
         )
 
         audio_task = asyncio.create_task(
-            download_youtube_audio(
+            _download_source_with_recovery(
+                session,
                 source,
             )
         )
@@ -1272,6 +1273,74 @@ async def _ensure_source(
         async with _lock:
             if session.source_task is task:
                 session.source_task = None
+
+
+async def _refresh_source(
+    session: ProvisionSession,
+) -> YouTubeSource | None:
+    """
+    Re-resolve a temporary media source after it expires or is rejected.
+
+    The refresh is shared through the session's source task so concurrent
+    playback requests cannot stampede the upstream resolver.
+    """
+    async with _lock:
+        if session.track_id is not None:
+            return None
+
+        task = session.source_task
+
+        if task is None:
+            session.source = None
+            session.error = None
+            session.state = "resolving"
+            session.updated_at = _now()
+            task = asyncio.create_task(
+                _resolve_source(session),
+            )
+            session.source_task = task
+
+    try:
+        await task
+    finally:
+        async with _lock:
+            if session.source_task is task:
+                session.source_task = None
+
+    return session.source
+
+
+async def _download_source_with_recovery(
+    session: ProvisionSession,
+    source: YouTubeSource,
+) -> DownloadedAudio:
+    try:
+        return await download_youtube_audio(
+            source,
+        )
+    except Exception as first_error:
+        # YouTube media URLs are short-lived. Resolve a fresh source once
+        # before marking the durable ingest as failed.
+        refreshed = await _refresh_source(
+            session,
+        )
+
+        if refreshed is None:
+            if session.track_id is not None:
+                raise RuntimeError(
+                    "The recording became available in the catalog.",
+                ) from first_error
+
+            raise
+
+        try:
+            return await download_youtube_audio(
+                refreshed,
+            )
+        except Exception as second_error:
+            raise RuntimeError(
+                "Temporary YouTube audio source failed after refresh.",
+            ) from second_error
 
 
 async def _ensure_ingest(
@@ -1812,9 +1881,16 @@ async def prepare_candidate(
         )
     )
 
-    await _ensure_source(
-        session,
-    )
+    try:
+        await _ensure_source(
+            session,
+        )
+    except Exception:
+        # A resolver failure can be transient (including upstream 403/5xx).
+        # Refresh once before exposing a preparation failure to the client.
+        await _refresh_source(
+            session,
+        )
 
     # Preparing a temporary stream must stay
     # metadata/source-only for normal users.
