@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [int]$FrontendPort = 0,
-    [int]$BackendPort = 0,
+    [int]$FrontendPort = 4153,
+    [int]$BackendPort = 8000,
     [switch]$NoBrowser,
     [switch]$StopOnly
 )
@@ -322,7 +322,7 @@ if ($BackendPort -gt 0) {
     }
 }
 else {
-    $BackendPort = Get-FirstFreePort -Candidates (8000..8020)
+    $BackendPort = 8000
 }
 
 if ($FrontendPort -gt 0) {
@@ -335,12 +335,7 @@ if ($FrontendPort -gt 0) {
     }
 }
 else {
-    $frontendCandidates = @(
-        4153
-        5173
-    ) + (4154..4199) + (5174..5199)
-
-    $FrontendPort = Get-FirstFreePort -Candidates $frontendCandidates
+    $FrontendPort = 4153
 }
 
 $FrontendUrl = "http://localhost:$FrontendPort"
