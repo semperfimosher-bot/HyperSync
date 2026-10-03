@@ -16,6 +16,12 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import (
+    insert as pg_insert,
+)
+from sqlalchemy.dialects.sqlite import (
+    insert as sqlite_insert,
+)
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import (
     SQLAlchemyError,
@@ -191,57 +197,139 @@ async def persist_candidates(
                 )
             )
 
-            keys = [
-                candidate.key
-                for candidate
-                in candidates
-            ]
-
-            existing_result = (
-                await session.execute(
-                    select(
-                        OnDemandCandidate,
-                    ).where(
-                        OnDemandCandidate
-                        .candidate_key.in_(
-                            keys,
-                        )
-                    )
-                )
-            )
-
-            existing = {
-                row.candidate_key:
-                    row
-                for row
-                in existing_result
-                .scalars()
-                .all()
+            # Candidate persistence is shared by concurrent API
+            # requests. A select-then-insert sequence can race:
+            # two requests can both observe a missing key and then
+            # both attempt to insert the same primary key. Use the
+            # database's native upsert so the uniqueness constraint
+            # remains the final authority under concurrency.
+            unique_candidates = {
+                candidate.key: candidate
+                for candidate in candidates
             }
 
-            for candidate in candidates:
-                row = existing.get(
-                    candidate.key,
+            values = [
+                {
+                    "candidate_key": candidate.key,
+                    "payload": candidate.as_dict(),
+                    "expires_at": expiry,
+                    "updated_at": now,
+                }
+                for candidate in unique_candidates.values()
+            ]
+
+            bind = session.get_bind()
+            dialect = (
+                bind.dialect.name
+                if bind is not None
+                else ""
+            )
+
+            if dialect == "postgresql":
+                statement = pg_insert(
+                    OnDemandCandidate,
+                ).values(
+                    values,
                 )
 
-                if row is None:
-                    session.add(
-                        OnDemandCandidate(
-                            candidate_key=(
-                                candidate.key
-                            ),
-                            payload=(
-                                candidate.as_dict()
-                            ),
-                            expires_at=expiry,
+                statement = statement.on_conflict_do_update(
+                    index_elements=[
+                        OnDemandCandidate.candidate_key,
+                    ],
+                    set_={
+                        "payload": (
+                            statement.excluded.payload
+                        ),
+                        "expires_at": (
+                            statement.excluded.expires_at
+                        ),
+                        "updated_at": (
+                            statement.excluded.updated_at
+                        ),
+                    },
+                )
+
+                await session.execute(
+                    statement,
+                )
+
+            elif dialect == "sqlite":
+                statement = sqlite_insert(
+                    OnDemandCandidate,
+                ).values(
+                    values,
+                )
+
+                statement = statement.on_conflict_do_update(
+                    index_elements=[
+                        OnDemandCandidate.candidate_key,
+                    ],
+                    set_={
+                        "payload": (
+                            statement.excluded.payload
+                        ),
+                        "expires_at": (
+                            statement.excluded.expires_at
+                        ),
+                        "updated_at": (
+                            statement.excluded.updated_at
+                        ),
+                    },
+                )
+
+                await session.execute(
+                    statement,
+                )
+
+            else:
+                # Keep a safe fallback for an unexpected SQLAlchemy
+                # dialect. Production PostgreSQL and local SQLite both
+                # take the native upsert paths above.
+                existing_result = (
+                    await session.execute(
+                        select(
+                            OnDemandCandidate,
+                        ).where(
+                            OnDemandCandidate
+                            .candidate_key.in_(
+                                list(
+                                    unique_candidates,
+                                ),
+                            )
                         )
                     )
-                else:
-                    row.payload = (
-                        candidate.as_dict()
+                )
+
+                existing = {
+                    row.candidate_key: row
+                    for row in existing_result
+                    .scalars()
+                    .all()
+                }
+
+                for candidate in unique_candidates.values():
+                    row = existing.get(
+                        candidate.key,
                     )
-                    row.expires_at = expiry
-                    row.updated_at = now
+
+                    if row is None:
+                        session.add(
+                            OnDemandCandidate(
+                                candidate_key=(
+                                    candidate.key
+                                ),
+                                payload=(
+                                    candidate.as_dict()
+                                ),
+                                expires_at=expiry,
+                            )
+                        )
+                    else:
+                        row.payload = (
+                            candidate.as_dict()
+                        )
+                        row.expires_at = expiry
+                        row.updated_at = now
 
             await session.commit()
 
