@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 import time
@@ -314,6 +315,75 @@ def _handle_rate_limit(
     )
 
 
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    *,
+    path: str,
+    params: dict[str, str | int],
+) -> httpx.Response:
+    """Make a provider request resilient to short-lived network failures."""
+    settings = get_settings()
+    attempts = max(settings.lrclib_retry_attempts, 1)
+    last_error: Exception | None = None
+
+    for attempt in range(attempts):
+        try:
+            response = await client.get(
+                path,
+                params=params,
+            )
+        except httpx.RequestError as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                break
+
+            delay = min(
+                settings.lrclib_retry_base_delay_seconds * (2**attempt),
+                settings.lrclib_retry_max_delay_seconds,
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+            continue
+
+        if response.status_code == 429:
+            retry_after = _retry_after_seconds(
+                response.headers.get("Retry-After"),
+            )
+            if (
+                attempt + 1 < attempts
+                and retry_after <= settings.lrclib_retry_max_delay_seconds
+            ):
+                await asyncio.sleep(retry_after)
+                continue
+
+            _handle_rate_limit(response)
+
+        if 500 <= response.status_code < 600:
+            if attempt + 1 >= attempts:
+                raise LrclibUnavailableError(
+                    "LRCLIB returned a temporary server error."
+                )
+
+            delay = min(
+                settings.lrclib_retry_base_delay_seconds * (2**attempt),
+                settings.lrclib_retry_max_delay_seconds,
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+            continue
+
+        return response
+
+    if last_error is not None:
+        raise LrclibUnavailableError(
+            "Unable to reach LRCLIB after retrying."
+        ) from last_error
+
+    raise LrclibUnavailableError(
+        "LRCLIB did not return a usable response."
+    )
+
+
 async def fetch_lrclib_lyrics(
     *,
     title: str,
@@ -358,8 +428,9 @@ async def fetch_lrclib_lyrics(
         ) as client:
             # First try LRCLIB's strict
             # exact metadata endpoint.
-            exact_response = await client.get(
-                "/api/get",
+            exact_response = await _request_with_retry(
+                client,
+                path="/api/get",
                 params=exact_params,
             )
 
@@ -395,8 +466,9 @@ async def fetch_lrclib_lyrics(
             #
             # Search by title + artist and verify
             # the candidates ourselves.
-            search_response = await client.get(
-                "/api/search",
+            search_response = await _request_with_retry(
+                client,
+                path="/api/search",
                 params={
                     "track_name": title,
                     "artist_name": artist,
