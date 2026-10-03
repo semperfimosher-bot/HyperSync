@@ -362,6 +362,51 @@ async def test_track_lyrics_passes_lrclib_retry_after(
             (f"/api/catalog/tracks/{track_id}/lyrics"),
         )
 
-    assert response.status_code == 503
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "not_found"
+    assert "Retry-After" not in response.headers
 
-    assert response.headers["Retry-After"] == "42"
+
+@pytest.mark.asyncio
+async def test_track_lyrics_hides_temporary_provider_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track_id = await create_track(
+        title="Provider Failure Test",
+        artist="HyperSync Test",
+        album="Test Album",
+        duration_seconds=180,
+    )
+
+    from backend.app.services.lrclib import LrclibUnavailableError
+
+    calls = 0
+
+    async def fake_fetch_lrclib_lyrics(**kwargs):
+        nonlocal calls
+        calls += 1
+        raise LrclibUnavailableError("temporary failure")
+
+    monkeypatch.setattr(
+        "backend.app.api.routes.catalog.fetch_lrclib_lyrics",
+        fake_fetch_lrclib_lyrics,
+    )
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        first = await client.get(
+            f"/api/catalog/tracks/{track_id}/lyrics",
+        )
+        second = await client.get(
+            f"/api/catalog/tracks/{track_id}/lyrics",
+        )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["status"] == "not_found"
+    assert second.json()["status"] == "not_found"
+    assert calls == 1
