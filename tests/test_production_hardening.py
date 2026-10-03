@@ -322,14 +322,14 @@ def test_production_database_requires_explicit_url(
         database_module.resolve_database_url()
 
 
-def test_development_database_preserves_sqlite_fallback(
+def test_test_database_allows_sqlite_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         database_module,
         "get_settings",
         lambda: SimpleNamespace(
-            environment="development",
+            environment="test",
             sqlalchemy_database_url="",
         ),
     )
