@@ -3525,7 +3525,11 @@ export default function App() {
         pollInterval =
           window.setInterval(
             () => {
-              void pollDevice();
+              // The live WebSocket owns realtime playback state.
+              // Poll only while the live connection is unavailable.
+              if (!liveConnection) {
+                void pollDevice();
+              }
             },
             ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
           );
