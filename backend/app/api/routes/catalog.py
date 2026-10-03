@@ -393,14 +393,6 @@ async def get_track_lyrics(
 
     settings = get_settings()
 
-    cooldown_until = _lyrics_provider_cooldown_until.get(track_id)
-    if cooldown_until is not None:
-        if cooldown_until > time.monotonic():
-            return TrackLyricsResponse(
-                status="not_found",
-            )
-        _lyrics_provider_cooldown_until.pop(track_id, None)
-
     session_factory = get_session_factory()
 
     async with session_factory() as session:
@@ -453,6 +445,14 @@ async def get_track_lyrics(
                 return _lyrics_response(
                     cached,
                 )
+
+        cooldown_until = _lyrics_provider_cooldown_until.get(track.id)
+        if cooldown_until is not None:
+            if cooldown_until > time.monotonic():
+                return TrackLyricsResponse(
+                    status="not_found",
+                )
+            _lyrics_provider_cooldown_until.pop(track.id, None)
 
         try:
             fetched = await fetch_lrclib_lyrics(
