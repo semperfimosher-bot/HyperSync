@@ -1,9 +1,15 @@
+import os
+
 import pytest
 
-from backend.app.database import close_database
+
+def pytest_configure() -> None:
+    os.environ["ENVIRONMENT"] = "test"
 
 
 @pytest.fixture(autouse=True)
 async def cleanup_database():
+    from backend.app.database import close_database
+
     yield
     await close_database()

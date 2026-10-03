@@ -200,6 +200,25 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
+    def validate_database_configuration(self) -> "Settings":
+        if self.environment in {"development", "production"}:
+            if not self.database_url.strip():
+                raise ValueError(
+                    "DATABASE_URL is required in development and production. "
+                    "Use the Neon PostgreSQL connection string for runtime."
+                )
+            if self.database_url.strip().lower().startswith("sqlite"):
+                raise ValueError(
+                    "SQLite DATABASE_URL is not allowed in development or production. "
+                    "Use the Neon PostgreSQL connection string instead."
+                )
+
+        if self.environment == "test" and not self.database_url.strip():
+            # Tests may intentionally use the SQLite fallback.
+            pass
+
+        return self.validate_database_capacity()
+
     def validate_database_capacity(self) -> "Settings":
         if self.db_pool_size < 1:
             raise ValueError("DB_POOL_SIZE must be at least 1.")

@@ -301,11 +301,18 @@ function Update-DatabaseSchema {
     }
 
     if ($databaseKind -eq "sqlite") {
-        Write-Host "SQLite local database detected; startup will ensure current local tables exist." -ForegroundColor DarkGray
-        return
+        throw (
+            "SQLite is not permitted for normal local development. " +
+            "Set DATABASE_URL to the Neon PostgreSQL runtime connection string " +
+            "in backend/.env, then run go again."
+        )
     }
 
-    Write-Host "No DATABASE_URL configured; HyperSync will use its local SQLite fallback." -ForegroundColor DarkGray
+    throw (
+        "DATABASE_URL is not configured. " +
+        "Local HyperSync development requires the real Neon PostgreSQL database. " +
+        "Set DATABASE_URL in backend/.env, then run go again."
+    )
 }
 
 Write-Host ""
