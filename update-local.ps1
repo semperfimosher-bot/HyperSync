@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [int]$FrontendPort = 0,
-    [int]$BackendPort = 0,
+    [int]$FrontendPort = 4153,
+    [int]$BackendPort = 8000,
     [string]$Branch = "main",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
@@ -390,8 +390,7 @@ try {
 
     Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
         "pull",
-        "--rebase",
-        "--autostash",
+        "--ff-only",
         "origin",
         $Branch
     ) -FailureMessage (
