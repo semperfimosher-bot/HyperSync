@@ -2,7 +2,7 @@
 param(
     [int]$FrontendPort = 0,
     [int]$BackendPort = 0,
-    [string]$Branch = "fix/production-migration-startup",
+    [string]$Branch = "main",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations,
