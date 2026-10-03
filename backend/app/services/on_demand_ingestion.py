@@ -1275,7 +1275,7 @@ async def _ensure_source(
                 session.source_task = None
 
 
-async def _refresh_source(
+async def refresh_source(
     session: ProvisionSession,
 ) -> YouTubeSource | None:
     """
@@ -1321,7 +1321,7 @@ async def _download_source_with_recovery(
     except Exception as first_error:
         # YouTube media URLs are short-lived. Resolve a fresh source once
         # before marking the durable ingest as failed.
-        refreshed = await _refresh_source(
+        refreshed = await refresh_source(
             session,
         )
 
