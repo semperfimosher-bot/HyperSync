@@ -86,6 +86,57 @@ function pathRequiresAuthentication(
 }
 
 
+function isTransientOverloadStatus(
+  status,
+) {
+  return (
+    status === 429 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+
+function retryDelayMilliseconds(
+  response,
+  attempt,
+) {
+  const retryAfter =
+    retryAfterMilliseconds(
+      response,
+    );
+
+  const exponential =
+    Math.min(
+      250 * 2 ** attempt,
+      2000,
+    );
+
+  return Math.min(
+    Math.max(
+      retryAfter,
+      exponential,
+    ),
+    5000,
+  );
+}
+
+
+function sleep(
+  milliseconds,
+) {
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds,
+      );
+    },
+  );
+}
+
+
 function retryAfterMilliseconds(
   response,
 ) {
@@ -387,14 +438,61 @@ export async function apiRequest(
       `Bearer ${token}`;
   }
 
-  let response = await fetch(
-    `${API_BASE}${path}`,
-    {
-      ...options,
-      headers,
-      credentials: "include",
-    },
-  );
+  let response = null;
+
+  /*
+   * A 429/502/503/504 can be transient (database admission,
+   * upstream storage, or an external provider). Automatically
+   * retry safe GET/HEAD/OPTIONS requests before surfacing an
+   * error to the UI. This keeps brief recoverable blips invisible
+   * without risking duplicate POST/PUT/PATCH/DELETE operations.
+   */
+  const requestMethod =
+    String(
+      options.method ??
+      "GET",
+    ).toUpperCase();
+
+  const canRetryTransient =
+    requestMethod === "GET" ||
+    requestMethod === "HEAD" ||
+    requestMethod === "OPTIONS";
+
+  const transientRetryLimit =
+    canRetryTransient
+      ? 3
+      : 0;
+
+  for (
+    let attempt = 0;
+    attempt <= transientRetryLimit;
+    attempt += 1
+  ) {
+    response = await fetch(
+      `${API_BASE}${path}`,
+      {
+        ...options,
+        headers,
+        credentials: "include",
+      },
+    );
+
+    if (
+      !isTransientOverloadStatus(
+        response.status,
+      ) ||
+      attempt >= transientRetryLimit
+    ) {
+      break;
+    }
+
+    await sleep(
+      retryDelayMilliseconds(
+        response,
+        attempt,
+      ),
+    );
+  }
 
   if (
     response.status === 401 &&
