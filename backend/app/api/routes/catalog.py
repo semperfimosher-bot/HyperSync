@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import mimetypes
+import time
 from datetime import (
     UTC,
     datetime,
@@ -49,6 +50,8 @@ logger = logging.getLogger(
 LYRICS_NEGATIVE_CACHE_EPOCH = datetime.now(
     UTC,
 )
+LYRICS_PROVIDER_COOLDOWN_SECONDS = 15.0
+_lyrics_provider_cooldown_until: dict[UUID, float] = {}
 
 
 class TrackResponse(BaseModel):
@@ -443,6 +446,14 @@ async def get_track_lyrics(
                     cached,
                 )
 
+        cooldown_until = _lyrics_provider_cooldown_until.get(track.id)
+        if cooldown_until is not None:
+            if cooldown_until > time.monotonic():
+                return TrackLyricsResponse(
+                    status="not_found",
+                )
+            _lyrics_provider_cooldown_until.pop(track.id, None)
+
         try:
             fetched = await fetch_lrclib_lyrics(
                 title=track.title,
@@ -452,21 +463,32 @@ async def get_track_lyrics(
             )
 
         except LrclibRateLimitedError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=("Lyrics service is temporarily rate limited."),
-                headers={
-                    "Retry-After": str(
-                        exc.retry_after,
-                    ),
-                },
-            ) from exc
+            cooldown = min(
+                max(float(exc.retry_after), LYRICS_PROVIDER_COOLDOWN_SECONDS),
+                60.0,
+            )
+            _lyrics_provider_cooldown_until[track.id] = (
+                time.monotonic() + cooldown
+            )
+            logger.debug(
+                "LRCLIB rate limited lyrics lookup for track %s; retrying after cooldown.",
+                track.id,
+            )
+            return TrackLyricsResponse(
+                status="not_found",
+            )
 
         except LrclibUnavailableError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=("Lyrics service is temporarily unavailable."),
-            ) from exc
+            _lyrics_provider_cooldown_until[track.id] = (
+                time.monotonic() + LYRICS_PROVIDER_COOLDOWN_SECONDS
+            )
+            logger.debug(
+                "LRCLIB temporarily unavailable for track %s; serving a graceful empty result.",
+                track.id,
+            )
+            return TrackLyricsResponse(
+                status="not_found",
+            )
 
         if cached is None:
             lyrics_row = TrackLyrics(

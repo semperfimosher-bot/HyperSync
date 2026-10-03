@@ -153,6 +153,9 @@ class Settings(BaseSettings):
     lrclib_base_url: str = "https://lrclib.net"
     lrclib_client_name: str = "HyperSync/0.1.0 (https://hypersynced.app)"
     lrclib_not_found_retry_hours: int = 24
+    lrclib_retry_attempts: int = 2
+    lrclib_retry_base_delay_seconds: float = 0.35
+    lrclib_retry_max_delay_seconds: float = 2.0
 
     musicbrainz_base_url: str = "https://musicbrainz.org"
     musicbrainz_user_agent: str = (
@@ -238,6 +241,14 @@ class Settings(BaseSettings):
             raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
         if self.api_admission_timeout_seconds < 0:
             raise ValueError("API_ADMISSION_TIMEOUT_SECONDS cannot be negative.")
+        if self.lrclib_retry_attempts < 1:
+            raise ValueError("LRCLIB_RETRY_ATTEMPTS must be at least 1.")
+        if self.lrclib_retry_base_delay_seconds < 0:
+            raise ValueError("LRCLIB_RETRY_BASE_DELAY_SECONDS cannot be negative.")
+        if self.lrclib_retry_max_delay_seconds < self.lrclib_retry_base_delay_seconds:
+            raise ValueError(
+                "LRCLIB_RETRY_MAX_DELAY_SECONDS must be at least the base delay."
+            )
 
         pool_capacity = self.db_pool_size + self.db_max_overflow
         if self.api_max_concurrent_requests + 2 > pool_capacity:
