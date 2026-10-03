@@ -30,6 +30,7 @@ from ...security.rate_limit import (
 from ...services.on_demand_ingestion import (
     get_provision_session,
     prepare_candidate,
+    refresh_source,
     provision_status,
     record_provision_play,
     search_and_remember,
@@ -551,81 +552,139 @@ async def stream_on_demand(
             },
         )
 
-    headers = source_headers(
-        source,
-    )
-
     range_header = (
         request.headers.get(
             "range",
         )
     )
 
-    if range_header:
-        headers[
-            "Range"
-        ] = range_header
+    upstream = None
+    client = None
 
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(
-            connect=8.0,
-            read=None,
-            write=8.0,
-            pool=8.0,
-        ),
-        follow_redirects=True,
-    )
+    # Temporary Googlevideo URLs can expire or be rejected between
+    # preparation and browser playback. Re-resolve once before returning
+    # a gateway error, while keeping invalid HyperSync tokens non-retriable.
+    for attempt in range(2):
+        headers = source_headers(
+            source,
+        )
 
-    try:
-        upstream_request = (
-            client.build_request(
-                "GET",
-                source.direct_url,
-                headers=headers,
+        if range_header:
+            headers[
+                "Range"
+            ] = range_header
+
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=8.0,
+                read=None,
+                write=8.0,
+                pool=8.0,
+            ),
+            follow_redirects=True,
+        )
+
+        try:
+            upstream_request = (
+                client.build_request(
+                    "GET",
+                    source.direct_url,
+                    headers=headers,
+                )
             )
-        )
 
-        upstream = await client.send(
-            upstream_request,
-            stream=True,
-        )
-
-        if (
-            upstream.status_code
-            not in {
-                200,
-                206,
-            }
-        ):
-            await upstream.aclose()
-
+            upstream = await client.send(
+                upstream_request,
+                stream=True,
+            )
+        except httpx.HTTPError as exc:
             await client.aclose()
+            client = None
+
+            if attempt == 0:
+                try:
+                    source = await refresh_source(
+                        session,
+                    )
+                except Exception:
+                    source = None
+
+                if source is not None:
+                    continue
 
             raise HTTPException(
                 status_code=(
                     status.HTTP_502_BAD_GATEWAY
                 ),
                 detail=(
-                    "Temporary audio source "
-                    "is unavailable."
+                    "Unable to open the temporary "
+                    "audio stream."
                 ),
-            )
+            ) from exc
 
-    except HTTPException:
-        raise
+        if upstream.status_code in {
+            200,
+            206,
+        }:
+            break
 
-    except httpx.HTTPError as exc:
+        retryable_upstream = (
+            upstream.status_code in {
+                403,
+                404,
+                410,
+                429,
+            }
+            or upstream.status_code >= 500
+        )
+
+        await upstream.aclose()
         await client.aclose()
+        upstream = None
+        client = None
+
+        if attempt == 0 and retryable_upstream:
+            try:
+                source = await refresh_source(
+                    session,
+                )
+            except Exception:
+                source = None
+
+            if session.track_id is not None:
+                return RedirectResponse(
+                    url=(
+                        "/api/audio/"
+                        + str(
+                            session.track_id,
+                        )
+                    ),
+                    status_code=307,
+                )
+
+            if source is not None:
+                continue
 
         raise HTTPException(
             status_code=(
                 status.HTTP_502_BAD_GATEWAY
             ),
             detail=(
-                "Unable to open the temporary "
-                "audio stream."
+                "Temporary audio source "
+                "is unavailable."
             ),
-        ) from exc
+        )
+
+    if upstream is None or client is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=(
+                "Temporary audio source "
+                "is unavailable."
+            ),
+        )
 
     async def body() -> AsyncIterator[
         bytes
@@ -691,3 +750,4 @@ async def stream_on_demand(
         media_type=media_type,
         headers=response_headers,
     )
+

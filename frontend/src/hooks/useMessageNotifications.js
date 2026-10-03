@@ -356,7 +356,7 @@ export default function useMessageNotifications({
         () => {
           void refreshMessageNotifications();
         },
-        12_000,
+        30_000,
       );
 
     const handleFocus =

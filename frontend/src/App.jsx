@@ -167,7 +167,7 @@ const ACCOUNT_PLAYBACK_SYNC_INTERVAL_MS =
   750;
 
 const ACCOUNT_PLAYBACK_DEVICE_POLL_MS =
-  1000;
+  15000;
 
 const ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS =
   750;
@@ -3525,7 +3525,11 @@ export default function App() {
         pollInterval =
           window.setInterval(
             () => {
-              void pollDevice();
+              // The live WebSocket owns realtime playback state.
+              // Poll only while the live connection is unavailable.
+              if (!liveConnection) {
+                void pollDevice();
+              }
             },
             ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
           );
