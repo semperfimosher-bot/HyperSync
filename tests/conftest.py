@@ -1,3 +1,7 @@
+import os
+
+os.environ["ENVIRONMENT"] = "test"
+
 import pytest
 
 from backend.app.database import close_database
