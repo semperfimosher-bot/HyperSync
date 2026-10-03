@@ -21,13 +21,14 @@ def resolve_database_url() -> str:
     if database_url:
         return database_url
 
-    if settings.environment == "production":
-        raise RuntimeError(
-            "DATABASE_URL is required in production; "
-            "refusing to fall back to local SQLite."
-        )
+    if settings.environment == "test":
+        return "sqlite+aiosqlite:///./local_dev.db"
 
-    return "sqlite+aiosqlite:///./local_dev.db"
+    raise RuntimeError(
+        "DATABASE_URL is required for local and production runtime. "
+        "Set the Neon PostgreSQL DATABASE_URL in backend/.env; "
+        "SQLite is reserved for automated tests."
+    )
 
 
 @lru_cache
@@ -124,10 +125,16 @@ async def ensure_local_database() -> None:
     settings = get_settings()
     database_url = settings.sqlalchemy_database_url
 
-    # Local SQLite development gets its schema from the models. Real
-    # PostgreSQL/Neon schema changes must always come from Alembic.
+    # Normal local development and production both use Neon/PostgreSQL.
+    # SQLite is intentionally limited to the automated test environment.
     if not database_url.startswith("sqlite"):
         return
+
+    if settings.environment != "test":
+        raise RuntimeError(
+            "SQLite is only permitted for automated tests. "
+            "Local development must use the configured Neon DATABASE_URL."
+        )
 
     async with get_engine().begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
