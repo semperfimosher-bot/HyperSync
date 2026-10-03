@@ -24,6 +24,9 @@ def configure_test_client(
         lambda: SimpleNamespace(
             lrclib_base_url=("https://lrclib.test"),
             lrclib_client_name=("HyperSync test"),
+            lrclib_retry_attempts=2,
+            lrclib_retry_base_delay_seconds=0.0,
+            lrclib_retry_max_delay_seconds=0.0,
         ),
     )
 
@@ -233,3 +236,69 @@ async def test_search_rejects_wrong_duration(
     )
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_transient_server_error_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+
+        return httpx.Response(
+            503 if calls == 1 else 200,
+            json=(
+                {
+                    "id": 500,
+                    "instrumental": False,
+                    "plainLyrics": "Recovered",
+                    "syncedLyrics": None,
+                }
+                if calls > 1
+                else None
+            ),
+        )
+
+    configure_test_client(monkeypatch, handler)
+
+    result = await lrclib.fetch_lrclib_lyrics(
+        title="Test Song",
+        artist="Test Artist",
+        album=None,
+        duration_seconds=None,
+    )
+
+    assert result is not None
+    assert result["id"] == 500
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_is_retried_then_becomes_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("temporary connection failure", request=request)
+
+    configure_test_client(monkeypatch, handler)
+
+    with pytest.raises(lrclib.LrclibUnavailableError):
+        await lrclib.fetch_lrclib_lyrics(
+            title="Test Song",
+            artist="Test Artist",
+            album=None,
+            duration_seconds=None,
+        )
+
+    assert calls == 2
