@@ -317,7 +317,7 @@ def test_production_database_requires_explicit_url(
 
     with pytest.raises(
         RuntimeError,
-        match="DATABASE_URL is required in production",
+        match="DATABASE_URL is required for local and production runtime",
     ):
         database_module.resolve_database_url()
 
