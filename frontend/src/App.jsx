@@ -3468,6 +3468,9 @@ export default function App() {
           }
         } catch {
           scheduleLiveReconnect();
+        } finally {
+          liveConnectInFlight =
+            false;
         }
       };
 
