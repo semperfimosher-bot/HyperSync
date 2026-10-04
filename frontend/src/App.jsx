@@ -2570,6 +2570,11 @@ export default function App() {
     let liveConnection =
       null;
 
+    // Prevent concurrent async connection attempts from opening
+    // multiple sockets before the first socket reaches OPEN.
+    let liveConnectInFlight =
+      false;
+
     let liveReconnectTimer =
       null;
 
@@ -3401,12 +3406,16 @@ export default function App() {
         if (
           cancelled ||
           liveConnection ||
+          liveConnectInFlight ||
           globalThis.navigator
             ?.onLine ===
             false
         ) {
           return;
         }
+
+        liveConnectInFlight =
+          true;
 
         try {
           const connection =
@@ -3459,6 +3468,9 @@ export default function App() {
           }
         } catch {
           scheduleLiveReconnect();
+        } finally {
+          liveConnectInFlight =
+            false;
         }
       };
 
@@ -3537,10 +3549,24 @@ export default function App() {
 
     void bootstrap();
 
+    const refreshPlaybackRealtime =
+      () => {
+        // A healthy WebSocket is the realtime source of truth.
+        // Only fetch an HTTP snapshot when the socket is not
+        // connected and no connection attempt is already running.
+        if (
+          !liveConnection &&
+          !liveConnectInFlight
+        ) {
+          void pollDevice();
+        }
+
+        void connectLive();
+      };
+
     const handleFocus =
       () => {
-        void pollDevice();
-        void connectLive();
+        refreshPlaybackRealtime();
       };
 
     const handleVisibility =
@@ -3549,8 +3575,7 @@ export default function App() {
           document.visibilityState ===
             "visible"
         ) {
-          void pollDevice();
-          void connectLive();
+          refreshPlaybackRealtime();
         }
       };
 
