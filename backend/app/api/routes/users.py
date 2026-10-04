@@ -2642,6 +2642,15 @@ async def live_playback_device(
     device_id = ""
     registered_socket = False
 
+    # WebSocket playback updates are high-frequency client events.
+    # Keep realtime delivery responsive without turning every playback
+    # tick into a database write.
+    last_playback_persist_at = 0.0
+    last_playback_track_id: str | None = None
+    last_playback_position = 0.0
+    last_playback_paused = True
+    last_playback_queue_signature: tuple[str, ...] = ()
+
     try:
         try:
             auth_message = await asyncio.wait_for(
@@ -3013,12 +3022,38 @@ async def live_playback_device(
                         )
                     )
 
-                    async with session_factory() as session:
-                        await update_my_playback_state(
-                            state_payload,
-                            user,
-                            session,
-                        )
+                    queue_signature = tuple(
+                        str(value)
+                        for value in state_payload.queue_track_ids
+                    )
+                    position = max(
+                        float(state_payload.position_seconds or 0),
+                        0.0,
+                    )
+                    now_monotonic = asyncio.get_running_loop().time()
+                    state_changed = (
+                        state_payload.track_id != last_playback_track_id
+                        or bool(state_payload.paused) != last_playback_paused
+                        or queue_signature != last_playback_queue_signature
+                        or abs(position - last_playback_position) >= 2.0
+                    )
+                    due_for_persist = (
+                        now_monotonic - last_playback_persist_at >= 2.0
+                    )
+
+                    if state_changed or due_for_persist:
+                        async with session_factory() as session:
+                            await update_my_playback_state(
+                                state_payload,
+                                user,
+                                session,
+                            )
+
+                        last_playback_persist_at = now_monotonic
+                        last_playback_track_id = state_payload.track_id
+                        last_playback_position = position
+                        last_playback_paused = bool(state_payload.paused)
+                        last_playback_queue_signature = queue_signature
 
                 except ValidationError:
                     logger.debug(
@@ -3070,6 +3105,15 @@ async def live_playback_device(
 
     except WebSocketDisconnect:
         pass
+    except RuntimeError as exc:
+        # A peer can close a socket between Starlette's receive
+        # bookkeeping and the next receive/send operation. Treat that
+        # as an ordinary disconnect instead of logging a noisy server
+        # exception or turning it into an application error.
+        logger.debug(
+            "Realtime playback socket closed during receive: %s",
+            exc,
+        )
     finally:
         should_cleanup = (
             user is not None
