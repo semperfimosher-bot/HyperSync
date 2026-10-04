@@ -389,21 +389,7 @@ export async function apiRequest(
     !options.signal &&
     !options.body;
 
-  const inFlightKey =
-    canShareInFlightGet
-      ? `${API_BASE}${path}|${token ?? ""}`
-      : null;
-
-  if (inFlightKey) {
-    const existing =
-      inFlightGetRequests.get(
-        inFlightKey,
-      );
-
-    if (existing) {
-      return existing;
-    }
-  }
+  let inFlightKey = null;
 
   const authEndpoint =
     isAuthEndpoint(
@@ -447,6 +433,20 @@ export async function apiRequest(
         "Authentication required.";
 
       throw error;
+    }
+  }
+
+  if (canShareInFlightGet) {
+    inFlightKey =
+      `${API_BASE}${path}|${token ?? ""}`;
+
+    const existing =
+      inFlightGetRequests.get(
+        inFlightKey,
+      );
+
+    if (existing) {
+      return existing;
     }
   }
 
