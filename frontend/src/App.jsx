@@ -3380,7 +3380,10 @@ export default function App() {
 
 
     const scheduleLiveReconnect =
-      () => {
+      (
+        delayMs =
+          ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+      ) => {
         if (
           cancelled ||
           liveReconnectTimer
@@ -3396,7 +3399,10 @@ export default function App() {
 
               void connectLive();
             },
-            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+            Math.max(
+              Number(delayMs) || 0,
+              ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+            ),
           );
       };
 
@@ -3436,17 +3442,34 @@ export default function App() {
                 },
 
               onClose:
-                () => {
+                (event) => {
                   liveConnection =
                     null;
 
                   playbackLiveConnectionRef.current =
                     null;
 
-                  if (!cancelled) {
-                    void pollDevice();
-                    scheduleLiveReconnect();
+                  if (cancelled) {
+                    return;
                   }
+
+                  /*
+                   * 4001 means another socket for this exact
+                   * account/device replaced this connection.
+                   * Reconnecting the old socket immediately
+                   * creates a replacement loop:
+                   * A replaces B, B replaces A, and so on.
+                   * The newest connection is authoritative.
+                   */
+                  if (
+                    Number(event?.code) ===
+                    4001
+                  ) {
+                    return;
+                  }
+
+                  void pollDevice();
+                  scheduleLiveReconnect();
                 },
             });
 
@@ -3467,7 +3490,9 @@ export default function App() {
             scheduleLiveReconnect();
           }
         } catch {
-          scheduleLiveReconnect();
+          scheduleLiveReconnect(
+            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS * 2,
+          );
         } finally {
           liveConnectInFlight =
             false;
