@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import os
 import re
 import tempfile
 import unicodedata
@@ -430,6 +431,48 @@ def _cookies_option() -> dict[str, str]:
     }
 
 
+def _deno_runtime_options() -> dict[str, dict[str, str]]:
+    configured = os.environ.get(
+        "YT_DLP_DENO_PATH",
+        "",
+    ).strip()
+
+    if configured:
+        configured_path = Path(
+            configured,
+        ).expanduser()
+
+        if configured_path.is_file():
+            return {
+                "deno": {
+                    "path": str(
+                        configured_path,
+                    ),
+                },
+            }
+
+    if os.name == "nt":
+        default_path = (
+            Path.home()
+            / ".deno"
+            / "bin"
+            / "deno.exe"
+        )
+
+        if default_path.is_file():
+            return {
+                "deno": {
+                    "path": str(
+                        default_path,
+                    ),
+                },
+            }
+
+    return {
+        "deno": {},
+    }
+
+
 def _common_options() -> dict[str, Any]:
     settings = get_settings()
 
@@ -444,9 +487,7 @@ def _common_options() -> dict[str, Any]:
             ),
         "retries": 1,
         "fragment_retries": 1,
-        "js_runtimes": {
-            "node": {},
-        },
+        "js_runtimes": _deno_runtime_options(),
         **_cookies_option(),
     }
 
