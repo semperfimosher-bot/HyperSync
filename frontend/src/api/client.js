@@ -16,6 +16,9 @@ let refreshBlockedUntil = 0;
 
 let refreshBlockedError = null;
 
+// Share identical concurrent GET requests instead of letting multiple components hit the API for the same resource at the same time.
+const inFlightGetRequests = new Map();
+
 
 function isAuthEndpoint(
   path,
@@ -375,6 +378,33 @@ export async function apiRequest(
   let token =
     accessToken ?? getAccessToken();
 
+  const requestMethod =
+    String(
+      options.method ??
+      "GET",
+    ).toUpperCase();
+
+  const canShareInFlightGet =
+    requestMethod === "GET" &&
+    !options.signal &&
+    !options.body;
+
+  const inFlightKey =
+    canShareInFlightGet
+      ? `${API_BASE}${path}|${token ?? ""}`
+      : null;
+
+  if (inFlightKey) {
+    const existing =
+      inFlightGetRequests.get(
+        inFlightKey,
+      );
+
+    if (existing) {
+      return existing;
+    }
+  }
+
   const authEndpoint =
     isAuthEndpoint(
       path,
@@ -463,7 +493,8 @@ export async function apiRequest(
       ? 3
       : 0;
 
-  for (
+  const requestPromise = (async () => {
+    for (
     let attempt = 0;
     attempt <= transientRetryLimit;
     attempt += 1
@@ -552,14 +583,38 @@ export async function apiRequest(
     throw error;
   }
 
-  if (
-    path === "/auth/login" ||
-    path === "/auth/register" ||
-    path ===
-      "/auth/password-recovery/verify-otp"
-  ) {
-    clearRefreshFailure();
+    if (
+      path === "/auth/login" ||
+      path === "/auth/register" ||
+      path ===
+        "/auth/password-recovery/verify-otp"
+    ) {
+      clearRefreshFailure();
+    }
+
+    return data;
+  })();
+
+  if (inFlightKey) {
+    inFlightGetRequests.set(
+      inFlightKey,
+      requestPromise,
+    );
+
+    try {
+      return await requestPromise;
+    } finally {
+      if (
+        inFlightGetRequests.get(
+          inFlightKey,
+        ) === requestPromise
+      ) {
+        inFlightGetRequests.delete(
+          inFlightKey,
+        );
+      }
+    }
   }
 
-  return data;
+  return requestPromise;
 }
