@@ -470,18 +470,13 @@ export async function apiRequest(
 
   let response = null;
 
-  /*
-   * A 429/502/503/504 can be transient (database admission,
-   * upstream storage, or an external provider). Automatically
-   * retry safe GET/HEAD/OPTIONS requests before surfacing an
-   * error to the UI. This keeps brief recoverable blips invisible
-   * without risking duplicate POST/PUT/PATCH/DELETE operations.
-   */
-  const requestMethod =
-    String(
-      options.method ??
-      "GET",
-    ).toUpperCase();
+    /*
+     * A 429/502/503/504 can be transient (database admission,
+     * upstream storage, or an external provider). Automatically
+     * retry safe GET/HEAD/OPTIONS requests before surfacing an
+     * error to the UI. This keeps brief recoverable blips invisible
+     * without risking duplicate POST/PUT/PATCH/DELETE operations.
+     */
 
   const canRetryTransient =
     requestMethod === "GET" ||
