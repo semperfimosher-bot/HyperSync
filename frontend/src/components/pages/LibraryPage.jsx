@@ -1033,7 +1033,7 @@ const [
       enabled:
         isRegistered,
       intervalMs:
-        30_000,
+        60_000,
     },
   );
 
@@ -1088,7 +1088,7 @@ const [
           selectedPlaylist?.id,
         ),
       intervalMs:
-        20_000,
+        60_000,
     },
   );
 
@@ -3559,6 +3559,8 @@ if (offline) {
                               trackArtwork
                             }
                             alt=""
+                            loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <Icon
