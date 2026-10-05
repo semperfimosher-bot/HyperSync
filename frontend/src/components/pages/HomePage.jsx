@@ -169,6 +169,9 @@ const [
   setRecentError,
 ] = useState("");
 
+const localRecentTracks = useRef([]);
+
+
 const loadDownloadedFallback =
   useCallback(
     async () => {
@@ -254,10 +257,19 @@ const loadRecentlyPlayed =
           await getMyProfile();
         if (!isCurrent()) return;
 
+        const serverTracks = getHomeRecentlyPlayed(profile);
+        const localTracks = localRecentTracks.current;
         setRecentlyPlayed(
-          getHomeRecentlyPlayed(
-            profile,
-          ),
+          [
+            ...localTracks,
+            ...serverTracks.filter(
+              (track) =>
+                !localTracks.some(
+                  (localTrack) =>
+                    String(localTrack.id) === String(track.id),
+                ),
+            ),
+          ].slice(0, 12),
         );
 
         setRecentError(
@@ -302,6 +314,46 @@ const loadRecentlyPlayed =
       loadDownloadedFallback,
     ],
   );
+
+
+useEffect(() => {
+  if (!currentUser?.id) {
+    localRecentTracks.current = [];
+    return undefined;
+  }
+
+  const recordPlayerTrack = (state) => {
+    if (!state?.trackId || !state?.title) return;
+
+    const track = {
+      id: String(state.trackId),
+      title: state.title,
+      artist: state.artist ?? "",
+      album: state.album ?? "",
+      artwork_url: state.artworkUrl ?? null,
+      audio_url: state.src ?? null,
+    };
+
+    localRecentTracks.current = [
+      track,
+      ...localRecentTracks.current.filter(
+        (existing) => String(existing.id) !== String(track.id),
+      ),
+    ].slice(0, 12);
+
+    setRecentlyPlayed((current) => [
+      track,
+      ...current.filter(
+        (existing) => String(existing.id) !== String(track.id),
+      ),
+    ].slice(0, 12));
+    setRecentLoading(false);
+    setRecentError("");
+  };
+
+  recordPlayerTrack(player.getState());
+  return player.subscribe(recordPlayerTrack);
+}, [currentUser?.id]);
 
 
 useEffect(() => {
