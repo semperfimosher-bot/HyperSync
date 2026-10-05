@@ -3099,7 +3099,7 @@ if (offline) {
                 onClick={() => {
                   playPlaylist(
                     0,
-                    sortedSelectedPlaylistTracks,
+                    selectedPlaylist.tracks,
                   );
                 }}
               >
