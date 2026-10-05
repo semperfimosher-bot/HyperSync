@@ -6,7 +6,7 @@ from secrets import token_urlsafe
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 
 from ...config import get_settings
 from ...database import get_session_factory
@@ -24,6 +24,7 @@ from ...security.tokens import create_access_token, hash_refresh_token
 from ...services.admin_notifications import record_admin_activity
 from ...services.auth import (
     create_session,
+    _registered_user_for_identifier,
     enforce_admin_creation_authorization,
     make_user_response,
     normalize_username,
