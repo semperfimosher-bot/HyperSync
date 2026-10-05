@@ -215,9 +215,11 @@ const loadRecentlyPlayed =
       }
 
       if (!quiet) {
-        setRecentLoading(
-          true,
-        );
+        if (localRecentTracks.current.length === 0) {
+          setRecentLoading(
+            true,
+          );
+        }
 
         setRecentError(
           "",
