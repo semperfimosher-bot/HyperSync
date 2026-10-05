@@ -4,6 +4,7 @@ import asyncio
 import mimetypes
 import os
 import re
+import shutil
 import tempfile
 import unicodedata
 from dataclasses import dataclass
@@ -437,37 +438,35 @@ def _deno_runtime_options() -> dict[str, dict[str, str]]:
         "",
     ).strip()
 
-    if configured:
-        configured_path = Path(
-            configured,
-        ).expanduser()
+    candidates: list[Path] = []
 
-        if configured_path.is_file():
-            return {
-                "deno": {
-                    "path": str(
-                        configured_path,
-                    ),
-                },
-            }
+    if configured:
+        candidates.append(
+            Path(configured).expanduser(),
+        )
+
+    path_runtime = shutil.which("deno")
+    if path_runtime:
+        candidates.append(Path(path_runtime))
 
     if os.name == "nt":
-        default_path = (
+        candidates.append(
             Path.home()
             / ".deno"
             / "bin"
             / "deno.exe"
         )
 
-        if default_path.is_file():
+    for candidate in candidates:
+        if candidate.is_file():
             return {
                 "deno": {
-                    "path": str(
-                        default_path,
-                    ),
+                    "path": str(candidate),
                 },
             }
 
+    # Keep Deno enabled even when discovery fails so yt-dlp's own
+    # diagnostics remain accurate and future PATH changes are honored.
     return {
         "deno": {},
     }
