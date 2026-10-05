@@ -56,6 +56,9 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Verify isolated application
         env:
+          ENVIRONMENT: test
+          DATABASE_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
+          JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
           SUITE: ${{ inputs.suite || 'full' }}
           DURATION: ${{ inputs.duration || '30' }}
           HYPERSYNC_TEST_POSTGRES_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
