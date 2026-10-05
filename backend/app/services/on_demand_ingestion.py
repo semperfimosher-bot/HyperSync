@@ -1888,7 +1888,7 @@ async def prepare_candidate(
     except Exception:
         # A resolver failure can be transient (including upstream 403/5xx).
         # Refresh once before exposing a preparation failure to the client.
-        await _refresh_source(
+        await refresh_source(
             session,
         )
 
