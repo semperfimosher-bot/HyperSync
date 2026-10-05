@@ -63,8 +63,27 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
   await page.evaluate(async () => {
-    const { clearAllMediaDatabases } = await import('/src/mediaStore.js');
-    await clearAllMediaDatabases();
+    const names = [
+      'hypersynced-media-v1',
+      'hypersynced-offline-v1',
+    ];
+    if (typeof indexedDB === 'undefined') return;
+    const databases = typeof indexedDB.databases === 'function'
+      ? await indexedDB.databases()
+      : [];
+    for (const database of databases) {
+      if (database?.name?.startsWith('hypersync')) {
+        names.push(database.name);
+      }
+    }
+    for (const name of new Set(names)) {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(name);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error || new Error('Unable to delete IndexedDB database: ' + name));
+        request.onblocked = () => reject(new Error('IndexedDB deletion was blocked: ' + name));
+      });
+    }
   });
   const track = manifest.tracks[2];
   let aborted = 0;
