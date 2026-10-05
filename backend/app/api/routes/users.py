@@ -2646,7 +2646,7 @@ async def live_playback_device(
     # Keep realtime delivery responsive without turning every playback
     # tick into a database write.
     last_playback_persist_at = 0.0
-    last_playback_track_id: str | None = None
+    last_playback_track_id: UUID | None = None
     last_playback_position = 0.0
     last_playback_paused = True
     last_playback_queue_signature: tuple[str, ...] = ()
