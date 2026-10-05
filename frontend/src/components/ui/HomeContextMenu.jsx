@@ -15,9 +15,16 @@ export default function HomeContextMenu({ menu, onClose }) {
     position: "fixed", maxWidth: "calc(100vw - 16px)", boxSizing: "border-box", left: Math.max(8, Math.min(menu.x || 8, window.innerWidth - 270)),
     top: Math.max(8, Math.min(menu.y || 8, window.innerHeight - 90)),
   } : { position: "fixed", left: 16, right: 16, bottom: 24, width: "auto", boxSizing: "border-box" };
+  const openJam = () => {
+    onClose();
+    window.requestAnimationFrame(() => {
+      requestJamPanel();
+    });
+  };
+
   return <div className="track-action-layer" onClick={onClose}>
     <div className="track-action-menu" role="menu" aria-label="Home actions" style={style} onClick={(event) => event.stopPropagation()}>
-      <button ref={item} type="button" role="menuitem" onClick={() => { onClose(); requestJamPanel(); }}>Jam</button>
+      <button ref={item} type="button" role="menuitem" onClick={openJam}>Jam</button>
     </div>
   </div>;
 }
