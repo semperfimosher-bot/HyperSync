@@ -143,6 +143,14 @@ jobs:
           MIGRATION_DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
         run: python -m alembic upgrade head --sql > /tmp/hypersync-migrations.sql
 
+      - name: Enable PostgreSQL test extensions
+        run: |
+          PGPASSWORD=disposable-ci-only psql \
+            -h 127.0.0.1 \
+            -U verification \
+            -d verification \
+            -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+
       - name: Run full backend regression suite
         run: python -m pytest -q
 
