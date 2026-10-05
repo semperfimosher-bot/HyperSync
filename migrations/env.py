@@ -63,7 +63,11 @@ async def run_async_migrations() -> None:
         database_url,
         poolclass=pool.NullPool,
         connect_args={
-            "ssl": ssl.create_default_context(),
+            "ssl": (
+                False
+                if settings.environment == "test"
+                else ssl.create_default_context()
+            ),
         },
     )
 
@@ -78,5 +82,7 @@ async def run_async_migrations() -> None:
 
 if context.is_offline_mode():
     run_migrations_offline()
+elif context.config.attributes.get("connection") is not None:
+    run_migrations(context.config.attributes["connection"])
 else:
     asyncio.run(run_async_migrations())
