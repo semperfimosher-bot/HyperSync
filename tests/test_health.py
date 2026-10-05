@@ -39,50 +39,63 @@ async def test_live_health() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_warms_database_before_serving(
+async def test_lifespan_runs_database_and_resume_startup_steps(
     monkeypatch: MonkeyPatch,
 ) -> None:
     calls: list[str] = []
 
-    async def fake_demo_data() -> None:
-        calls.append("demo")
+    async def fake_database_ready() -> None:
+        calls.append("database-ready")
 
-    async def fake_database_check() -> None:
-        calls.append("database")
+    async def fake_local_database() -> None:
+        calls.append("local-database")
 
-    async def fake_close_database() -> None:
+    async def fake_catalog_resume():
+        calls.append("catalog-resume")
+        return None
+
+    async def fake_on_demand_resume() -> int:
+        calls.append("on-demand-resume")
+        return 0
+
+    async def fake_keepalive() -> None:
+        return None
+
+    async def fake_retention() -> None:
+        return None
+
+    async def fake_media_identity() -> None:
+        return None
+
+    async def fake_shutdown() -> None:
+        calls.append("shutdown")
+
+    async def fake_reset() -> None:
+        calls.append("reset")
+
+    async def fake_close() -> None:
         calls.append("close")
 
-    monkeypatch.setattr(
-        main_module,
-        "ensure_demo_data",
-        fake_demo_data,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "check_database",
-        fake_database_check,
-        raising=False,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "close_database",
-        fake_close_database,
-    )
+    monkeypatch.setattr(main_module, "wait_for_database_ready", fake_database_ready)
+    monkeypatch.setattr(main_module, "ensure_local_database", fake_local_database)
+    monkeypatch.setattr(main_module, "resume_catalog_scan_on_startup", fake_catalog_resume)
+    monkeypatch.setattr(main_module, "resume_on_demand_ingests_on_startup", fake_on_demand_resume)
+    monkeypatch.setattr(main_module, "keep_database_warm", fake_keepalive)
+    monkeypatch.setattr(main_module, "run_message_retention_cleanup", fake_retention)
+    monkeypatch.setattr(main_module, "run_media_identity_backfill", fake_media_identity)
+    monkeypatch.setattr(main_module, "shutdown_background_tasks", fake_shutdown)
+    monkeypatch.setattr(main_module, "reset_transient_state", fake_reset)
+    monkeypatch.setattr(main_module, "close_database", fake_close)
 
     async with main_module.lifespan(app):
-        assert calls == [
-            "database",
-            "demo",
+        assert calls[:4] == [
+            "database-ready",
+            "local-database",
+            "catalog-resume",
+            "on-demand-resume",
         ]
 
-    assert calls == [
-        "database",
-        "demo",
-        "close",
-    ]
+    assert calls[-3:] == ["shutdown", "reset", "close"]
 
 
 @pytest.mark.asyncio
@@ -90,58 +103,25 @@ async def test_lifespan_keeps_database_warm(
     monkeypatch: MonkeyPatch,
 ) -> None:
     database_checks = 0
-
     second_check_happened = asyncio.Event()
-
-    async def fake_demo_data() -> None:
-        return None
 
     async def fake_database_check() -> None:
         nonlocal database_checks
-
         database_checks += 1
-
         if database_checks >= 2:
             second_check_happened.set()
 
-    async def fake_close_database() -> None:
-        return None
+    monkeypatch.setattr(main_module, "check_database", fake_database_check)
+    monkeypatch.setattr(main_module, "DATABASE_KEEPALIVE_SECONDS", 0.01)
 
-    monkeypatch.setattr(
-        main_module,
-        "ensure_demo_data",
-        fake_demo_data,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "check_database",
-        fake_database_check,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "close_database",
-        fake_close_database,
-    )
-
-    monkeypatch.setattr(
-        main_module,
-        "DATABASE_KEEPALIVE_SECONDS",
-        0.01,
-        raising=False,
-    )
-
-    async with main_module.lifespan(app):
-        try:
-            await asyncio.wait_for(
-                second_check_happened.wait(),
-                timeout=0.2,
-            )
-        except TimeoutError:
-            pass
-
+    task = asyncio.create_task(main_module.keep_database_warm())
+    try:
+        await asyncio.wait_for(second_check_happened.wait(), timeout=0.2)
         assert database_checks >= 2
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 @pytest.mark.asyncio
