@@ -3707,10 +3707,11 @@ export default function App() {
 
 const restoreSavedAppView =
   useCallback(
-    async (user) => {
-      const restoreGeneration =
-        navigationGenerationRef.current;
-
+    async (
+      user,
+      restoreGeneration =
+        navigationGenerationRef.current,
+    ) => {
       const params =
         new URLSearchParams(
           window.location.search,
@@ -3950,6 +3951,9 @@ const persistAppView =
     let cancelled = false;
 
     const syncSession = () => {
+      const restoreGeneration =
+        navigationGenerationRef.current;
+
       restoreSession().then(async (user) => {
         if (cancelled) {
           return;
@@ -3961,6 +3965,7 @@ const persistAppView =
 
       await restoreSavedAppView(
       user,
+      restoreGeneration,
       );
 
       return;
@@ -4611,6 +4616,9 @@ const clearPlaylistToOpen =
     (user) => {
       cancelPendingSearchSave();
 
+      const restoreGeneration =
+        navigationGenerationRef.current;
+
       setCurrentUser(
         user,
       );
@@ -4621,6 +4629,7 @@ const clearPlaylistToOpen =
 
       void restoreSavedAppView(
         user,
+        restoreGeneration,
       );
     },
     [
