@@ -23,8 +23,12 @@ from ...security.rate_limit import enforce_rate_limit
 from ...security.tokens import create_access_token, hash_refresh_token
 from ...services.admin_notifications import record_admin_activity
 from ...services.auth import (
-    create_session,
+    _dummy_password_hash,
+    _generate_recovery_code,
+    _hash_recovery_otp,
+    _hash_recovery_reset_token,
     _registered_user_for_identifier,
+    create_session,
     enforce_admin_creation_authorization,
     make_user_response,
     normalize_username,
