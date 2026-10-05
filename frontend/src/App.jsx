@@ -856,6 +856,9 @@ export default function App() {
   const [activePage, setActivePage] =
     useState("home");
 
+  // Invalidates asynchronous saved-view/session restores after user navigation.
+  const navigationGenerationRef = useRef(0);
+
     const [
     activeProfileUsername,
     setActiveProfileUsername,
@@ -3705,6 +3708,9 @@ export default function App() {
 const restoreSavedAppView =
   useCallback(
     async (user) => {
+      const restoreGeneration =
+        navigationGenerationRef.current;
+
       const params =
         new URLSearchParams(
           window.location.search,
@@ -3771,6 +3777,13 @@ const restoreSavedAppView =
             user?.role,
           );
 
+        if (
+          navigationGenerationRef.current !==
+          restoreGeneration
+        ) {
+          return;
+        }
+
         setActivePage(
           restored.activePage,
         );
@@ -3783,6 +3796,13 @@ const restoreSavedAppView =
           restored.profileUsername,
         );
       } catch {
+        if (
+          navigationGenerationRef.current !==
+          restoreGeneration
+        ) {
+          return;
+        }
+
         setActivePage(
           "home",
         );
@@ -3832,6 +3852,7 @@ const persistAppView =
 ]);
 
   function handleLogout() {
+  navigationGenerationRef.current += 1;
   cancelPendingSearchSave();
 
   /*
@@ -3985,6 +4006,7 @@ const persistAppView =
   const navigate =
   useCallback(
     (page) => {
+      navigationGenerationRef.current += 1;
       cancelPendingSearchSave();
 
 
