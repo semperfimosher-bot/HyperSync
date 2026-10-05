@@ -22,7 +22,7 @@ class PasswordRecoveryRequest(BaseModel):
 
 class PasswordRecoveryOtpRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=320)
-    otp: str = Field(min_length=6, max_length=6, pattern=r"^\\d{6}$")
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class PasswordResetRequest(BaseModel):
