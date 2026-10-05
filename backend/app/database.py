@@ -2,7 +2,7 @@ import ssl
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
