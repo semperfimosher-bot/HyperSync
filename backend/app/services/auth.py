@@ -11,7 +11,6 @@ from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..database import get_session_factory
 from ..models.account import AccountType, User, UserRole, UserSession
 from ..security.passwords import hash_password
 from ..security.tokens import create_refresh_token, hash_refresh_token
