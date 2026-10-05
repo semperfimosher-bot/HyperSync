@@ -1957,6 +1957,8 @@ async def ingest_candidate_and_wait(
 
 async def get_provision_session(
     provision_id: UUID,
+    *,
+    touch_durable: bool = True,
 ) -> ProvisionSession | None:
     async with _lock:
         await _cleanup_expired_locked()
@@ -1980,9 +1982,13 @@ async def get_provision_session(
             session,
         )
 
-        await touch_durable_provision(
-            provision_id,
-        )
+        # Status reads must stay read-only. Touching the durable
+        # row on every poll turns a client-side status loop into a
+        # database write loop and can exhaust the connection pool.
+        if touch_durable:
+            await touch_durable_provision(
+                provision_id,
+            )
 
         if session.track_id is not None:
             await _flush_pending_listener_history(
@@ -2119,6 +2125,7 @@ async def provision_status(
     session = (
         await get_provision_session(
             provision_id,
+            touch_durable=False,
         )
     )
 
