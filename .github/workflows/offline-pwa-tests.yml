@@ -59,6 +59,7 @@ jobs:
           --health-retries 10
 
     env:
+      ENVIRONMENT: test
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
       # CI-only placeholder: configuration and migration SQL checks do not connect to this host.
       DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
