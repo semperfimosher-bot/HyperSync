@@ -43,10 +43,25 @@ jobs:
   backend-syntax:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: verification
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: verification
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
       # CI-only placeholder: configuration and migration SQL checks do not connect to this host.
-      DATABASE_URL: postgresql://user:password@localhost/hypersync
+      DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
 
     steps:
       - name: Check out repository
@@ -125,7 +140,7 @@ jobs:
 
       - name: Validate Alembic migration chain
         env:
-          MIGRATION_DATABASE_URL: postgresql://user:password@localhost/hypersync
+          MIGRATION_DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
         run: python -m alembic upgrade head --sql > /tmp/hypersync-migrations.sql
 
       - name: Run full backend regression suite
