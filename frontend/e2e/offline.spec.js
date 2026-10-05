@@ -1,6 +1,44 @@
 import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
+async function clearOfflineClientState(page) {
+  await page.evaluate(async () => {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+
+    if (typeof indexedDB === "undefined") return;
+
+    const names = [
+      "hypersynced-media-v1",
+      "hypersynced-offline-v1",
+    ];
+
+    const databases =
+      typeof indexedDB.databases === "function"
+        ? await indexedDB.databases()
+        : [];
+
+    for (const database of databases) {
+      if (database?.name?.startsWith("hypersync")) {
+        names.push(database.name);
+      }
+    }
+
+    for (const name of new Set(names)) {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(name);
+        request.onsuccess = () => resolve();
+        request.onerror = () =>
+          reject(request.error || new Error("Unable to delete IndexedDB database: " + name));
+        request.onblocked = () =>
+          reject(new Error("IndexedDB deletion was blocked: " + name));
+      });
+    }
+  });
+}
+
 function recordAudioRequests(page) {
   const requests = [];
   page.on('request', request => {
@@ -29,6 +67,7 @@ async function offlineMenuState(page, audioRequests) {
 test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
+  await clearOfflineClientState(page);
   await startTrack(page, manifest.tracks[0]);
   await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
@@ -62,29 +101,7 @@ test('completed download survives disconnected reload and plays real cached audi
 test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
-  await page.evaluate(async () => {
-    const names = [
-      'hypersynced-media-v1',
-      'hypersynced-offline-v1',
-    ];
-    if (typeof indexedDB === 'undefined') return;
-    const databases = typeof indexedDB.databases === 'function'
-      ? await indexedDB.databases()
-      : [];
-    for (const database of databases) {
-      if (database?.name?.startsWith('hypersync')) {
-        names.push(database.name);
-      }
-    }
-    for (const name of new Set(names)) {
-      await new Promise((resolve, reject) => {
-        const request = indexedDB.deleteDatabase(name);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error || new Error('Unable to delete IndexedDB database: ' + name));
-        request.onblocked = () => reject(new Error('IndexedDB deletion was blocked: ' + name));
-      });
-    }
-  });
+  await clearOfflineClientState(page);
   const track = manifest.tracks[2];
   let aborted = 0;
   const pattern = `**/api/audio/${track.id}**`;
