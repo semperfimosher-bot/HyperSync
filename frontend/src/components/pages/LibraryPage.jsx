@@ -2225,8 +2225,13 @@ if (offline) {
       return;
     }
 
+    const playbackTracks = [...tracks].sort(
+      (left, right) =>
+        Number(left?.position ?? 0) - Number(right?.position ?? 0),
+    );
+
     const queue =
-      tracks.map(
+      playbackTracks.map(
         (track) => ({
           id:
             track.id,
