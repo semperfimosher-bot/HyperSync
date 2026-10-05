@@ -47,7 +47,11 @@ def get_engine() -> AsyncEngine:
             "check_same_thread": False,
         }
     else:
-        ssl_context = ssl.create_default_context()
+        ssl_context = (
+            False
+            if settings.environment == "test"
+            else ssl.create_default_context()
+        )
 
         engine_kwargs.update(
             {
