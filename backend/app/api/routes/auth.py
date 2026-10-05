@@ -30,6 +30,7 @@ from ...services.auth import (
     _generate_recovery_code,
     _hash_recovery_otp,
     _hash_recovery_reset_token,
+    _lock_admin_registration,
     _registered_user_for_identifier,
     create_session,
     enforce_admin_creation_authorization,
