@@ -45,6 +45,8 @@ jobs:
 
     env:
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
+      # CI-only placeholder: configuration and migration SQL checks do not connect to this host.
+      DATABASE_URL: postgresql://user:password@localhost/hypersync
 
     steps:
       - name: Check out repository
@@ -161,6 +163,7 @@ jobs:
           docker run --rm hypersynced-backend-ci ffmpeg -version
           docker run --rm hypersynced-backend-ci python -c "import os; print(os.environ['YT_DLP_DENO_PATH'])"
           docker run --rm \
+            -e DATABASE_URL=postgresql://user:password@localhost/hypersync \
             -e MIGRATION_DATABASE_URL=postgresql://user:password@localhost/hypersync \
             --entrypoint sh \
             hypersynced-backend-ci \
