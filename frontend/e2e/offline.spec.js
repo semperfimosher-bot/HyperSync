@@ -1,9 +1,9 @@
 import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
-async function clearOfflineClientState(page) {
+async function clearOfflineClientState(page, { clearCaches = false } = {}) {
   await page.evaluate(async () => {
-    if (typeof caches !== "undefined") {
+    if (clearCaches && typeof caches !== "undefined") {
       const keys = await caches.keys();
       await Promise.all(keys.map((key) => caches.delete(key)));
     }
@@ -101,7 +101,7 @@ test('completed download survives disconnected reload and plays real cached audi
 test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
-  await clearOfflineClientState(page);
+  await clearOfflineClientState(page, { clearCaches: true });
   const track = manifest.tracks[2];
   let aborted = 0;
   const pattern = `**/api/audio/${track.id}**`;
