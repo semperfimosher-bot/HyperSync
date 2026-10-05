@@ -392,6 +392,10 @@ def test_refresh_cookie_is_always_secure_in_production(
         "ENVIRONMENT",
         "production",
     )
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification",
+    )
 
     get_settings.cache_clear()
 
