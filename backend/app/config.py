@@ -59,15 +59,15 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
-    db_pool_timeout_seconds: int = 2
+    db_pool_size: int = 8
+    db_max_overflow: int = 4
+    db_pool_timeout_seconds: int = 8
     db_command_timeout_seconds: int = 30
     db_statement_timeout_ms: int = 30000
     db_lock_timeout_ms: int = 5000
     db_idle_transaction_timeout_ms: int = 30000
-    api_max_concurrent_requests: int = 12
-    api_admission_timeout_seconds: float = 2.0
+    api_max_concurrent_requests: int = 10
+    api_admission_timeout_seconds: float = 4.0
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -176,7 +176,7 @@ class Settings(BaseSettings):
     apple_search_cache_hours: int = 24
 
     on_demand_search_limit: int = 100
-    on_demand_prewarm_limit: int = 8
+    on_demand_prewarm_limit: int = 4
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
     on_demand_rate_window_seconds: int = 60
