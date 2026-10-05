@@ -1,4 +1,4 @@
-@media (max-width: 699px) {
+@media (max-width: 979px) {
   .home-signal {
     --home-height: 450px;
 
@@ -750,7 +750,7 @@
    Desktop layout is untouched.
    ========================================================= */
 
-@media (max-width: 699px) {
+@media (max-width: 979px) {
 
   /* =========================
      HOME — TRACKS
@@ -1194,7 +1194,7 @@
    Matches the People result-row layout
    ========================================================= */
 
-@media (max-width: 699px) {
+@media (max-width: 979px) {
 
   .search-music-results {
     display: flex;
@@ -1769,7 +1769,7 @@
    MOBILE
    ========================= */
 
-@media (max-width: 699px) {
+@media (max-width: 979px) {
 
   .user-search-results {
     gap: 5px;
@@ -1847,7 +1847,7 @@
    Keep this at the VERY BOTTOM of mobile.css
    ========================================================= */
 
-@media (max-width: 699px) {
+@media (max-width: 979px) {
 
   .home-track-grid {
     display: grid !important;
@@ -2058,7 +2058,7 @@
   line-height: 1.5;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 979px) {
   .admin-danger-zone__form {
     grid-template-columns: 1fr;
   }
@@ -2072,7 +2072,7 @@
    MOBILE PLAYER DETAILS
    ========================================================= */
 
-@media (max-width: 699px) {
+@media (max-width: 979px) {
   .player-bar {
     -webkit-touch-callout: none;
     user-select: none;
@@ -2606,7 +2606,7 @@
   }
 }
 
-@media (min-width: 700px) {
+@media (min-width: 980px) {
   .mobile-player-details {
     display: none;
   }
