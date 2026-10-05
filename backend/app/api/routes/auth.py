@@ -22,7 +22,7 @@ from ...models.account import (
 )
 from ...security.passwords import hash_password, verify_password
 from ...security.rate_limit import enforce_rate_limit
-from ...security.tokens import create_access_token, hash_refresh_token
+from ...security.tokens import create_access_token, create_refresh_token, hash_refresh_token
 from ...services.admin_notifications import record_admin_activity
 from ...services.auth import (
     _dummy_password_hash,
