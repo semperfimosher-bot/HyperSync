@@ -110,15 +110,15 @@ async def test_realtime_hub_stale_disconnect_cannot_remove_replacement() -> None
     first = FakeWebSocket()
     second = FakeWebSocket()
 
-    await hub.connect(user_id, "desktop-1", first)
-    await hub.connect(user_id, "desktop-1", second)
+    await hub.connect(user_id, "desktop-1", first)  # type: ignore[arg-type]
+    await hub.connect(user_id, "desktop-1", second)  # type: ignore[arg-type]
 
     assert await hub.is_connected(user_id, "desktop-1")
 
     assert not await hub.disconnect(
         user_id,
         "desktop-1",
-        first,
+        first,  # type: ignore[arg-type]
     )
 
     assert await hub.is_connected(
@@ -129,7 +129,7 @@ async def test_realtime_hub_stale_disconnect_cannot_remove_replacement() -> None
     assert await hub.disconnect(
         user_id,
         "desktop-1",
-        second,
+        second,  # type: ignore[arg-type]
     )
 
     assert not await hub.is_connected(
@@ -293,7 +293,7 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
         hub,
     )
 
-    await users_routes.live_playback_device(socket)
+    await users_routes.live_playback_device(socket)  # type: ignore[arg-type]
 
     assert socket.accepted
 
