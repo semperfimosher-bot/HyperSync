@@ -45,6 +45,7 @@ jobs:
 
     env:
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
+      DATABASE_URL: postgresql://user:password@localhost/hypersync
 
     steps:
       - name: Check out repository
@@ -145,6 +146,9 @@ jobs:
   backend-image:
     runs-on: ubuntu-latest
 
+    env:
+      DATABASE_URL: postgresql://user:password@localhost/hypersync
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -161,6 +165,7 @@ jobs:
           docker run --rm hypersynced-backend-ci ffmpeg -version
           docker run --rm hypersynced-backend-ci python -c "import os; print(os.environ['YT_DLP_DENO_PATH'])"
           docker run --rm \
+            -e DATABASE_URL=postgresql://user:password@localhost/hypersync \
             -e MIGRATION_DATABASE_URL=postgresql://user:password@localhost/hypersync \
             --entrypoint sh \
             hypersynced-backend-ci \
