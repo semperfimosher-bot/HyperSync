@@ -293,7 +293,7 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
         hub,
     )
 
-    await users_routes.live_playback_device(socket)  # type: ignore[arg-type]
+    await users_routes.live_playback_device(socket)  # type: ignore[arg-type]  # type: ignore[arg-type]
 
     assert socket.accepted
 
@@ -321,6 +321,6 @@ async def test_live_playback_socket_rejects_invalid_auth(
         },
     )
 
-    await users_routes.live_playback_device(socket)
+    await users_routes.live_playback_device(socket)  # type: ignore[arg-type]
 
     assert socket.closed == [(4401, None)]
