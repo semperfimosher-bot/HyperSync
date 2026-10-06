@@ -16,10 +16,8 @@ export default function HomeContextMenu({ menu, onClose }) {
     top: Math.max(8, Math.min(menu.y || 8, window.innerHeight - 90)),
   } : { position: "fixed", left: 16, right: 16, bottom: 24, width: "auto", boxSizing: "border-box" };
   const openJam = () => {
+    requestJamPanel();
     onClose();
-    window.requestAnimationFrame(() => {
-      requestJamPanel();
-    });
   };
 
   return <div className="track-action-layer" onClick={onClose}>
