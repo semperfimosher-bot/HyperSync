@@ -2282,6 +2282,9 @@ if (offline) {
         player.playTrackQueue(
           queue,
           startIndex,
+          {
+            forceLocal: true,
+          },
         ),
       )
       .catch(() => {});
