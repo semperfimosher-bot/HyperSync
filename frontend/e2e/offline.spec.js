@@ -64,7 +64,7 @@ async function offlineMenuState(page, audioRequests) {
   }, audioRequests);
 }
 
-test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context }) => {
+test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context, browserName }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
   await clearOfflineClientState(page);
@@ -90,7 +90,17 @@ test('completed download survives disconnected reload and plays real cached audi
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('main')).toContainText(manifest.tracks[0].title);
-  await context.setOffline(true);
+  if (browserName === 'webkit') {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: () => false,
+      });
+    });
+    await context.route('**/api/**', route => route.abort('connectionreset'));
+  } else {
+    await context.setOffline(true);
+  }
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
@@ -105,7 +115,7 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   const track = manifest.tracks[2];
   let aborted = 0;
   const pattern = `**/api/audio/${track.id}**`;
-  await page.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
+  await context.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
   await navigate(page, 'Search');
   await page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first().fill(track.title);
   const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
@@ -128,7 +138,7 @@ test('interrupted download remains incomplete and can be retried', async ({ page
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('.hs-library-page:visible').getByText(track.title, { exact: true })).toHaveCount(0);
-  await page.unroute(pattern);
+  await context.unroute(pattern);
   await navigate(page, 'Search');
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
