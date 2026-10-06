@@ -2278,9 +2278,11 @@ if (offline) {
       );
 
     void player
-      .playTrackQueue(
-        queue,
-        startIndex,
+      .runWithLocalPlaybackControl(() =>
+        player.playTrackQueue(
+          queue,
+          startIndex,
+        ),
       )
       .catch(() => {});
   }
