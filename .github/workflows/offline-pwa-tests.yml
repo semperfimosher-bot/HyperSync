@@ -53,7 +53,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U verification -d verification"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -63,6 +63,7 @@ jobs:
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
       # CI-only placeholder: configuration and migration SQL checks do not connect to this host.
       DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
+      HYPERSYNC_TEST_POSTGRES_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
 
     steps:
       - name: Check out repository
