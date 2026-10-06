@@ -6,7 +6,9 @@ from math import ceil
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import delete, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import (
+    insert as postgresql_insert,
+)
 
 from ..database import get_session_factory
 from ..models.system import RateLimitBucket
@@ -111,131 +113,129 @@ async def enforce_rate_limit(
         get_session_factory()
     )
 
-    for attempt in range(2):
-        now = datetime.now(
-            UTC,
+    now = datetime.now(
+        UTC,
+    )
+
+    async with session_factory() as session:
+        insert_result = await session.execute(
+            postgresql_insert(
+                RateLimitBucket,
+            )
+            .values(
+                key=key,
+                window_started_at=now,
+                request_count=1,
+                updated_at=now,
+            )
+            .on_conflict_do_nothing(
+                index_elements=[
+                    RateLimitBucket.key,
+                ],
+            )
+            .returning(
+                RateLimitBucket.key,
+            )
         )
 
-        async with session_factory() as session:
-            try:
-                result = await session.execute(
-                    select(
-                        RateLimitBucket,
-                    )
-                    .where(
-                        RateLimitBucket.key
-                        == key,
-                    )
-                    .with_for_update()
-                )
+        if (
+            insert_result
+            .scalar_one_or_none()
+            is not None
+        ):
+            await session.commit()
+            return
 
-                bucket = (
-                    result
-                    .scalar_one_or_none()
-                )
+        result = await session.execute(
+            select(
+                RateLimitBucket,
+            )
+            .where(
+                RateLimitBucket.key
+                == key,
+            )
+            .with_for_update()
+        )
 
-                if bucket is None:
-                    session.add(
-                        RateLimitBucket(
-                            key=key,
-                            window_started_at=now,
-                            request_count=1,
-                            updated_at=now,
-                        )
-                    )
+        bucket = (
+            result
+            .scalar_one()
+        )
 
-                    await session.commit()
+        window_started_at = (
+            _as_utc_aware(
+                bucket
+                .window_started_at,
+            )
+        )
 
-                    return
+        elapsed = (
+            now
+            - window_started_at
+        ).total_seconds()
 
-                window_started_at = (
-                    _as_utc_aware(
-                        bucket
-                        .window_started_at,
-                    )
-                )
+        if (
+            elapsed >=
+            float(
+                window_seconds,
+            )
+        ):
+            bucket.window_started_at = (
+                now
+            )
 
-                elapsed = (
-                    now
-                    - window_started_at
-                ).total_seconds()
+            bucket.request_count = (
+                1
+            )
 
-                if (
-                    elapsed >=
+            bucket.updated_at = (
+                now
+            )
+
+            await session.commit()
+            return
+
+        if (
+            bucket.request_count
+            >= limit
+        ):
+            retry_after = max(
+                1,
+                ceil(
                     float(
                         window_seconds,
                     )
-                ):
-                    bucket.window_started_at = (
-                        now
-                    )
+                    - elapsed,
+                ),
+            )
 
-                    bucket.request_count = (
-                        1
-                    )
-
-                    bucket.updated_at = (
-                        now
-                    )
-
-                    await session.commit()
-
-                    return
-
-                if (
-                    bucket.request_count
-                    >= limit
-                ):
-                    retry_after = max(
-                        1,
-                        ceil(
-                            float(
-                                window_seconds,
-                            )
-                            - elapsed,
+            raise HTTPException(
+                status_code=(
+                    status
+                    .HTTP_429_TOO_MANY_REQUESTS
+                ),
+                detail=(
+                    "Too many requests. "
+                    "Try again shortly."
+                ),
+                headers={
+                    "Retry-After":
+                        str(
+                            retry_after,
                         ),
-                    )
+                },
+            )
 
-                    raise HTTPException(
-                        status_code=(
-                            status
-                            .HTTP_429_TOO_MANY_REQUESTS
-                        ),
-                        detail=(
-                            "Too many requests. "
-                            "Try again shortly."
-                        ),
-                        headers={
-                            "Retry-After":
-                                str(
-                                    retry_after,
-                                ),
-                        },
-                    )
+        bucket.request_count += (
+            1
+        )
 
-                bucket.request_count += (
-                    1
-                )
+        bucket.updated_at = (
+            now
+        )
 
-                bucket.updated_at = (
-                    now
-                )
+        await session.commit()
 
-                await session.commit()
-
-                return
-
-            except IntegrityError:
-                await session.rollback()
-
-                if attempt == 0:
-                    continue
-
-                raise
-
-    raise RuntimeError(
-        "Unable to update rate limit state.",
-    )
 
 
 async def cleanup_stale_rate_limits(

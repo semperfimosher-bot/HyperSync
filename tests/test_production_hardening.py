@@ -4,11 +4,11 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
-from sqlalchemy import select
 from fastapi import HTTPException
 from fastapi.requests import Request
 from httpx import ASGITransport, AsyncClient
+import pytest
+from sqlalchemy import select
 
 import backend.app.database as database_module
 from backend.app.database import get_session_factory
