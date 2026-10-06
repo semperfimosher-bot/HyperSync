@@ -29,8 +29,10 @@ from ...services.auth import (
     create_session,
     delete_all_refresh_sessions,
     delete_refresh_session,
+    enforce_admin_creation_authorization,
     make_user_response,
     register_account,
+    resolve_registration_role,
     refresh_authenticated_session,
     set_refresh_cookie,
 )
@@ -49,6 +51,11 @@ from ..schemas.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "enforce_admin_creation_authorization",
+    "resolve_registration_role",
+]
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
