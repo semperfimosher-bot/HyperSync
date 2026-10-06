@@ -27,6 +27,9 @@ from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
+from .security.rate_limit import (
+    cleanup_stale_rate_limits,
+)
 from .security.tokens import (
     InvalidAccessTokenError,
     decode_access_token,
@@ -55,6 +58,7 @@ DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+RATE_LIMIT_CLEANUP_SECONDS = 3600.0
 MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 
 _ACTIVITY_EXCLUDED_PREFIXES = (
@@ -265,6 +269,22 @@ async def keep_database_warm() -> None:
             continue
 
 
+async def run_rate_limit_cleanup() -> None:
+    while True:
+        await asyncio.sleep(
+            RATE_LIMIT_CLEANUP_SECONDS,
+        )
+
+        try:
+            await cleanup_stale_rate_limits()
+        except Exception:
+            # Limiter cleanup is maintenance only. A cleanup failure must
+            # never take down request handling or disable the limiter.
+            logger.exception(
+                "Rate-limit bucket cleanup failed.",
+            )
+
+
 async def run_message_retention_cleanup() -> None:
     while True:
         try:
@@ -362,6 +382,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_message_retention_cleanup(),
     )
 
+    rate_limit_cleanup_task = asyncio.create_task(
+        run_rate_limit_cleanup(),
+    )
+
     media_identity_task = asyncio.create_task(
         run_media_identity_backfill(),
     )
@@ -371,6 +395,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     finally:
         keepalive_task.cancel()
         retention_task.cancel()
+        rate_limit_cleanup_task.cancel()
 
         if not media_identity_task.done():
             media_identity_task.cancel()
@@ -400,6 +425,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             asyncio.CancelledError,
         ):
             await retention_task
+
+        with suppress(
+            asyncio.CancelledError,
+        ):
+            await rate_limit_cleanup_task
 
         # Any route-started bot task must stop before the
         # database engine closes. Durable catalog scans remain

@@ -1100,8 +1100,8 @@ Alembic migrations should use the direct Neon URL.
 
 The API pool defaults to 5 persistent connections plus 10 overflow
 connections, with a 2-second connection-acquisition timeout and a
-30-second database command timeout. The API admits at most 8 concurrent
-HTTP requests by default and waits at most 1 second for an admission slot.
+30-second database command timeout. The API admits at most 12 concurrent
+HTTP requests by default and waits at most 2 seconds for an admission slot.
 Requests over that limit receive `503 Service Unavailable` with
 `Retry-After: 1`; `/health/live` remains available during overload. SQLAlchemy
 pool-acquisition timeouts use the same response instead of leaking as a 500.

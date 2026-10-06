@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 from fastapi import HTTPException
 from fastapi.requests import Request
 from httpx import ASGITransport, AsyncClient
 
 import backend.app.database as database_module
+from backend.app.database import get_session_factory
+from backend.app.models.system import RateLimitBucket
 from backend.app.api.routes.audio import (
     resolve_local_audio_fallback,
 )
@@ -19,6 +24,7 @@ from backend.app.config import (
 )
 from backend.app.main import app
 from backend.app.security.rate_limit import (
+    cleanup_stale_rate_limits,
     enforce_rate_limit,
     reset_rate_limits,
 )
@@ -104,6 +110,87 @@ async def test_auth_rate_limit_blocks_after_budget() -> None:
             "Retry-After"
         ]
     ) >= 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_serializes_concurrent_requests() -> None:
+    request = request_for()
+
+    async def hit() -> int:
+        try:
+            await enforce_rate_limit(
+                request,
+                scope="test-concurrent-limit",
+                identity="same-user@example.com",
+                limit=5,
+                window_seconds=60,
+            )
+        except HTTPException as exc:
+            return exc.status_code
+
+        return 200
+
+    statuses = await asyncio.gather(
+        *(hit() for _ in range(12))
+    )
+
+    assert statuses.count(200) == 5
+    assert statuses.count(429) == 7
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_cleanup_removes_only_expired_buckets() -> None:
+    reference = datetime.now(
+        UTC,
+    )
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                RateLimitBucket(
+                    key="test-stale",
+                    window_started_at=(
+                        reference
+                        - timedelta(
+                            days=3,
+                        )
+                    ),
+                    request_count=1,
+                    updated_at=(
+                        reference
+                        - timedelta(
+                            days=3,
+                        )
+                    ),
+                ),
+                RateLimitBucket(
+                    key="test-fresh",
+                    window_started_at=reference,
+                    request_count=1,
+                    updated_at=reference,
+                ),
+            ]
+        )
+        await session.commit()
+
+    await cleanup_stale_rate_limits(
+        now=reference,
+    )
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(
+                RateLimitBucket.key,
+            )
+        )
+
+        keys = set(
+            result.scalars().all()
+        )
+
+    assert "test-stale" not in keys
+    assert "test-fresh" in keys
 
 
 @pytest.mark.asyncio

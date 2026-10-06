@@ -5,7 +5,7 @@ from hashlib import sha256
 from math import ceil
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 
 from ..database import get_session_factory
@@ -135,20 +135,6 @@ async def enforce_rate_limit(
                 )
 
                 if bucket is None:
-                    await session.execute(
-                        delete(
-                            RateLimitBucket,
-                        ).where(
-                            RateLimitBucket.updated_at
-                            < (
-                                now
-                                - timedelta(
-                                    days=2,
-                                )
-                            ),
-                        )
-                    )
-
                     session.add(
                         RateLimitBucket(
                             key=key,
@@ -250,6 +236,65 @@ async def enforce_rate_limit(
     raise RuntimeError(
         "Unable to update rate limit state.",
     )
+
+
+async def cleanup_stale_rate_limits(
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Delete expired limiter buckets outside request handling.
+
+    Every API replica may run this maintenance task. A PostgreSQL advisory
+    transaction lock ensures only one replica performs the indexed delete at
+    a time, so cleanup cannot turn a deployment into a thundering herd.
+    """
+
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        lock_result = await session.execute(
+            text(
+                "SELECT pg_try_advisory_xact_lock("
+                "hashtext(:lock_key)"
+                ")"
+            ),
+            {
+                "lock_key":
+                    "hypersync:rate-limit-cleanup",
+            },
+        )
+
+        if not bool(
+            lock_result.scalar_one(),
+        ):
+            await session.rollback()
+            return
+
+        await session.execute(
+            delete(
+                RateLimitBucket,
+            ).where(
+                RateLimitBucket.updated_at
+                < (
+                    reference
+                    - timedelta(
+                        days=2,
+                    )
+                ),
+            )
+        )
+
+        await session.commit()
 
 
 async def reset_rate_limits() -> None:
