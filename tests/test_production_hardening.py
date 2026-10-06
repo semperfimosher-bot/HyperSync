@@ -128,7 +128,6 @@ async def test_auth_rate_limit_separates_identity_buckets() -> None:
 
 
 
-
 @pytest.mark.asyncio
 async def test_identity_rate_limit_cannot_be_reset_by_changing_ip() -> None:
     await enforce_rate_limit(

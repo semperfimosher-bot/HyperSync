@@ -31,7 +31,6 @@ from backend.app.services.generated_playlists import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 @pytest.mark.asyncio
 async def test_saved_generated_playlist_refreshes_in_place_for_new_music() -> None:
     run_id = uuid4().hex[:8]
@@ -309,7 +308,6 @@ async def test_legacy_essentials_title_is_removed_without_catalog_change() -> No
         assert renamed.title == artist
 
 
-
 def test_country_smart_match_rejects_rap() -> None:
     country = Track(
         id=uuid4(),
@@ -536,7 +534,6 @@ async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> 
         }
 
     await engine.dispose()
-
 
 
 @pytest.mark.asyncio

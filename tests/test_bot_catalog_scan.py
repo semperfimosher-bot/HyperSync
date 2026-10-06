@@ -28,7 +28,6 @@ from backend.app.services.on_demand_metadata import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 def _candidate(
     *,
     artist: str,

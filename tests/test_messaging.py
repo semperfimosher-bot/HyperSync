@@ -32,7 +32,6 @@ from backend.app.services.web_push import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 def test_push_endpoints_are_restricted_to_known_https_services() -> None:
     assert (
         validate_push_endpoint(

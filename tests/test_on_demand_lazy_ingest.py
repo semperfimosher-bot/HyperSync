@@ -36,7 +36,6 @@ from bot.youtube_source import DownloadedAudio, YouTubeSource
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 def _candidate() -> CatalogTrackCandidate:
     return CatalogTrackCandidate(
         key="metadata:test-track",

@@ -18,7 +18,6 @@ from backend.app.security.tokens import create_access_token
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 @pytest.fixture
 async def constrained_database(
     monkeypatch: pytest.MonkeyPatch,

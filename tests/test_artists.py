@@ -38,7 +38,6 @@ from backend.app.services.media_identity import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 @pytest.mark.asyncio
 async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> None:
     engine = create_postgres_test_engine()

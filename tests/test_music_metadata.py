@@ -18,7 +18,6 @@ from backend.app.services.music_metadata import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 @pytest.mark.asyncio
 async def test_musicbrainz_lookup_returns_genre_and_release_year() -> None:
     def handler(
@@ -243,7 +242,6 @@ async def test_musicbrainz_lookup_rejects_wrong_recording_duration() -> None:
         )
 
     assert result is None
-
 
 
 @pytest.mark.asyncio
@@ -529,7 +527,6 @@ async def test_apple_lookup_rejects_wrong_duration_or_weak_artist_match() -> Non
         )
 
     assert result is None
-
 
 
 def test_apple_catalog_genre_overrides_conflicting_lastfm_tag() -> None:

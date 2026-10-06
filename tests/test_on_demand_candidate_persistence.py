@@ -10,7 +10,6 @@ from backend.app.services.on_demand_metadata import CatalogTrackCandidate
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
-
 def candidate(*, title: str) -> CatalogTrackCandidate:
     return CatalogTrackCandidate(
         key="music:shared-candidate",

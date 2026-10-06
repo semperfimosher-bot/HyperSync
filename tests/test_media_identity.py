@@ -48,7 +48,6 @@ async def _factory():
     )
 
 
-
 @pytest.mark.asyncio
 async def test_legacy_duplicate_lookup_is_read_only_until_identity_sync() -> None:
     engine, factory = await _factory()
