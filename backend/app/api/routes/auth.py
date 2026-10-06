@@ -32,9 +32,9 @@ from ...services.auth import (
     delete_refresh_session,
     enforce_admin_creation_authorization,
     make_user_response,
+    refresh_authenticated_session,
     register_account,
     resolve_registration_role,
-    refresh_authenticated_session,
     set_refresh_cookie,
 )
 from ...services.email import EmailDeliveryError, send_password_recovery_email
