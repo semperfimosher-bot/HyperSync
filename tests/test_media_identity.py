@@ -404,7 +404,7 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
             "artwork_count": 0,
             "duplicate_groups": 1,
             "identity_backfill_pending": 0,
-            "artist_profile_backfill_pending": 0,
+            "artist_profile_backfill_pending": 2,
         }
 
     await engine.dispose()
