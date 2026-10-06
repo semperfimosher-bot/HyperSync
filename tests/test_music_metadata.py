@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.models.base import Base
 from backend.app.models.media import Track
@@ -18,6 +15,8 @@ from backend.app.services.music_metadata import (
     lookup_external_track_metadata,
     lookup_lastfm_track_metadata,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 @pytest.mark.asyncio

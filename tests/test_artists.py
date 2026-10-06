@@ -7,11 +7,8 @@ from datetime import (
 )
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.api.routes import (
     artists as artist_routes,
@@ -38,6 +35,8 @@ from backend.app.services.artists import (
 from backend.app.services.media_identity import (
     sync_track_media_identity,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 @pytest.mark.asyncio

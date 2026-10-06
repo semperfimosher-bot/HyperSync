@@ -5,7 +5,6 @@ from datetime import (
 from uuid import uuid4
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -29,6 +28,8 @@ from backend.app.services.generated_playlists import (
     smart_cache_key,
     smart_track_score,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 @pytest.mark.asyncio

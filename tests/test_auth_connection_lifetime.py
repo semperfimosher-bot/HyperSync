@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -16,6 +15,8 @@ from backend.app.config import get_settings
 from backend.app.models import AccountType, User, UserProfile, UserSession
 from backend.app.security import rate_limit
 from backend.app.security.tokens import create_access_token
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 @pytest.fixture
@@ -25,7 +26,8 @@ async def constrained_database(
     await database.close_database()
     monkeypatch.setenv("JWT_SECRET", "pool-test-secret-that-is-longer-than-thirty-two-characters")
     get_settings.cache_clear()
-    engine = create_postgres_test_engine(pool_size=1,
+    engine = create_postgres_test_engine(
+        pool_size=1,
         max_overflow=0,
         pool_timeout=1,
     )

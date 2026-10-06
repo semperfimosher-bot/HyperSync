@@ -3,13 +3,10 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import (
     select,
 )
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import bot.service
 import bot.worker
@@ -28,6 +25,8 @@ from backend.app.services import (
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 def _candidate(

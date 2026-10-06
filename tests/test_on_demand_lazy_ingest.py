@@ -7,11 +7,8 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from fastapi import Request
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.api.routes import (
     on_demand as on_demand_routes,
@@ -36,6 +33,8 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import DownloadedAudio, YouTubeSource
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 def _candidate() -> CatalogTrackCandidate:

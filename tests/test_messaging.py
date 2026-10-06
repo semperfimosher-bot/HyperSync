@@ -8,11 +8,8 @@ from datetime import (
 from uuid import uuid4
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.api.routes import (
     messages as message_routes,
@@ -32,6 +29,8 @@ from backend.app.models.messaging import (
 from backend.app.services.web_push import (
     validate_push_endpoint,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 def test_push_endpoints_are_restricted_to_known_https_services() -> None:

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.models.base import Base
 from backend.app.models.media import (
@@ -48,6 +45,8 @@ async def _factory():
             expire_on_commit=False,
         ),
     )
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 @pytest.mark.asyncio

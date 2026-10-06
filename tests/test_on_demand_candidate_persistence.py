@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import pytest
-from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.models.base import Base
 from backend.app.models.on_demand import OnDemandCandidate
 from backend.app.services import on_demand_state
 from backend.app.services.on_demand_metadata import CatalogTrackCandidate
+from scripts.verification.postgres_database import create_postgres_test_engine
+
 
 
 def candidate(*, title: str) -> CatalogTrackCandidate:
