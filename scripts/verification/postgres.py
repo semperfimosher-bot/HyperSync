@@ -208,9 +208,14 @@ def verify_postgres(database_url: str, run_id: str, report_dir: Path) -> list[Ch
     except ValueError as exc:
         return [CheckResult("postgres", "blocked", 0, None, None, str(exc))]
     with tempfile.TemporaryDirectory(prefix="hypersync-postgres-") as temporary:
-        environment = create_environment(Path(temporary) / "runtime")
-        env = child_environment(environment)
-        env["HYPERSYNC_TEST_POSTGRES_URL"] = database_url
+        env = clean_process_environment()
+        env.update(
+            ENVIRONMENT="test",
+            DATABASE_URL=database_url,
+            MIGRATION_DATABASE_URL=database_url,
+            JWT_SECRET=("verification-" + run_id + "-only").ljust(64, "x"),
+            HYPERSYNC_TEST_POSTGRES_URL=database_url,
+        )
         env["HYPERSYNC_VERIFICATION_RUN_ID"] = run_id
         env["HYPERSYNC_REPORT_DIR"] = str(report_dir.resolve())
         probe = run_check(

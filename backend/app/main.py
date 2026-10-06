@@ -22,7 +22,6 @@ from .config import get_settings
 from .database import (
     check_database,
     close_database,
-    ensure_local_database,
 )
 from .middleware.overload import (
     DatabaseAdmissionMiddleware,
@@ -340,8 +339,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # the retry envelope instead of failing earlier in
     # ensure_demo_data().
     await wait_for_database_ready()
-
-    await ensure_local_database()
 
     bot_resume_task = (
         await resume_catalog_scan_on_startup()

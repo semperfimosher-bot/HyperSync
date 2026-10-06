@@ -17,9 +17,6 @@ def _prepare_asyncpg_url(value: str) -> str:
     if not value:
         return ""
 
-    if value.startswith(("sqlite://", "sqlite+aiosqlite://", "sqlite:///")):
-        return value
-
     if value.startswith("postgres://"):
         value = "postgresql://" + value.removeprefix("postgres://")
 
@@ -204,21 +201,34 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_database_configuration(self) -> "Settings":
-        if self.environment in {"development", "production"}:
-            if not self.database_url.strip():
-                raise ValueError(
-                    "DATABASE_URL is required in development and production. "
-                    "Use the Neon PostgreSQL connection string for runtime."
-                )
-            if self.database_url.strip().lower().startswith("sqlite"):
-                raise ValueError(
-                    "SQLite DATABASE_URL is not allowed in development or production. "
-                    "Use the Neon PostgreSQL connection string instead."
-                )
+        database_url = self.database_url.strip()
+        migration_url = self.migration_database_url.strip()
 
-        if self.environment == "test" and not self.database_url.strip():
-            # Tests may intentionally use the SQLite fallback.
-            pass
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL is required in development, test, and production. "
+                "HyperSynced uses PostgreSQL in every environment."
+            )
+
+        allowed_schemes = {
+            "postgres",
+            "postgresql",
+            "postgresql+asyncpg",
+        }
+        if urlsplit(database_url).scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                "DATABASE_URL must be a PostgreSQL connection string. "
+                "SQLite and other database engines are not supported."
+            )
+
+        if (
+            migration_url
+            and urlsplit(migration_url).scheme.lower()
+            not in allowed_schemes
+        ):
+            raise ValueError(
+                "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
+            )
 
         return self.validate_database_capacity()
 

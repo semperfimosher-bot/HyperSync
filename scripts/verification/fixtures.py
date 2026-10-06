@@ -6,10 +6,11 @@ from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.app.models import AccountType, Base, Track, User, UserProfile
+from backend.app.models import AccountType, Track, User, UserProfile
 from backend.app.security.passwords import hash_password
 
 from .environment import RunEnvironment
+from .postgres_database import upgrade_database_to_head
 
 
 async def seed_fixtures(environment: RunEnvironment) -> dict:
@@ -48,10 +49,14 @@ async def seed_fixtures(environment: RunEnvironment) -> dict:
         }
         for role in ["host", "guest", "outsider"]
     ]
-    engine = create_async_engine(environment.database_url)
+    await upgrade_database_to_head(
+        environment.database_url
+    )
+    engine = create_async_engine(
+        environment.database_url,
+        connect_args={"ssl": False},
+    )
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             for item in tracks:
                 session.add(
