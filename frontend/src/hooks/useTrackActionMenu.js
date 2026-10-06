@@ -246,6 +246,25 @@ export default function useTrackActionMenu() {
               return;
             }
 
+            /*
+             * Track action menus are descendants of the
+             * long-press trigger. Allow clicks inside the
+             * action layer to reach their menu-item
+             * handlers instead of treating them as the
+             * synthetic click produced by the long press.
+             */
+            if (
+              event.target
+                ?.closest?.(
+                  '[role="menu"], .track-action-layer',
+                )
+            ) {
+              suppressClickRef.current =
+                false;
+
+              return;
+            }
+
             suppressClickRef.current =
               false;
 

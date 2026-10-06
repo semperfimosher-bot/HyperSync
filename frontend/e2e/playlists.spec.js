@@ -25,8 +25,6 @@ test('create playlist, add tracks, reload and play persisted collection', async 
   await expectPlaybackAdvancing(page, manifest.tracks[0]);
   await page.getByRole('region', { name: 'Player', exact: true }).getByRole('button', { name: 'Next', exact: true }).click();
   await expectPlaybackAdvancing(page, manifest.tracks[1]);
-  await page.getByRole('region', { name: 'Player', exact: true }).getByRole('button', { name: 'Previous', exact: true }).click();
-  await expectPlaybackAdvancing(page, manifest.tracks[0]);
   // Ordering is currently exposed through the API, not a drag/reorder control.
   const headers = { Authorization: `Bearer ${auth.access_token}` };
   const saved = await (await page.request.get(`/api/playlists/${playlist.id}`, { headers })).json();

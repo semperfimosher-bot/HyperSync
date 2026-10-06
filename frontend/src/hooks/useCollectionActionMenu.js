@@ -183,6 +183,27 @@ export default function useCollectionActionMenu() {
               return;
             }
 
+            /*
+             * The mobile action menu is rendered inside
+             * the collection trigger. Its click therefore
+             * passes through this capture handler before
+             * the menu item's own onClick. Long-press
+             * suppression must only consume the synthetic
+             * click on the original collection surface,
+             * never a deliberate action-menu selection.
+             */
+            if (
+              event.target
+                ?.closest?.(
+                  '[role="menu"], .track-action-layer',
+                )
+            ) {
+              suppressClickRef.current =
+                false;
+
+              return;
+            }
+
             suppressClickRef.current =
               false;
 
