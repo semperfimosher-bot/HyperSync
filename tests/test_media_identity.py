@@ -17,6 +17,7 @@ from backend.app.services.media_identity import (
     sync_track_media_identity,
     track_identity_lock_key,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 async def _factory():
@@ -45,7 +46,6 @@ async def _factory():
             expire_on_commit=False,
         ),
     )
-from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 

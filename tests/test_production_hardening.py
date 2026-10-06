@@ -17,7 +17,6 @@ from backend.app.api.routes.auth import (
 from backend.app.config import (
     get_settings,
 )
-from backend.app.database import get_engine
 from backend.app.main import app
 from backend.app.security.rate_limit import (
     enforce_rate_limit,

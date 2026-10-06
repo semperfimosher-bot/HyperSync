@@ -612,8 +612,6 @@ def report_metadata(
 async def apply_report(
     args: argparse.Namespace,
 ) -> int:
-    settings = get_settings()
-
     report_path = resolve_report_path(
         args.apply_report,
     )

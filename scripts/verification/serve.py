@@ -30,8 +30,9 @@ def main() -> None:
     socket.getaddrinfo = local_only
     os.chdir(environment.root)
 
-    from backend.app.main import app
     from fastapi import Request, Response
+
+    from backend.app.main import app
 
     audio_failures: set[str] = set()
 

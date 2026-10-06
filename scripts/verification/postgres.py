@@ -196,54 +196,123 @@ async def cleanup_owned_database(database_url: str, run_id: str) -> None:
         await admin.close(timeout=5)
 
 
-def verify_postgres(database_url: str, run_id: str, report_dir: Path) -> list[CheckResult]:
+def verify_postgres(
+    database_url: str,
+    run_id: str,
+    report_dir: Path,
+) -> list[CheckResult]:
     import sys
-    import tempfile
 
-    from .environment import child_environment, create_environment
+    from .environment import clean_process_environment
     from .processes import run_check
 
     try:
         validate_target(database_url, run_id)
     except ValueError as exc:
-        return [CheckResult("postgres", "blocked", 0, None, None, str(exc))]
-    with tempfile.TemporaryDirectory(prefix="hypersync-postgres-") as temporary:
-        env = clean_process_environment()
-        env.update(
-            ENVIRONMENT="test",
-            DATABASE_URL=database_url,
-            MIGRATION_DATABASE_URL=database_url,
-            JWT_SECRET=("verification-" + run_id + "-only").ljust(64, "x"),
-            HYPERSYNC_TEST_POSTGRES_URL=database_url,
+        return [
+            CheckResult(
+                "postgres",
+                "blocked",
+                0,
+                None,
+                None,
+                str(exc),
+            )
+        ]
+
+    env = clean_process_environment()
+    env.update(
+        ENVIRONMENT="test",
+        DATABASE_URL=database_url,
+        MIGRATION_DATABASE_URL=database_url,
+        JWT_SECRET=(
+            "verification-" + run_id + "-only"
+        ).ljust(64, "x"),
+        HYPERSYNC_TEST_POSTGRES_URL=database_url,
+        HYPERSYNC_VERIFICATION_RUN_ID=run_id,
+        HYPERSYNC_REPORT_DIR=str(
+            report_dir.resolve()
+        ),
+    )
+
+    probe = run_check(
+        [
+            sys.executable,
+            "-m",
+            "scripts.verification.postgres",
+            "--probe",
+        ],
+        cwd=ROOT,
+        env=env,
+        timeout_seconds=15,
+        log_path=(
+            report_dir
+            / "postgres-prerequisite.log"
+        ),
+        secrets=(
+            database_url,
+            urlsplit(database_url).password or "",
+        ),
+    )
+    if probe.status != "passed":
+        probe.status = (
+            "blocked"
+            if probe.status != "interrupted"
+            else "interrupted"
         )
-        env["HYPERSYNC_VERIFICATION_RUN_ID"] = run_id
-        env["HYPERSYNC_REPORT_DIR"] = str(report_dir.resolve())
-        probe = run_check(
-            [sys.executable, "-m", "scripts.verification.postgres", "--probe"],
-            cwd=ROOT, env=env, timeout_seconds=15,
-            log_path=report_dir / "postgres-prerequisite.log",
-            secrets=(database_url, urlsplit(database_url).password or ""),
+        probe.detail = (
+            "Disposable PostgreSQL service is "
+            "unavailable or inaccessible"
         )
-        if probe.status != "passed":
-            probe.status = "blocked" if probe.status != "interrupted" else "interrupted"
-            probe.detail = "Disposable PostgreSQL service is unavailable or inaccessible"
-            return [probe]
-        results = []
-        try:
-            results.append(run_check(
-                [sys.executable, "-m", "scripts.verification.postgres"],
-                cwd=ROOT, env=env, timeout_seconds=210,
-                log_path=report_dir / "postgres.log",
-                secrets=(database_url, urlsplit(database_url).password or ""),
-            ))
-        finally:
-            results.append(run_check(
-                [sys.executable, "-m", "scripts.verification.postgres", "--cleanup"],
-                cwd=ROOT, env=env, timeout_seconds=30,
-                log_path=report_dir / "postgres-cleanup.log",
-                secrets=(database_url, urlsplit(database_url).password or ""),
-            ))
-        return results
+        return [probe]
+
+    results: list[CheckResult] = []
+    try:
+        results.append(
+            run_check(
+                [
+                    sys.executable,
+                    "-m",
+                    "scripts.verification.postgres",
+                ],
+                cwd=ROOT,
+                env=env,
+                timeout_seconds=210,
+                log_path=(
+                    report_dir / "postgres.log"
+                ),
+                secrets=(
+                    database_url,
+                    urlsplit(database_url).password
+                    or "",
+                ),
+            )
+        )
+    finally:
+        results.append(
+            run_check(
+                [
+                    sys.executable,
+                    "-m",
+                    "scripts.verification.postgres",
+                    "--cleanup",
+                ],
+                cwd=ROOT,
+                env=env,
+                timeout_seconds=30,
+                log_path=(
+                    report_dir
+                    / "postgres-cleanup.log"
+                ),
+                secrets=(
+                    database_url,
+                    urlsplit(database_url).password
+                    or "",
+                ),
+            )
+        )
+
+    return results
 
 
 
