@@ -131,7 +131,12 @@ test('completed download survives disconnected reload and plays real cached audi
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
-  await page.getByText(track.title, { exact: true }).first().click();
+  const downloadedRow = page
+    .locator('.hs-library-page:visible .hs-search-track')
+    .filter({ hasText: track.title })
+    .first();
+  await expect(downloadedRow).toBeVisible();
+  await downloadedRow.click();
   await expectPlaybackAdvancing(page, track);
 });
 

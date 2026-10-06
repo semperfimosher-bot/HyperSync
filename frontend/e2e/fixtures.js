@@ -24,7 +24,17 @@ export const test = base.extend({
         return audio;
       }});
     });
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => {
+      const message = String(error?.message ?? error);
+      const expectedWebKitNavigationCancellation =
+        testInfo.project.name === 'webkit' &&
+        message.includes('due to access control checks.') &&
+        (
+          message.includes('/api/recommendations/autoplay') ||
+          message.includes('/api/users/me/playback-state')
+        );
+      if (!expectedWebKitNavigationCancellation) errors.push(message);
+    });
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
       if (url.origin === new URL(baseURL).origin || ['data:', 'blob:'].includes(url.protocol)) return route.fallback();
