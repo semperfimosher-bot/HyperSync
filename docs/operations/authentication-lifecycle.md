@@ -34,17 +34,21 @@ features unless a separate product decision explicitly changes them.
 - Revoked or expired session rows are removed when encountered.
 - Successful access-token authentication finishes its read transaction before
   route code waits on external services.
+- Login finishes its user lookup transaction before Argon2 verification, and
+  registration/password reset complete Argon2 hashing before opening their
+  write transaction. Password CPU work must never occupy a database pool slot.
 - Cookies are Secure in production (and on HTTPS requests), HttpOnly, SameSite
   Lax, and never exposed to frontend JavaScript.
 
 ## Ownership
 
 - `backend/app/api/routes/auth.py`: HTTP transport, endpoint rate limits,
-  response/cookie wiring.
+  response/cookie wiring. Registration/login business rules do not live here.
 - `backend/app/services/auth.py`: account/session lifecycle rules and
   refresh-secret rotation/revocation.
 - `backend/app/security/tokens.py`: JWT and opaque refresh-token primitives.
-- `backend/app/security/passwords.py`: password hashing and verification.
+- `backend/app/security/passwords.py`: password hashing and verification,
+  including async wrappers that offload Argon2 CPU work from the event loop.
 - `backend/app/api/dependencies.py`: access-token authentication for protected
   routes.
 

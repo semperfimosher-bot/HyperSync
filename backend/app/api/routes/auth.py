@@ -7,7 +7,7 @@ from secrets import token_urlsafe
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 
 from ...config import get_settings
 from ...database import get_session_factory
@@ -15,29 +15,23 @@ from ...models.account import (
     AccountType,
     PasswordRecovery,
     User,
-    UserProfile,
-    UserRole,
     UserSession,
 )
-from ...security.passwords import hash_password, verify_password
+from ...security.passwords import hash_password_async
 from ...security.rate_limit import enforce_rate_limit
 from ...security.tokens import create_access_token
 from ...services.admin_notifications import record_admin_activity
 from ...services.auth import (
-    _dummy_password_hash,
     _generate_recovery_code,
     _hash_recovery_otp,
     _hash_recovery_reset_token,
-    _lock_admin_registration,
-    _registered_user_for_identifier,
+    authenticate_password_account,
     create_session,
     delete_all_refresh_sessions,
     delete_refresh_session,
-    enforce_admin_creation_authorization,
     make_user_response,
-    normalize_username,
+    register_account,
     refresh_authenticated_session,
-    resolve_registration_role,
     set_refresh_cookie,
 )
 from ...services.email import EmailDeliveryError, send_password_recovery_email
@@ -98,157 +92,70 @@ async def register(
             ),
         )
 
-    session_factory = get_session_factory()
-
-    username = normalize_username(
-        payload.username,
+    (
+        user,
+        user_session,
+        refresh_token,
+    ) = await register_account(
+        username=payload.username,
+        email=str(
+            payload.email,
+        ),
+        password=payload.password,
+        create_admin=(
+            payload.create_admin
+        ),
+        admin_verification_password=(
+            payload
+            .admin_verification_password
+        ),
+        requester_role=(
+            requester.role
+            if requester is not None
+            else None
+        ),
+        request=request,
     )
 
-    email = str(payload.email).strip().lower()
-
-    async with session_factory() as session:
-        existing = await session.execute(
-            select(User).where(
-                (
-                    func.lower(
-                        User.email,
-                    )
-                    == email
-                )
-                | (User.username_normalized == username)
+    await record_admin_activity(
+        kind="account",
+        title="New user created",
+        body=(
+            "@"
+            + str(
+                user.username
+                or "unknown",
             )
-        )
+            + " created a registered "
+            + user.role.value
+            + " account."
+        ),
+        actor_user_id=user.id,
+        actor_username=user.username,
+    )
 
-        if existing.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=("That email or username is already registered."),
-            )
-
-        role = resolve_registration_role(
-            create_admin=(
-                payload.create_admin
-            ),
-            provided_admin_password=(
-                payload
-                .admin_verification_password
-            ),
-            configured_admin_password=(
-                settings
-                .admin_account_creation_password
-            ),
-        )
-
-        if role == UserRole.ADMIN:
-            await _lock_admin_registration(
-                session,
-            )
-
-            existing_admin_result = (
-                await session.execute(
-                    select(
-                        User.id,
-                    )
-                    .where(
-                        User.role
-                        == UserRole.ADMIN,
-                        User.is_active
-                        .is_(
-                            True,
-                        ),
-                    )
-                    .limit(
-                        1,
-                    )
-                )
-            )
-
-            enforce_admin_creation_authorization(
-                existing_admin=(
-                    existing_admin_result
-                    .scalar_one_or_none()
-                    is not None
-                ),
-                requester_role=(
-                    requester.role
-                    if requester
-                    is not None
-                    else None
-                ),
-            )
-
-        user = User(
-            account_type=AccountType.REGISTERED,
-            email=email,
-            username=payload.username.strip(),
-            username_normalized=username,
-            password_hash=hash_password(
-                payload.password,
-            ),
-            role=role,
-            is_active=True,
-        )
-
-        session.add(user)
-
-        await session.flush()
-
-        profile = UserProfile(
-            user_id=user.id,
-            display_name=payload.username.strip(),
-        )
-
-        session.add(profile)
-
-        user.profile = profile
-
-        user_session, refresh_token = await create_session(
-            database_session=session,
-            user=user,
-            request=request,
-        )
-
-        session.add(user_session)
-
-        user.last_login_at = datetime.now(UTC)
-
-        await session.commit()
-
-        await record_admin_activity(
-            kind="account",
-            title="New user created",
-            body=(
-                "@"
-                + str(
-                    user.username
-                    or "unknown",
-                )
-                + " created a registered "
-                + user.role.value
-                + " account."
-            ),
-            actor_user_id=user.id,
-            actor_username=user.username,
-        )
-
-        access_token, expires_in = create_access_token(
+    access_token, expires_in = (
+        create_access_token(
             user_id=user.id,
             session_id=user_session.id,
             role=user.role.value,
         )
+    )
 
-        set_refresh_cookie(
-            response,
-            refresh_token,
-            request,
-        )
+    set_refresh_cookie(
+        response,
+        refresh_token,
+        request,
+    )
 
-        return AuthResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=expires_in,
-            user=make_user_response(user),
-        )
+    return AuthResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=expires_in,
+        user=make_user_response(
+            user,
+        ),
+    )
 
 
 @router.post(
@@ -292,75 +199,38 @@ async def login(
         ),
     )
 
-    session_factory = get_session_factory()
+    (
+        user,
+        user_session,
+        refresh_token,
+    ) = await authenticate_password_account(
+        identifier=identifier,
+        password=payload.password,
+        request=request,
+    )
 
-    async with session_factory() as session:
-        user = await _registered_user_for_identifier(
-            session,
-            identifier,
-            load_profile=True,
-        )
-
-        password_hash = (
-            user.password_hash
-            if (
-                user is not None
-                and user.password_hash
-            )
-            else _dummy_password_hash()
-        )
-
-        password_ok = verify_password(
-            payload.password,
-            password_hash,
-        )
-
-        if (
-            user is None
-            or not user.is_active
-            or not user.password_hash
-            or not password_ok
-        ):
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_401_UNAUTHORIZED
-                ),
-                detail=(
-                    "Invalid username/email "
-                    "or password."
-                ),
-            )
-
-        user_session, refresh_token = await create_session(
-            database_session=session,
-            user=user,
-            request=request,
-        )
-
-        session.add(user_session)
-
-        user.last_login_at = datetime.now(UTC)
-
-        await session.commit()
-
-        access_token, expires_in = create_access_token(
+    access_token, expires_in = (
+        create_access_token(
             user_id=user.id,
             session_id=user_session.id,
             role=user.role.value,
         )
+    )
 
-        set_refresh_cookie(
-            response,
-            refresh_token,
-            request,
-        )
+    set_refresh_cookie(
+        response,
+        refresh_token,
+        request,
+    )
 
-        return AuthResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=expires_in,
-            user=make_user_response(user),
-        )
+    return AuthResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=expires_in,
+        user=make_user_response(
+            user,
+        ),
+    )
 
 
 @router.post(
@@ -813,6 +683,12 @@ async def reset_password_from_recovery_link(
         ),
     )
 
+    new_password_hash = (
+        await hash_password_async(
+            payload.new_password,
+        )
+    )
+
     session_factory = get_session_factory()
 
     async with session_factory() as session:
@@ -930,9 +806,7 @@ async def reset_password_from_recovery_link(
             )
 
         user.password_hash = (
-            hash_password(
-                payload.new_password,
-            )
+            new_password_hash
         )
         user.is_email_verified = True
 

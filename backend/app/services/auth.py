@@ -1,8 +1,8 @@
 """Authentication domain helpers and session lifecycle operations."""
 
+import asyncio
 import hmac
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
 from hashlib import sha256
 from secrets import randbelow
 
@@ -12,8 +12,12 @@ from sqlalchemy.orm import selectinload
 
 from ..api.schemas.auth import UserResponse
 from ..config import get_settings
-from ..models.account import AccountType, User, UserRole, UserSession
-from ..security.passwords import hash_password
+from ..database import get_session_factory
+from ..models.account import AccountType, User, UserProfile, UserRole, UserSession
+from ..security.passwords import (
+    hash_password_async,
+    verify_password_async,
+)
 from ..security.tokens import create_refresh_token, hash_refresh_token
 from ..time_utils import as_utc_aware as _as_utc_aware
 
@@ -223,11 +227,280 @@ async def _lock_admin_registration(
         )
 
 
-@lru_cache
-def _dummy_password_hash() -> str:
-    return hash_password(
-        "hypersync-dummy-password-value",
+_dummy_password_hash_value: str | None = None
+_dummy_password_hash_lock = asyncio.Lock()
+
+
+async def _dummy_password_hash() -> str:
+    global _dummy_password_hash_value
+
+    if _dummy_password_hash_value is not None:
+        return _dummy_password_hash_value
+
+    async with _dummy_password_hash_lock:
+        if _dummy_password_hash_value is None:
+            _dummy_password_hash_value = (
+                await hash_password_async(
+                    "hypersync-dummy-password-value",
+                )
+            )
+
+    return _dummy_password_hash_value
+
+
+async def register_account(
+    *,
+    username: str,
+    email: str,
+    password: str,
+    create_admin: bool,
+    admin_verification_password: str | None,
+    requester_role: UserRole | None,
+    request: Request,
+) -> tuple[
+    User,
+    UserSession,
+    str,
+]:
+    """Create a registered account and its browser session atomically."""
+
+    settings = get_settings()
+
+    normalized_username = normalize_username(
+        username,
     )
+    normalized_email = (
+        email.strip().lower()
+    )
+
+    role = resolve_registration_role(
+        create_admin=create_admin,
+        provided_admin_password=(
+            admin_verification_password
+        ),
+        configured_admin_password=(
+            settings
+            .admin_account_creation_password
+        ),
+    )
+
+    # Argon2 completes before a database transaction is opened so CPU work
+    # never occupies a connection from the application pool.
+    password_hash = await hash_password_async(
+        password,
+    )
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        existing = await session.execute(
+            select(
+                User,
+            ).where(
+                or_(
+                    func.lower(
+                        User.email,
+                    )
+                    == normalized_email,
+                    User.username_normalized
+                    == normalized_username,
+                )
+            )
+        )
+
+        if (
+            existing.scalar_one_or_none()
+            is not None
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "That email or username is "
+                    "already registered."
+                ),
+            )
+
+        if role == UserRole.ADMIN:
+            await _lock_admin_registration(
+                session,
+            )
+
+            existing_admin_result = (
+                await session.execute(
+                    select(
+                        User.id,
+                    )
+                    .where(
+                        User.role
+                        == UserRole.ADMIN,
+                        User.is_active.is_(
+                            True,
+                        ),
+                    )
+                    .limit(
+                        1,
+                    )
+                )
+            )
+
+            enforce_admin_creation_authorization(
+                existing_admin=(
+                    existing_admin_result
+                    .scalar_one_or_none()
+                    is not None
+                ),
+                requester_role=requester_role,
+            )
+
+        user = User(
+            account_type=(
+                AccountType.REGISTERED
+            ),
+            email=normalized_email,
+            username=username.strip(),
+            username_normalized=(
+                normalized_username
+            ),
+            password_hash=password_hash,
+            role=role,
+            is_active=True,
+        )
+
+        session.add(
+            user,
+        )
+
+        await session.flush()
+
+        profile = UserProfile(
+            user_id=user.id,
+            display_name=(
+                username.strip()
+            ),
+        )
+
+        session.add(
+            profile,
+        )
+
+        user.profile = profile
+
+        user_session, refresh_token = (
+            await create_session(
+                database_session=session,
+                user=user,
+                request=request,
+            )
+        )
+
+        session.add(
+            user_session,
+        )
+
+        user.last_login_at = (
+            datetime.now(
+                UTC,
+            )
+        )
+
+        await session.commit()
+
+        return (
+            user,
+            user_session,
+            refresh_token,
+        )
+
+
+async def authenticate_password_account(
+    *,
+    identifier: str,
+    password: str,
+    request: Request,
+) -> tuple[
+    User,
+    UserSession,
+    str,
+]:
+    """Authenticate a registered account and create/reuse its browser session."""
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        user = await _registered_user_for_identifier(
+            session,
+            identifier,
+            load_profile=True,
+        )
+
+        # Finish the read transaction before Argon2 verification. Application
+        # sessions use expire_on_commit=False, so the loaded account remains
+        # usable while the connection returns to the pool.
+        await session.commit()
+
+        password_hash = (
+            user.password_hash
+            if (
+                user is not None
+                and user.password_hash
+            )
+            else await _dummy_password_hash()
+        )
+
+        password_ok = (
+            await verify_password_async(
+                password,
+                password_hash,
+            )
+        )
+
+        if (
+            user is None
+            or not user.is_active
+            or not user.password_hash
+            or not password_ok
+        ):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_401_UNAUTHORIZED
+                ),
+                detail=(
+                    "Invalid username/email "
+                    "or password."
+                ),
+            )
+
+        user_session, refresh_token = (
+            await create_session(
+                database_session=session,
+                user=user,
+                request=request,
+            )
+        )
+
+        session.add(
+            user_session,
+        )
+
+        user.last_login_at = (
+            datetime.now(
+                UTC,
+            )
+        )
+
+        await session.commit()
+
+        return (
+            user,
+            user_session,
+            refresh_token,
+        )
 
 
 def make_user_response(
