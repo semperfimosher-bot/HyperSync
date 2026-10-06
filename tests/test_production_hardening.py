@@ -11,8 +11,6 @@ import pytest
 from sqlalchemy import select
 
 import backend.app.database as database_module
-from backend.app.database import get_session_factory
-from backend.app.models.system import RateLimitBucket
 from backend.app.api.routes.audio import (
     resolve_local_audio_fallback,
 )
@@ -22,7 +20,9 @@ from backend.app.api.routes.auth import (
 from backend.app.config import (
     get_settings,
 )
+from backend.app.database import get_session_factory
 from backend.app.main import app
+from backend.app.models.system import RateLimitBucket
 from backend.app.security.rate_limit import (
     cleanup_stale_rate_limits,
     enforce_rate_limit,
