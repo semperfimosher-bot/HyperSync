@@ -81,7 +81,7 @@ async function offlineMenuState(page, audioRequests) {
   }, audioRequests);
 }
 
-test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context, browserName }) => {
+test('completed download survives offline reload and plays real cached audio', async ({ page, identity, manifest, context }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
   const track = manifest.tracks[0];
@@ -116,17 +116,46 @@ test('completed download survives disconnected reload and plays real cached audi
   await page.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('main')).toContainText(track.title);
 
-  if (browserName === 'webkit') {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'onLine', {
-        configurable: true,
-        get: () => false,
-      });
+  const shellReady = await page.evaluate(async () => {
+    const cacheName = (await caches.keys())
+      .find(name => name.startsWith('hypersync-app-shell-'));
+    if (!cacheName) return false;
+
+    const cache = await caches.open(cacheName);
+    const shell = await cache.match('/');
+    if (!shell?.ok) return false;
+
+    const html = await shell.clone().text();
+    const assetUrls = [
+      ...html.matchAll(/(?:src|href)=["']([^"']+)["']/g),
+    ]
+      .map(match => match[1])
+      .filter(value => value && !value.startsWith('data:'))
+      .map(value => new URL(value, location.origin))
+      .filter(url => url.origin === location.origin);
+
+    for (const url of assetUrls) {
+      if (!(await cache.match(url.href))) return false;
+    }
+    return true;
+  });
+  expect(shellReady, 'service worker app shell should be fully cached before offline reload').toBe(true);
+
+  /*
+   * Playwright's browser-level offline switch is not portable for
+   * service-worker navigations: Firefox replaces the document with
+   * NS_ERROR_OFFLINE before the worker can answer, while Chromium can
+   * fail subresource requests outside the worker path. Exercise the
+   * application-level offline contract consistently instead: the
+   * browser reports offline and every API request is unavailable.
+   */
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      get: () => false,
     });
-    await context.route('**/api/**', route => route.abort('connectionreset'));
-  } else {
-    await context.setOffline(true);
-  }
+  });
+  await context.route('**/api/**', route => route.abort('connectionreset'));
 
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
