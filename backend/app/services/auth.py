@@ -312,6 +312,315 @@ async def purge_dead_user_sessions(
     )
 
 
+async def _refresh_session_for_token(
+    database_session,
+    refresh_token: str,
+    *,
+    now: datetime,
+    lock: bool = False,
+) -> UserSession | None:
+    presented_token_hash = (
+        hash_refresh_token(
+            refresh_token,
+        )
+    )
+
+    statement = select(
+        UserSession,
+    ).where(
+        or_(
+            UserSession.refresh_token_hash
+            == presented_token_hash,
+            and_(
+                UserSession.previous_refresh_token_hash
+                == presented_token_hash,
+                UserSession.previous_refresh_valid_until
+                > now,
+            ),
+        )
+    )
+
+    if lock:
+        statement = (
+            statement
+            .with_for_update()
+        )
+
+    result = await database_session.execute(
+        statement,
+    )
+
+    return (
+        result
+        .scalar_one_or_none()
+    )
+
+
+async def _rotate_refresh_session_secret(
+    database_session,
+    user_session: UserSession,
+    request: Request,
+    *,
+    now: datetime,
+) -> str:
+    settings = get_settings()
+
+    replacement_refresh_token = (
+        create_refresh_token()
+    )
+
+    user_session.previous_refresh_token_hash = (
+        user_session.refresh_token_hash
+    )
+
+    user_session.previous_refresh_valid_until = (
+        now
+        + timedelta(
+            seconds=(
+                REFRESH_ROTATION_GRACE_SECONDS
+            ),
+        )
+    )
+
+    user_session.refresh_token_hash = (
+        hash_refresh_token(
+            replacement_refresh_token,
+        )
+    )
+
+    user_session.last_used_at = now
+
+    user_session.expires_at = (
+        now
+        + timedelta(
+            days=(
+                settings
+                .refresh_token_ttl_days
+            ),
+        )
+    )
+
+    user_session.user_agent = (
+        request.headers.get(
+            "user-agent",
+        )
+    )
+
+    user_session.ip_address = (
+        request.client.host
+        if request.client
+        else None
+    )
+
+    await purge_dead_user_sessions(
+        database_session,
+        user_id=user_session.user_id,
+        now=now,
+        keep_session_id=(
+            user_session.id
+        ),
+    )
+
+    return replacement_refresh_token
+
+
+async def refresh_authenticated_session(
+    *,
+    database_session,
+    refresh_token: str,
+    request: Request,
+) -> tuple[
+    User,
+    UserSession,
+    str,
+]:
+    now = datetime.now(
+        UTC,
+    )
+
+    current_session = (
+        await _refresh_session_for_token(
+            database_session,
+            refresh_token,
+            now=now,
+            lock=True,
+        )
+    )
+
+    if current_session is None:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Refresh token is invalid."
+            ),
+        )
+
+    if (
+        current_session.revoked_at
+        is not None
+    ):
+        await database_session.delete(
+            current_session,
+        )
+
+        await database_session.commit()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Refresh session is no longer active."
+            ),
+        )
+
+    current_expires_at = (
+        _as_utc_aware(
+            current_session.expires_at,
+        )
+    )
+
+    if (
+        current_expires_at
+        is None
+        or current_expires_at
+        <= now
+    ):
+        await database_session.delete(
+            current_session,
+        )
+
+        await database_session.commit()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Refresh token has expired."
+            ),
+        )
+
+    user_result = await database_session.execute(
+        select(
+            User,
+        )
+        .options(
+            selectinload(
+                User.profile,
+            ),
+        )
+        .where(
+            User.id
+            == current_session.user_id,
+            User.is_active.is_(
+                True,
+            ),
+        )
+    )
+
+    user = (
+        user_result
+        .scalar_one_or_none()
+    )
+
+    if user is None:
+        await database_session.delete(
+            current_session,
+        )
+
+        await database_session.commit()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "User account is unavailable."
+            ),
+        )
+
+    replacement_refresh_token = (
+        await _rotate_refresh_session_secret(
+            database_session,
+            current_session,
+            request,
+            now=now,
+        )
+    )
+
+    await database_session.commit()
+
+    return (
+        user,
+        current_session,
+        replacement_refresh_token,
+    )
+
+
+async def delete_refresh_session(
+    *,
+    database_session,
+    refresh_token: str,
+) -> None:
+    now = datetime.now(
+        UTC,
+    )
+
+    current_session = (
+        await _refresh_session_for_token(
+            database_session,
+            refresh_token,
+            now=now,
+            lock=True,
+        )
+    )
+
+    if current_session is None:
+        return
+
+    await database_session.delete(
+        current_session,
+    )
+
+    await database_session.commit()
+
+
+async def delete_all_refresh_sessions(
+    *,
+    database_session,
+    refresh_token: str,
+) -> None:
+    now = datetime.now(
+        UTC,
+    )
+
+    current_session = (
+        await _refresh_session_for_token(
+            database_session,
+            refresh_token,
+            now=now,
+            lock=True,
+        )
+    )
+
+    if current_session is None:
+        return
+
+    await database_session.execute(
+        delete(
+            UserSession,
+        ).where(
+            UserSession.user_id
+            == current_session.user_id,
+        )
+    )
+
+    await database_session.commit()
+
+
 async def create_session(
     *,
     database_session,
@@ -330,36 +639,13 @@ async def create_session(
     )
 
     if existing_refresh_token:
-        existing_token_hash = (
-            hash_refresh_token(
-                existing_refresh_token,
-            )
-        )
-
-        existing_result = (
-            await database_session.execute(
-                select(
-                    UserSession,
-                )
-                .where(
-                    or_(
-                        UserSession.refresh_token_hash
-                        == existing_token_hash,
-                        and_(
-                            UserSession.previous_refresh_token_hash
-                            == existing_token_hash,
-                            UserSession.previous_refresh_valid_until
-                            > now,
-                        ),
-                    )
-                )
-                .with_for_update()
-            )
-        )
-
         existing_session = (
-            existing_result
-            .scalar_one_or_none()
+            await _refresh_session_for_token(
+                database_session,
+                existing_refresh_token,
+                now=now,
+                lock=True,
+            )
         )
 
         if existing_session is not None:
@@ -388,61 +674,12 @@ async def create_session(
                 and still_live
             ):
                 replacement_refresh_token = (
-                    create_refresh_token()
-                )
-
-                existing_session.previous_refresh_token_hash = (
-                    existing_session.refresh_token_hash
-                )
-
-                existing_session.previous_refresh_valid_until = (
-                    now
-                    + timedelta(
-                        seconds=(
-                            REFRESH_ROTATION_GRACE_SECONDS
-                        ),
+                    await _rotate_refresh_session_secret(
+                        database_session,
+                        existing_session,
+                        request,
+                        now=now,
                     )
-                )
-
-                existing_session.refresh_token_hash = (
-                    hash_refresh_token(
-                        replacement_refresh_token,
-                    )
-                )
-
-                existing_session.last_used_at = (
-                    now
-                )
-
-                existing_session.expires_at = (
-                    now
-                    + timedelta(
-                        days=(
-                            settings
-                            .refresh_token_ttl_days
-                        ),
-                    )
-                )
-
-                existing_session.user_agent = (
-                    request.headers.get(
-                        "user-agent",
-                    )
-                )
-
-                existing_session.ip_address = (
-                    request.client.host
-                    if request.client
-                    else None
-                )
-
-                await purge_dead_user_sessions(
-                    database_session,
-                    user_id=user.id,
-                    now=now,
-                    keep_session_id=(
-                        existing_session.id
-                    ),
                 )
 
                 return (
@@ -450,10 +687,8 @@ async def create_session(
                     replacement_refresh_token,
                 )
 
-            # The cookie points at a dead
-            # legacy session or this browser
-            # is switching accounts. Delete
-            # only the row represented by
+            # The cookie points at a dead legacy session or this browser
+            # is switching accounts. Delete only the row represented by
             # this browser cookie.
             await database_session.delete(
                 existing_session,

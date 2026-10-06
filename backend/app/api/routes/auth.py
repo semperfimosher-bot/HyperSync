@@ -7,8 +7,7 @@ from secrets import token_urlsafe
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import and_, delete, func, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import delete, func, select
 
 from ...config import get_settings
 from ...database import get_session_factory
@@ -22,10 +21,9 @@ from ...models.account import (
 )
 from ...security.passwords import hash_password, verify_password
 from ...security.rate_limit import enforce_rate_limit
-from ...security.tokens import create_access_token, create_refresh_token, hash_refresh_token
+from ...security.tokens import create_access_token
 from ...services.admin_notifications import record_admin_activity
 from ...services.auth import (
-    REFRESH_ROTATION_GRACE_SECONDS,
     _dummy_password_hash,
     _generate_recovery_code,
     _hash_recovery_otp,
@@ -33,10 +31,12 @@ from ...services.auth import (
     _lock_admin_registration,
     _registered_user_for_identifier,
     create_session,
+    delete_all_refresh_sessions,
+    delete_refresh_session,
     enforce_admin_creation_authorization,
     make_user_response,
     normalize_username,
-    purge_dead_user_sessions,
+    refresh_authenticated_session,
     resolve_registration_role,
     set_refresh_cookie,
 )
@@ -984,27 +984,10 @@ async def logout(
         )
 
         async with session_factory() as session:
-            result = await session.execute(
-                select(
-                    UserSession,
-                ).where(
-                    UserSession.refresh_token_hash
-                    == hash_refresh_token(
-                        refresh_token,
-                    )
-                )
+            await delete_refresh_session(
+                database_session=session,
+                refresh_token=refresh_token,
             )
-
-            user_session = (
-                result.scalar_one_or_none()
-            )
-
-            if user_session is not None:
-                await session.delete(
-                    user_session,
-                )
-
-                await session.commit()
 
     response.delete_cookie(
         key="hypersync_refresh",
@@ -1057,204 +1040,16 @@ async def refresh(
         get_session_factory()
     )
 
-    now = datetime.now(
-        UTC,
-    )
-
-    presented_token_hash = (
-        hash_refresh_token(
-            refresh_token,
-        )
-    )
-
     async with session_factory() as session:
-        result = await session.execute(
-            select(
-                UserSession,
-            )
-            .where(
-                or_(
-                    UserSession.refresh_token_hash
-                    == presented_token_hash,
-                    and_(
-                        UserSession.previous_refresh_token_hash
-                        == presented_token_hash,
-                        UserSession.previous_refresh_valid_until
-                        > now,
-                    ),
-                )
-            )
-            .with_for_update()
+        (
+            user,
+            current_session,
+            replacement_refresh_token,
+        ) = await refresh_authenticated_session(
+            database_session=session,
+            refresh_token=refresh_token,
+            request=request,
         )
-
-        current_session = (
-            result.scalar_one_or_none()
-        )
-
-        if current_session is None:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_401_UNAUTHORIZED
-                ),
-                detail=(
-                    "Refresh token is invalid."
-                ),
-            )
-
-        # Old builds left rotated/revoked
-        # rows behind. A request carrying
-        # one of those dead tokens deletes
-        # only that dead row. It must never
-        # revoke or delete the live replacement.
-        if (
-            current_session.revoked_at
-            is not None
-        ):
-            await session.delete(
-                current_session,
-            )
-
-            await session.commit()
-
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_401_UNAUTHORIZED
-                ),
-                detail=(
-                    "Refresh session is no longer active."
-                ),
-            )
-
-        current_expires_at = (
-            _as_utc_aware(
-                current_session.expires_at,
-            )
-        )
-
-        if (
-            current_expires_at
-            is None
-            or current_expires_at
-            <= now
-        ):
-            await session.delete(
-                current_session,
-            )
-
-            await session.commit()
-
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_401_UNAUTHORIZED
-                ),
-                detail=(
-                    "Refresh token has expired."
-                ),
-            )
-
-        user_result = await session.execute(
-            select(
-                User,
-            )
-            .options(
-                selectinload(
-                    User.profile,
-                ),
-            )
-            .where(
-                User.id
-                == current_session.user_id,
-                User.is_active.is_(
-                    True,
-                ),
-            )
-        )
-
-        user = (
-            user_result.scalar_one_or_none()
-        )
-
-        if user is None:
-            await session.delete(
-                current_session,
-            )
-
-            await session.commit()
-
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_401_UNAUTHORIZED
-                ),
-                detail=(
-                    "User account is unavailable."
-                ),
-            )
-
-        # Keep one stable database session
-        # for this browser while still
-        # rotating the secret itself. The
-        # immediately previous secret stays
-        # valid briefly so overlapping tabs
-        # cannot kill the legitimate session.
-        replacement_refresh_token = (
-            create_refresh_token()
-        )
-
-        current_session.previous_refresh_token_hash = (
-            current_session.refresh_token_hash
-        )
-
-        current_session.previous_refresh_valid_until = (
-            now
-            + timedelta(
-                seconds=(
-                    REFRESH_ROTATION_GRACE_SECONDS
-                ),
-            )
-        )
-
-        current_session.refresh_token_hash = (
-            hash_refresh_token(
-                replacement_refresh_token,
-            )
-        )
-
-        current_session.last_used_at = (
-            now
-        )
-
-        current_session.expires_at = (
-            now
-            + timedelta(
-                days=(
-                    settings
-                    .refresh_token_ttl_days
-                ),
-            )
-        )
-
-        current_session.user_agent = (
-            request.headers.get(
-                "user-agent",
-            )
-        )
-
-        current_session.ip_address = (
-            request.client.host
-            if request.client
-            else None
-        )
-
-        await purge_dead_user_sessions(
-            session,
-            user_id=user.id,
-            now=now,
-            keep_session_id=(
-                current_session.id
-            ),
-        )
-
-        await session.commit()
 
         access_token, expires_in = (
             create_access_token(
@@ -1266,9 +1061,6 @@ async def refresh(
             )
         )
 
-        # Roll the HttpOnly browser secret
-        # forward without changing the
-        # database session identity.
         set_refresh_cookie(
             response,
             replacement_refresh_token,
@@ -1295,31 +1087,15 @@ async def logout_all(
     )
 
     if refresh_token:
-        session_factory = get_session_factory()
+        session_factory = (
+            get_session_factory()
+        )
 
         async with session_factory() as session:
-            result = await session.execute(
-                select(UserSession).where(
-                    UserSession.refresh_token_hash
-                    == hash_refresh_token(
-                        refresh_token,
-                    )
-                )
+            await delete_all_refresh_sessions(
+                database_session=session,
+                refresh_token=refresh_token,
             )
-
-            current_session = result.scalar_one_or_none()
-
-            if current_session:
-                await session.execute(
-                    delete(
-                        UserSession,
-                    ).where(
-                        UserSession.user_id
-                        == current_session.user_id,
-                    )
-                )
-
-                await session.commit()
 
     response.delete_cookie(
         key="hypersync_refresh",
