@@ -154,3 +154,21 @@ async def upgrade_database_to_head(
             await connection.run_sync(upgrade)
     finally:
         await engine.dispose()
+
+
+def create_postgres_test_engine(**engine_kwargs):
+    """Create a test engine against pytest's owned PostgreSQL database."""
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from backend.app.database import resolve_database_url
+
+    connect_args = {
+        "ssl": False,
+        **engine_kwargs.pop("connect_args", {}),
+    }
+    return create_async_engine(
+        resolve_database_url(),
+        connect_args=connect_args,
+        **engine_kwargs,
+    )

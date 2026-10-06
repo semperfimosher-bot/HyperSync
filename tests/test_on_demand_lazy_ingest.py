@@ -7,10 +7,10 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 from backend.app.api.routes import (
@@ -627,9 +627,7 @@ async def test_on_demand_search_uses_indexed_identity_with_legacy_fallback(
         .reset_transient_state()
     )
 
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -1159,9 +1157,7 @@ async def test_local_provision_adopts_durable_terminal_result(
 async def test_durable_provision_terminal_state_cannot_regress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -1278,9 +1274,7 @@ async def test_durable_provision_terminal_state_cannot_regress(
 async def test_durable_ready_can_recover_previous_failed_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

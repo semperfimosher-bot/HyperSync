@@ -3,12 +3,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 import bot.service
@@ -67,9 +67,7 @@ async def _catalog_factory(
         tuple[str, str]
     ],
 ):
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

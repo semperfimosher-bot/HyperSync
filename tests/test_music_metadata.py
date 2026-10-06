@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 from backend.app.models.base import Base
@@ -605,9 +605,7 @@ def test_lastfm_genre_remains_when_apple_has_no_genre() -> None:
 async def test_metadata_enrichment_survives_playlist_refresh_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

@@ -5,8 +5,9 @@ from datetime import (
 from uuid import uuid4
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.database import get_session_factory
 from backend.app.models import Base
@@ -399,7 +400,7 @@ def test_chill_evening_query_uses_calm_genre_families() -> None:
 @pytest.mark.asyncio
 async def test_smart_genre_playlist_refreshes_when_matching_music_is_added() -> None:
     run_id = uuid4().hex[:8]
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    engine = create_postgres_test_engine()
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

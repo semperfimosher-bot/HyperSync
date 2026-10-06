@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 from backend.app.models.base import Base
@@ -23,9 +23,7 @@ from backend.app.services.media_identity import (
 
 
 async def _factory():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -493,9 +491,7 @@ async def test_catalog_inventory_prefers_sidecars_and_falls_back_for_legacy_rows
 
 @pytest.mark.asyncio
 async def test_catalog_primary_artist_inventory_supports_tracks_only_legacy_schema() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

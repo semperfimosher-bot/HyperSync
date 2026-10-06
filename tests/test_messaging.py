@@ -8,10 +8,10 @@ from datetime import (
 from uuid import uuid4
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 from backend.app.api.routes import (
@@ -75,9 +75,7 @@ def test_admin_message_activity_does_not_copy_private_content() -> None:
 
 @pytest.mark.asyncio
 async def test_admin_activity_notifications_are_admin_only_and_readable() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -204,9 +202,7 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
 
 @pytest.mark.asyncio
 async def test_admin_sees_other_accounts_pending_notifications_without_private_body() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -406,9 +402,7 @@ async def test_admin_sees_other_accounts_pending_notifications_without_private_b
 
 @pytest.mark.asyncio
 async def test_message_notification_includes_full_details_and_can_be_read() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -589,9 +583,7 @@ async def test_message_notification_includes_full_details_and_can_be_read() -> N
 
 @pytest.mark.asyncio
 async def test_only_sender_can_hard_delete_message_and_admin_copy() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -734,9 +726,7 @@ async def test_only_sender_can_hard_delete_message_and_admin_copy() -> None:
 
 @pytest.mark.asyncio
 async def test_messages_expire_only_one_week_after_viewing() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

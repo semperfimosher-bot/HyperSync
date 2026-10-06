@@ -7,10 +7,10 @@ from datetime import (
 )
 
 import pytest
+from scripts.verification.postgres_database import create_postgres_test_engine
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
-    create_async_engine,
 )
 
 from backend.app.api.routes import (
@@ -42,9 +42,7 @@ from backend.app.services.media_identity import (
 
 @pytest.mark.asyncio
 async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -225,9 +223,7 @@ async def test_artist_profile_is_unique_and_reports_stats_and_follow_state() -> 
 
 @pytest.mark.asyncio
 async def test_existing_catalog_artist_is_created_lazily() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -300,9 +296,7 @@ async def test_existing_catalog_artist_is_created_lazily() -> None:
 
 @pytest.mark.asyncio
 async def test_artist_profiles_include_collaboration_credits() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -413,9 +407,7 @@ async def test_artist_profiles_include_collaboration_credits() -> None:
 async def test_artist_profile_backfill_converges_legacy_track_credits(
     monkeypatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

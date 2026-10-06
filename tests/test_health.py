@@ -47,9 +47,6 @@ async def test_lifespan_runs_database_and_resume_startup_steps(
     async def fake_database_ready() -> None:
         calls.append("database-ready")
 
-    async def fake_local_database() -> None:
-        calls.append("local-database")
-
     async def fake_catalog_resume():
         calls.append("catalog-resume")
         return None
@@ -77,7 +74,6 @@ async def test_lifespan_runs_database_and_resume_startup_steps(
         calls.append("close")
 
     monkeypatch.setattr(main_module, "wait_for_database_ready", fake_database_ready)
-    monkeypatch.setattr(main_module, "ensure_local_database", fake_local_database)
     monkeypatch.setattr(main_module, "resume_catalog_scan_on_startup", fake_catalog_resume)
     monkeypatch.setattr(main_module, "resume_on_demand_ingests_on_startup", fake_on_demand_resume)
     monkeypatch.setattr(main_module, "keep_database_warm", fake_keepalive)
@@ -88,9 +84,8 @@ async def test_lifespan_runs_database_and_resume_startup_steps(
     monkeypatch.setattr(main_module, "close_database", fake_close)
 
     async with main_module.lifespan(app):
-        assert calls[:4] == [
+        assert calls[:3] == [
             "database-ready",
-            "local-database",
             "catalog-resume",
             "on-demand-resume",
         ]

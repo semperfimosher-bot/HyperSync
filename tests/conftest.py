@@ -96,12 +96,52 @@ def pytest_configure(config) -> None:
     )
 
 
+async def _truncate_application_tables() -> None:
+    if not _DATABASE_STATE:
+        return
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from backend.app.models.base import Base
+
+    engine = create_async_engine(
+        os.environ["DATABASE_URL"],
+        poolclass=NullPool,
+        connect_args={"ssl": False},
+    )
+    try:
+        async with engine.begin() as connection:
+            quote = (
+                connection.dialect
+                .identifier_preparer
+                .quote
+            )
+            tables = ", ".join(
+                quote(table.name)
+                for table
+                in Base.metadata.sorted_tables
+            )
+            if tables:
+                await connection.execute(
+                    text(
+                        "TRUNCATE TABLE "
+                        + tables
+                        + " RESTART IDENTITY CASCADE"
+                    )
+                )
+    finally:
+        await engine.dispose()
+
+
 @pytest.fixture(autouse=True)
 async def cleanup_database():
     from backend.app.database import close_database
 
     yield
     await close_database()
+    await _truncate_application_tables()
 
 
 def pytest_unconfigure(config) -> None:

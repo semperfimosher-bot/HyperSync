@@ -19,7 +19,6 @@ from backend.app.config import (
 )
 from backend.app.database import get_engine
 from backend.app.main import app
-from backend.app.models.base import Base
 from backend.app.security.rate_limit import (
     enforce_rate_limit,
     reset_rate_limits,
@@ -53,11 +52,6 @@ def request_for(
 
 @pytest.fixture(autouse=True)
 async def rate_limit_database_schema():
-    async with get_engine().begin() as connection:
-        await connection.run_sync(
-            Base.metadata.create_all,
-        )
-
     await reset_rate_limits()
 
     yield
@@ -317,12 +311,12 @@ def test_production_database_requires_explicit_url(
 
     with pytest.raises(
         RuntimeError,
-        match="DATABASE_URL is required for local and production runtime",
+        match="DATABASE_URL is required",
     ):
         database_module.resolve_database_url()
 
 
-def test_test_database_allows_sqlite_fallback(
+def test_test_database_requires_explicit_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -334,9 +328,11 @@ def test_test_database_allows_sqlite_fallback(
         ),
     )
 
-    assert database_module.resolve_database_url() == (
-        "sqlite+aiosqlite:///./local_dev.db"
-    )
+    with pytest.raises(
+        RuntimeError,
+        match="DATABASE_URL is required",
+    ):
+        database_module.resolve_database_url()
 
     request = Request(
         {
