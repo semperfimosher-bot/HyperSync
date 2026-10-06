@@ -2,8 +2,8 @@ import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
 async function clearOfflineClientState(page, { clearCaches = false } = {}) {
-  await page.evaluate(async () => {
-    if (clearCaches && typeof caches !== "undefined") {
+  await page.evaluate(async (shouldClearCaches) => {
+    if (shouldClearCaches && typeof caches !== "undefined") {
       const keys = await caches.keys();
       await Promise.all(keys.map((key) => caches.delete(key)));
     }
@@ -36,7 +36,7 @@ async function clearOfflineClientState(page, { clearCaches = false } = {}) {
           reject(new Error("IndexedDB deletion was blocked: " + name));
       });
     }
-  });
+  }, clearCaches);
 }
 
 function recordAudioRequests(page) {
