@@ -1,42 +1,59 @@
 import { test, expect } from './fixtures.js';
 import { login, navigate, startTrack, expectPlaybackAdvancing } from './helpers.js';
 
-async function clearOfflineClientState(page, { clearCaches = false } = {}) {
-  await page.evaluate(async (shouldClearCaches) => {
-    if (shouldClearCaches && typeof caches !== "undefined") {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((key) => caches.delete(key)));
-    }
+async function prepareOfflineApp(page) {
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await expect.poll(
+    () => page.evaluate(() => Boolean(navigator.serviceWorker.controller)),
+  ).toBe(true);
 
-    if (typeof indexedDB === "undefined") return;
+  await page.evaluate(async () => {
+    const controller = navigator.serviceWorker.controller;
+    if (!controller) throw new Error('Service worker is not controlling the page.');
 
-    const names = [
-      "hypersynced-media-v1",
-      "hypersynced-offline-v1",
-    ];
+    const requestId =
+      globalThis.crypto?.randomUUID?.() ??
+      `prepare-${Date.now()}-${Math.random()}`;
 
-    const databases =
-      typeof indexedDB.databases === "function"
-        ? await indexedDB.databases()
-        : [];
+    await new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        navigator.serviceWorker.removeEventListener('message', onMessage);
+        reject(new Error('Timed out preparing the offline app shell.'));
+      }, 10000);
 
-    for (const database of databases) {
-      if (database?.name?.startsWith("hypersync")) {
-        names.push(database.name);
-      }
-    }
+      const onMessage = event => {
+        if (
+          event.data?.type !== 'HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE' ||
+          event.data?.requestId !== requestId
+        ) {
+          return;
+        }
 
-    for (const name of new Set(names)) {
-      await new Promise((resolve, reject) => {
-        const request = indexedDB.deleteDatabase(name);
-        request.onsuccess = () => resolve();
-        request.onerror = () =>
-          reject(request.error || new Error("Unable to delete IndexedDB database: " + name));
-        request.onblocked = () =>
-          reject(new Error("IndexedDB deletion was blocked: " + name));
+        window.clearTimeout(timeout);
+        navigator.serviceWorker.removeEventListener('message', onMessage);
+        if (event.data?.ok === false) {
+          reject(new Error('Service worker could not prepare the offline app shell.'));
+          return;
+        }
+        resolve();
+      };
+
+      navigator.serviceWorker.addEventListener('message', onMessage);
+      controller.postMessage({
+        type: 'HYPERSYNC_PREPARE_OFFLINE_APP',
+        requestId,
       });
-    }
-  }, clearCaches);
+    });
+  });
+}
+
+async function setVerificationAudioFailure(page, manifest, trackId, enabled) {
+  const url =
+    `http://127.0.0.1:${manifest.api_port}/__verification/audio-failures/${encodeURIComponent(trackId)}`;
+  const response = enabled
+    ? await page.request.put(url)
+    : await page.request.delete(url);
+  expect(response.ok(), await response.text()).toBe(true);
 }
 
 function recordAudioRequests(page) {
@@ -67,10 +84,17 @@ async function offlineMenuState(page, audioRequests) {
 test('completed download survives disconnected reload and plays real cached audio', async ({ page, identity, manifest, context, browserName }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
-  await clearOfflineClientState(page);
-  await startTrack(page, manifest.tracks[0]);
-  await page.locator('.hs-search-track').filter({ hasText: manifest.tracks[0].title }).first().click({ button: 'right' });
+  const track = manifest.tracks[0];
+
+  await navigate(page, 'Search');
+  await page
+    .getByPlaceholder('Search songs, artists, genres, or type a vibe...')
+    .first()
+    .fill(track.title);
+  const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
+  await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
+
   const downloaded = page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true });
   const notice = page.locator('.track-action-menu__notice');
   try {
@@ -80,16 +104,18 @@ test('completed download survives disconnected reload and plays real cached audi
       return message ? `failed: ${message}` : 'pending';
     }).toBe('downloaded');
   } catch (error) {
-    throw new Error(`Offline download did not complete: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`);
+    throw new Error(
+      `Offline download did not complete: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`,
+    );
   }
+
   await page.keyboard.press('Escape');
-  await page.evaluate(() => navigator.serviceWorker.ready);
-  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
-  // Service-worker fetches must handle navigation while disconnected.
-  await page.unroute('**/*');
+  await prepareOfflineApp(page);
+
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
-  await expect(page.locator('main')).toContainText(manifest.tracks[0].title);
+  await expect(page.locator('main')).toContainText(track.title);
+
   if (browserName === 'webkit') {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'onLine', {
@@ -101,47 +127,67 @@ test('completed download survives disconnected reload and plays real cached audi
   } else {
     await context.setOffline(true);
   }
+
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
-  await page.getByText(manifest.tracks[0].title, { exact: true }).first().click();
-  await expectPlaybackAdvancing(page, manifest.tracks[0]);
+  await page.getByText(track.title, { exact: true }).first().click();
+  await expectPlaybackAdvancing(page, track);
 });
 
-test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest, context }) => {
+test('interrupted download remains incomplete and can be retried', async ({ page, identity, manifest }) => {
   const audioRequests = recordAudioRequests(page);
   await login(page, identity);
-  await clearOfflineClientState(page, { clearCaches: true });
   const track = manifest.tracks[2];
-  let aborted = 0;
-  const pattern = `**/api/audio/${track.id}**`;
-  await context.route(pattern, route => { aborted++; return route.abort('connectionreset'); });
-  await navigate(page, 'Search');
-  await page.getByPlaceholder('Search songs, artists, genres, or type a vibe...').first().fill(track.title);
-  const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
-  await row.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
-  const notice = page.locator('.track-action-menu__notice');
+
+  await setVerificationAudioFailure(page, manifest, track.id, true);
   try {
-    await expect.poll(async () => {
-      if (aborted > 0) return 'aborted';
-      return (await notice.textContent().catch(() => ''))?.trim() || 'pending';
-    }).not.toBe('pending');
-  } catch (error) {
-    throw new Error(`Interrupted download stayed pending: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`);
+    await navigate(page, 'Search');
+    await page
+      .getByPlaceholder('Search songs, artists, genres, or type a vibe...')
+      .first()
+      .fill(track.title);
+    const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
+    await row.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
+
+    const notice = page.locator('.track-action-menu__notice');
+    try {
+      await expect.poll(async () => {
+        return (await notice.textContent().catch(() => ''))?.trim() || 'pending';
+      }).not.toBe('pending');
+    } catch (error) {
+      throw new Error(
+        `Interrupted download stayed pending: ${JSON.stringify(await offlineMenuState(page, audioRequests))}\n${error.message}`,
+      );
+    }
+
+    await expect(
+      page.getByRole('menuitem', { name: 'Download for offline', exact: true }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await setVerificationAudioFailure(page, manifest, track.id, false);
   }
-  const downloadError = (await notice.textContent().catch(() => ''))?.trim();
-  expect(aborted, `The interrupted download should reach the simulated audio failure${downloadError ? `; UI reported: ${downloadError}` : ''}`).toBeGreaterThan(0);
-  await expect(page.getByRole('menuitem', { name: 'Download for offline', exact: true })).toBeEnabled();
-  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toHaveCount(0);
+
   await page.keyboard.press('Escape');
   await navigate(page, 'Library');
   await page.getByRole('tab', { name: /^Songs/ }).click();
-  await expect(page.locator('.hs-library-page:visible').getByText(track.title, { exact: true })).toHaveCount(0);
-  await context.unroute(pattern);
+  await expect(
+    page.locator('.hs-library-page:visible').getByText(track.title, { exact: true }),
+  ).toHaveCount(0);
+
   await navigate(page, 'Search');
+  await page
+    .getByPlaceholder('Search songs, artists, genres, or type a vibe...')
+    .first()
+    .fill(track.title);
+  const row = page.locator('.hs-search-track').filter({ hasText: track.title }).first();
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Download for offline', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Downloaded for offline', exact: true }),
+  ).toBeVisible();
 });
-
