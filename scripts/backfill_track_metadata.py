@@ -141,15 +141,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--allow-local",
-        action="store_true",
-        help=(
-            "Allow running when DATABASE_URL is empty and "
-            "HyperSync would use local_dev.db."
-        ),
-    )
-
-    parser.add_argument(
         "--report",
         type=Path,
         default=None,
@@ -623,20 +614,6 @@ async def apply_report(
 ) -> int:
     settings = get_settings()
 
-    if (
-        not settings.database_url
-        .strip()
-        and not args.allow_local
-    ):
-        print(
-            "DATABASE_URL is empty. Refusing to modify "
-            "local_dev.db by accident. Configure DATABASE_URL "
-            "or pass --allow-local intentionally.",
-            file=sys.stderr,
-        )
-
-        return 2
-
     report_path = resolve_report_path(
         args.apply_report,
     )
@@ -968,20 +945,6 @@ async def run_backfill(
     args: argparse.Namespace,
 ) -> int:
     settings = get_settings()
-
-    if (
-        not settings.database_url
-        .strip()
-        and not args.allow_local
-    ):
-        print(
-            "DATABASE_URL is empty. Refusing to modify "
-            "local_dev.db by accident. Configure DATABASE_URL "
-            "or pass --allow-local intentionally.",
-            file=sys.stderr,
-        )
-
-        return 2
 
     if args.limit < 0:
         print(

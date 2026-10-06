@@ -32,9 +32,6 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import (
     insert as postgresql_insert,
 )
-from sqlalchemy.dialects.sqlite import (
-    insert as sqlite_insert,
-)
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings
@@ -1064,65 +1061,28 @@ async def touch_playback_device(
             reference,
     }
 
-    dialect_name = (
-        session
-        .get_bind()
-        .dialect
-        .name
+    statement = (
+        postgresql_insert(
+            PlaybackDevice,
+        )
+        .values(
+            **values,
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                PlaybackDevice.user_id,
+                PlaybackDevice.device_id,
+            ],
+            set_={
+                "name":
+                    name,
+                "device_type":
+                    device_type,
+                "last_seen_at":
+                    reference,
+            },
+        )
     )
-
-    if dialect_name == "postgresql":
-        statement = (
-            postgresql_insert(
-                PlaybackDevice,
-            )
-            .values(
-                **values,
-            )
-            .on_conflict_do_update(
-                index_elements=[
-                    PlaybackDevice.user_id,
-                    PlaybackDevice.device_id,
-                ],
-                set_={
-                    "name":
-                        name,
-                    "device_type":
-                        device_type,
-                    "last_seen_at":
-                        reference,
-                },
-            )
-        )
-    elif dialect_name == "sqlite":
-        statement = (
-            sqlite_insert(
-                PlaybackDevice,
-            )
-            .values(
-                **values,
-            )
-            .on_conflict_do_update(
-                index_elements=[
-                    PlaybackDevice.user_id,
-                    PlaybackDevice.device_id,
-                ],
-                set_={
-                    "name":
-                        name,
-                    "device_type":
-                        device_type,
-                    "last_seen_at":
-                        reference,
-                },
-            )
-        )
-    else:
-        raise RuntimeError(
-            "Unsupported database dialect "
-            "for playback device presence: "
-            f"{dialect_name}"
-        )
 
     # Presence is written with one database statement instead of
     # loading an ORM row and mutating it. The HTTP poll and live

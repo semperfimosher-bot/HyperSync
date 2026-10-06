@@ -266,7 +266,7 @@ function Update-DatabaseSchema {
             & $PythonPath -c (
                 "from backend.app.config import get_settings; " +
                 "u=get_settings().sqlalchemy_migration_url; " +
-                "print('none' if not u else ('sqlite' if u.startswith('sqlite') else 'remote'))"
+                "print('postgresql' if u else 'none')"
             )
         ).Trim()
 
@@ -278,7 +278,7 @@ function Update-DatabaseSchema {
         Pop-Location
     }
 
-    if ($databaseKind -eq "remote") {
+    if ($databaseKind -eq "postgresql") {
         Write-Host ""
         Write-Host "Applying database migrations..." -ForegroundColor Yellow
 
@@ -298,14 +298,6 @@ function Update-DatabaseSchema {
 
         Write-Host "Database is at the latest migration." -ForegroundColor Green
         return
-    }
-
-    if ($databaseKind -eq "sqlite") {
-        throw (
-            "SQLite is not permitted for normal local development. " +
-            "Set DATABASE_URL to the Neon PostgreSQL runtime connection string " +
-            "in backend/.env, then run go again."
-        )
     }
 
     throw (
