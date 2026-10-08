@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from backend.app.api.schemas.playback import (
@@ -568,7 +569,7 @@ async def test_update_playback_state_rejects_unpublished_track() -> None:
         await session.commit()
 
         with pytest.raises(
-            Exception,
+            HTTPException,
             match="Track not found.",
         ):
             await update_playback_state(
