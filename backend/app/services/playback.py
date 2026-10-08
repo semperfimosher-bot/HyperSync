@@ -23,6 +23,7 @@ from ..api.schemas.playback import (
     PlaybackRemoteCommandRequest,
     PlaybackRemoteCommandResponse,
     PlaybackStateResponse,
+    PlaybackStateUpdateRequest,
     PlaybackTrackResponse,
 )
 from ..models.account import (
