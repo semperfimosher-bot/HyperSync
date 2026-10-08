@@ -5,10 +5,10 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import (
+    _source_search_queries,
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
-    _source_search_queries,
 )
 
 
