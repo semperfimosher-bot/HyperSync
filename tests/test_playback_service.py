@@ -7,6 +7,7 @@ from sqlalchemy import select
 from backend.app.api.schemas.playback import (
     PlaybackDevicePollRequest,
     PlaybackRemoteCommandRequest,
+    PlaybackStateUpdateRequest,
 )
 from backend.app.database import get_session_factory
 from backend.app.models.account import (
@@ -23,6 +24,7 @@ from backend.app.services.playback import (
     poll_playback_device,
     prune_offline_playback_devices,
     send_playback_device_command,
+    update_playback_state,
 )
 
 
@@ -452,3 +454,203 @@ async def test_command_coalescing_and_handoff_supersession(
 
     assert len(superseded) == 1
     assert superseded[0].action == "transfer"
+
+
+@pytest.mark.asyncio
+async def test_update_playback_state_clamps_position_and_normalizes_queue() -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+    unpublished_id = uuid4()
+    user = _registered_user(run_id)
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add_all(
+            [
+                user,
+                _track(track_id),
+                _track(unpublished_id, published=False),
+            ]
+        )
+        await session.commit()
+
+        result = await update_playback_state(
+            PlaybackStateUpdateRequest(
+                track_id=track_id,
+                position_seconds=999,
+                paused=False,
+                device_id="state-device",
+                queue_track_ids=[
+                    unpublished_id,
+                    track_id,
+                ],
+                queue_index=0,
+            ),
+            user,
+            session,
+        )
+
+        assert result.changed is True
+        assert result.state.track is not None
+        assert result.state.track.id == track_id
+        assert result.state.position_seconds == 180
+        assert result.state.paused is False
+        assert result.state.device_id == "state-device"
+        assert [item.id for item in result.state.queue] == [track_id]
+        assert result.state.queue_index == 0
+
+
+@pytest.mark.asyncio
+async def test_update_playback_state_clears_state_when_track_is_null() -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+    user = _registered_user(run_id)
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add_all(
+            [
+                user,
+                _track(track_id),
+            ]
+        )
+        await session.commit()
+
+        first = await update_playback_state(
+            PlaybackStateUpdateRequest(
+                track_id=track_id,
+                position_seconds=20,
+                paused=False,
+                device_id="state-device",
+                queue_track_ids=[track_id],
+                queue_index=0,
+            ),
+            user,
+            session,
+        )
+
+        cleared = await update_playback_state(
+            PlaybackStateUpdateRequest(
+                track_id=None,
+                position_seconds=99,
+                paused=False,
+                device_id="state-device",
+                queue_track_ids=[track_id],
+                queue_index=0,
+            ),
+            user,
+            session,
+        )
+
+    assert first.changed is True
+    assert cleared.changed is True
+    assert cleared.state.track is None
+    assert cleared.state.position_seconds == 0
+    assert cleared.state.paused is True
+    assert cleared.state.queue == []
+    assert cleared.state.queue_index is None
+
+
+@pytest.mark.asyncio
+async def test_update_playback_state_rejects_unpublished_track() -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+    user = _registered_user(run_id)
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add_all(
+            [
+                user,
+                _track(track_id, published=False),
+            ]
+        )
+        await session.commit()
+
+        with pytest.raises(
+            Exception,
+            match="Track not found.",
+        ):
+            await update_playback_state(
+                PlaybackStateUpdateRequest(
+                    track_id=track_id,
+                    position_seconds=1,
+                    paused=False,
+                    device_id="state-device",
+                ),
+                user,
+                session,
+            )
+
+
+@pytest.mark.asyncio
+async def test_update_playback_state_rejects_stale_connected_owner(
+    monkeypatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    track_id = uuid4()
+    user = _registered_user(run_id)
+    stale_seen_at = datetime.now(UTC) - timedelta(minutes=5)
+
+    async def connected(_user_id, device_id):
+        return device_id == "current-device"
+
+    monkeypatch.setattr(
+        "backend.app.services.playback.playback_realtime_hub.is_connected",
+        connected,
+    )
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add_all(
+            [
+                user,
+                _track(track_id),
+                PlaybackDevice(
+                    user_id=user.id,
+                    device_id="current-device",
+                    name="Current Device",
+                    device_type="desktop",
+                    last_seen_at=stale_seen_at,
+                ),
+                UserAppState(
+                    user_id=user.id,
+                    playback_track_id=track_id,
+                    playback_position_seconds=42,
+                    playback_paused=False,
+                    playback_device_id="current-device",
+                    playback_queue_track_ids=[str(track_id)],
+                    playback_queue_index=0,
+                    playback_updated_at=stale_seen_at,
+                ),
+            ]
+        )
+        await session.commit()
+
+        result = await update_playback_state(
+            PlaybackStateUpdateRequest(
+                track_id=track_id,
+                position_seconds=99,
+                paused=True,
+                device_id="old-device",
+                queue_track_ids=[str(track_id)],
+                queue_index=0,
+            ),
+            user,
+            session,
+        )
+
+        assert result.changed is False
+        assert result.state.device_id == "current-device"
+        assert result.state.position_seconds == 42
+        assert result.state.paused is False
+
+        state = await session.get(
+            UserAppState,
+            user.id,
+        )
+
+    assert state is not None
+    assert state.playback_device_id == "current-device"
+    assert float(state.playback_position_seconds) == 42
+    assert state.playback_paused is False
