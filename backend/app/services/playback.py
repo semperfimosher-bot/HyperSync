@@ -1,7 +1,10 @@
+from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.routes.catalog import (
@@ -9,16 +12,25 @@ from ..api.routes.catalog import (
     _track_media_version,
 )
 from ..api.schemas.playback import (
+    PlaybackDeviceKind,
+    PlaybackDeviceResponse,
     PlaybackStateResponse,
     PlaybackTrackResponse,
 )
 from ..models.account import (
     AccountType,
+    PlaybackCommand,
+    PlaybackDevice,
     User,
     UserAppState,
 )
 from ..models.media import Track
+from .playback_realtime import playback_realtime_hub
 from .track_urls import artwork_url, audio_url
+
+
+PLAYBACK_DEVICE_ONLINE_TTL = timedelta(seconds=90)
+PLAYBACK_DEVICE_LIST_LIMIT = 20
 
 
 def require_registered_playback_user(
@@ -339,3 +351,290 @@ async def build_playback_state(
             state.playback_updated_at
         ),
     )
+
+
+def playback_device_is_online(
+    last_seen_at: datetime,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    normalized_last_seen = (
+        last_seen_at
+        if last_seen_at.tzinfo
+        is not None
+        else last_seen_at.replace(
+            tzinfo=UTC,
+        )
+    )
+
+    return (
+        reference -
+        normalized_last_seen
+        <=
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+
+async def touch_playback_device(
+    session: AsyncSession,
+    user: User,
+    *,
+    device_id: str,
+    name: str,
+    device_type: PlaybackDeviceKind,
+    now: datetime | None = None,
+) -> None:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    values = {
+        "user_id":
+            user.id,
+        "device_id":
+            device_id,
+        "name":
+            name,
+        "device_type":
+            device_type,
+        "last_seen_at":
+            reference,
+    }
+
+    statement = (
+        postgresql_insert(
+            PlaybackDevice,
+        )
+        .values(
+            **values,
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                PlaybackDevice.user_id,
+                PlaybackDevice.device_id,
+            ],
+            set_={
+                "name":
+                    name,
+                "device_type":
+                    device_type,
+                "last_seen_at":
+                    reference,
+            },
+        )
+    )
+
+    # Presence is written with one database statement instead of
+    # loading an ORM row and mutating it. The HTTP poll and live
+    # WebSocket heartbeat can arrive at the same time, and stale
+    # cleanup may also be running. An upsert makes all three cases
+    # safe without an ORM UPDATE expecting a row that was deleted.
+    await session.execute(
+        statement,
+    )
+
+
+async def prune_offline_playback_devices(
+    session: AsyncSession,
+    user: User,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    cutoff = (
+        reference -
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+    connected_device_ids = (
+        await playback_realtime_hub
+        .connected_device_ids(
+            user.id,
+        )
+    )
+
+    stale_conditions = [
+        PlaybackDevice.user_id
+        == user.id,
+        PlaybackDevice.last_seen_at
+        < cutoff,
+    ]
+
+    if connected_device_ids:
+        stale_conditions.append(
+            PlaybackDevice.device_id.not_in(
+                connected_device_ids,
+            )
+        )
+
+    stale_result = await session.execute(
+        delete(
+            PlaybackDevice,
+        )
+        .where(
+            *stale_conditions,
+        )
+        .returning(
+            PlaybackDevice.device_id,
+        )
+    )
+
+    stale_device_ids = [
+        str(
+            device_id,
+        )
+        for device_id in
+        stale_result.scalars().all()
+    ]
+
+    if not stale_device_ids:
+        return []
+
+    await session.execute(
+        delete(
+            PlaybackCommand,
+        ).where(
+            PlaybackCommand.user_id
+            == user.id,
+            PlaybackCommand.target_device_id.in_(
+                stale_device_ids,
+            ),
+        )
+    )
+
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if (
+        state is not None
+        and state.playback_device_id
+        in stale_device_ids
+    ):
+        state.playback_paused = True
+        state.playback_device_id = None
+        state.playback_updated_at = reference
+
+    return stale_device_ids
+
+
+async def list_playback_devices(
+    session: AsyncSession,
+    user: User,
+    *,
+    active_device_id: str | None,
+    now: datetime | None = None,
+) -> list[
+    PlaybackDeviceResponse
+]:
+    reference = (
+        now
+        if now is not None
+        else datetime.now(
+            UTC,
+        )
+    )
+
+    connected_device_ids = (
+        await playback_realtime_hub
+        .connected_device_ids(
+            user.id,
+        )
+    )
+
+    online_cutoff = (
+        reference -
+        PLAYBACK_DEVICE_ONLINE_TTL
+    )
+
+    online_condition = (
+        PlaybackDevice.last_seen_at
+        >= online_cutoff
+    )
+
+    if connected_device_ids:
+        online_condition = or_(
+            online_condition,
+            PlaybackDevice.device_id.in_(
+                connected_device_ids,
+            ),
+        )
+
+    result = await session.execute(
+        select(
+            PlaybackDevice,
+        )
+        .where(
+            PlaybackDevice.user_id
+            == user.id,
+            online_condition,
+        )
+        .order_by(
+            PlaybackDevice.last_seen_at.desc(),
+        )
+        .limit(
+            PLAYBACK_DEVICE_LIST_LIMIT,
+        )
+    )
+
+    devices = list(
+        result.scalars().all()
+    )
+
+    return [
+        PlaybackDeviceResponse(
+            device_id=(
+                device.device_id
+            ),
+            name=device.name,
+            device_type=cast(
+                PlaybackDeviceKind,
+                device.device_type
+                if device.device_type in {
+                    "desktop",
+                    "mobile",
+                    "tablet",
+                    "browser",
+                }
+                else "browser",
+            ),
+            is_online=(
+                device.device_id
+                in connected_device_ids
+                or playback_device_is_online(
+                    device.last_seen_at,
+                    now=reference,
+                )
+            ),
+            is_active=(
+                active_device_id
+                is not None
+                and device.device_id
+                == active_device_id
+            ),
+            last_seen_at=(
+                device.last_seen_at
+            ),
+        )
+        for device in devices
+    ]
