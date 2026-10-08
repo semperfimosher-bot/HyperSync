@@ -27,7 +27,7 @@ from pydantic import (
     Field,
     ValidationError,
 )
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ...config import get_settings

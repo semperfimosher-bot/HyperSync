@@ -4,6 +4,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
+from backend.app.api.schemas.playback import (
+    PlaybackDevicePollRequest,
+    PlaybackRemoteCommandRequest,
+)
 from backend.app.database import get_session_factory
 from backend.app.models.account import (
     AccountType,
@@ -12,10 +16,6 @@ from backend.app.models.account import (
     User,
     UserAppState,
     UserRole,
-)
-from backend.app.api.schemas.playback import (
-    PlaybackDevicePollRequest,
-    PlaybackRemoteCommandRequest,
 )
 from backend.app.models.media import Track
 from backend.app.services.playback import (
