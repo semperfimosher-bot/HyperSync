@@ -265,7 +265,7 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
     ) -> object:
         nonlocal update_calls
         update_calls += 1
-        assert getattr(payload, "device_id") == device_id
+        assert payload.device_id == device_id
         return playback_mutation
 
     async def noop(*args: object, **kwargs: object) -> None:
