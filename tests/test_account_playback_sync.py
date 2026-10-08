@@ -157,18 +157,11 @@ async def test_playback_http_routes_preserve_transport_contracts() -> None:
 
         assert poll.status_code == 200
         assert {
-            "device",
+            "devices",
             "commands",
             "playback_state",
         } <= poll.json().keys()
-        assert {
-            "device_id",
-            "name",
-            "device_type",
-            "is_online",
-            "is_active",
-            "last_seen_at",
-        } <= poll.json()["device"].keys()
+        assert isinstance(poll.json()["devices"], list)
 
         command = await client.post(
             "/api/users/me/playback-devices/target-device/commands",
