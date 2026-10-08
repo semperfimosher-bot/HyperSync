@@ -8,6 +8,7 @@ from bot.youtube_source import (
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
+    _source_search_queries,
 )
 
 
@@ -147,9 +148,8 @@ def test_artwork_urls_only_allow_deezer_and_itunes_cdn_hosts() -> None:
         "https://127.0.0.1/internal"
     )
 
-def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
-    from bot.youtube_source import _source_search_queries
 
+def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
     queries = _source_search_queries(
         _metadata(),
     )
