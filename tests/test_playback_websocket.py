@@ -341,12 +341,15 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
         for payload in socket.sent
     ]
 
-    assert message_types[:3] == [
+    assert message_types[:2] == [
         "ready",
         "command_ack",
-        "playback_state",
     ]
     assert update_calls == 1
+    assert any(
+        payload.get("type") == "playback_state"
+        for _, payload in hub.events
+    )
 
     assert not hub.connections
     assert hub.events
