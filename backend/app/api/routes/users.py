@@ -1365,10 +1365,6 @@ async def get_my_playback_state(
     user: CurrentUser,
     session: DatabaseSession,
 ):
-    require_registered_playback_user(
-        user,
-    )
-
     return await build_playback_state(
         session,
         user,
