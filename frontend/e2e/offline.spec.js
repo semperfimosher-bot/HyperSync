@@ -113,7 +113,8 @@ test('completed download survives offline reload and plays real cached audio', a
   await prepareOfflineApp(page);
 
   await navigate(page, 'Library');
-  await page.getByRole('tab', { name: /^Songs/ }).click();
+  const visibleLibrary = page.locator('.hs-library-page:visible');
+  await visibleLibrary.getByRole('tab', { name: /^Songs/ }).click();
   await expect(page.locator('main')).toContainText(track.title);
 
   const shellReady = await page.evaluate(async () => {
