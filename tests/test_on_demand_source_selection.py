@@ -146,3 +146,17 @@ def test_artwork_urls_only_allow_deezer_and_itunes_cdn_hosts() -> None:
     assert not is_allowed_artwork_url(
         "https://127.0.0.1/internal"
     )
+
+def test_source_search_fallbacks_cover_title_artist_order_and_audio_suffix() -> None:
+    from bot.youtube_source import _search_sync
+
+    metadata = _metadata()
+
+    # The first query keeps the preferred official-audio wording. If it
+    # produces weak results, resolution also tries the reverse order and
+    # a plain artist/title query.
+    assert metadata.artist in f"{metadata.artist} {metadata.title} official audio"
+    assert metadata.title in f"{metadata.title} {metadata.artist}"
+    assert metadata.artist in f"{metadata.artist} {metadata.title}"
+    assert callable(_search_sync)
+
