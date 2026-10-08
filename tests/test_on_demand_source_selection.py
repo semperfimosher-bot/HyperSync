@@ -147,16 +147,16 @@ def test_artwork_urls_only_allow_deezer_and_itunes_cdn_hosts() -> None:
         "https://127.0.0.1/internal"
     )
 
-def test_source_search_fallbacks_cover_title_artist_order_and_audio_suffix() -> None:
-    from bot.youtube_source import _search_sync
+def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
+    from bot.youtube_source import _source_search_queries
 
-    metadata = _metadata()
+    queries = _source_search_queries(
+        _metadata(),
+    )
 
-    # The first query keeps the preferred official-audio wording. If it
-    # produces weak results, resolution also tries the reverse order and
-    # a plain artist/title query.
-    assert metadata.artist in f"{metadata.artist} {metadata.title} official audio"
-    assert metadata.title in f"{metadata.title} {metadata.artist}"
-    assert metadata.artist in f"{metadata.artist} {metadata.title}"
-    assert callable(_search_sync)
+    assert queries == (
+        "Morgan Wallen Love Somebody official audio",
+        "Love Somebody Morgan Wallen",
+        "Morgan Wallen Love Somebody",
+    )
 
