@@ -1429,15 +1429,6 @@ async def live_playback_device(
     device_id = ""
     registered_socket = False
 
-    # WebSocket playback updates are high-frequency client events.
-    # Keep realtime delivery responsive without turning every playback
-    # tick into a database write.
-    last_playback_persist_at = 0.0
-    last_playback_track_id: UUID | None = None
-    last_playback_position = 0.0
-    last_playback_paused = True
-    last_playback_queue_signature: tuple[str, ...] = ()
-
     try:
         try:
             auth_message = await asyncio.wait_for(
@@ -1783,75 +1774,57 @@ async def live_playback_device(
 
             if message_type == "playback_state":
                 try:
-                    state_payload = (
-                        PlaybackStateUpdateRequest(
-                            track_id=message.get(
-                                "track_id",
-                            ),
-                            position_seconds=message.get(
-                                "position_seconds",
-                                0,
-                            ),
-                            paused=message.get(
-                                "paused",
-                                True,
-                            ),
-                            queue_track_ids=(
-                                message.get(
-                                    "queue_track_ids",
-                                )
-                                or []
-                            ),
-                            queue_index=message.get(
-                                "queue_index",
-                            ),
-                            device_id=device_id,
+                    state_payload = PlaybackStateUpdateRequest(
+                        track_id=message.get("track_id"),
+                        position_seconds=message.get(
+                            "position_seconds",
+                            0,
+                        ),
+                        paused=message.get(
+                            "paused",
+                            True,
+                        ),
+                        queue_track_ids=message.get(
+                            "queue_track_ids",
+                        ) or [],
+                        queue_index=message.get(
+                            "queue_index",
+                        ),
+                        device_id=device_id,
+                    )
+
+                    async with session_factory() as session:
+                        result = await update_playback_state(
+                            state_payload,
+                            user,
+                            session,
                         )
-                    )
 
-                    queue_signature = tuple(
-                        str(value)
-                        for value in state_payload.queue_track_ids
-                    )
-                    position = max(
-                        float(state_payload.position_seconds or 0),
-                        0.0,
-                    )
-                    now_monotonic = asyncio.get_running_loop().time()
-                    state_changed = (
-                        state_payload.track_id != last_playback_track_id
-                        or bool(state_payload.paused) != last_playback_paused
-                        or queue_signature != last_playback_queue_signature
-                        or abs(position - last_playback_position) >= 2.0
-                    )
-                    due_for_persist = (
-                        now_monotonic - last_playback_persist_at >= 2.0
-                    )
+                    if result.changed:
+                        await playback_realtime_hub.broadcast(
+                            user.id,
+                            {
+                                "type": "playback_state",
+                                "playback_state":
+                                    result.state.model_dump(
+                                        mode="json",
+                                    ),
+                            },
+                            exclude_device_id=device_id,
+                        )
 
-                    if state_changed or due_for_persist:
-                        async with session_factory() as session:
-                            await update_my_playback_state(
-                                state_payload,
-                                user,
-                                session,
-                            )
-
-                        last_playback_persist_at = now_monotonic
-                        last_playback_track_id = state_payload.track_id
-                        last_playback_position = position
-                        last_playback_paused = bool(state_payload.paused)
-                        last_playback_queue_signature = queue_signature
-
-                except ValidationError:
+                except ValidationError as exc:
                     logger.debug(
-                        "Rejected invalid realtime playback state for %s",
+                        "Rejected invalid realtime playback state for %s: %s",
                         device_id,
+                        exc,
                     )
 
-                except HTTPException:
+                except HTTPException as exc:
                     logger.debug(
-                        "Rejected realtime playback state for %s",
+                        "Rejected realtime playback state for %s: %s",
                         device_id,
+                        exc,
                     )
 
                 continue
