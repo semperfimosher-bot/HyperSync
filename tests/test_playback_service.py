@@ -129,6 +129,8 @@ async def test_pruning_retains_stale_device_with_connected_socket(
     session_factory = get_session_factory()
     async with session_factory() as session:
         session.add(user)
+        await session.flush()
+
         session.add(
             PlaybackDevice(
                 user_id=user.id,
@@ -175,6 +177,8 @@ async def test_pruning_removes_stale_device_commands_and_playback_ownership(
     session_factory = get_session_factory()
     async with session_factory() as session:
         session.add(user)
+        await session.flush()
+
         session.add(
             PlaybackDevice(
                 user_id=user.id,
