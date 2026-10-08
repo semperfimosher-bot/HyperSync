@@ -284,10 +284,6 @@ async def build_playback_state(
     session: AsyncSession,
     user: User,
 ) -> PlaybackStateResponse:
-    require_registered_playback_user(
-        user,
-    )
-
     state = await session.get(
         UserAppState,
         user.id,
