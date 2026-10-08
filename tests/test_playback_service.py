@@ -638,7 +638,7 @@ async def test_update_playback_state_rejects_stale_connected_owner(
                 position_seconds=99,
                 paused=True,
                 device_id="old-device",
-                queue_track_ids=[str(track_id)],
+                queue_track_ids=[track_id],
                 queue_index=0,
             ),
             user,
