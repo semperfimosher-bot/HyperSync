@@ -606,9 +606,11 @@ async def test_update_playback_state_rejects_stale_connected_owner(
         session.add(user)
         await session.flush()
 
+        session.add(_track(track_id))
+        await session.flush()
+
         session.add_all(
             [
-                _track(track_id),
                 PlaybackDevice(
                     user_id=user.id,
                     device_id="current-device",
