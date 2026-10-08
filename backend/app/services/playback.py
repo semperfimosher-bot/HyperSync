@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -357,6 +358,201 @@ async def build_playback_state(
         updated_at=(
             state.playback_updated_at
         ),
+    )
+
+
+@dataclass(frozen=True)
+class PlaybackStateMutationResult:
+    state: PlaybackStateResponse
+    changed: bool
+
+
+async def update_playback_state(
+    payload: PlaybackStateUpdateRequest,
+    user: User,
+    session: AsyncSession,
+) -> PlaybackStateMutationResult:
+    require_registered_playback_user(
+        user,
+    )
+
+    track = None
+
+    if payload.track_id is not None:
+        result = await session.execute(
+            select(
+                Track,
+            ).where(
+                Track.id == payload.track_id,
+                Track.is_published.is_(
+                    True,
+                ),
+            )
+        )
+
+        track = (
+            result.scalar_one_or_none()
+        )
+
+        if track is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Track not found.",
+            )
+
+    state = await session.get(
+        UserAppState,
+        user.id,
+    )
+
+    if state is None:
+        state = UserAppState(
+            user_id=user.id,
+        )
+
+        session.add(
+            state,
+        )
+
+    elif (
+        state.playback_device_id
+        and state.playback_device_id
+        != payload.device_id
+    ):
+        active_device = await session.get(
+            PlaybackDevice,
+            (
+                user.id,
+                state.playback_device_id,
+            ),
+        )
+
+        if (
+            active_device is not None
+            and (
+                playback_device_is_online(
+                    active_device.last_seen_at,
+                )
+                or await playback_realtime_hub.is_connected(
+                    user.id,
+                    state.playback_device_id,
+                )
+            )
+        ):
+            return PlaybackStateMutationResult(
+                state=await build_playback_state(
+                    session,
+                    user,
+                ),
+                changed=False,
+            )
+
+    position = max(
+        float(
+            payload.position_seconds
+        ),
+        0.0,
+    )
+
+    if (
+        track is not None
+        and track.duration_seconds is not None
+        and track.duration_seconds > 0
+    ):
+        position = min(
+            position,
+            float(
+                track.duration_seconds
+            ),
+        )
+
+    if track is None:
+        position = 0.0
+
+    state.playback_track_id = (
+        track.id
+        if track is not None
+        else None
+    )
+
+    state.playback_position_seconds = (
+        position
+    )
+
+    state.playback_paused = (
+        True
+        if track is None
+        else payload.paused
+    )
+
+    state.playback_device_id = (
+        payload.device_id
+    )
+
+    queue_ids = [
+        str(queue_id)
+        for queue_id in payload.queue_track_ids[:500]
+    ]
+
+    queue_index = (
+        payload.queue_index
+        if (
+            payload.queue_index is not None
+            and payload.queue_index < len(queue_ids)
+        )
+        else None
+    )
+
+    if track is None:
+        queue_ids = []
+        queue_index = None
+    else:
+        track_id_value = str(track.id)
+
+        if not queue_ids:
+            queue_ids = [
+                track_id_value,
+            ]
+            queue_index = 0
+        elif (
+            queue_index is None
+            or queue_ids[queue_index]
+            != track_id_value
+        ):
+            try:
+                queue_index = queue_ids.index(
+                    track_id_value,
+                )
+            except ValueError:
+                queue_ids.insert(
+                    0,
+                    track_id_value,
+                )
+                queue_ids = queue_ids[:500]
+                queue_index = 0
+
+    state.playback_queue_track_ids = (
+        queue_ids
+    )
+
+    state.playback_queue_index = (
+        queue_index
+    )
+
+    state.playback_updated_at = (
+        datetime.now(
+            UTC,
+        )
+    )
+
+    await session.commit()
+
+    return PlaybackStateMutationResult(
+        state=await build_playback_state(
+            session,
+            user,
+        ),
+        changed=True,
     )
 
 
