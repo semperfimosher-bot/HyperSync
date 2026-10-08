@@ -30,7 +30,6 @@ from ..models.media import Track
 from .playback_realtime import playback_realtime_hub
 from .track_urls import artwork_url, audio_url
 
-
 PLAYBACK_DEVICE_ONLINE_TTL = timedelta(seconds=90)
 PLAYBACK_DEVICE_LIST_LIMIT = 20
 
