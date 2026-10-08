@@ -196,6 +196,21 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
             "target_device_id": device_id,
         },
     )
+    playback_state_response = SimpleNamespace(
+        model_dump=lambda mode="json": {
+            "device_id": device_id,
+            "track": None,
+            "position_seconds": 4,
+            "paused": False,
+            "queue": [],
+            "queue_index": None,
+            "updated_at": "2026-10-08T00:00:00Z",
+        },
+    )
+    playback_mutation = SimpleNamespace(
+        state=playback_state_response,
+        changed=True,
+    )
 
     socket = FakeWebSocket(
         {
@@ -210,6 +225,13 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
             "request_id": "request-1",
             "target_device_id": device_id,
             "action": "play",
+        },
+        {
+            "type": "playback_state",
+            "position_seconds": 4,
+            "paused": False,
+            "queue_track_ids": [],
+            "queue_index": None,
         },
         {
             "type": "heartbeat",
@@ -233,6 +255,18 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
     ) -> object:
         assert target_device_id == device_id
         return command_response
+
+    update_calls = 0
+
+    async def fake_update(
+        payload: object,
+        user_value: object,
+        session: object,
+    ) -> object:
+        nonlocal update_calls
+        update_calls += 1
+        assert getattr(payload, "device_id") == device_id
+        return playback_mutation
 
     async def noop(*args: object, **kwargs: object) -> None:
         return None
@@ -289,6 +323,11 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
     )
     monkeypatch.setattr(
         users_routes,
+        "update_playback_state",
+        fake_update,
+    )
+    monkeypatch.setattr(
+        users_routes,
         "playback_realtime_hub",
         hub,
     )
@@ -302,10 +341,12 @@ async def test_live_playback_socket_auth_command_heartbeat_and_cleanup(
         for payload in socket.sent
     ]
 
-    assert message_types[:2] == [
+    assert message_types[:3] == [
         "ready",
         "command_ack",
+        "playback_state",
     ]
+    assert update_calls == 1
 
     assert not hub.connections
     assert hub.events
