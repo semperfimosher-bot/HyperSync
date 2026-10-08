@@ -603,9 +603,11 @@ async def test_update_playback_state_rejects_stale_connected_owner(
 
     session_factory = get_session_factory()
     async with session_factory() as session:
+        session.add(user)
+        await session.flush()
+
         session.add_all(
             [
-                user,
                 _track(track_id),
                 PlaybackDevice(
                     user_id=user.id,
