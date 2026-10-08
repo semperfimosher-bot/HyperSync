@@ -494,6 +494,8 @@ def _common_options() -> dict[str, Any]:
 
 def _search_sync(
     metadata: CatalogTrackCandidate,
+    *,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
     settings = get_settings()
 
@@ -508,11 +510,12 @@ def _search_sync(
         ),
     )
 
-    query = (
-        f"{metadata.artist} "
-        f"{metadata.title} "
-        "official audio"
-    )
+    if query is None:
+        query = (
+            f"{metadata.artist} "
+            f"{metadata.title} "
+            "official audio"
+        )
 
     options = {
         **_common_options(),
@@ -605,14 +608,48 @@ def _webpage_url(
 def _resolve_sync(
     metadata: CatalogTrackCandidate,
 ) -> YouTubeSource:
-    entries = _search_sync(
-        metadata,
+    # Some tracks are indexed under a different title/artist order or
+    # without the "official audio" suffix. Retry only when the first
+    # search does not produce a strong match; keep the same scoring and
+    # rejection rules across every query.
+    queries = (
+        f"{metadata.artist} {metadata.title} official audio",
+        f"{metadata.title} {metadata.artist}",
+        f"{metadata.artist} {metadata.title}",
     )
+    entries_by_key: dict[str, dict[str, Any]] = {}
+    ranked: list[tuple[float, dict[str, Any]]] = []
 
-    ranked = rank_source_candidates(
-        entries,
-        metadata,
-    )
+    for query in dict.fromkeys(
+        " ".join(query.split())
+        for query in queries
+        if query.strip()
+    ):
+        for item in _search_sync(
+            metadata,
+            query=query,
+        ):
+            item_id = str(
+                item.get("id")
+                or item.get("webpage_url")
+                or item.get("url")
+                or (
+                    str(item.get("title") or "")
+                    + "\\x1f"
+                    + str(item.get("uploader") or item.get("channel") or "")
+                )
+            )
+            entries_by_key.setdefault(item_id, item)
+
+        ranked = rank_source_candidates(
+            list(entries_by_key.values()),
+            metadata,
+        )
+        # Avoid extra upstream requests when the initial results already
+        # contain a strong candidate. We still search again for borderline
+        # results instead of rejecting a valid recording prematurely.
+        if ranked and ranked[0][0] >= 65.0:
+            break
 
     if (
         not ranked
