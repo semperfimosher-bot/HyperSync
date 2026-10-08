@@ -4,7 +4,9 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, or_, select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.postgresql import (
+    insert as postgresql_insert,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.routes.catalog import (
