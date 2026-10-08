@@ -492,6 +492,24 @@ def _common_options() -> dict[str, Any]:
     }
 
 
+def _source_search_queries(
+    metadata: CatalogTrackCandidate,
+) -> tuple[str, ...]:
+    queries = (
+        f"{metadata.artist} {metadata.title} official audio",
+        f"{metadata.title} {metadata.artist}",
+        f"{metadata.artist} {metadata.title}",
+    )
+
+    return tuple(
+        dict.fromkeys(
+            " ".join(query.split())
+            for query in queries
+            if query.strip()
+        )
+    )
+
+
 def _search_sync(
     metadata: CatalogTrackCandidate,
     *,
@@ -612,19 +630,10 @@ def _resolve_sync(
     # without the "official audio" suffix. Retry only when the first
     # search does not produce a strong match; keep the same scoring and
     # rejection rules across every query.
-    queries = (
-        f"{metadata.artist} {metadata.title} official audio",
-        f"{metadata.title} {metadata.artist}",
-        f"{metadata.artist} {metadata.title}",
-    )
     entries_by_key: dict[str, dict[str, Any]] = {}
     ranked: list[tuple[float, dict[str, Any]]] = []
 
-    for query in dict.fromkeys(
-        " ".join(query.split())
-        for query in queries
-        if query.strip()
-    ):
+    for query in _source_search_queries(metadata):
         for item in _search_sync(
             metadata,
             query=query,
