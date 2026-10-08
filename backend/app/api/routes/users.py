@@ -34,7 +34,6 @@ from ...config import get_settings
 from ...database import get_session_factory
 from ...models.account import (
     ListeningEvent,
-    PlaybackDevice,
     User,
     UserAppState,
     UserFollow,
