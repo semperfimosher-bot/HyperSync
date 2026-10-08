@@ -7,9 +7,9 @@ import pytest
 from fastapi import WebSocketDisconnect
 
 import backend.app.api.routes.users as users_routes
+from backend.app.api.schemas.playback import PlaybackStateUpdateRequest
 from backend.app.models.account import AccountType
 from backend.app.services.playback_realtime import PlaybackRealtimeHub
-from backend.app.api.schemas.playback import PlaybackStateUpdateRequest
 
 
 class FakeWebSocket:
