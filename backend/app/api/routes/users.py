@@ -58,7 +58,7 @@ from ...services.playback import (
     poll_playback_device,
     prune_offline_playback_devices,
     require_registered_playback_user,
-    send_playback_device_command as send_playback_device_command_service,
+    send_playback_device_command,
     touch_playback_device,
 )
 from ...services.playback_realtime import (
@@ -2147,13 +2147,13 @@ async def live_playback_device(
     response_model=PlaybackRemoteCommandResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def send_playback_device_command(
+async def send_my_playback_device_command(
     target_device_id: str,
     payload: PlaybackRemoteCommandRequest,
     user: CurrentUser,
     session: DatabaseSession,
 ):
-    return await send_playback_device_command_service(
+    return await send_playback_device_command(
         target_device_id,
         payload,
         user,
