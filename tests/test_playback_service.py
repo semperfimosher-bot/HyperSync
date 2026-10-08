@@ -13,10 +13,16 @@ from backend.app.models.account import (
     UserAppState,
     UserRole,
 )
+from backend.app.api.schemas.playback import (
+    PlaybackDevicePollRequest,
+    PlaybackRemoteCommandRequest,
+)
 from backend.app.models.media import Track
 from backend.app.services.playback import (
     build_account_playback_queue,
+    poll_playback_device,
     prune_offline_playback_devices,
+    send_playback_device_command,
 )
 
 
@@ -245,3 +251,204 @@ async def test_pruning_removes_stale_device_commands_and_playback_ownership(
     assert state.playback_paused is True
     assert state.playback_device_id is None
     assert state.playback_updated_at == now
+
+
+
+@pytest.mark.asyncio
+async def test_poll_consumes_oldest_32_commands_without_replay() -> None:
+    run_id = uuid4().hex[:8]
+    now = datetime.now(UTC)
+    user = _registered_user(run_id)
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add(user)
+        await session.flush()
+
+        session.add(
+            PlaybackDevice(
+                user_id=user.id,
+                device_id="poll-device",
+                name="Poll Device",
+                device_type="desktop",
+                last_seen_at=now,
+            )
+        )
+        session.add_all(
+            [
+                PlaybackCommand(
+                    user_id=user.id,
+                    target_device_id="poll-device",
+                    source_device_id=f"source-{index:02d}",
+                    action="pause",
+                    created_at=now + timedelta(milliseconds=index),
+                )
+                for index in range(35)
+            ]
+        )
+        await session.commit()
+
+        payload = PlaybackDevicePollRequest(
+            device_id="poll-device",
+            name="Poll Device",
+            device_type="desktop",
+        )
+
+        first = await poll_playback_device(
+            payload,
+            user,
+            session,
+        )
+        second = await poll_playback_device(
+            payload,
+            user,
+            session,
+        )
+        third = await poll_playback_device(
+            payload,
+            user,
+            session,
+        )
+
+    assert len(first.commands) == 32
+    assert [
+        command.source_device_id
+        for command in first.commands
+    ] == [
+        f"source-{index:02d}"
+        for index in range(32)
+    ]
+    assert [
+        command.source_device_id
+        for command in second.commands
+    ] == [
+        "source-32",
+        "source-33",
+        "source-34",
+    ]
+    assert third.commands == []
+
+
+@pytest.mark.asyncio
+async def test_command_coalescing_and_handoff_supersession(
+    monkeypatch,
+) -> None:
+    run_id = uuid4().hex[:8]
+    now = datetime.now(UTC)
+    user = _registered_user(run_id)
+
+    async def not_connected(_user_id, _device_id):
+        return False
+
+    async def not_delivered(_user_id, _device_id, _payload):
+        return False
+
+    async def ignore_broadcast(
+        _user_id,
+        _payload,
+        *,
+        exclude_device_id=None,
+    ):
+        del exclude_device_id
+
+    monkeypatch.setattr(
+        "backend.app.services.playback.playback_realtime_hub.is_connected",
+        not_connected,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.playback.playback_realtime_hub.send_to",
+        not_delivered,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.playback.playback_realtime_hub.broadcast",
+        ignore_broadcast,
+    )
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add(user)
+        await session.flush()
+        session.add(
+            PlaybackDevice(
+                user_id=user.id,
+                device_id="target-device",
+                name="Target Device",
+                device_type="mobile",
+                last_seen_at=now,
+            )
+        )
+        await session.commit()
+
+        await send_playback_device_command(
+            "target-device",
+            PlaybackRemoteCommandRequest(
+                source_device_id="controller",
+                action="seek",
+                value=10,
+            ),
+            user,
+            session,
+        )
+        await send_playback_device_command(
+            "target-device",
+            PlaybackRemoteCommandRequest(
+                source_device_id="controller",
+                action="volume",
+                value=0.25,
+            ),
+            user,
+            session,
+        )
+        await send_playback_device_command(
+            "target-device",
+            PlaybackRemoteCommandRequest(
+                source_device_id="controller",
+                action="seek",
+                value=20,
+            ),
+            user,
+            session,
+        )
+
+        pending = (
+            await session.execute(
+                select(PlaybackCommand)
+                .where(
+                    PlaybackCommand.user_id == user.id,
+                    PlaybackCommand.target_device_id == "target-device",
+                    PlaybackCommand.consumed_at.is_(None),
+                )
+                .order_by(PlaybackCommand.created_at.asc())
+            )
+        ).scalars().all()
+
+        assert [
+            (command.action, command.value)
+            for command in pending
+        ] == [
+            ("volume", 0.25),
+            ("seek", 20.0),
+        ]
+
+        await send_playback_device_command(
+            "target-device",
+            PlaybackRemoteCommandRequest(
+                source_device_id="controller",
+                action="transfer",
+            ),
+            user,
+            session,
+        )
+
+        superseded = (
+            await session.execute(
+                select(PlaybackCommand).where(
+                    PlaybackCommand.user_id == user.id,
+                    PlaybackCommand.target_device_id == "target-device",
+                    PlaybackCommand.consumed_at.is_(None),
+                )
+            )
+        ).scalars().all()
+
+    assert len(superseded) == 1
+    assert superseded[0].action == "transfer"
