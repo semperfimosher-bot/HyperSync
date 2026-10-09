@@ -238,6 +238,7 @@ jobs:
             grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf
             grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf
             grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf
+            grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf
           '
 
           docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy
