@@ -3949,11 +3949,12 @@ const persistAppView =
     }
 
     let cancelled = false;
+    // Capture before scheduling idle work so user navigation that happens
+    // first invalidates this restore instead of being overwritten by it.
+    const restoreGeneration =
+      navigationGenerationRef.current;
 
     const syncSession = () => {
-      const restoreGeneration =
-        navigationGenerationRef.current;
-
       restoreSession().then(async (user) => {
         if (cancelled) {
           return;
