@@ -17,9 +17,7 @@ Create a Northflank service from the repository with:
 - Internal/listening port: `8000` (the image honors Northflank's `PORT` variable)
 - Health/readiness path: `/api/health/ready` if the app is mounted under `/api`; otherwise verify the app's actual exposed route before configuring the probe.
 
-Set the service's runtime environment variables in Northflank's secret/environment UI, not in Git. At minimum, configure a staging-only PostgreSQL `DATABASE_URL`, a strong random `JWT_SECRET`, `ENVIRONMENT=staging` only if the application supports that value (currently it accepts development, test, or production, so use the supported value appropriate for staging and review this constraint before deployment), and `FRONTEND_ORIGINS` / `FRONTEND_PUBLIC_URL` for the actual staging frontend origin. Also supply the storage/provider secrets required for the features being tested. If using `MIGRATION_DATABASE_URL`, it must target the same staging database, with migration privileges.
-
-**Configuration note:** current backend settings validate `ENVIRONMENT` against `development`, `test`, or `production`; do not set it to `staging` until that validation is deliberately changed and tested.
+Set the service's runtime environment variables in Northflank's secret/environment UI, not in Git. At minimum, configure `ENVIRONMENT=staging`, a staging-only PostgreSQL `DATABASE_URL`, a strong random `JWT_SECRET`, and `FRONTEND_ORIGINS` / `FRONTEND_PUBLIC_URL` for the actual staging frontend origin. The backend accepts `staging` as an explicit environment value. Also supply the storage/provider secrets required for the features being tested. If using `MIGRATION_DATABASE_URL`, it must target the same staging database, with migration privileges.
 
 ## Frontend service
 
