@@ -218,6 +218,7 @@ jobs:
           trap cleanup EXIT
 
           docker run --detach --name "$name" \
+            --publish 127.0.0.1:18080:80 \
             -e API_UPSTREAM_URL=https://staging-api.example.test \
             -e API_UPSTREAM_HOST=staging-api.example.test \
             hypersynced-frontend-ci
@@ -238,4 +239,4 @@ jobs:
 
           curl --fail --silent --show-error \
             --retry 10 --retry-connrefused --retry-delay 1 \
-            http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")/health
+            http://127.0.0.1:18080/health
