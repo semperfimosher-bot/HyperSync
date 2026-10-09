@@ -118,7 +118,9 @@ test('older profile response cannot replace newer Recently Played data', async (
     await ready;
     await startTrack(page, manifest.tracks[1]);
     await navigate(page, 'Home');
-    await expect(page.locator('.home-track-card').first()).toContainText(manifest.tracks[1].title);
+    // The initial history request is still deliberately held, so Home must
+    // keep all six skeleton cards visible instead of exposing partial data.
+    await expect(page.locator('.home-track-card--skeleton')).toHaveCount(6);
     const oldResponse = page.waitForResponse(r => r.url().endsWith('/api/users/me'));
     release();
     await oldResponse;
