@@ -516,7 +516,7 @@ useQuietRefresh(
     title="Go back online to see Recently Played"
     description="Your real listening history syncs from your HyperSynced account. Downloaded music is still available in Library."
   />
-) : recentLoading && recentlyPlayed.length === 0 ? (
+) : recentLoading ? (
 
   <div
     className="home-track-grid home-track-grid--loading"
@@ -662,26 +662,6 @@ useQuietRefresh(
 
       ),
     )}
-
-    {recentLoading
-      ? Array.from(
-          { length: Math.max(0, 6 - recentlyPlayed.length) },
-          (_, index) => (
-            <div
-              className="home-track-card home-track-card--skeleton"
-              key={`recent-loading-${index}`}
-              aria-hidden="true"
-            >
-              <div className="home-track-card__art home-skeleton-block" />
-              <div className="home-track-card__info">
-                <span className="home-skeleton-line home-skeleton-line--title" />
-                <span className="home-skeleton-line home-skeleton-line--artist" />
-              </div>
-            </div>
-          ),
-        )
-      : null}
-
   </div>
 
 ) : (
