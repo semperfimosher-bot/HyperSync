@@ -215,15 +215,8 @@ const loadRecentlyPlayed =
       }
 
       if (!quiet) {
-        if (localRecentTracks.current.length === 0) {
-          setRecentLoading(
-            true,
-          );
-        }
-
-        setRecentError(
-          "",
-        );
+        setRecentLoading(true);
+        setRecentError("");
       }
 
       const offline =
@@ -349,7 +342,6 @@ useEffect(() => {
         (existing) => String(existing.id) !== String(track.id),
       ),
     ].slice(0, 12));
-    setRecentLoading(false);
     setRecentError("");
   };
 
@@ -524,7 +516,7 @@ useQuietRefresh(
     title="Go back online to see Recently Played"
     description="Your real listening history syncs from your HyperSynced account. Downloaded music is still available in Library."
   />
-) : recentLoading ? (
+) : recentLoading && recentlyPlayed.length === 0 ? (
 
   <div
     className="home-track-grid home-track-grid--loading"
@@ -597,7 +589,10 @@ useQuietRefresh(
 
 ) : recentlyPlayed.length > 0 ? (
 
-  <div className="home-track-grid">
+  <div
+    className={`home-track-grid${recentLoading ? " home-track-grid--loading" : ""}`}
+    aria-busy={recentLoading}
+  >
 
     {recentlyPlayed.map(
       (track, index) => (
@@ -667,6 +662,25 @@ useQuietRefresh(
 
       ),
     )}
+
+    {recentLoading
+      ? Array.from(
+          { length: Math.max(0, 6 - recentlyPlayed.length) },
+          (_, index) => (
+            <div
+              className="home-track-card home-track-card--skeleton"
+              key={`recent-loading-${index}`}
+              aria-hidden="true"
+            >
+              <div className="home-track-card__art home-skeleton-block" />
+              <div className="home-track-card__info">
+                <span className="home-skeleton-line home-skeleton-line--title" />
+                <span className="home-skeleton-line home-skeleton-line--artist" />
+              </div>
+            </div>
+          ),
+        )
+      : null}
 
   </div>
 
