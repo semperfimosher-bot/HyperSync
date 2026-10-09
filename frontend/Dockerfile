@@ -14,7 +14,12 @@ RUN npm run build
 
 FROM nginx:alpine
 
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Production defaults preserve the existing live routing. Northflank
+# staging overrides these environment variables to point at its own API.
+ENV API_UPSTREAM_URL=https://api.hypersynced.app
+ENV API_UPSTREAM_HOST=api.hypersynced.app
+
+COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY frontend/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
