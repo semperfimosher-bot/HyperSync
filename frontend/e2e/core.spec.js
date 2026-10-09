@@ -163,5 +163,44 @@ test('navigation during remembered-session restore wins over saved view', async 
     await expect(page.locator('.desktop-topbar h1')).toHaveText('My Library');
   } finally { release(); }
 });
+
+test('navigation before idle session restore is not overwritten by saved view', async ({ page, identity }) => {
+  await login(page, identity);
+  await page.route('**/api/users/me/app-state', async route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await route.fulfill({ json: { active_page: 'search', search_query: 'Verification', profile_username: '' } });
+  });
+  await page.addInitScript(() => {
+    const callbacks = [];
+    Object.defineProperty(window, '__verificationIdleCallbacks', {
+      configurable: true,
+      value: callbacks,
+    });
+    window.requestIdleCallback = callback => {
+      callbacks.push(callback);
+      return callbacks.length;
+    };
+    window.cancelIdleCallback = id => {
+      callbacks[id - 1] = null;
+    };
+  });
+
+  await page.reload();
+  await navigate(page, 'Library');
+  const restored = page.waitForResponse(
+    response => response.url().endsWith('/api/users/me/app-state') && response.request().method() === 'GET',
+  );
+  await page.evaluate(() => {
+    const callbacks = window.__verificationIdleCallbacks ?? [];
+    for (const callback of callbacks) {
+      if (typeof callback === 'function') callback({ didTimeout: false, timeRemaining: () => 50 });
+    }
+    callbacks.length = 0;
+  });
+  await restored;
+  await expect(page.locator('.hs-library-page:visible')).toBeVisible();
+  await expect(page.locator('.desktop-topbar h1')).toHaveText('My Library');
+});
+
 });
 
