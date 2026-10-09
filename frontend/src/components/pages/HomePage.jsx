@@ -549,7 +549,7 @@ useQuietRefresh(
         >
           <div className="home-track-card__art home-skeleton-block" />
 
-          <div className="home-track-card__copy">
+          <div className="home-track-card__info">
             <span className="home-skeleton-line home-skeleton-line--title" />
             <span className="home-skeleton-line home-skeleton-line--artist" />
           </div>
