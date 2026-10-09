@@ -18,11 +18,12 @@ FROM nginx:alpine
 # staging overrides these environment variables to point at its own API.
 ENV API_UPSTREAM_URL=https://api.hypersynced.app
 ENV API_UPSTREAM_HOST=api.hypersynced.app
+ENV FRONTEND_WS_ORIGIN=wss://hypersynced.app
 
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
-COPY frontend/security-headers.conf /etc/nginx/security-headers.conf
+COPY frontend/security-headers.conf /etc/nginx/security-headers.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["sh", "-c", "envsubst '\u0024{FRONTEND_WS_ORIGIN}' < /etc/nginx/security-headers.conf.template > /etc/nginx/security-headers.conf && exec nginx -g 'daemon off;'"]
