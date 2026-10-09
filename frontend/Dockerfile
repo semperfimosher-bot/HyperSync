@@ -22,8 +22,10 @@ ENV FRONTEND_WS_ORIGIN=wss://hypersynced.app
 
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY frontend/security-headers.conf /etc/nginx/security-headers.conf.template
+COPY frontend/15-render-security-headers.sh /docker-entrypoint.d/15-render-security-headers.sh
+RUN chmod +x /docker-entrypoint.d/15-render-security-headers.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-CMD ["sh", "-c", "envsubst '${FRONTEND_WS_ORIGIN}' < /etc/nginx/security-headers.conf.template > /etc/nginx/security-headers.conf && exec nginx -g 'daemon off;'"]
+CMD ["nginx", "-g", "daemon off;"]
