@@ -220,6 +220,7 @@ jobs:
           docker run --detach --name "$name" \
             -e API_UPSTREAM_URL=https://127.0.0.1:9443 \
             -e API_UPSTREAM_HOST=staging-api.example.test \
+            -e FRONTEND_WS_ORIGIN=wss://hypersync-staging.example.test \
             hypersynced-frontend-ci
 
           for attempt in $(seq 1 20); do
