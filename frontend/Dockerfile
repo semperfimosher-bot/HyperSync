@@ -26,4 +26,4 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-CMD ["sh", "-c", "envsubst '\u0024{FRONTEND_WS_ORIGIN}' < /etc/nginx/security-headers.conf.template > /etc/nginx/security-headers.conf && exec nginx -g 'daemon off;'"]
+CMD ["sh", "-c", "envsubst '${FRONTEND_WS_ORIGIN}' < /etc/nginx/security-headers.conf.template > /etc/nginx/security-headers.conf && exec nginx -g 'daemon off;'"]
