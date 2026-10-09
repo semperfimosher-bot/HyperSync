@@ -219,11 +219,15 @@ jobs:
 
           docker run --detach --name "$name" \
             --publish 127.0.0.1:18080:80 \
-            -e API_UPSTREAM_URL=https://staging-api.example.test \
+            -e API_UPSTREAM_URL=https://127.0.0.1:9443 \
             -e API_UPSTREAM_HOST=staging-api.example.test \
             hypersynced-frontend-ci
 
           for attempt in $(seq 1 20); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != "true" ]; then
+              docker logs "$name"
+              exit 1
+            fi
             if docker exec "$name" nginx -t >/dev/null 2>&1; then
               break
             fi
@@ -232,7 +236,7 @@ jobs:
 
           docker exec "$name" nginx -t
           docker exec "$name" sh -ec '
-            grep -Fq "proxy_pass https://staging-api.example.test;" /etc/nginx/conf.d/default.conf
+            grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf
             grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf
             grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf
           '
