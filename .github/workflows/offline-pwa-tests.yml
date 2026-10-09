@@ -236,10 +236,10 @@ jobs:
 
           docker exec "$name" nginx -t
           docker exec "$name" sh -ec '
-            grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf
-            grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf
-            grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf
-            grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf
+            grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf || { echo "API_UPSTREAM_URL was not rendered"; exit 1; }
+            grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf || { echo "API_UPSTREAM_HOST was not rendered"; exit 1; }
+            grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf || { echo "TLS upstream name was not rendered"; exit 1; }
+            grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf || { echo "Frontend WebSocket CSP origin was not rendered"; cat /etc/nginx/security-headers.conf; exit 1; }
           '
 
-          docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy
+          docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy || { docker logs "$name"; echo "Frontend health endpoint failed"; exit 1; }
