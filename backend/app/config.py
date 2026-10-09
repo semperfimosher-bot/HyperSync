@@ -46,7 +46,7 @@ def _prepare_asyncpg_url(value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Hypersynced"
     app_version: str = "0.1.0"
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "staging", "production"] = "development"
 
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
