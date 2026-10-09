@@ -32,6 +32,7 @@ The image defaults preserve the current production route. For staging, set these
 
 - `API_UPSTREAM_URL`: the staging backend's reachable origin, including scheme, for example `https://YOUR-STAGING-BACKEND-DOMAIN` or the private internal HTTP origin Northflank provides.
 - `API_UPSTREAM_HOST`: the upstream hostname only, without scheme or path. Use the hostname expected by the backend service. If the URL uses a port, keep that port in `API_UPSTREAM_URL`; do not include it in the TLS server name.
+- `FRONTEND_WS_ORIGIN`: the frontend's own secure WebSocket origin, for example `wss://YOUR-STAGING-FRONTEND-DOMAIN`. This is added to the Content Security Policy so playback-device realtime connections work on the staging origin.
 
 The Nginx container renders `frontend/nginx.conf` at startup from these values. Browser API traffic remains same-origin at `/api/...`, but Nginx forwards it to the configured backend. Do not set these to the production API for staging.
 
