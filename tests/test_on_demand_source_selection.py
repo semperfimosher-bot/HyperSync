@@ -171,7 +171,7 @@ def test_source_search_continues_after_one_query_fails() -> None:
     def search(metadata, *, query):
         attempted_queries.append(query)
         if len(attempted_queries) == 1:
-            raise RuntimeError("temporary upstream search failure")
+            raise OSError("temporary upstream search failure")
         return [
             {
                 "id": "official",
