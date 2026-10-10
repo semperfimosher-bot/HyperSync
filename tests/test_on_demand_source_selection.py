@@ -5,6 +5,7 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import (
+    _candidate_deduplication_key,
     _source_search_queries,
     is_allowed_direct_media_url,
     rank_source_candidates,
@@ -160,3 +161,18 @@ def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
         "Morgan Wallen Love Somebody",
     )
 
+
+
+def test_candidate_deduplication_key_uses_stable_ids_when_available() -> None:
+    assert _candidate_deduplication_key({"id": "abc", "title": "ignored"}) == "abc"
+    assert _candidate_deduplication_key({"webpage_url": "https://example.test"}) == "https://example.test"
+    assert _candidate_deduplication_key({"url": "https://example.test/audio"}) == "https://example.test/audio"
+
+
+def test_candidate_deduplication_key_separates_title_and_uploader() -> None:
+    assert _candidate_deduplication_key(
+        {"title": "Same", "uploader": "Artist"}
+    ) == "Same\\x1fArtist"
+    assert _candidate_deduplication_key(
+        {"title": "Same", "channel": "Artist"}
+    ) == "Same\\x1fArtist"
