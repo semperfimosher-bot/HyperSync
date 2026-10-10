@@ -180,3 +180,64 @@ async def test_command_event_is_delivered_only_by_replica_with_target_socket() -
     async with get_session_factory()() as session:
         stored = await session.get(PlaybackCommand, command_id)
         assert stored is not None and stored.consumed_at is not None
+
+
+
+@pytest.mark.asyncio
+async def test_listener_connection_failure_retries_with_bounded_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.app.services import playback_events
+
+    settings = Settings(
+        database_url="postgresql://app:secret@db.example.test/app",
+        playback_realtime_database_url=(
+            "postgresql://listener:secret@db-direct.example.test/app"
+        ),
+    )
+    monkeypatch.setattr(playback_events, "get_settings", lambda: settings)
+
+    connect_attempts = 0
+
+    async def fail_connect(*args, **kwargs):
+        nonlocal connect_attempts
+        connect_attempts += 1
+        raise OSError("temporary database outage")
+
+    monkeypatch.setattr(playback_events.asyncpg, "connect", fail_connect)
+
+    delays: list[float] = []
+    attempts: list[int] = []
+
+    def reconnect_delay(attempt: int) -> float:
+        attempts.append(attempt)
+        return 1.25
+
+    async def stop_after_first_retry(delay: float) -> None:
+        delays.append(delay)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(playback_events, "_reconnect_delay", reconnect_delay)
+    monkeypatch.setattr(playback_events.asyncio, "sleep", stop_after_first_retry)
+
+    with pytest.raises(asyncio.CancelledError):
+        await playback_events.run_playback_event_listener(lambda _event: asyncio.sleep(0))
+
+    assert connect_attempts == 1
+    assert attempts == [1]
+    assert delays == [1.25]
+
+
+def test_listener_reconnect_delay_grows_exponentially_and_is_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.app.services import playback_events
+
+    monkeypatch.setattr(playback_events.random, "uniform", lambda low, high: low)
+    assert playback_events._reconnect_delay(1) == 0.75
+    assert playback_events._reconnect_delay(2) == 1.5
+    assert playback_events._reconnect_delay(6) == 24.0
+    assert playback_events._reconnect_delay(7) == 22.5
+
+    monkeypatch.setattr(playback_events.random, "uniform", lambda low, high: high)
+    assert playback_events._reconnect_delay(7) == 37.5
