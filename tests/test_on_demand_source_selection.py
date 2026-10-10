@@ -159,6 +159,7 @@ def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
         "Morgan Wallen Love Somebody official audio",
         "Love Somebody Morgan Wallen",
         "Morgan Wallen Love Somebody",
+        "Love Somebody official audio",
     )
 
 
