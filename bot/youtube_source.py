@@ -641,21 +641,25 @@ def _candidate_deduplication_key(
     return title + "\x1f" + uploader
 
 
-def _resolve_sync(
+def _search_ranked_candidates(
     metadata: CatalogTrackCandidate,
-) -> YouTubeSource:
-    # Some tracks are indexed under a different title/artist order or
-    # without the "official audio" suffix. Retry only when the first
-    # search does not produce a strong match; keep the same scoring and
-    # rejection rules across every query.
+    search: Any = _search_sync,
+) -> list[tuple[float, dict[str, Any]]]:
     entries_by_key: dict[str, dict[str, Any]] = {}
     ranked: list[tuple[float, dict[str, Any]]] = []
 
     for query in _source_search_queries(metadata):
-        for item in _search_sync(
-            metadata,
-            query=query,
-        ):
+        try:
+            entries = search(
+                metadata,
+                query=query,
+            )
+        except Exception:
+            # A transient failure for one query must not prevent the
+            # remaining title/artist fallbacks from being attempted.
+            continue
+
+        for item in entries:
             item_id = _candidate_deduplication_key(item)
             entries_by_key.setdefault(item_id, item)
 
@@ -663,11 +667,19 @@ def _resolve_sync(
             list(entries_by_key.values()),
             metadata,
         )
-        # Avoid extra upstream requests when the initial results already
-        # contain a strong candidate. We still search again for borderline
-        # results instead of rejecting a valid recording prematurely.
+        # Keep the existing confidence threshold and rejection rules.
         if ranked and ranked[0][0] >= 65.0:
             break
+
+    return ranked
+
+
+def _resolve_sync(
+    metadata: CatalogTrackCandidate,
+) -> YouTubeSource:
+    ranked = _search_ranked_candidates(
+        metadata,
+    )
 
     if (
         not ranked
