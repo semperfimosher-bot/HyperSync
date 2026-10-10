@@ -8,7 +8,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
@@ -643,7 +643,7 @@ def _candidate_deduplication_key(
 
 def _search_ranked_candidates(
     metadata: CatalogTrackCandidate,
-    search: Any = _search_sync,
+    search: Callable[..., list[dict[str, Any]]] = _search_sync,
 ) -> list[tuple[float, dict[str, Any]]]:
     entries_by_key: dict[str, dict[str, Any]] = {}
     ranked: list[tuple[float, dict[str, Any]]] = []
@@ -654,9 +654,9 @@ def _search_ranked_candidates(
                 metadata,
                 query=query,
             )
-        except Exception:
-            # A transient failure for one query must not prevent the
-            # remaining title/artist fallbacks from being attempted.
+        except (yt_dlp.utils.DownloadError, OSError, TimeoutError):
+            # A transient upstream failure for one query must not prevent
+            # the remaining title/artist fallbacks from being attempted.
             continue
 
         for item in entries:
