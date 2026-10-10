@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   formatDuration,
+  memberFor,
 } from "./searchFormatting.js";
 
 
@@ -30,10 +31,6 @@ test(
     assert.equal(formatDuration(null), "--:--");
   },
 );
-
-import {
-  memberFor,
-} from "./searchFormatting.js";
 
 
 test(
