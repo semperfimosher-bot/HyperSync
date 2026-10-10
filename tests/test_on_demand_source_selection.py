@@ -172,7 +172,7 @@ def test_candidate_deduplication_key_uses_stable_ids_when_available() -> None:
 def test_candidate_deduplication_key_separates_title_and_uploader() -> None:
     assert _candidate_deduplication_key(
         {"title": "Same", "uploader": "Artist"}
-    ) == "Same\x1fArtist"
+    ) == "Same" + chr(31) + "Artist"
     assert _candidate_deduplication_key(
         {"title": "Same", "channel": "Artist"}
-    ) == "Same\x1fArtist"
+    ) == "Same" + chr(31) + "Artist"
