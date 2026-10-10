@@ -132,7 +132,10 @@ def _reconnect_delay(attempt: int) -> float:
         PLAYBACK_EVENT_RECONNECT_MAX_SECONDS,
         PLAYBACK_EVENT_RECONNECT_BASE_SECONDS * (2 ** max(attempt - 1, 0)),
     )
-    return base * random.uniform(0.75, 1.25)
+    return min(
+        PLAYBACK_EVENT_RECONNECT_MAX_SECONDS,
+        base * random.uniform(0.75, 1.25),
+    )
 
 
 async def run_playback_event_listener(
