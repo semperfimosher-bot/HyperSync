@@ -34,7 +34,8 @@ from ..models.account import (
     UserAppState,
 )
 from ..models.media import Track
-from .playback_realtime import playback_realtime_hub
+from .playback_realtime import PlaybackRealtimeHub, playback_realtime_hub
+from .playback_events import PlaybackEvent, notify_playback_event
 from .track_urls import artwork_url, audio_url
 
 PLAYBACK_DEVICE_ONLINE_TTL = timedelta(seconds=90)
@@ -550,6 +551,14 @@ async def update_playback_state(
         )
     )
 
+    await notify_playback_event(
+        session,
+        PlaybackEvent(
+            kind="playback_state_changed",
+            user_id=user.id,
+            source_device_id=payload.device_id,
+        ),
+    )
     await session.commit()
 
     return PlaybackStateMutationResult(
@@ -652,6 +661,14 @@ async def touch_playback_device(
     await session.execute(
         statement,
     )
+    await notify_playback_event(
+        session,
+        PlaybackEvent(
+            kind="presence_changed",
+            user_id=user.id,
+            target_device_id=device_id,
+        ),
+    )
 
 
 async def prune_offline_playback_devices(
@@ -734,6 +751,7 @@ async def prune_offline_playback_devices(
         user.id,
     )
 
+    playback_state_changed = False
     if (
         state is not None
         and state.playback_device_id
@@ -742,6 +760,23 @@ async def prune_offline_playback_devices(
         state.playback_paused = True
         state.playback_device_id = None
         state.playback_updated_at = reference
+        playback_state_changed = True
+
+    await notify_playback_event(
+        session,
+        PlaybackEvent(
+            kind="presence_changed",
+            user_id=user.id,
+        ),
+    )
+    if playback_state_changed:
+        await notify_playback_event(
+            session,
+            PlaybackEvent(
+                kind="playback_state_changed",
+                user_id=user.id,
+            ),
+        )
 
     return stale_device_ids
 
@@ -1645,6 +1680,40 @@ async def send_playback_device_command(
 
             broadcast_playback_state = True
 
+    # Flush to obtain durable command ids before notifying listeners. The
+    # notification is part of this transaction and cannot precede its commit.
+    await session.flush()
+    await notify_playback_event(
+        session,
+        PlaybackEvent(
+            kind="command_ready",
+            user_id=user.id,
+            target_device_id=target_device_id,
+            source_device_id=payload.source_device_id,
+            command_id=command.id,
+        ),
+    )
+    if previous_pause_command is not None:
+        await notify_playback_event(
+            session,
+            PlaybackEvent(
+                kind="command_ready",
+                user_id=user.id,
+                target_device_id=previous_pause_command.target_device_id,
+                source_device_id=previous_pause_command.source_device_id,
+                command_id=previous_pause_command.id,
+            ),
+        )
+    if broadcast_playback_state:
+        await notify_playback_event(
+            session,
+            PlaybackEvent(
+                kind="playback_state_changed",
+                user_id=user.id,
+                source_device_id=payload.source_device_id,
+            ),
+        )
+
     await session.commit()
 
     await session.refresh(
@@ -1772,3 +1841,92 @@ async def send_playback_device_command(
         await session.commit()
 
     return command_response
+
+async def handle_playback_event(
+    event: PlaybackEvent,
+    *,
+    hub: PlaybackRealtimeHub = playback_realtime_hub,
+) -> None:
+    """Deliver a durable event to sockets owned by this API process."""
+    session_factory = get_session_factory()
+
+    if event.kind == "command_ready":
+        if event.command_id is None:
+            return
+
+        async with session_factory() as session:
+            command_result = await session.execute(
+                select(PlaybackCommand)
+                .where(
+                    PlaybackCommand.id == event.command_id,
+                    PlaybackCommand.user_id == event.user_id,
+                    PlaybackCommand.consumed_at.is_(None),
+                )
+                .with_for_update()
+            )
+            command = command_result.scalar_one_or_none()
+            if command is None:
+                return
+            if (
+                event.target_device_id is not None
+                and command.target_device_id != event.target_device_id
+            ):
+                return
+
+            user = await session.get(User, event.user_id)
+            if user is None or user.account_type != AccountType.REGISTERED:
+                return
+
+            playback_state = await build_playback_state(session, user)
+            command_response = playback_command_response(
+                command,
+                queue=(
+                    playback_state.queue
+                    if command.action in {"play_track", "transfer"}
+                    else None
+                ),
+                queue_index=(
+                    playback_state.queue_index
+                    if command.action in {"play_track", "transfer"}
+                    else None
+                ),
+            )
+            delivered = await hub.send_to(
+                user.id,
+                command.target_device_id,
+                {
+                    "type": "command",
+                    "command": command_response.model_dump(mode="json"),
+                    "playback_state": playback_state.model_dump(mode="json"),
+                },
+            )
+            if delivered:
+                command.consumed_at = datetime.now(UTC)
+                await session.commit()
+            else:
+                # Leave the durable command for its owning replica or poll fallback.
+                await session.rollback()
+        return
+
+    if event.kind == "playback_state_changed":
+        async with session_factory() as session:
+            user = await session.get(User, event.user_id)
+            if user is None or user.account_type != AccountType.REGISTERED:
+                return
+            playback_state = await build_playback_state(session, user)
+
+        await hub.broadcast(
+            event.user_id,
+            {
+                "type": "playback_state",
+                "playback_state": playback_state.model_dump(mode="json"),
+            },
+        )
+        return
+
+    if event.kind == "presence_changed":
+        await hub.broadcast(
+            event.user_id,
+            {"type": "presence_changed"},
+        )
+

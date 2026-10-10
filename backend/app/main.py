@@ -50,6 +50,8 @@ from .services.on_demand_ingestion import (
     reset_transient_state,
     resume_on_demand_ingests_on_startup,
 )
+from .services.playback import handle_playback_event
+from .services.playback_events import run_playback_event_listener
 
 logger = logging.getLogger(__name__)
 
@@ -390,9 +392,21 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_media_identity_backfill(),
     )
 
+    playback_event_task = None
+    if get_settings().playback_realtime_database_url.strip():
+        playback_event_task = asyncio.create_task(
+            run_playback_event_listener(handle_playback_event),
+            name="playback-event-listener",
+        )
+
     try:
         yield
     finally:
+        if playback_event_task is not None:
+            playback_event_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await playback_event_task
+
         keepalive_task.cancel()
         retention_task.cancel()
         rate_limit_cleanup_task.cancel()
