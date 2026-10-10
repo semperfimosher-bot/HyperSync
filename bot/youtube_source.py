@@ -6,9 +6,10 @@ import os
 import re
 import tempfile
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
