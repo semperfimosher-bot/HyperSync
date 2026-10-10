@@ -140,6 +140,10 @@ _background_warm_tasks: set[
     asyncio.Task[Any]
 ] = set()
 
+# Only one yt-dlp audio file may be downloaded at a time per backend process.
+# This bounds simultaneous temporary-disk use and large in-memory audio copies.
+_youtube_download_semaphore = asyncio.Semaphore(1)
+
 
 async def _try_acquire_distributed_ingest_lock(
     provision_id: UUID,
@@ -1315,12 +1319,14 @@ async def _download_source_with_recovery(
     source: YouTubeSource,
 ) -> DownloadedAudio:
     try:
-        return await download_youtube_audio(
-            source,
-        )
+        async with _youtube_download_semaphore:
+            return await download_youtube_audio(
+                source,
+            )
     except Exception as first_error:
         # YouTube media URLs are short-lived. Resolve a fresh source once
-        # before marking the durable ingest as failed.
+        # before marking the durable ingest as failed. Do not hold the
+        # download slot while making metadata/source requests.
         refreshed = await refresh_source(
             session,
         )
@@ -1334,9 +1340,10 @@ async def _download_source_with_recovery(
             raise
 
         try:
-            return await download_youtube_audio(
-                refreshed,
-            )
+            async with _youtube_download_semaphore:
+                return await download_youtube_audio(
+                    refreshed,
+                )
         except Exception as second_error:
             raise RuntimeError(
                 "Temporary YouTube audio source failed after refresh.",
@@ -1489,6 +1496,8 @@ async def prewarm_candidates(
 ) -> None:
     settings = get_settings()
 
+    # Treat the setting as a total budget, not just a concurrency limit.
+    # Keep speculative source resolution to at most two tracks per request.
     limit = max(
         0,
         min(
@@ -1496,6 +1505,7 @@ async def prewarm_candidates(
                 settings
                 .on_demand_prewarm_limit
             ),
+            2,
             len(
                 candidates,
             ),
@@ -1532,7 +1542,7 @@ async def _warm_sessions_in_background(
                 int(
                     concurrency,
                 ),
-                32,
+                2,
             ),
         )
     )
@@ -1568,6 +1578,19 @@ async def warm_candidate_keys(
 ) -> list[dict[str, Any]]:
     settings = get_settings()
 
+    # The caller may send a whole playlist (up to 500 keys), but only
+    # create durable provision sessions and resolve YouTube sources for
+    # the small prewarm budget. The rest stay metadata-only until requested.
+    prewarm_limit = max(
+        0,
+        min(
+            int(
+                settings
+                .on_demand_prewarm_limit
+            ),
+            2,
+        ),
+    )
     clean_keys = list(
         dict.fromkeys(
             key.strip()
@@ -1575,7 +1598,7 @@ async def warm_candidate_keys(
             if key
             and key.strip()
         )
-    )[:500]
+    )[:prewarm_limit]
 
     candidates = [
         candidate
