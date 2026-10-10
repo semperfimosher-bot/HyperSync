@@ -47,7 +47,8 @@ router = APIRouter(
     tags=["on-demand"],
 )
 
-ON_DEMAND_SEARCH_RESULT_LIMIT = 100
+ON_DEMAND_SEARCH_RESULT_LIMIT = 20
+ON_DEMAND_ARTIST_RESULT_LIMIT = 100
 
 
 class PrepareOnDemandRequest(
@@ -164,9 +165,9 @@ async def search_on_demand_artist(
         max_length=180,
     ),
     limit: int = Query(
-        default=ON_DEMAND_SEARCH_RESULT_LIMIT,
+        default=ON_DEMAND_ARTIST_RESULT_LIMIT,
         ge=1,
-        le=ON_DEMAND_SEARCH_RESULT_LIMIT,
+        le=ON_DEMAND_ARTIST_RESULT_LIMIT,
     ),
 ):
     _require_registered(
