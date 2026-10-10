@@ -140,8 +140,9 @@ _background_warm_tasks: set[
     asyncio.Task[Any]
 ] = set()
 
-# Only one audio ingest pipeline runs at a time per backend process. The slot
-# covers download, the in-memory audio payload, and publication to object storage.
+# Serialize yt-dlp source resolution and the download-to-publication pipeline.
+# yt-dlp can be memory-heavy, and temporary audio files live on container disk.
+_youtube_source_semaphore = asyncio.Semaphore(1)
 _youtube_download_semaphore = asyncio.Semaphore(1)
 
 
@@ -734,11 +735,12 @@ async def _resolve_source(
 
             return
 
-        source = (
-            await resolve_youtube_source(
-                session.candidate,
+        async with _youtube_source_semaphore:
+            source = (
+                await resolve_youtube_source(
+                    session.candidate,
+                )
             )
-        )
 
         async with _lock:
             session.source = source
