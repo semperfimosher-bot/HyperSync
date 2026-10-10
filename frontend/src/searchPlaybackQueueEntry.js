@@ -1,5 +1,5 @@
-import { resolveArtworkUrl } from "../../artworkUrl.js";
-import { isOnDemandTrackId } from "../../onDemandMusic.js";
+import { resolveArtworkUrl } from "./artworkUrl.js";
+import { isOnDemandTrackId } from "./onDemandMusic.js";
 
 export function searchPlaybackQueueEntry(
   track,
