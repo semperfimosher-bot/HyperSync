@@ -30,3 +30,23 @@ test(
     assert.equal(formatDuration(null), "--:--");
   },
 );
+
+import {
+  memberFor,
+} from "./searchFormatting.js";
+
+
+test(
+  "memberFor formats missing, recent, monthly, and yearly membership",
+  () => {
+    const now = Date.now();
+    const daysAgo = (days) =>
+      new Date(now - days * 86400000).toISOString();
+
+    assert.equal(memberFor(undefined), "New member");
+    assert.equal(memberFor(""), "New member");
+    assert.equal(memberFor(daysAgo(10)), "10d on HyperSynced");
+    assert.equal(memberFor(daysAgo(45)), "1mo on HyperSynced");
+    assert.equal(memberFor(daysAgo(400)), "1y on HyperSynced");
+  },
+);
