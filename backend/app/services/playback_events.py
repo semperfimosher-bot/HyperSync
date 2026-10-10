@@ -191,8 +191,11 @@ async def run_playback_event_listener(
                 )
                 connection_terminated = asyncio.Event()
 
-                def on_termination(_connection: asyncpg.Connection) -> None:
-                    connection_terminated.set()
+                def on_termination(
+                    _connection: asyncpg.Connection,
+                    terminated_event: asyncio.Event = connection_terminated,
+                ) -> None:
+                    terminated_event.set()
 
                 connection.add_termination_listener(on_termination)
                 await connection.add_listener(PLAYBACK_EVENT_CHANNEL, on_notification)
