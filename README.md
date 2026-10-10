@@ -1115,8 +1115,9 @@ separate bot service if it uses the same database. Keep total connections
 within the provider's limit, and leave capacity for maintenance jobs and
 readiness checks.
 
-On-demand track and artist searches accept at most 100 results. The client
-requests the same cap, so the browser and API do not disagree about result
+On-demand track searches accept at most 20 results. Artist searches retain
+their separate 100-result cap. The client requests the same track-search cap,
+so the browser and API do not disagree about result
 size. Raise the cap only after adding pagination and checking provider and
 database work at that size.
 
