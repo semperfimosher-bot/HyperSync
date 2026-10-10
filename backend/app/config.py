@@ -174,7 +174,7 @@ class Settings(BaseSettings):
     apple_search_cache_hours: int = 24
 
     on_demand_search_limit: int = 100
-    on_demand_prewarm_limit: int = 8
+    on_demand_prewarm_limit: int = 2
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
     on_demand_rate_window_seconds: int = 60
