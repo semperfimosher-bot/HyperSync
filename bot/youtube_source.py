@@ -637,7 +637,7 @@ def _candidate_deduplication_key(
 
     title = str(item.get("title") or "")
     uploader = str(item.get("uploader") or item.get("channel") or "")
-    return title + "\\x1f" + uploader
+    return title + "\x1f" + uploader
 
 
 def _resolve_sync(
