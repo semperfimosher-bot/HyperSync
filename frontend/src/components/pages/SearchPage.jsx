@@ -65,6 +65,11 @@ import {
 } from "../../searchFormatting.js";
 
 import {
+  searchFilterCount,
+  totalSearchResultCount,
+} from "../../searchCounts.js";
+
+import {
   pickTopSignal,
 } from "../../searchTopSignal.js";
 
@@ -197,46 +202,6 @@ function memberFor(value) {
 }
 
 
-function totalCount(
-  counts,
-) {
-  return (
-    Number(
-      counts?.tracks || 0,
-    ) +
-    Number(
-      counts?.artists || 0,
-    ) +
-    Number(
-      counts?.collaborations || 0,
-    ) +
-    Number(
-      counts?.albums || 0,
-    ) +
-    Number(
-      counts?.people || 0,
-    ) +
-    Number(
-      counts?.playlists || 0,
-    )
-  );
-}
-
-
-function filterCount(
-  filter,
-  counts,
-) {
-  if (filter === "all") {
-    return totalCount(
-      counts
-    );
-  }
-
-  return Number(
-    counts?.[filter] || 0,
-  );
-}
 
 function SearchEntityPanel({
   eyebrow,
@@ -1499,7 +1464,7 @@ useEffect(() => {
   const resultTotal =
     useMemo(
       () =>
-        totalCount(
+        totalSearchResultCount(
           combinedResults.counts,
         ),
       [
@@ -4039,7 +4004,7 @@ async function downloadOpenedPlaylist() {
                   </span>
 
                   <strong>
-                    {filterCount(
+                    {searchFilterCount(
                       filter,
                       combinedResults
                         .counts,
