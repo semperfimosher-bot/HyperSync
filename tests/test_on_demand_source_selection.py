@@ -7,6 +7,7 @@ from backend.app.services.on_demand_metadata import (
 from bot.youtube_source import (
     _candidate_deduplication_key,
     _source_search_queries,
+    _search_ranked_candidates,
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
@@ -162,6 +163,34 @@ def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
         "Love Somebody official audio",
     )
 
+
+
+def test_source_search_continues_after_one_query_fails() -> None:
+    attempted_queries: list[str] = []
+
+    def search(metadata, *, query):
+        attempted_queries.append(query)
+        if len(attempted_queries) == 1:
+            raise RuntimeError("temporary upstream search failure")
+        return [
+            {
+                "id": "official",
+                "title": "Morgan Wallen - Love Somebody (Official Audio)",
+                "uploader": "Morgan Wallen - Topic",
+                "duration": 204,
+                "view_count": 1_000_000,
+            }
+        ]
+
+    ranked = _search_ranked_candidates(
+        _metadata(),
+        search=search,
+    )
+
+    assert len(attempted_queries) == 2
+    assert ranked
+    assert ranked[0][1]["id"] == "official"
+    assert ranked[0][0] >= 65.0
 
 
 def test_candidate_deduplication_key_uses_stable_ids_when_available() -> None:
