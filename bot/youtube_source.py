@@ -499,6 +499,7 @@ def _source_search_queries(
         f"{metadata.artist} {metadata.title} official audio",
         f"{metadata.title} {metadata.artist}",
         f"{metadata.artist} {metadata.title}",
+        f"{metadata.title} official audio",
     )
 
     return tuple(
