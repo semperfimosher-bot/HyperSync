@@ -125,8 +125,11 @@ import {
 import {
   buildAccountPlaybackSyncState,
   connectPlaybackDeviceLive,
+  createPlaybackReconnectScheduler,
   getPlaybackDeviceDescriptor,
+  getPlaybackPollIntervalMs,
   pollPlaybackDevice,
+  rememberPlaybackCommandId,
   resolvePlaybackControlTarget,
   sendPlaybackDeviceCommand,
 } from "./playbackDevices.js";
@@ -2578,10 +2581,15 @@ export default function App() {
     let liveConnectInFlight =
       false;
 
-    let liveReconnectTimer =
-      null;
+    let lastPollIntervalMs = null;
 
-    const deviceId =
+    const reconnectScheduler = createPlaybackReconnectScheduler({
+      onReconnect: () => { void connectLive(); },
+      baseDelayMs: ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
+      maxDelayMs: 15000,
+    });
+
+const deviceId =
       playbackDeviceIdRef.current;
 
     const deviceDescriptor =
@@ -3113,11 +3121,7 @@ export default function App() {
 
           if (
             commandId &&
-            playbackSeenCommandIdsRef
-              .current
-              .has(
-                commandId,
-              )
+            playbackSeenCommandIdsRef.current.has(commandId)
           ) {
             continue;
           }
@@ -3132,13 +3136,22 @@ export default function App() {
             )
           ) {
             if (commandId) {
-              playbackSeenCommandIdsRef
-                .current
-                .add(
-                  commandId,
-                );
+              rememberPlaybackCommandId(
+                playbackSeenCommandIdsRef.current,
+                commandId,
+              );
             }
 
+            continue;
+          }
+
+          if (
+            commandId &&
+            !rememberPlaybackCommandId(
+              playbackSeenCommandIdsRef.current,
+              commandId,
+            )
+          ) {
             continue;
           }
 
@@ -3174,34 +3187,9 @@ export default function App() {
               false;
           }
 
-          if (
-            applied &&
-            commandId
-          ) {
-            playbackSeenCommandIdsRef
-              .current
-              .add(
-                commandId,
-              );
-
-            if (
-              playbackSeenCommandIdsRef
-                .current.size >
-                256
-            ) {
-              const oldest =
-                playbackSeenCommandIdsRef
-                  .current
-                  .values()
-                  .next()
-                  .value;
-
-              playbackSeenCommandIdsRef
-                .current
-                .delete(
-                  oldest,
-                );
-            }
+          if (!applied && commandId) {
+            // Failed commands may be retried by the next poll.
+            playbackSeenCommandIdsRef.current.delete(commandId);
           }
 
           if (
@@ -3382,33 +3370,18 @@ export default function App() {
       };
 
 
-    const scheduleLiveReconnect =
-      (
-        delayMs =
-          ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
-      ) => {
-        if (
-          cancelled ||
-          liveReconnectTimer
-        ) {
-          return;
-        }
-
-        liveReconnectTimer =
-          window.setTimeout(
-            () => {
-              liveReconnectTimer =
-                null;
-
-              void connectLive();
-            },
-            Math.max(
-              Number(delayMs) || 0,
-              ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS,
-            ),
-          );
-      };
-
+    const configurePollInterval = () => {
+      if (cancelled) return;
+      const intervalMs = getPlaybackPollIntervalMs(
+        Boolean(liveConnection?.isReady?.()),
+      );
+      if (pollInterval && lastPollIntervalMs === intervalMs) return;
+      if (pollInterval) window.clearInterval(pollInterval);
+      lastPollIntervalMs = intervalMs;
+      pollInterval = window.setInterval(() => {
+        void pollDevice();
+      }, intervalMs);
+    };
 
     const connectLive =
       async () => {
@@ -3437,11 +3410,11 @@ export default function App() {
 
               onEvent:
                 (event) => {
-                  void handleLiveEvent(
-                    event,
-                  ).catch(
-                    () => {},
-                  );
+                  if (event?.type === "ready") {
+                    reconnectScheduler.reset();
+                    configurePollInterval();
+                  }
+                  void handleLiveEvent(event).catch(() => {});
                 },
 
               onClose:
@@ -3451,6 +3424,8 @@ export default function App() {
 
                   playbackLiveConnectionRef.current =
                     null;
+
+                  configurePollInterval();
 
                   if (cancelled) {
                     return;
@@ -3472,7 +3447,7 @@ export default function App() {
                   }
 
                   void pollDevice();
-                  scheduleLiveReconnect();
+                  reconnectScheduler.schedule();
                 },
             });
 
@@ -3490,12 +3465,10 @@ export default function App() {
             connection;
 
           if (!connection) {
-            scheduleLiveReconnect();
+            reconnectScheduler.schedule();
           }
         } catch {
-          scheduleLiveReconnect(
-            ACCOUNT_PLAYBACK_LIVE_RECONNECT_MS * 2,
-          );
+          reconnectScheduler.schedule();
         } finally {
           liveConnectInFlight =
             false;
@@ -3562,17 +3535,7 @@ export default function App() {
             },
           );
 
-        pollInterval =
-          window.setInterval(
-            () => {
-              // The live WebSocket owns realtime playback state.
-              // Poll only while the live connection is unavailable.
-              if (!liveConnection) {
-                void pollDevice();
-              }
-            },
-            ACCOUNT_PLAYBACK_DEVICE_POLL_MS,
-          );
+        configurePollInterval();
       };
 
     void bootstrap();
@@ -3582,10 +3545,7 @@ export default function App() {
         // A healthy WebSocket is the realtime source of truth.
         // Only fetch an HTTP snapshot when the socket is not
         // connected and no connection attempt is already running.
-        if (
-          !liveConnection &&
-          !liveConnectInFlight
-        ) {
+        if (!liveConnection?.isReady?.()) {
           void pollDevice();
         }
 
@@ -3639,14 +3599,7 @@ export default function App() {
         );
       }
 
-      if (liveReconnectTimer) {
-        window.clearTimeout(
-          liveReconnectTimer,
-        );
-
-        liveReconnectTimer =
-          null;
-      }
+      reconnectScheduler.cancel();
 
       liveConnection?.close?.();
 

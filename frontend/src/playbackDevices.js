@@ -1110,3 +1110,67 @@ export function buildAccountPlaybackSyncState(
     queueIndex,
   };
 }
+
+
+export function createPlaybackReconnectScheduler({
+  onReconnect,
+  baseDelayMs = 750,
+  maxDelayMs = 15000,
+  random = Math.random,
+  setTimeoutFn = globalThis.setTimeout,
+  clearTimeoutFn = globalThis.clearTimeout,
+} = {}) {
+  let timer = null;
+  let attempt = 0;
+  let cancelled = false;
+  const clearPending = () => {
+    if (timer !== null) {
+      clearTimeoutFn(timer);
+      timer = null;
+    }
+  };
+  return {
+    schedule() {
+      if (cancelled || timer !== null) return null;
+      const cap = Math.max(Number(maxDelayMs) || 0, 0);
+      const base = Math.max(Number(baseDelayMs) || 0, 0);
+      const exponential = Math.min(base * (2 ** attempt), cap);
+      attempt += 1;
+      const jitter = 0.75 + Math.min(Math.max(Number(random()) || 0, 0), 1) * 0.5;
+      const delay = Math.min(Math.round(exponential * jitter), cap);
+      timer = setTimeoutFn(() => {
+        timer = null;
+        if (!cancelled) onReconnect?.();
+      }, delay);
+      return delay;
+    },
+    reset() {
+      clearPending();
+      attempt = 0;
+    },
+    cancel() {
+      cancelled = true;
+      clearPending();
+    },
+    hasPendingTimer() {
+      return timer !== null;
+    },
+  };
+}
+
+export function getPlaybackPollIntervalMs(isRealtimeReady) {
+  return isRealtimeReady ? 60000 : 15000;
+}
+
+export function rememberPlaybackCommandId(seenIds, commandId, limit = 256) {
+  const id = String(commandId ?? "").trim();
+  if (!id || seenIds.has(id)) return false;
+  seenIds.add(id);
+  const maximum = Math.max(Number(limit) || 0, 1);
+  while (seenIds.size > maximum) {
+    const oldest = seenIds.values().next().value;
+    if (oldest === undefined) break;
+    seenIds.delete(oldest);
+  }
+  return true;
+}
