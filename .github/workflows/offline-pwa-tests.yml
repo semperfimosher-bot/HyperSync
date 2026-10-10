@@ -228,7 +228,15 @@ jobs:
               docker logs "$name"
               exit 1
             fi
-            if docker exec "$name" nginx -t >/dev/null 2>&1; then
+
+            # The stock Nginx image already has a valid default config, so nginx -t
+            # alone can succeed before its entrypoint renders our environment template.
+            if docker exec "$name" sh -ec '
+              grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf
+            ' >/dev/null 2>&1; then
               break
             fi
             sleep 1
