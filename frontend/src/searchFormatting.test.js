@@ -9,7 +9,7 @@ import {
 test(
   "formatDuration formats positive whole and fractional durations",
   () => {
-    assert.equal(formatDuration(0.9), "--:--");
+    assert.equal(formatDuration(0.9), "0:00");
     assert.equal(formatDuration(1), "0:01");
     assert.equal(formatDuration(59.9), "0:59");
     assert.equal(formatDuration(60), "1:00");
