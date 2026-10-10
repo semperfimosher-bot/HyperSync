@@ -689,7 +689,7 @@ useEffect(() => {
    * endpoints immediately after
    * every query change.
    *
-   * We wait 220ms and abort stale
+   * We wait 500ms and abort stale
    * searches while the user types.
    */
   useEffect(() => {
@@ -1188,7 +1188,7 @@ useEffect(() => {
             }
           }
         },
-        80,
+        500,
       );
 
     return () => {
