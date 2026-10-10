@@ -6,8 +6,8 @@ from backend.app.services.on_demand_metadata import (
 )
 from bot.youtube_source import (
     _candidate_deduplication_key,
-    _source_search_queries,
     _search_ranked_candidates,
+    _source_search_queries,
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
