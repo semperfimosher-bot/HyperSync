@@ -183,12 +183,13 @@ async def run_playback_event_listener(
             connection: asyncpg.Connection | None = None
             error: Exception | None = None
             try:
-                connection = await asyncpg.connect(
+                connected = await asyncpg.connect(
                     dsn,
                     ssl=database_ssl_context(),
                     timeout=10,
                     command_timeout=10,
                 )
+                connection = connected
                 connection_terminated = asyncio.Event()
 
                 def on_termination(
@@ -197,8 +198,8 @@ async def run_playback_event_listener(
                 ) -> None:
                     terminated_event.set()
 
-                connection.add_termination_listener(on_termination)
-                await connection.add_listener(PLAYBACK_EVENT_CHANNEL, on_notification)
+                connected.add_termination_listener(on_termination)
+                await connected.add_listener(PLAYBACK_EVENT_CHANNEL, on_notification)
                 logger.info("Playback cross-replica listener connected.")
 
                 try:
