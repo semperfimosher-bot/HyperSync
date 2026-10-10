@@ -644,7 +644,7 @@ def _resolve_sync(
                 or item.get("url")
                 or (
                     str(item.get("title") or "")
-                    + "\\x1f"
+                    + "\x1f"
                     + str(item.get("uploader") or item.get("channel") or "")
                 )
             )
