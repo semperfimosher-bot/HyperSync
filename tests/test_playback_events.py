@@ -236,7 +236,7 @@ def test_listener_reconnect_delay_grows_exponentially_and_is_capped(
     monkeypatch.setattr(playback_events.random, "uniform", lambda low, high: low)
     assert playback_events._reconnect_delay(1) == 0.75
     assert playback_events._reconnect_delay(2) == 1.5
-    assert playback_events._reconnect_delay(6) == 24.0
+    assert playback_events._reconnect_delay(6) == 22.5
     assert playback_events._reconnect_delay(7) == 22.5
 
     monkeypatch.setattr(playback_events.random, "uniform", lambda low, high: high)
