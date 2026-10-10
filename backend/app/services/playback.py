@@ -659,20 +659,24 @@ async def touch_playback_device(
     # cleanup may also be running. An upsert makes all three cases
     # safe without an ORM UPDATE expecting a row that was deleted.
     existing_result = await session.execute(
-        select(PlaybackDevice).where(
+        select(
+            PlaybackDevice.last_seen_at,
+            PlaybackDevice.name,
+            PlaybackDevice.device_type,
+        ).where(
             PlaybackDevice.user_id == user.id,
             PlaybackDevice.device_id == device_id,
         )
     )
-    existing_device = existing_result.scalar_one_or_none()
+    existing_device = existing_result.one_or_none()
     presence_changed = (
         existing_device is None
         or not playback_device_is_online(
-            existing_device.last_seen_at,
+            existing_device[0],
             now=reference,
         )
-        or existing_device.name != name
-        or existing_device.device_type != device_type
+        or existing_device[1] != name
+        or existing_device[2] != device_type
     )
 
     await session.execute(
