@@ -52,6 +52,9 @@ _PREFERRED_TERMS = (
     "audio",
 )
 
+# Keep temporary media and the in-memory copy bounded on small containers.
+_MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class YouTubeSource:
@@ -893,6 +896,8 @@ def _download_sync(
                 output_template,
             "overwrites":
                 True,
+            "max_filesize":
+                _MAX_DOWNLOAD_BYTES,
         }
 
         with yt_dlp.YoutubeDL(
@@ -940,6 +945,12 @@ def _download_sync(
                 matches,
                 key=lambda item:
                     item.stat().st_size,
+            )
+
+        file_size = path.stat().st_size
+        if file_size > _MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(
+                "Downloaded audio exceeds the 40 MiB safety limit."
             )
 
         content = path.read_bytes()
