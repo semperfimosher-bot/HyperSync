@@ -623,6 +623,23 @@ def _webpage_url(
     return None
 
 
+def _candidate_deduplication_key(
+    item: dict[str, Any],
+) -> str:
+    for field in (
+        "id",
+        "webpage_url",
+        "url",
+    ):
+        value = item.get(field)
+        if value:
+            return str(value)
+
+    title = str(item.get("title") or "")
+    uploader = str(item.get("uploader") or item.get("channel") or "")
+    return title + "\\x1f" + uploader
+
+
 def _resolve_sync(
     metadata: CatalogTrackCandidate,
 ) -> YouTubeSource:
@@ -638,16 +655,7 @@ def _resolve_sync(
             metadata,
             query=query,
         ):
-            item_id = str(
-                item.get("id")
-                or item.get("webpage_url")
-                or item.get("url")
-                or (
-                    str(item.get("title") or "")
-                    + "\x1f"
-                    + str(item.get("uploader") or item.get("channel") or "")
-                )
-            )
+            item_id = _candidate_deduplication_key(item)
             entries_by_key.setdefault(item_id, item)
 
         ranked = rank_source_candidates(
