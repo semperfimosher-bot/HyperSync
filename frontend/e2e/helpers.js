@@ -1,10 +1,11 @@
 import { expect } from '@playwright/test';
 
 export async function navigate(page, name) {
-  await expect(page.locator('nav:visible')).toBeVisible();
-  const navigation = page.getByRole('navigation', { name: 'Desktop navigation' });
-  if (await navigation.isVisible()) await navigation.getByRole('button', { name, exact: true }).click();
-  else await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name, exact: true }).click();
+  const desktopNavigation = page.getByRole('navigation', { name: 'Desktop navigation' });
+  const mobileNavigation = page.getByRole('navigation', { name: 'Mobile navigation' });
+  const navigation = await desktopNavigation.isVisible() ? desktopNavigation : mobileNavigation;
+  await expect(navigation).toBeVisible();
+  await navigation.getByRole('button', { name, exact: true }).click();
 }
 export async function login(page, identity) {
   await page.goto('/');
@@ -15,7 +16,10 @@ export async function login(page, identity) {
   const signedIn = page.waitForResponse(response => response.url().endsWith('/api/auth/login') && response.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'SIGN IN', exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.locator('nav:visible').getByRole('button', { name: 'Profile', exact: true })).toBeVisible();
+  const desktopNavigation = page.getByRole('navigation', { name: 'Desktop navigation' });
+  const mobileNavigation = page.getByRole('navigation', { name: 'Mobile navigation' });
+  const navigation = await desktopNavigation.isVisible() ? desktopNavigation : mobileNavigation;
+  await expect(navigation.getByRole('button', { name: 'Profile', exact: true })).toBeVisible();
   return (await signedIn).json();
 }
 export async function startTrack(page, track) {
