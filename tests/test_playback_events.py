@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -155,16 +156,25 @@ async def test_command_event_is_delivered_only_by_replica_with_target_socket() -
     socket = FakeSocket()
     await replica_b.connect(user_id, "target-device", socket)  # type: ignore[arg-type]
 
-    await handle_playback_event(event, hub=replica_a)
+    await asyncio.wait_for(
+        handle_playback_event(event, hub=replica_a),
+        timeout=10,
+    )
     async with get_session_factory()() as session:
         stored = await session.get(PlaybackCommand, command_id)
         assert stored is not None and stored.consumed_at is None
 
-    await handle_playback_event(event, hub=replica_b)
+    await asyncio.wait_for(
+        handle_playback_event(event, hub=replica_b),
+        timeout=10,
+    )
     assert len(socket.sent) == 1
     assert socket.sent[0]["type"] == "command"
 
-    await handle_playback_event(event, hub=replica_b)
+    await asyncio.wait_for(
+        handle_playback_event(event, hub=replica_b),
+        timeout=10,
+    )
     assert len(socket.sent) == 1
 
     async with get_session_factory()() as session:
