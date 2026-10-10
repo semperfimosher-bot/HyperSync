@@ -46,10 +46,13 @@ def test_frontend_csp_allows_production_realtime_and_beacon() -> None:
         "https://static.cloudflareinsights.com;"
         in policy
     )
+    # The CSP is an Nginx template: the entrypoint substitutes the
+    # configurable WebSocket origin while production origins remain allowed.
     assert (
         "connect-src 'self' "
         "https://api.hypersynced.app "
         "wss://api.hypersynced.app "
+        "${FRONTEND_WS_ORIGIN} "
         "https://*.backblazeb2.com;"
         in policy
     )
@@ -93,10 +96,13 @@ def test_production_frontend_uses_same_origin_api_proxy() -> None:
         in dockerfile
     )
     assert "location /api/" in nginx
-    assert (
-        "proxy_pass https://api.hypersynced.app;"
-        in nginx
-    )
+    # Nginx routes through a configurable template; Docker's defaults must
+    # preserve the current production API while staging can override it.
+    assert "proxy_pass ${API_UPSTREAM_URL};" in nginx
+    assert "proxy_set_header Host ${API_UPSTREAM_HOST};" in nginx
+    assert "proxy_ssl_name ${API_UPSTREAM_HOST};" in nginx
+    assert "ENV API_UPSTREAM_URL=https://api.hypersynced.app" in dockerfile
+    assert "ENV API_UPSTREAM_HOST=api.hypersynced.app" in dockerfile
     assert (
         "proxy_set_header Upgrade $http_upgrade;"
         in nginx

@@ -478,7 +478,7 @@ async def get_track_lyrics(
                 status="not_found",
             )
 
-        except LrclibUnavailableError as exc:
+        except LrclibUnavailableError:
             _lyrics_provider_cooldown_until[track.id] = (
                 time.monotonic() + LYRICS_PROVIDER_COOLDOWN_SECONDS
             )

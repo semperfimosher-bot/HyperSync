@@ -11,6 +11,7 @@ from backend.app.api.routes import (
 )
 from backend.app.models.account import User
 from backend.app.models.media import Track
+from backend.app.services import track_urls
 
 
 def make_track() -> tuple[
@@ -37,7 +38,7 @@ def test_profile_media_urls_are_direct_in_production(
     _, track = make_track()
 
     monkeypatch.setattr(
-        users_route,
+        track_urls,
         "get_settings",
         lambda: SimpleNamespace(
             environment="production",
@@ -50,7 +51,7 @@ def test_profile_media_urls_are_direct_in_production(
         return f"https://s3.example.test/bucket/{object_key}?X-Amz-Signature=test"
 
     monkeypatch.setattr(
-        users_route,
+        track_urls,
         "create_presigned_download_url",
         fake_sign,
     )
@@ -80,7 +81,7 @@ def test_profile_media_urls_use_local_api_in_development(
     track_id, track = make_track()
 
     monkeypatch.setattr(
-        users_route,
+        track_urls,
         "get_settings",
         lambda: SimpleNamespace(
             environment="development",
@@ -105,7 +106,7 @@ def test_profile_media_urls_fall_back_when_signing_fails(
     track_id, track = make_track()
 
     monkeypatch.setattr(
-        users_route,
+        track_urls,
         "get_settings",
         lambda: SimpleNamespace(
             environment="production",
@@ -118,7 +119,7 @@ def test_profile_media_urls_fall_back_when_signing_fails(
         raise RuntimeError("B2_ENDPOINT is not configured.")
 
     monkeypatch.setattr(
-        users_route,
+        track_urls,
         "create_presigned_download_url",
         fail_sign,
     )

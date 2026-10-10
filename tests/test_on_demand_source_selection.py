@@ -5,6 +5,9 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import (
+    _candidate_deduplication_key,
+    _search_ranked_candidates,
+    _source_search_queries,
     is_allowed_direct_media_url,
     rank_source_candidates,
     score_source_candidate,
@@ -146,3 +149,60 @@ def test_artwork_urls_only_allow_deezer_and_itunes_cdn_hosts() -> None:
     assert not is_allowed_artwork_url(
         "https://127.0.0.1/internal"
     )
+
+
+def test_source_search_queries_include_order_and_suffix_fallbacks() -> None:
+    queries = _source_search_queries(
+        _metadata(),
+    )
+
+    assert queries == (
+        "Morgan Wallen Love Somebody official audio",
+        "Love Somebody Morgan Wallen",
+        "Morgan Wallen Love Somebody",
+        "Love Somebody official audio",
+    )
+
+
+
+def test_source_search_continues_after_one_query_fails() -> None:
+    attempted_queries: list[str] = []
+
+    def search(metadata, *, query):
+        attempted_queries.append(query)
+        if len(attempted_queries) == 1:
+            raise OSError("temporary upstream search failure")
+        return [
+            {
+                "id": "official",
+                "title": "Morgan Wallen - Love Somebody (Official Audio)",
+                "uploader": "Morgan Wallen - Topic",
+                "duration": 204,
+                "view_count": 1_000_000,
+            }
+        ]
+
+    ranked = _search_ranked_candidates(
+        _metadata(),
+        search=search,
+    )
+
+    assert len(attempted_queries) == 2
+    assert ranked
+    assert ranked[0][1]["id"] == "official"
+    assert ranked[0][0] >= 65.0
+
+
+def test_candidate_deduplication_key_uses_stable_ids_when_available() -> None:
+    assert _candidate_deduplication_key({"id": "abc", "title": "ignored"}) == "abc"
+    assert _candidate_deduplication_key({"webpage_url": "https://example.test"}) == "https://example.test"
+    assert _candidate_deduplication_key({"url": "https://example.test/audio"}) == "https://example.test/audio"
+
+
+def test_candidate_deduplication_key_separates_title_and_uploader() -> None:
+    assert _candidate_deduplication_key(
+        {"title": "Same", "uploader": "Artist"}
+    ) == "Same" + chr(31) + "Artist"
+    assert _candidate_deduplication_key(
+        {"title": "Same", "channel": "Artist"}
+    ) == "Same" + chr(31) + "Artist"

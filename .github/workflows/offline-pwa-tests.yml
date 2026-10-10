@@ -43,8 +43,27 @@ jobs:
   backend-syntax:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: verification
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: verification
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U verification -d verification"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
+      ENVIRONMENT: test
       JWT_SECRET: ci-test-secret-for-hypersync-that-is-over-32-characters
+      # CI-only placeholder: configuration and migration SQL checks do not connect to this host.
+      DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
+      HYPERSYNC_TEST_POSTGRES_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
 
     steps:
       - name: Check out repository
@@ -123,8 +142,16 @@ jobs:
 
       - name: Validate Alembic migration chain
         env:
-          MIGRATION_DATABASE_URL: postgresql://user:password@localhost/hypersync
+          MIGRATION_DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
         run: python -m alembic upgrade head --sql > /tmp/hypersync-migrations.sql
+
+      - name: Enable PostgreSQL test extensions
+        run: |
+          PGPASSWORD=disposable-ci-only psql \
+            -h 127.0.0.1 \
+            -U verification \
+            -d verification \
+            -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
 
       - name: Run full backend regression suite
         run: python -m pytest -q
@@ -140,7 +167,6 @@ jobs:
 
       - name: Scan backend for security issues
         run: python -m bandit -q -r backend bot -ll
-
 
   backend-image:
     runs-on: ubuntu-latest
@@ -161,6 +187,7 @@ jobs:
           docker run --rm hypersynced-backend-ci ffmpeg -version
           docker run --rm hypersynced-backend-ci python -c "import os; print(os.environ['YT_DLP_DENO_PATH'])"
           docker run --rm \
+            -e DATABASE_URL=postgresql://user:password@localhost/hypersync \
             -e MIGRATION_DATABASE_URL=postgresql://user:password@localhost/hypersync \
             --entrypoint sh \
             hypersynced-backend-ci \
@@ -169,3 +196,58 @@ jobs:
             --format '{{json .Config.Cmd}}' \
             hypersynced-backend-ci \
             | grep -q 'alembic'
+
+  frontend-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build production frontend image
+        run: docker build --file frontend/Dockerfile --tag hypersynced-frontend-ci .
+
+      - name: Verify default and staging Nginx configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="hypersynced-frontend-ci"
+          cleanup() {
+            docker rm --force "$name" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach --name "$name" \
+            -e API_UPSTREAM_URL=https://127.0.0.1:9443 \
+            -e API_UPSTREAM_HOST=staging-api.example.test \
+            -e FRONTEND_WS_ORIGIN=wss://hypersync-staging.example.test \
+            hypersynced-frontend-ci
+
+          for attempt in $(seq 1 20); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != "true" ]; then
+              docker logs "$name"
+              exit 1
+            fi
+
+            # The stock Nginx image already has a valid default config, so nginx -t
+            # alone can succeed before its entrypoint renders our environment template.
+            if docker exec "$name" sh -ec '
+              grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf &&
+              grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf
+            ' >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          docker exec "$name" nginx -t
+          docker exec "$name" sh -ec '
+            grep -Fq "proxy_pass https://127.0.0.1:9443;" /etc/nginx/conf.d/default.conf || { echo "API_UPSTREAM_URL was not rendered"; exit 1; }
+            grep -Fq "proxy_set_header Host staging-api.example.test;" /etc/nginx/conf.d/default.conf || { echo "API_UPSTREAM_HOST was not rendered"; exit 1; }
+            grep -Fq "proxy_ssl_name staging-api.example.test;" /etc/nginx/conf.d/default.conf || { echo "TLS upstream name was not rendered"; exit 1; }
+            grep -Fq "wss://hypersync-staging.example.test" /etc/nginx/security-headers.conf || { echo "Frontend WebSocket CSP origin was not rendered"; cat /etc/nginx/security-headers.conf; exit 1; }
+          '
+
+          docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy || { docker logs "$name"; echo "Frontend health endpoint failed"; exit 1; }

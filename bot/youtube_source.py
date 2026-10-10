@@ -6,12 +6,14 @@ import os
 import re
 import tempfile
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 from backend.app.config import get_settings
 from backend.app.services.audio_metadata import (
@@ -49,6 +51,9 @@ _PREFERRED_TERMS = (
     "topic",
     "audio",
 )
+
+# Keep temporary media and the in-memory copy bounded on small containers.
+_MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -492,8 +497,29 @@ def _common_options() -> dict[str, Any]:
     }
 
 
+def _source_search_queries(
+    metadata: CatalogTrackCandidate,
+) -> tuple[str, ...]:
+    queries = (
+        f"{metadata.artist} {metadata.title} official audio",
+        f"{metadata.title} {metadata.artist}",
+        f"{metadata.artist} {metadata.title}",
+        f"{metadata.title} official audio",
+    )
+
+    return tuple(
+        dict.fromkeys(
+            " ".join(query.split())
+            for query in queries
+            if query.strip()
+        )
+    )
+
+
 def _search_sync(
     metadata: CatalogTrackCandidate,
+    *,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
     settings = get_settings()
 
@@ -508,11 +534,12 @@ def _search_sync(
         ),
     )
 
-    query = (
-        f"{metadata.artist} "
-        f"{metadata.title} "
-        "official audio"
-    )
+    if query is None:
+        query = (
+            f"{metadata.artist} "
+            f"{metadata.title} "
+            "official audio"
+        )
 
     options = {
         **_common_options(),
@@ -602,15 +629,60 @@ def _webpage_url(
     return None
 
 
+def _candidate_deduplication_key(
+    item: dict[str, Any],
+) -> str:
+    for field in (
+        "id",
+        "webpage_url",
+        "url",
+    ):
+        value = item.get(field)
+        if value:
+            return str(value)
+
+    title = str(item.get("title") or "")
+    uploader = str(item.get("uploader") or item.get("channel") or "")
+    return title + "\x1f" + uploader
+
+
+def _search_ranked_candidates(
+    metadata: CatalogTrackCandidate,
+    search: Callable[..., list[dict[str, Any]]] = _search_sync,
+) -> list[tuple[float, dict[str, Any]]]:
+    entries_by_key: dict[str, dict[str, Any]] = {}
+    ranked: list[tuple[float, dict[str, Any]]] = []
+
+    for query in _source_search_queries(metadata):
+        try:
+            entries = search(
+                metadata,
+                query=query,
+            )
+        except (DownloadError, OSError, TimeoutError):
+            # A transient upstream failure for one query must not prevent
+            # the remaining title/artist fallbacks from being attempted.
+            continue
+
+        for item in entries:
+            item_id = _candidate_deduplication_key(item)
+            entries_by_key.setdefault(item_id, item)
+
+        ranked = rank_source_candidates(
+            list(entries_by_key.values()),
+            metadata,
+        )
+        # Keep the existing confidence threshold and rejection rules.
+        if ranked and ranked[0][0] >= 65.0:
+            break
+
+    return ranked
+
+
 def _resolve_sync(
     metadata: CatalogTrackCandidate,
 ) -> YouTubeSource:
-    entries = _search_sync(
-        metadata,
-    )
-
-    ranked = rank_source_candidates(
-        entries,
+    ranked = _search_ranked_candidates(
         metadata,
     )
 
@@ -824,6 +896,8 @@ def _download_sync(
                 output_template,
             "overwrites":
                 True,
+            "max_filesize":
+                _MAX_DOWNLOAD_BYTES,
         }
 
         with yt_dlp.YoutubeDL(
@@ -871,6 +945,12 @@ def _download_sync(
                 matches,
                 key=lambda item:
                     item.stat().st_size,
+            )
+
+        file_size = path.stat().st_size
+        if file_size > _MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(
+                "Downloaded audio exceeds the 40 MiB safety limit."
             )
 
         content = path.read_bytes()

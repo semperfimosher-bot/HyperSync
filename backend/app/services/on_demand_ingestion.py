@@ -140,6 +140,11 @@ _background_warm_tasks: set[
     asyncio.Task[Any]
 ] = set()
 
+# Serialize yt-dlp source resolution and the download-to-publication pipeline.
+# yt-dlp can be memory-heavy, and temporary audio files live on container disk.
+_youtube_source_semaphore = asyncio.Semaphore(1)
+_youtube_download_semaphore = asyncio.Semaphore(1)
+
 
 async def _try_acquire_distributed_ingest_lock(
     provision_id: UUID,
@@ -730,11 +735,12 @@ async def _resolve_source(
 
             return
 
-        source = (
-            await resolve_youtube_source(
-                session.candidate,
+        async with _youtube_source_semaphore:
+            source = (
+                await resolve_youtube_source(
+                    session.candidate,
+                )
             )
-        )
 
         async with _lock:
             session.source = source
@@ -1094,69 +1100,72 @@ async def _run_ingest(
             session,
         )
 
-        audio_task = asyncio.create_task(
-            _download_source_with_recovery(
-                session,
-                source,
-            )
-        )
-
-        artwork_task = (
-            asyncio.create_task(
-                _fetch_artwork(
-                    session.candidate
-                    .artwork_url,
+        async with _youtube_download_semaphore:
+            audio_task = asyncio.create_task(
+                _download_source_with_recovery(
+                    session,
+                    source,
                 )
             )
-        )
 
-        audio, artwork = (
-            await asyncio.gather(
-                audio_task,
-                artwork_task,
-            )
-        )
-
-        if not isinstance(
-            audio,
-            DownloadedAudio,
-        ):
-            raise RuntimeError(
-                "Audio acquisition did not "
-                "return a valid file."
+            artwork_task = (
+                asyncio.create_task(
+                    _fetch_artwork(
+                        session.candidate
+                        .artwork_url,
+                    )
+                )
             )
 
-        artwork_data, artwork_type = (
-            artwork
-        )
-
-        result = (
-            await publish_authorized_audio(
-                metadata=session.candidate,
-                audio_content=(
-                    audio.content
-                ),
-                audio_filename=(
-                    audio.filename
-                ),
-                audio_mime_type=(
-                    audio.mime_type
-                ),
-                artwork_data=(
-                    artwork_data
-                ),
-                artwork_mime_type=(
-                    artwork_type
-                ),
-                source_provider=(
-                    "youtube"
-                ),
-                source_id=(
-                    source.source_id
-                    or None
-                ),
+            audio, artwork = (
+                await asyncio.gather(
+                    audio_task,
+                    artwork_task,
+                )
             )
-        )
+
+            if not isinstance(
+                audio,
+                DownloadedAudio,
+            ):
+                raise RuntimeError(
+                    "Audio acquisition did not "
+                    "return a valid file."
+                )
+
+            artwork_data, artwork_type = (
+                artwork
+            )
+
+            result = (
+                await publish_authorized_audio(
+                    metadata=session.candidate,
+                    audio_content=(
+                        audio.content
+                    ),
+                    audio_filename=(
+                        audio.filename
+                    ),
+                    audio_mime_type=(
+                        audio.mime_type
+                    ),
+                    artwork_data=(
+                        artwork_data
+                    ),
+                    artwork_mime_type=(
+                        artwork_type
+                    ),
+                    source_provider=(
+                        "youtube"
+                    ),
+                    source_id=(
+                        source.source_id
+                        or None
+                    ),
+                )
+            )
+            # Drop large payload references before allowing the next ingest.
+            del audio, artwork_data
 
         async with _lock:
             session.track_id = (
@@ -1320,7 +1329,8 @@ async def _download_source_with_recovery(
         )
     except Exception as first_error:
         # YouTube media URLs are short-lived. Resolve a fresh source once
-        # before marking the durable ingest as failed.
+        # before marking the durable ingest as failed. Do not hold the
+        # download slot while making metadata/source requests.
         refreshed = await refresh_source(
             session,
         )
@@ -1489,6 +1499,8 @@ async def prewarm_candidates(
 ) -> None:
     settings = get_settings()
 
+    # Treat the setting as a total budget, not just a concurrency limit.
+    # Keep speculative source resolution to at most two tracks per request.
     limit = max(
         0,
         min(
@@ -1496,6 +1508,7 @@ async def prewarm_candidates(
                 settings
                 .on_demand_prewarm_limit
             ),
+            2,
             len(
                 candidates,
             ),
@@ -1532,7 +1545,7 @@ async def _warm_sessions_in_background(
                 int(
                     concurrency,
                 ),
-                32,
+                2,
             ),
         )
     )
@@ -1568,6 +1581,19 @@ async def warm_candidate_keys(
 ) -> list[dict[str, Any]]:
     settings = get_settings()
 
+    # The caller may send a whole playlist (up to 500 keys), but only
+    # create durable provision sessions and resolve YouTube sources for
+    # the small prewarm budget. The rest stay metadata-only until requested.
+    prewarm_limit = max(
+        0,
+        min(
+            int(
+                settings
+                .on_demand_prewarm_limit
+            ),
+            2,
+        ),
+    )
     clean_keys = list(
         dict.fromkeys(
             key.strip()
@@ -1575,7 +1601,7 @@ async def warm_candidate_keys(
             if key
             and key.strip()
         )
-    )[:500]
+    )[:prewarm_limit]
 
     candidates = [
         candidate
@@ -1888,7 +1914,7 @@ async def prepare_candidate(
     except Exception:
         # A resolver failure can be transient (including upstream 403/5xx).
         # Refresh once before exposing a preparation failure to the client.
-        await _refresh_source(
+        await refresh_source(
             session,
         )
 

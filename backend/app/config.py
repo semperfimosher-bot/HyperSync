@@ -17,9 +17,6 @@ def _prepare_asyncpg_url(value: str) -> str:
     if not value:
         return ""
 
-    if value.startswith(("sqlite://", "sqlite+aiosqlite://", "sqlite:///")):
-        return value
-
     if value.startswith("postgres://"):
         value = "postgresql://" + value.removeprefix("postgres://")
 
@@ -49,7 +46,7 @@ def _prepare_asyncpg_url(value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Hypersynced"
     app_version: str = "0.1.0"
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "staging", "production"] = "development"
 
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
@@ -59,6 +56,7 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
+    playback_realtime_database_url: str = ""
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_timeout_seconds: int = 2
@@ -175,8 +173,8 @@ class Settings(BaseSettings):
     apple_search_min_interval_seconds: float = 3.1
     apple_search_cache_hours: int = 24
 
-    on_demand_search_limit: int = 100
-    on_demand_prewarm_limit: int = 8
+    on_demand_search_limit: int = 20
+    on_demand_prewarm_limit: int = 2
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
     on_demand_rate_window_seconds: int = 60
@@ -204,21 +202,40 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_database_configuration(self) -> "Settings":
-        if self.environment in {"development", "production"}:
-            if not self.database_url.strip():
-                raise ValueError(
-                    "DATABASE_URL is required in development and production. "
-                    "Use the Neon PostgreSQL connection string for runtime."
-                )
-            if self.database_url.strip().lower().startswith("sqlite"):
-                raise ValueError(
-                    "SQLite DATABASE_URL is not allowed in development or production. "
-                    "Use the Neon PostgreSQL connection string instead."
-                )
+        database_url = self.database_url.strip()
+        migration_url = self.migration_database_url.strip()
 
-        if self.environment == "test" and not self.database_url.strip():
-            # Tests may intentionally use the SQLite fallback.
-            pass
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL is required in development, test, and production. "
+                "HyperSynced uses PostgreSQL in every environment."
+            )
+
+        allowed_schemes = {
+            "postgres",
+            "postgresql",
+            "postgresql+asyncpg",
+        }
+        if urlsplit(database_url).scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                "DATABASE_URL must be a PostgreSQL connection string. "
+                "SQLite and other database engines are not supported."
+            )
+
+        if (
+            migration_url
+            and urlsplit(migration_url).scheme.lower()
+            not in allowed_schemes
+        ):
+            raise ValueError(
+                "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
+            )
+
+        realtime_url = self.playback_realtime_database_url.strip()
+        if realtime_url and urlsplit(realtime_url).scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                "PLAYBACK_REALTIME_DATABASE_URL must be a PostgreSQL connection string."
+            )
 
         return self.validate_database_capacity()
 
@@ -308,6 +325,16 @@ class Settings(BaseSettings):
     def sqlalchemy_migration_url(self) -> str:
         source = self.migration_database_url or self.database_url
         return _prepare_asyncpg_url(source)
+
+    @property
+    def asyncpg_playback_realtime_url(self) -> str:
+        source = self.playback_realtime_database_url.strip()
+        if not source:
+            return ""
+        normalized = _prepare_asyncpg_url(source)
+        if normalized.startswith("postgresql+asyncpg://"):
+            return normalized.replace("postgresql+asyncpg://", "postgresql://", 1)
+        return normalized
 
 
 @lru_cache

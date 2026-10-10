@@ -2225,8 +2225,13 @@ if (offline) {
       return;
     }
 
+    const playbackTracks = [...tracks].sort(
+      (left, right) =>
+        Number(left?.position ?? 0) - Number(right?.position ?? 0),
+    );
+
     const queue =
-      tracks.map(
+      playbackTracks.map(
         (track) => ({
           id:
             track.id,
@@ -2273,9 +2278,14 @@ if (offline) {
       );
 
     void player
-      .playTrackQueue(
-        queue,
-        startIndex,
+      .runWithLocalPlaybackControl(() =>
+        player.playTrackQueue(
+          queue,
+          startIndex,
+          {
+            forceLocal: true,
+          },
+        ),
       )
       .catch(() => {});
   }
@@ -3099,7 +3109,7 @@ if (offline) {
                 onClick={() => {
                   playPlaylist(
                     0,
-                    sortedSelectedPlaylistTracks,
+                    selectedPlaylist.tracks,
                   );
                 }}
               >

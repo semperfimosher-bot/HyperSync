@@ -1,32 +1,31 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app import database
 from backend.app.api.dependencies import CurrentUser, DatabaseSession
 from backend.app.api.routes import on_demand
 from backend.app.config import get_settings
-from backend.app.models import AccountType, Base, User, UserProfile, UserSession
+from backend.app.models import AccountType, User, UserProfile, UserSession
 from backend.app.security import rate_limit
 from backend.app.security.tokens import create_access_token
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 @pytest.fixture
 async def constrained_database(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[tuple[FastAPI, list[str]]]:
     await database.close_database()
     monkeypatch.setenv("JWT_SECRET", "pool-test-secret-that-is-longer-than-thirty-two-characters")
     get_settings.cache_clear()
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'pool.db'}",
+    engine = create_postgres_test_engine(
         pool_size=1,
         max_overflow=0,
         pool_timeout=1,
@@ -34,8 +33,6 @@ async def constrained_database(
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(database, "get_session_factory", lambda: factory)
     monkeypatch.setattr(rate_limit, "get_session_factory", lambda: factory)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
     tokens = []
     async with factory() as session:
         for index in range(20):

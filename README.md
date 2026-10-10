@@ -1100,8 +1100,8 @@ Alembic migrations should use the direct Neon URL.
 
 The API pool defaults to 5 persistent connections plus 10 overflow
 connections, with a 2-second connection-acquisition timeout and a
-30-second database command timeout. The API admits at most 8 concurrent
-HTTP requests by default and waits at most 1 second for an admission slot.
+30-second database command timeout. The API admits at most 12 concurrent
+HTTP requests by default and waits at most 2 seconds for an admission slot.
 Requests over that limit receive `503 Service Unavailable` with
 `Retry-After: 1`; `/health/live` remains available during overload. SQLAlchemy
 pool-acquisition timeouts use the same response instead of leaking as a 500.
@@ -1115,8 +1115,9 @@ separate bot service if it uses the same database. Keep total connections
 within the provider's limit, and leave capacity for maintenance jobs and
 readiness checks.
 
-On-demand track and artist searches accept at most 100 results. The client
-requests the same cap, so the browser and API do not disagree about result
+On-demand track searches accept at most 20 results. Artist searches retain
+their separate 100-result cap. The client requests the same track-search cap,
+so the browser and API do not disagree about result
 size. Raise the cap only after adding pagination and checking provider and
 database work at that size.
 

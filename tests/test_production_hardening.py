@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from fastapi.requests import Request
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 import backend.app.database as database_module
 from backend.app.api.routes.audio import (
@@ -17,10 +20,11 @@ from backend.app.api.routes.auth import (
 from backend.app.config import (
     get_settings,
 )
-from backend.app.database import get_engine
+from backend.app.database import get_session_factory
 from backend.app.main import app
-from backend.app.models.base import Base
+from backend.app.models.system import RateLimitBucket
 from backend.app.security.rate_limit import (
+    cleanup_stale_rate_limits,
     enforce_rate_limit,
     reset_rate_limits,
 )
@@ -53,11 +57,6 @@ def request_for(
 
 @pytest.fixture(autouse=True)
 async def rate_limit_database_schema():
-    async with get_engine().begin() as connection:
-        await connection.run_sync(
-            Base.metadata.create_all,
-        )
-
     await reset_rate_limits()
 
     yield
@@ -114,6 +113,87 @@ async def test_auth_rate_limit_blocks_after_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_serializes_concurrent_requests() -> None:
+    request = request_for()
+
+    async def hit() -> int:
+        try:
+            await enforce_rate_limit(
+                request,
+                scope="test-concurrent-limit",
+                identity="same-user@example.com",
+                limit=5,
+                window_seconds=60,
+            )
+        except HTTPException as exc:
+            return exc.status_code
+
+        return 200
+
+    statuses = await asyncio.gather(
+        *(hit() for _ in range(12))
+    )
+
+    assert statuses.count(200) == 5
+    assert statuses.count(429) == 7
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_cleanup_removes_only_expired_buckets() -> None:
+    reference = datetime.now(
+        UTC,
+    )
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                RateLimitBucket(
+                    key="test-stale",
+                    window_started_at=(
+                        reference
+                        - timedelta(
+                            days=3,
+                        )
+                    ),
+                    request_count=1,
+                    updated_at=(
+                        reference
+                        - timedelta(
+                            days=3,
+                        )
+                    ),
+                ),
+                RateLimitBucket(
+                    key="test-fresh",
+                    window_started_at=reference,
+                    request_count=1,
+                    updated_at=reference,
+                ),
+            ]
+        )
+        await session.commit()
+
+    await cleanup_stale_rate_limits(
+        now=reference,
+    )
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(
+                RateLimitBucket.key,
+            )
+        )
+
+        keys = set(
+            result.scalars().all()
+        )
+
+    assert "test-stale" not in keys
+    assert "test-fresh" in keys
+
+
+@pytest.mark.asyncio
 async def test_auth_rate_limit_separates_identity_buckets() -> None:
     request = request_for()
 
@@ -132,7 +212,6 @@ async def test_auth_rate_limit_separates_identity_buckets() -> None:
         limit=1,
         window_seconds=60,
     )
-
 
 
 
@@ -317,12 +396,12 @@ def test_production_database_requires_explicit_url(
 
     with pytest.raises(
         RuntimeError,
-        match="DATABASE_URL is required for local and production runtime",
+        match="DATABASE_URL is required",
     ):
         database_module.resolve_database_url()
 
 
-def test_test_database_allows_sqlite_fallback(
+def test_test_database_requires_explicit_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -334,9 +413,11 @@ def test_test_database_allows_sqlite_fallback(
         ),
     )
 
-    assert database_module.resolve_database_url() == (
-        "sqlite+aiosqlite:///./local_dev.db"
-    )
+    with pytest.raises(
+        RuntimeError,
+        match="DATABASE_URL is required",
+    ):
+        database_module.resolve_database_url()
 
     request = Request(
         {
@@ -391,6 +472,10 @@ def test_refresh_cookie_is_always_secure_in_production(
     monkeypatch.setenv(
         "ENVIRONMENT",
         "production",
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification",
     )
 
     get_settings.cache_clear()

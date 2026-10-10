@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.models.base import Base
 from backend.app.models.media import Track
@@ -18,6 +15,7 @@ from backend.app.services.music_metadata import (
     lookup_external_track_metadata,
     lookup_lastfm_track_metadata,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 @pytest.mark.asyncio
@@ -244,7 +242,6 @@ async def test_musicbrainz_lookup_rejects_wrong_recording_duration() -> None:
         )
 
     assert result is None
-
 
 
 @pytest.mark.asyncio
@@ -532,7 +529,6 @@ async def test_apple_lookup_rejects_wrong_duration_or_weak_artist_match() -> Non
     assert result is None
 
 
-
 def test_apple_catalog_genre_overrides_conflicting_lastfm_tag() -> None:
     result = _merge_external_metadata(
         {
@@ -605,9 +601,7 @@ def test_lastfm_genre_remains_when_apple_has_no_genre() -> None:
 async def test_metadata_enrichment_survives_playlist_refresh_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

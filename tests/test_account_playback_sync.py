@@ -64,6 +64,126 @@ async def register_and_login(
 
 
 @pytest.mark.asyncio
+async def test_playback_http_routes_preserve_transport_contracts() -> None:
+    run_id = uuid4().hex[:8]
+    username = f"playback-http-{run_id}"
+    track_id = uuid4()
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add(
+            Track(
+                id=track_id,
+                title="HTTP Contract Song",
+                artist="HyperSync Artist",
+                album="Contract Album",
+                b2_object_key=(
+                    f"audio/playback-http-{run_id}.mp3"
+                ),
+                artwork_object_key=(
+                    f"artwork/playback-http-{run_id}.jpg"
+                ),
+                mime_type="audio/mpeg",
+                file_size=4096,
+                duration_seconds=180,
+                is_published=True,
+            )
+        )
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        token = await register_and_login(
+            client,
+            username,
+        )
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+
+        get_state = await client.get(
+            "/api/users/me/playback-state",
+            headers=headers,
+        )
+
+        assert get_state.status_code == 200
+        assert {
+            "track",
+            "position_seconds",
+            "paused",
+            "device_id",
+            "queue",
+            "queue_index",
+            "updated_at",
+        } <= get_state.json().keys()
+
+        patch_state = await client.patch(
+            "/api/users/me/playback-state",
+            headers=headers,
+            json={
+                "track_id": str(track_id),
+                "position_seconds": 12,
+                "paused": False,
+                "device_id": "contract-device",
+                "queue_track_ids": [str(track_id)],
+                "queue_index": 0,
+            },
+        )
+
+        assert patch_state.status_code == 200
+        assert {
+            "track",
+            "position_seconds",
+            "paused",
+            "device_id",
+            "queue",
+            "queue_index",
+            "updated_at",
+        } <= patch_state.json().keys()
+
+        poll = await client.post(
+            "/api/users/me/playback-devices/poll",
+            headers=headers,
+            json={
+                "device_id": "target-device",
+                "name": "Target Device",
+                "device_type": "mobile",
+            },
+        )
+
+        assert poll.status_code == 200
+        assert {
+            "devices",
+            "commands",
+            "playback_state",
+        } <= poll.json().keys()
+        assert isinstance(poll.json()["devices"], list)
+
+        command = await client.post(
+            "/api/users/me/playback-devices/target-device/commands",
+            headers=headers,
+            json={
+                "source_device_id": "contract-device",
+                "action": "pause",
+            },
+        )
+
+        assert command.status_code == 201
+        assert {
+            "id",
+            "target_device_id",
+            "source_device_id",
+            "action",
+            "value",
+            "created_at",
+        } <= command.json().keys()
+
+
+@pytest.mark.asyncio
 async def test_playback_state_syncs_across_devices() -> None:
     run_id = uuid4().hex[:8]
     username = f"playback-sync-{run_id}"
