@@ -1640,7 +1640,7 @@ useEffect(() => {
           relevantTracks
             .slice(
               1,
-              17,
+              3,
             )
             .map(
               (track) =>
