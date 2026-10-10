@@ -14,7 +14,6 @@ from ..api.routes.catalog import (
     _track_artwork_version,
     _track_media_version,
 )
-from ..database import get_session_factory
 from ..api.schemas.playback import (
     PlaybackDeviceKind,
     PlaybackDevicePollRequest,
@@ -27,6 +26,7 @@ from ..api.schemas.playback import (
     PlaybackStateUpdateRequest,
     PlaybackTrackResponse,
 )
+from ..database import get_session_factory
 from ..models.account import (
     AccountType,
     PlaybackCommand,
