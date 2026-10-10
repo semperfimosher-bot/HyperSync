@@ -8,7 +8,7 @@ import test from "node:test";
 const searchPageSource =
   readFileSync(
     new URL(
-      "./components/pages/SearchPage.jsx",
+      "./searchConstants.js",
       import.meta.url,
     ),
     "utf8",
@@ -20,7 +20,7 @@ test(
   () => {
     const start =
       searchPageSource.indexOf(
-        "const FILTERS = [",
+        "export const FILTERS = [",
       );
 
     assert.ok(
