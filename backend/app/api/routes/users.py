@@ -61,6 +61,10 @@ from ...services.playback import (
     touch_playback_device,
     update_playback_state,
 )
+from ...services.playback_events import (
+    PlaybackEvent,
+    notify_playback_event,
+)
 from ...services.playback_realtime import (
     playback_realtime_hub,
 )
@@ -1549,6 +1553,16 @@ async def live_playback_device(
                 ),
                 now=now,
             )
+            # A WebSocket can attach to an already-fresh polled device row;
+            # announce the new live-socket signal to the other replicas too.
+            await notify_playback_event(
+                session,
+                PlaybackEvent(
+                    kind="presence_changed",
+                    user_id=user.id,
+                    target_device_id=device_id,
+                ),
+            )
 
             await prune_offline_playback_devices(
                 session,
@@ -1909,6 +1923,25 @@ async def live_playback_device(
             # produced SQLAlchemy StaleDataError. The existing
             # background-tolerant presence TTL removes truly
             # offline devices and releases playback ownership.
+            try:
+                async with session_factory() as session:
+                    await notify_playback_event(
+                        session,
+                        PlaybackEvent(
+                            kind="presence_changed",
+                            user_id=user.id,
+                            target_device_id=device_id,
+                        ),
+                    )
+                    await session.commit()
+            except Exception:
+                # Presence is advisory; a failed hint must not turn a
+                # normal socket disconnect into an application failure.
+                logger.debug(
+                    "Unable to publish playback disconnect hint.",
+                    exc_info=True,
+                )
+
             await playback_realtime_hub.broadcast(
                 user.id,
                 {

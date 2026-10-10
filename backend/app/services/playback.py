@@ -658,17 +658,38 @@ async def touch_playback_device(
     # WebSocket heartbeat can arrive at the same time, and stale
     # cleanup may also be running. An upsert makes all three cases
     # safe without an ORM UPDATE expecting a row that was deleted.
+    existing_result = await session.execute(
+        select(PlaybackDevice).where(
+            PlaybackDevice.user_id == user.id,
+            PlaybackDevice.device_id == device_id,
+        )
+    )
+    existing_device = existing_result.scalar_one_or_none()
+    presence_changed = (
+        existing_device is None
+        or not playback_device_is_online(
+            existing_device.last_seen_at,
+            now=reference,
+        )
+        or existing_device.name != name
+        or existing_device.device_type != device_type
+    )
+
     await session.execute(
         statement,
     )
-    await notify_playback_event(
-        session,
-        PlaybackEvent(
-            kind="presence_changed",
-            user_id=user.id,
-            target_device_id=device_id,
-        ),
-    )
+    # Polling refreshes last_seen_at frequently. Notify only when this
+    # refresh actually changes presence, otherwise remote clients would
+    # poll in response to a notification and create a feedback loop.
+    if presence_changed:
+        await notify_playback_event(
+            session,
+            PlaybackEvent(
+                kind="presence_changed",
+                user_id=user.id,
+                target_device_id=device_id,
+            ),
+        )
 
 
 async def prune_offline_playback_devices(
