@@ -189,11 +189,26 @@ async def run_playback_event_listener(
                     timeout=10,
                     command_timeout=10,
                 )
+                connection_terminated = asyncio.Event()
+
+                def on_termination(_connection: asyncpg.Connection) -> None:
+                    connection_terminated.set()
+
+                connection.add_termination_listener(on_termination)
                 await connection.add_listener(PLAYBACK_EVENT_CHANNEL, on_notification)
                 logger.info("Playback cross-replica listener connected.")
-                attempt = 0
-                while not connection.is_closed():
-                    await asyncio.sleep(1)
+
+                try:
+                    await asyncio.wait_for(
+                        connection_terminated.wait(),
+                        timeout=30,
+                    )
+                except TimeoutError:
+                    # Reset exponential backoff only after a stable connection;
+                    # short connect/disconnect flaps must not retry every second.
+                    attempt = 0
+                    await connection_terminated.wait()
+
                 error = ConnectionError("Playback listener connection closed.")
             except asyncio.CancelledError:
                 raise
