@@ -91,7 +91,9 @@ def test_direct_listener_url_uses_asyncpg_scheme_and_removes_libpq_options() -> 
 
 
 @pytest.mark.asyncio
-async def test_notify_is_noop_when_bridge_is_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_notify_is_noop_when_bridge_is_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.app.services import playback_events
 
     class SessionThatMustNotExecute:
