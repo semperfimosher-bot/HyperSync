@@ -13,6 +13,7 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 from backend.app.config import get_settings
 from backend.app.services.audio_metadata import (
@@ -655,7 +656,7 @@ def _search_ranked_candidates(
                 metadata,
                 query=query,
             )
-        except (yt_dlp.utils.DownloadError, OSError, TimeoutError):
+        except (DownloadError, OSError, TimeoutError):
             # A transient upstream failure for one query must not prevent
             # the remaining title/artist fallbacks from being attempted.
             continue
