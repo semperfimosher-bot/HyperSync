@@ -140,8 +140,8 @@ _background_warm_tasks: set[
     asyncio.Task[Any]
 ] = set()
 
-# Only one yt-dlp audio file may be downloaded at a time per backend process.
-# This bounds simultaneous temporary-disk use and large in-memory audio copies.
+# Only one audio ingest pipeline runs at a time per backend process. The slot
+# covers download, the in-memory audio payload, and publication to object storage.
 _youtube_download_semaphore = asyncio.Semaphore(1)
 
 
@@ -1098,69 +1098,72 @@ async def _run_ingest(
             session,
         )
 
-        audio_task = asyncio.create_task(
-            _download_source_with_recovery(
-                session,
-                source,
-            )
-        )
-
-        artwork_task = (
-            asyncio.create_task(
-                _fetch_artwork(
-                    session.candidate
-                    .artwork_url,
+        async with _youtube_download_semaphore:
+            audio_task = asyncio.create_task(
+                _download_source_with_recovery(
+                    session,
+                    source,
                 )
             )
-        )
 
-        audio, artwork = (
-            await asyncio.gather(
-                audio_task,
-                artwork_task,
-            )
-        )
-
-        if not isinstance(
-            audio,
-            DownloadedAudio,
-        ):
-            raise RuntimeError(
-                "Audio acquisition did not "
-                "return a valid file."
+            artwork_task = (
+                asyncio.create_task(
+                    _fetch_artwork(
+                        session.candidate
+                        .artwork_url,
+                    )
+                )
             )
 
-        artwork_data, artwork_type = (
-            artwork
-        )
-
-        result = (
-            await publish_authorized_audio(
-                metadata=session.candidate,
-                audio_content=(
-                    audio.content
-                ),
-                audio_filename=(
-                    audio.filename
-                ),
-                audio_mime_type=(
-                    audio.mime_type
-                ),
-                artwork_data=(
-                    artwork_data
-                ),
-                artwork_mime_type=(
-                    artwork_type
-                ),
-                source_provider=(
-                    "youtube"
-                ),
-                source_id=(
-                    source.source_id
-                    or None
-                ),
+            audio, artwork = (
+                await asyncio.gather(
+                    audio_task,
+                    artwork_task,
+                )
             )
-        )
+
+            if not isinstance(
+                audio,
+                DownloadedAudio,
+            ):
+                raise RuntimeError(
+                    "Audio acquisition did not "
+                    "return a valid file."
+                )
+
+            artwork_data, artwork_type = (
+                artwork
+            )
+
+            result = (
+                await publish_authorized_audio(
+                    metadata=session.candidate,
+                    audio_content=(
+                        audio.content
+                    ),
+                    audio_filename=(
+                        audio.filename
+                    ),
+                    audio_mime_type=(
+                        audio.mime_type
+                    ),
+                    artwork_data=(
+                        artwork_data
+                    ),
+                    artwork_mime_type=(
+                        artwork_type
+                    ),
+                    source_provider=(
+                        "youtube"
+                    ),
+                    source_id=(
+                        source.source_id
+                        or None
+                    ),
+                )
+            )
+            # Drop large payload references before allowing the next ingest.
+            del audio, artwork_data
 
         async with _lock:
             session.track_id = (
@@ -1319,10 +1322,9 @@ async def _download_source_with_recovery(
     source: YouTubeSource,
 ) -> DownloadedAudio:
     try:
-        async with _youtube_download_semaphore:
-            return await download_youtube_audio(
-                source,
-            )
+        return await download_youtube_audio(
+            source,
+        )
     except Exception as first_error:
         # YouTube media URLs are short-lived. Resolve a fresh source once
         # before marking the durable ingest as failed. Do not hold the
@@ -1340,10 +1342,9 @@ async def _download_source_with_recovery(
             raise
 
         try:
-            async with _youtube_download_semaphore:
-                return await download_youtube_audio(
-                    refreshed,
-                )
+            return await download_youtube_audio(
+                refreshed,
+            )
         except Exception as second_error:
             raise RuntimeError(
                 "Temporary YouTube audio source failed after refresh.",
