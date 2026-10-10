@@ -2232,10 +2232,74 @@ function playOpenedPlaylist(
     return;
   }
 
-  const queue = tracks.map(
-    (track) =>
-      searchPlaybackQueueEntry(track),
-  );
+  const queue =
+    tracks.map(
+      (track) => ({
+        id:
+          track.id,
+
+        audioUrl:
+          track.audio_url,
+
+        artworkUrl:
+          resolveArtworkUrl(
+            track.artwork_url,
+          ),
+
+        mimeType:
+          track.mime_type ??
+          null,
+
+        fileSize:
+          track.file_size ??
+          null,
+
+        mediaVersion:
+          track.media_version ??
+          null,
+
+        title:
+          track.title,
+
+        artist:
+          track.artist,
+
+        album:
+          track.album ??
+          "",
+
+        genre:
+          track.genre ??
+          "",
+
+        releaseYear:
+          track.release_year ??
+          track.releaseYear ??
+          null,
+
+        durationSeconds:
+          track.duration_seconds ??
+          track.durationSeconds ??
+          null,
+
+        onDemand:
+          track.source_type ===
+            "on_demand" ||
+          isOnDemandTrackId(
+            track.id,
+          ),
+
+        provisionKey:
+          track.provision_key ??
+          track.provisionKey ??
+          null,
+
+        provisionId:
+          track.provision_id ??
+          track.provisionId ??
+          null,
+      }),
+    );
 
   void player
     .playTrackQueue(
@@ -2246,6 +2310,7 @@ function playOpenedPlaylist(
       () => {},
     );
 }
+
 
 async function playSearchCollection(
   query,
