@@ -57,14 +57,16 @@ class Settings(BaseSettings):
     database_url: str = ""
     migration_database_url: str = ""
     playback_realtime_database_url: str = ""
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
+    # Keep the default database connection footprint modest for small containers.
+    # Increase only after measuring memory and concurrent database demand.
+    db_pool_size: int = 3
+    db_max_overflow: int = 2
     db_pool_timeout_seconds: int = 2
     db_command_timeout_seconds: int = 30
     db_statement_timeout_ms: int = 30000
     db_lock_timeout_ms: int = 5000
     db_idle_transaction_timeout_ms: int = 30000
-    api_max_concurrent_requests: int = 12
+    api_max_concurrent_requests: int = 3
     api_admission_timeout_seconds: float = 2.0
 
     jwt_secret: str = ""
