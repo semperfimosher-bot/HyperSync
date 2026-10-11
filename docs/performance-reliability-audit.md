@@ -11,17 +11,18 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 ### P1 — Runtime stability and overload
 - Northflank screenshots supplied for the Shane deployment show 254–256 MB / 256 MB memory, CPU reaching 100% of 0.1 vCPU, and widespread HTTP 503 responses. These are observed runtime symptoms, not source-code proof of a specific cause.
 - Backend overload/admission middleware can return 503 when request admission is saturated.
-- Frontend API requests retry safe transient failures. During a sustained 503 period, retries can amplify request volume unless backoff, jitter, and retry budgets are carefully bounded.
+- Frontend API requests now retry safe transient failures at most once (down from three retries) to reduce amplification during sustained overload. Backoff behavior still needs load validation.
 - Next evidence: correlate backend logs and timestamps with 503s, process restarts/OOM events, admission wait/rejection metrics, and request latency.
 
 ### P1 — Process-local caches and retained state
-- `backend/app/services/music_metadata.py` maintains multiple process-level dictionaries for Apple, MusicBrainz, Last.fm, and artist-genre lookups. Expiry checks exist on read paths; review every write and cleanup path to confirm stale entries are physically evicted and total cardinality is bounded.
-- `backend/app/services/on_demand_ingestion.py` maintains separate candidate/session maps. Session cleanup does not automatically prove candidate-map cleanup; trace candidate insertion, durable persistence, session expiration, and failed/cancelled tasks together.
+- `backend/app/services/music_metadata.py` now bounds each of its four process-local metadata caches to 256 entries with oldest-inserted eviction; expiry checks remain in place. This bounds cardinality but is not yet validated against real hit rates or memory measurements.
+- `backend/app/services/on_demand_ingestion.py` now bounds the process-local candidate map to 500 entries; durable storage remains the fallback. Session maps have TTL cleanup, but active resolving/ingesting sessions are intentionally retained and still need lifecycle/timeout review.
 - Next evidence: cache sizes, hit/miss rates, object/cardinality snapshots, and repeated-load memory measurements.
 
 ### P1 — Background tasks and on-demand resolution
 - Startup can resume catalog/ingestion work and media-identity backfill. The backfill's cooperative yield is not itself a throughput or memory bound.
 - On-demand source resolution and catalog work should have explicit concurrency/time budgets and should not starve interactive API requests.
+- Source-refresh exceptions in the on-demand stream route now log a warning with traceback instead of disappearing silently; inspect sanitized deployment logs to determine whether this explains playback failures.
 - Next evidence: task inventory, cancellation/exception handling, batch size and duration, event-loop lag, and memory/CPU during cold starts.
 
 ### P2 — Database and network resources
