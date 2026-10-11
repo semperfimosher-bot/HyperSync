@@ -641,6 +641,18 @@ async def _cleanup_expired_locked() -> None:
             )
 
 
+_MAX_IN_MEMORY_CANDIDATES = 500
+
+
+def _remember_candidate_locked(
+    candidate: CatalogTrackCandidate,
+) -> None:
+    """Keep the local candidate cache bounded; durable storage remains authoritative."""
+    _remember_candidate_locked(candidate)
+    while len(_candidates) > _MAX_IN_MEMORY_CANDIDATES:
+        _candidates.pop(next(iter(_candidates)))
+
+
 async def remember_candidates(
     candidates: list[
         CatalogTrackCandidate
@@ -650,9 +662,7 @@ async def remember_candidates(
         await _cleanup_expired_locked()
 
         for candidate in candidates:
-            _candidates[
-                candidate.key
-            ] = candidate
+            _remember_candidate_locked(candidate)
 
     # PostgreSQL is the shared/restart-safe layer; the
     # in-memory map remains the low-latency fallback.
@@ -685,9 +695,7 @@ async def candidate_for_key(
         return None
 
     async with _lock:
-        _candidates[
-            clean
-        ] = candidate
+        _remember_candidate_locked(candidate)
 
     return candidate
 
@@ -1465,9 +1473,7 @@ async def get_or_create_session(
             session.id
         ] = session
 
-        _candidates[
-            candidate.key
-        ] = candidate
+        _remember_candidate_locked(candidate)
 
         return session
 
@@ -2047,9 +2053,7 @@ async def get_provision_session(
             session.candidate.key
         ] = session
 
-        _candidates[
-            session.candidate.key
-        ] = session.candidate
+        _remember_candidate_locked(session.candidate)
 
     if session.track_id is not None:
         await _flush_pending_listener_history(
