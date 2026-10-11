@@ -57,6 +57,37 @@ def _candidate() -> CatalogTrackCandidate:
     )
 
 
+
+def test_in_memory_candidate_cache_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    cache: dict[str, CatalogTrackCandidate] = {}
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_candidates",
+        cache,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_MAX_IN_MEMORY_CANDIDATES",
+        3,
+    )
+
+    for index in range(5):
+        candidate = replace(
+            _candidate(),
+            key=f"metadata:test-track-{index}",
+        )
+        on_demand_ingestion._remember_candidate_locked(candidate)
+
+    assert len(cache) == 3
+    assert "metadata:test-track-0" not in cache
+    assert "metadata:test-track-1" not in cache
+    assert "metadata:test-track-2" in cache
+    assert "metadata:test-track-4" in cache
+
 def test_on_demand_state_normalizes_naive_timestamp_to_utc() -> None:
     naive = datetime(
         2026,
