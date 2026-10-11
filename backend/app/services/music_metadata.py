@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 from difflib import SequenceMatcher
-from typing import TypeVar, TypedDict, cast
+from typing import TypedDict, cast
 from uuid import UUID
 
 import httpx
@@ -26,13 +26,10 @@ from .on_demand_metadata import (
 logger = logging.getLogger(__name__)
 
 _METADATA_CACHE_MAX_ENTRIES = 256
-_CacheValue = TypeVar("_CacheValue")
-
-
-def _store_bounded_cache(
-    cache: dict[str, tuple[float, _CacheValue]],
+def _store_bounded_cache[T](
+    cache: dict[str, tuple[float, T]],
     key: str,
-    value: tuple[float, _CacheValue],
+    value: tuple[float, T],
 ) -> None:
     """Store a cache entry and evict oldest inserted entries over the limit."""
     cache[key] = value
@@ -1944,8 +1941,8 @@ async def lookup_lastfm_track_metadata(
                 }
 
         if owns_client:
-            _lastfm_store_bounded_cache(
-                _lookup_cache,
+            _store_bounded_cache(
+                _lastfm_lookup_cache,
                 cache_key,
                 (now, result),
             )
