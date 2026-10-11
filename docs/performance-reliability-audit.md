@@ -26,7 +26,7 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 - Next evidence: task inventory, cancellation/exception handling, batch size and duration, event-loop lag, and memory/CPU during cold starts.
 
 ### P2 — Database and network resources
-- The configured SQLAlchemy pool defaults to five connections plus up to ten overflow connections; request admission is separately configured. Verify effective settings and peak concurrent DB sessions rather than assuming configured maxima are always reached.
+- The default SQLAlchemy pool is now reduced from five connections plus ten overflow connections to three plus two; default API admission concurrency is reduced from 12 to 3 to better fit the small container. This caps the default pool at five connections and lowers simultaneous request pressure, but may increase queueing under traffic. Explicit Northflank environment variables override these defaults, so verify the deployed `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, and `API_MAX_CONCURRENT_REQUESTS` values before expecting this change to affect production. Tune with observed request volume and pool wait/error metrics.
 - Audit long-lived/reused HTTP clients versus per-call client creation, timeouts, connection limits, transaction boundaries, slow queries, N+1 patterns, and index use.
 
 ### P2 — Frontend request volume and maintainability
