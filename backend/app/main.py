@@ -46,12 +46,12 @@ from .services.media_identity import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
-from .services.on_demand_state import (
-    cleanup_expired_state,
-)
 from .services.on_demand_ingestion import (
     reset_transient_state,
     resume_on_demand_ingests_on_startup,
+)
+from .services.on_demand_state import (
+    cleanup_expired_state,
 )
 from .services.playback import handle_playback_event
 from .services.playback_events import run_playback_event_listener
