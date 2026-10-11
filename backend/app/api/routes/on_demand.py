@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -41,6 +42,8 @@ from ...services.on_demand_ingestion import (
 from ..dependencies import (
     CurrentUser,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/on-demand",
@@ -608,6 +611,10 @@ async def stream_on_demand(
                         session,
                     )
                 except Exception:
+                    logger.warning(
+                        "Failed to refresh temporary audio source after connection error",
+                        exc_info=True,
+                    )
                     source = None
 
                 if source is not None:
@@ -650,6 +657,10 @@ async def stream_on_demand(
                     session,
                 )
             except Exception:
+                logger.warning(
+                    "Failed to refresh temporary audio source after upstream error",
+                    exc_info=True,
+                )
                 source = None
 
             if session.track_id is not None:
