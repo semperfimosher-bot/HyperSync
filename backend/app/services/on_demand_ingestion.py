@@ -648,7 +648,7 @@ def _remember_candidate_locked(
     candidate: CatalogTrackCandidate,
 ) -> None:
     """Keep the local candidate cache bounded; durable storage remains authoritative."""
-    _remember_candidate_locked(candidate)
+    _candidates[candidate.key] = candidate
     while len(_candidates) > _MAX_IN_MEMORY_CANDIDATES:
         _candidates.pop(next(iter(_candidates)))
 
