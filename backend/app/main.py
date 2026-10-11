@@ -46,6 +46,9 @@ from .services.media_identity import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
+from .services.on_demand_state import (
+    cleanup_expired_state,
+)
 from .services.on_demand_ingestion import (
     reset_transient_state,
     resume_on_demand_ingests_on_startup,
@@ -60,6 +63,7 @@ DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
+ON_DEMAND_STATE_CLEANUP_SECONDS = 900.0
 RATE_LIMIT_CLEANUP_SECONDS = 3600.0
 MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 
@@ -304,6 +308,21 @@ async def run_message_retention_cleanup() -> None:
         )
 
 
+async def run_on_demand_state_cleanup() -> None:
+    while True:
+        try:
+            await cleanup_expired_state()
+        except Exception:
+            # Candidate/provision retention is maintenance only.
+            logger.exception(
+                "On-demand state cleanup failed.",
+            )
+
+        await asyncio.sleep(
+            ON_DEMAND_STATE_CLEANUP_SECONDS,
+        )
+
+
 async def run_media_identity_backfill() -> None:
     while True:
         try:
@@ -383,6 +402,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     retention_task = asyncio.create_task(
         run_message_retention_cleanup(),
     )
+    on_demand_cleanup_task = asyncio.create_task(
+        run_on_demand_state_cleanup(),
+    )
 
     rate_limit_cleanup_task = asyncio.create_task(
         run_rate_limit_cleanup(),
@@ -409,6 +431,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
         keepalive_task.cancel()
         retention_task.cancel()
+        on_demand_cleanup_task.cancel()
         rate_limit_cleanup_task.cancel()
 
         if not media_identity_task.done():
