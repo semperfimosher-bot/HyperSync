@@ -1130,11 +1130,28 @@ async def _run_ingest(
             # Collect both outcomes before raising either error. If
             # artwork fails after audio succeeds, retain the audio result
             # so the finally block can still remove its workspace.
-            audio_result, artwork_result = await asyncio.gather(
-                audio_task,
-                artwork_task,
-                return_exceptions=True,
-            )
+            try:
+                audio_result, artwork_result = await asyncio.gather(
+                    audio_task,
+                    artwork_task,
+                    return_exceptions=True,
+                )
+            except asyncio.CancelledError:
+                # gather() cancels both children, but an audio download
+                # may already have completed and handed us a temp dir.
+                # Wait for child cleanup and retain any completed result
+                # so the outer finally block can remove its workspace.
+                outcomes = await asyncio.gather(
+                    audio_task,
+                    artwork_task,
+                    return_exceptions=True,
+                )
+                if outcomes and isinstance(
+                    outcomes[0],
+                    DownloadedAudio,
+                ):
+                    audio = outcomes[0]
+                raise
 
             if isinstance(audio_result, BaseException):
                 raise audio_result
