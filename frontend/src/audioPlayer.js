@@ -50,8 +50,6 @@ import {
   canRecordListeningHistory,
 } from "./homeRecentlyPlayed.js";
 
-import { isOnDemandTrackId } from "./onDemandMusic.js";
-
 
 const audio =
   new Audio();
@@ -551,23 +549,6 @@ function normalizeTrackMeta(
     durationSeconds:
       meta.durationSeconds ??
       meta.duration_seconds ??
-      null,
-
-    onDemand:
-      Boolean(
-        meta.onDemand ??
-        meta.on_demand ??
-        false,
-      ),
-
-    provisionKey:
-      meta.provisionKey ??
-      meta.provision_key ??
-      null,
-
-    provisionId:
-      meta.provisionId ??
-      meta.provision_id ??
       null,
 
     catalogTrackId:
@@ -2920,16 +2901,6 @@ export async function playTrack(
   trackId,
   meta = {},
 ) {
-  const provisional =
-    isOnDemandTrackId(
-      trackId,
-    )
-    || Boolean(
-      meta?.onDemand ??
-      meta?.on_demand ??
-      false,
-    );
-
   const remoteQueue = [
     {
       id:
@@ -2944,7 +2915,6 @@ export async function playTrack(
   ];
 
   if (
-    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
@@ -3003,18 +2973,7 @@ export async function playQueueIndex(
     return false;
   }
 
-  const provisional =
-    isOnDemandTrackId(
-      track.id,
-    )
-    || Boolean(
-      track.meta?.onDemand ??
-      track.meta?.on_demand ??
-      false,
-    );
-
   if (
-    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
@@ -3136,19 +3095,8 @@ export async function playTrackQueue(
       currentQueueIndex
     ];
 
-  const provisional =
-    isOnDemandTrackId(
-      track.id,
-    )
-    || Boolean(
-      track.meta?.onDemand ??
-      track.meta?.on_demand ??
-      false,
-    );
-
   if (
     !forceLocal &&
-    !provisional &&
     await dispatchRemotePlayback(
       "play_track",
       {
