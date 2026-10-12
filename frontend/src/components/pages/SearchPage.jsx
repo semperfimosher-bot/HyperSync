@@ -629,16 +629,7 @@ useEffect(() => {
 }, []);
 
 
-  /*
-   * Search debounce.
-   *
-   * Old SearchPage hit both
-   * endpoints immediately after
-   * every query change.
-   *
-   * We wait 500ms and abort stale
-   * searches while the user types.
-   */
+  /* Debounce catalog search and abort stale requests while typing. */
   useEffect(() => {
     if (!preferenceReady) {
       return undefined;
