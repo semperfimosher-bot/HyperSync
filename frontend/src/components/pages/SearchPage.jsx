@@ -684,9 +684,6 @@ useEffect(() => {
       setLoading(true);
       setSearchError("");
 
-      setOnDemandArtistTracks(
-        [],
-      );
     }
 
     const setLocalResults =
