@@ -5,13 +5,11 @@ from .routes import (
     artists,
     audio,
     auth,
-    bot,
     catalog,
     health,
     jams,
     media,
     messages,
-    on_demand,
     playlists,
     recommendations,
     search,
@@ -70,11 +68,6 @@ api_router.include_router(
     prefix="/api",
 )
 
-api_router.include_router(
-    on_demand.router,
-    prefix="/api",
-)
-
 api_router.include_router(jams.router, prefix="/api")
 
 api_router.include_router(
@@ -89,11 +82,6 @@ api_router.include_router(
 
 api_router.include_router(
     audio.router,
-    prefix="/api",
-)
-
-api_router.include_router(
-    bot.router,
     prefix="/api",
 )
 
