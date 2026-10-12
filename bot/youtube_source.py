@@ -75,6 +75,8 @@ class DownloadedAudio:
     content: bytes
     filename: str
     mime_type: str
+    path: Path | None = None
+    temp_dir: Path | None = None
 
 
 def _normalize(
@@ -873,106 +875,56 @@ async def resolve_youtube_source(
 def _download_sync(
     source: YouTubeSource,
 ) -> DownloadedAudio:
-    with tempfile.TemporaryDirectory(
-        prefix="hypersynced-ytdlp-",
-    ) as temp_dir:
-        output_template = str(
-            Path(
-                temp_dir,
-            )
-            / "%(id)s.%(ext)s"
-        )
-
+    temp_dir = tempfile.mkdtemp(prefix="hypersynced-ytdlp-")
+    try:
+        output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
         options = {
             **_common_options(),
-            "format":
-                (
-                    "bestaudio[ext=m4a][acodec^=mp4a]/"
-                    "bestaudio[ext=m4a]/"
-                    "bestaudio[acodec!=none]/"
-                    "bestaudio/best"
-                ),
-            "outtmpl":
-                output_template,
-            "overwrites":
-                True,
-            "max_filesize":
-                _MAX_DOWNLOAD_BYTES,
+            "format": (
+                "bestaudio[ext=m4a][acodec^=mp4a]/"
+                "bestaudio[ext=m4a]/"
+                "bestaudio[acodec!=none]/"
+                "bestaudio/best"
+            ),
+            "outtmpl": output_template,
+            "overwrites": True,
+            "max_filesize": _MAX_DOWNLOAD_BYTES,
         }
+        with yt_dlp.YoutubeDL(cast(Any, options)) as ydl:
+            info = ydl.extract_info(source.webpage_url, download=True)
+            if not isinstance(info, dict):
+                raise RuntimeError("yt-dlp returned invalid download information.")
+            path = Path(ydl.prepare_filename(info))
 
-        with yt_dlp.YoutubeDL(
-            cast(Any, options),
-        ) as ydl:
-            info = ydl.extract_info(
-                source.webpage_url,
-                download=True,
-            )
-
-            if not isinstance(
-                info,
-                dict,
-            ):
-                raise RuntimeError(
-                    "yt-dlp returned invalid "
-                    "download information."
-                )
-
-            path = Path(
-                ydl.prepare_filename(
-                    info,
-                )
-            )
-
-        if (
-            not path.exists()
-            or not path.is_file()
-        ):
-            matches = [
-                item
-                for item in Path(
-                    temp_dir,
-                ).iterdir()
-                if item.is_file()
-            ]
-
+        if not path.exists() or not path.is_file():
+            matches = [item for item in Path(temp_dir).iterdir() if item.is_file()]
             if not matches:
-                raise RuntimeError(
-                    "yt-dlp did not create "
-                    "an audio file."
-                )
-
-            path = max(
-                matches,
-                key=lambda item:
-                    item.stat().st_size,
-            )
+                raise RuntimeError("yt-dlp did not create an audio file.")
+            path = max(matches, key=lambda item: item.stat().st_size)
 
         file_size = path.stat().st_size
+        if file_size <= 0:
+            raise RuntimeError("Downloaded audio is empty.")
         if file_size > _MAX_DOWNLOAD_BYTES:
-            raise RuntimeError(
-                "Downloaded audio exceeds the 40 MiB safety limit."
-            )
-
-        content = path.read_bytes()
-
-        if not content:
-            raise RuntimeError(
-                "Downloaded audio is empty."
-            )
+            raise RuntimeError("Downloaded audio exceeds the 40 MiB safety limit.")
 
         mime_type = (
-            mimetypes.guess_type(
-                path.name,
-            )[0]
+            mimetypes.guess_type(path.name)[0]
             or source.mime_type
             or "application/octet-stream"
         )
-
+        # The caller owns this directory and must remove it after conversion/upload.
         return DownloadedAudio(
-            content=content,
+            content=b"",
             filename=path.name,
             mime_type=mime_type,
+            path=path,
+            temp_dir=Path(temp_dir),
         )
+    except BaseException:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
 
 async def download_youtube_audio(
