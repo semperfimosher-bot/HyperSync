@@ -233,8 +233,7 @@ export default function TrackActionMenu({
     if (
       !menu ||
       !track ||
-      !isRegistered ||
-      onDemandTrack
+      !isRegistered
     ) {
       return;
     }
@@ -360,8 +359,7 @@ export default function TrackActionMenu({
     );
 
     if (
-      !track?.id ||
-      onDemandTrack
+      !track?.id
     ) {
       return;
     }
@@ -630,11 +628,7 @@ export default function TrackActionMenu({
       busyKey,
     );
 
-    setNotice(
-      onDemandTrack
-        ? "Preparing and publishing queued song..."
-        : "",
-    );
+    setNotice("");
 
     try {
       const queuedTrack =
@@ -661,16 +655,8 @@ export default function TrackActionMenu({
 
       setNotice(
         mode === "next"
-          ? (
-              onDemandTrack
-                ? "Prewarmed and publishing • will play next"
-                : "Will play next"
-            )
-          : (
-              onDemandTrack
-                ? "Prewarmed and publishing • added to queue"
-                : "Added to queue"
-            ),
+          ? "Will play next"
+          : "Added to queue",
       );
     } catch (error) {
       setNotice(
