@@ -183,6 +183,8 @@ async def publish_authorized_audio(
                 ),
             )
 
+        compressed_content = b""
+
         if audio_path is not None:
             output_path = audio_path.with_name(f"converted-{uuid4()}.mp3")
             try:
@@ -232,6 +234,7 @@ async def publish_authorized_audio(
                 or compression.extension != "mp3"
             ):
                 raise RuntimeError("FFmpeg could not produce the canonical MP3 output.")
+            compressed_content = compression.content
             final_audio_path = None
             final_audio_size = compression.final_size
 
@@ -266,7 +269,7 @@ async def publish_authorized_audio(
             else:
                 await asyncio.to_thread(
                     bucket.upload_bytes,
-                    compression.content,
+                    compressed_content,
                     audio_object_key,
                     content_type="audio/mpeg",
                 )
