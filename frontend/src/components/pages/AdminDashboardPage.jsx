@@ -42,11 +42,6 @@ export default function AdminDashboardPage({
   ] = useState(null);
 
   const [
-    botStatus,
-    setBotStatus,
-  ] = useState(null);
-
-  const [
     duplicates,
     setDuplicates,
   ] = useState(null);
@@ -218,56 +213,20 @@ export default function AdminDashboardPage({
       async () => {
         setLoading(true);
 
-        const results =
-          await Promise.allSettled([
-            apiRequest(
-              "/admin/diagnostics",
-            ),
-            apiRequest(
-              "/admin/bot/status",
-            ),
-          ]);
-
-        const errors = [];
-
-        if (
-          results[0].status ===
-          "fulfilled"
-        ) {
-          setDiagnostics(
-            results[0].value,
-          );
-        } else {
+        try {
+          const result = await apiRequest("/admin/diagnostics");
+          setDiagnostics(result);
+          setMessage("");
+        } catch (error) {
           setDiagnostics(null);
-          errors.push(
-            "diagnostics",
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not refresh diagnostics.",
           );
         }
 
-        if (
-          results[1].status ===
-          "fulfilled"
-        ) {
-          setBotStatus(
-            results[1].value,
-          );
-        } else {
-          setBotStatus(null);
-          errors.push(
-            "bot",
-          );
-        }
-
-        setLastChecked(
-          new Date(),
-        );
-
-        setMessage(
-          errors.length > 0
-            ? `Could not refresh: ${errors.join(", ")}.`
-            : "",
-        );
-
+        setLastChecked(new Date());
         setLoading(false);
       },
       [],
@@ -632,10 +591,6 @@ export default function AdminDashboardPage({
     diagnostics?.database
       ?.healthy === true;
 
-  const durableStateHealthy =
-    diagnostics?.durability
-      ?.healthy === true;
-
   const storageHealthy =
     diagnostics?.storage
       ?.healthy === true;
@@ -643,17 +598,6 @@ export default function AdminDashboardPage({
   const catalogHealthy =
     diagnostics?.catalog
       ?.healthy === true;
-
-  const botReachable =
-    diagnostics?.bot
-      ?.healthy === true;
-
-  const botRunning =
-    Boolean(
-      botStatus?.running ??
-      diagnostics?.bot
-        ?.running,
-    );
 
   const duplicateCount =
     duplicates
@@ -665,7 +609,6 @@ export default function AdminDashboardPage({
   const coreHealthy =
     apiHealthy &&
     databaseHealthy &&
-    durableStateHealthy &&
     storageHealthy;
 
 
@@ -873,18 +816,6 @@ export default function AdminDashboardPage({
             />
 
             <AdminHealthRow
-              label="Durable Ingest State"
-              value={
-                durableStateHealthy
-                  ? "Persistent"
-                  : "Degraded"
-              }
-              healthy={
-                durableStateHealthy
-              }
-            />
-
-            <AdminHealthRow
               label="B2 Storage"
               value={
                 storageHealthy
@@ -908,87 +839,10 @@ export default function AdminDashboardPage({
               }
             />
 
-            <AdminHealthRow
-              label="Bot Service"
-              value={
-                botReachable
-                  ? (
-                      botStatus?.current_job
-                        ? "Working"
-                        : "Always on"
-                    )
-                  : "Unavailable"
-              }
-              healthy={
-                botReachable
-              }
-            />
           </div>
         </article>
 
 
-        <article className="admin-panel admin-panel--interactive">
-          <div className="admin-panel__heading">
-            <div>
-              <span>AUTOMATION</span>
-              <h3>Bot Telemetry</h3>
-            </div>
-
-            <span
-              className={
-                botReachable
-                  ? "admin-status admin-status--online"
-                  : "admin-status admin-status--offline"
-              }
-            >
-              {botReachable
-                ? (
-                    botStatus?.current_job
-                      ? "WORKING"
-                      : "ONLINE"
-                  )
-                : "OFFLINE"}
-            </span>
-          </div>
-
-          <div className="bot-status-card">
-            <div className="bot-status-icon">
-              <Icon
-                name="chart"
-                size={25}
-              />
-            </div>
-
-            <div>
-              <strong>
-                HyperSynced Bot
-              </strong>
-
-              <p>
-                {botStatus?.current_job
-                  ? `Working: ${botStatus.current_job}`
-                  : `${botStatus?.queued_jobs ?? 0} queued • ${botStatus?.completed_jobs ?? 0} completed • ${botStatus?.failed_jobs ?? 0} failed`}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="secondary-admin-button"
-            onClick={() => {
-              onNavigate(
-                "admin-bot",
-              );
-            }}
-          >
-            Open Bot Automation
-
-            <Icon
-              name="chevron"
-              size={14}
-            />
-          </button>
-        </article>
       </section>
 
 
@@ -1041,25 +895,6 @@ export default function AdminDashboardPage({
             onClick={() => {
               onNavigate(
                 "admin-catalog",
-              );
-            }}
-          />
-
-          <AdminQuickAction
-            icon="chart"
-            title="Bot Control"
-            description="Run automation and processing."
-            active={
-              botReachable
-            }
-            status={
-              botReachable
-                ? "READY"
-                : "CHECK"
-            }
-            onClick={() => {
-              onNavigate(
-                "admin-bot",
               );
             }}
           />
