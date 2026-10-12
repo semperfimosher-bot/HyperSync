@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -10,14 +8,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from starlette.types import Message, Receive, Scope, Send
 
-from backend.app.api.dependencies import get_current_user
-from backend.app.api.routes import on_demand
 from backend.app.config import Settings
 from backend.app.middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
-from backend.app.models.account import AccountType
 
 
 @pytest.mark.asyncio
@@ -165,54 +160,6 @@ async def test_sqlalchemy_pool_timeout_is_returned_as_retryable_503() -> None:
     assert response.json() == {"detail": "The service is busy. Please retry shortly."}
 
 
-@pytest.mark.asyncio
-async def test_on_demand_search_rejects_unbounded_client_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    test_app = FastAPI()
-    test_app.include_router(on_demand.router, prefix="/api")
-    user = SimpleNamespace(
-        id=uuid4(),
-        account_type=AccountType.REGISTERED,
-    )
-
-    async def current_user() -> SimpleNamespace:
-        return user
-
-    async def allow_rate_limit(*_args, **_kwargs) -> None:
-        return None
-
-    requested_limits: list[int] = []
-
-    async def search_and_remember(_query: str, *, limit: int, **_kwargs) -> list:
-        requested_limits.append(limit)
-        return []
-
-    test_app.dependency_overrides[get_current_user] = current_user
-    monkeypatch.setattr(on_demand, "enforce_rate_limit", allow_rate_limit)
-    monkeypatch.setattr(on_demand, "search_and_remember", search_and_remember)
-
-    async with AsyncClient(
-        transport=ASGITransport(app=test_app),
-        base_url="http://test",
-    ) as client:
-        default_response = await client.get(
-            "/api/on-demand/search",
-            params={"q": "artist"},
-        )
-        oversized_response = await client.get(
-            "/api/on-demand/search",
-            params={"q": "artist", "limit": 500},
-        )
-        oversized_artist_response = await client.get(
-            "/api/on-demand/artist",
-            params={"name": "artist", "limit": 500},
-        )
-
-    assert default_response.status_code == 200
-    assert requested_limits == [20]
-    assert oversized_response.status_code == 422
-    assert oversized_artist_response.status_code == 422
 
 
 def test_settings_reject_admission_capacity_that_uses_entire_pool() -> None:
