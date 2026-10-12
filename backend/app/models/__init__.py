@@ -16,10 +16,6 @@ from .artist import (
     ArtistProfile,
 )
 from .base import Base
-from .bot import (
-    BotCatalogScan,
-    BotCatalogScanItem,
-)
 from .jam import JamMember, JamQueueItem, JamSession
 from .media import (
     Track,
@@ -31,11 +27,6 @@ from .messaging import (
     AdminNotification,
     Message,
     PushSubscription,
-)
-from .on_demand import (
-    OnDemandCandidate,
-    OnDemandPendingListener,
-    OnDemandProvision,
 )
 from .playlist import (
     Playlist,
@@ -50,8 +41,6 @@ from .system import (
 __all__ = [
     "AccountType",
     "Base",
-    "BotCatalogScan",
-    "BotCatalogScanItem",
     "ArtistFollow",
     "ArtistProfile",
     "Track",
@@ -61,9 +50,6 @@ __all__ = [
     "AdminNotification",
     "Message",
     "PushSubscription",
-    "OnDemandCandidate",
-    "OnDemandPendingListener",
-    "OnDemandProvision",
     "ListeningEvent",
     "JamSession",
     "JamMember",
