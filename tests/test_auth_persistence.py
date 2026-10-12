@@ -1,0 +1,90 @@
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from backend.app import database
+from backend.app.api.dependencies import CurrentUser, DatabaseSession
+from backend.app.config import get_settings
+from backend.app.models import AccountType, User, UserProfile, UserSession
+from backend.app.security import rate_limit
+from backend.app.security.tokens import create_access_token
+from scripts.verification.postgres_database import create_postgres_test_engine
+
+
+@pytest.fixture
+async def constrained_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[tuple[FastAPI, list[str]]]:
+    await database.close_database()
+    monkeypatch.setenv("JWT_SECRET", "pool-test-secret-that-is-longer-than-thirty-two-characters")
+    get_settings.cache_clear()
+    engine = create_postgres_test_engine(
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=1,
+    )
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr(database, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(rate_limit, "get_session_factory", lambda: factory)
+    tokens = []
+    async with factory() as session:
+        for index in range(20):
+            user = User(
+                id=uuid4(),
+                account_type=AccountType.REGISTERED,
+                email=f"pool-{index}@example.com",
+                username=f"pool-{index}",
+                username_normalized=f"pool-{index}",
+                password_hash="unused",
+            )
+            auth_session = UserSession(
+                id=uuid4(),
+                user_id=user.id,
+                refresh_token_hash=uuid4().hex,
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+            session.add_all(
+                [
+                    user,
+                    auth_session,
+                    UserProfile(user_id=user.id, display_name="Pool", bio="original"),
+                ]
+            )
+            token, _ = create_access_token(user_id=user.id, session_id=auth_session.id, role="user")
+            tokens.append(token)
+        await session.commit()
+    app = FastAPI()
+    @app.post("/update-user")
+    async def update_user(user: CurrentUser, session: DatabaseSession):
+        user.username = "updated"
+        assert user.profile is not None
+        user.profile.bio = "updated profile"
+        await session.commit()
+        return {"username": user.username, "bio": user.profile.bio if user.profile else None}
+
+    @app.get("/read-user")
+    async def read_user(user: CurrentUser):
+        return {"username": user.username, "bio": user.profile.bio if user.profile else None}
+
+    try:
+        yield app, tokens
+    finally:
+        await engine.dispose()
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_updates_still_persist(constrained_database) -> None:
+    app, tokens = constrained_database
+    headers = {"Authorization": f"Bearer {tokens[0]}"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/update-user", headers=headers)
+        assert response.status_code == 200, response.text
+        response = await client.get("/read-user", headers=headers)
+        assert response.json()["username"] == "updated"
+        assert response.json()["bio"] == "updated profile"
