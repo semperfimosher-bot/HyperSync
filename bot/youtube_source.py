@@ -930,7 +930,29 @@ def _download_sync(
 async def download_youtube_audio(
     source: YouTubeSource,
 ) -> DownloadedAudio:
-    return await asyncio.to_thread(
-        _download_sync,
-        source,
+    # Cancelling asyncio.to_thread() does not stop its worker thread.
+    # Shield the worker, then collect and remove its workspace before
+    # propagating cancellation so a late download cannot orphan files.
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            _download_sync,
+            source,
+        )
     )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            downloaded = await asyncio.shield(worker)
+        except BaseException:
+            # _download_sync removes its workspace if it fails.
+            pass
+        else:
+            if downloaded.temp_dir is not None:
+                import shutil
+                await asyncio.to_thread(
+                    shutil.rmtree,
+                    downloaded.temp_dir,
+                    ignore_errors=True,
+                )
+        raise
