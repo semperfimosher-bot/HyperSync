@@ -763,7 +763,71 @@ useEffect(() => {
           }
 
           try {
+            const data =
+              await searchHypersync(
+                normalizedQuery,
+                sortMode,
+                {
+                  signal:
+                    controller.signal,
+                  bypassCache:
+                    quietRefresh,
+                },
+              );
 
+            if (
+              controller.signal
+                .aborted
+            ) {
+              return;
+            }
+
+            setResults({
+              ...EMPTY_RESULTS,
+              ...(data || {}),
+
+              counts: {
+                ...EMPTY_RESULTS.counts,
+                ...(data?.counts || {}),
+              },
+
+              tracks:
+                data?.tracks || [],
+
+              artists:
+                data?.artists || [],
+
+              collaborations:
+                data?.collaborations || [],
+
+              albums:
+                data?.albums || [],
+
+              people:
+                data?.people || [],
+
+              playlists:
+                data?.playlists || [],
+            });
+
+            if (!quietRefresh) {
+              setSelectedTrackIndex(
+                -1,
+              );
+            }
+
+            searchLoadKeyRef.current =
+              searchKey;
+
+            setSearchError(
+              "",
+            );
+
+            if (!quietRefresh) {
+              setLoading(
+                false,
+              );
+            }
           } catch (error) {
             if (
               error?.name ===
