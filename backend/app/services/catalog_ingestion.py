@@ -84,6 +84,10 @@ async def lock_track_identity(
     )
 
 
+def _is_nonempty_file(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
+
+
 def _valid_release_year(
     value: int | None,
 ) -> int | None:
@@ -140,7 +144,7 @@ async def publish_authorized_audio(
     settings = get_settings()
 
     if audio_path is not None:
-        if not audio_path.is_file() or audio_path.stat().st_size <= 0:
+        if not await asyncio.to_thread(_is_nonempty_file, audio_path):
             raise RuntimeError("Cannot publish a missing or empty audio file.")
     elif not audio_content:
         raise RuntimeError("Cannot publish empty audio.")
