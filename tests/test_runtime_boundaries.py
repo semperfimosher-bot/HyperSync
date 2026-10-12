@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 import backend.app.main as app_main
-from backend.app.main import (
-    _activity_description,
-)
 from backend.app.services.artists import (
     normalize_artist_name,
 )
