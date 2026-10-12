@@ -162,8 +162,7 @@ def job_failed(
     message: str,
 ) -> None:
     with _lock:
-        _state.running = True
-        _state.status = "online"
+        _state.status = "online" if _state.running else "offline"
         _state.current_job = None
         _state.failed_jobs += 1
 
