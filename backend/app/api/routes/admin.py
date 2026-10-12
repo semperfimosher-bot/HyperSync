@@ -24,8 +24,6 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
-from bot.service import get_state
-
 from ...config import get_settings
 from ...models import (
     Base,
@@ -76,9 +74,6 @@ from ...services.media_identity import (
 from ...services.music_metadata import (
     enrich_track_metadata,
     enrich_track_metadata_by_id,
-)
-from ...services.on_demand_state import (
-    durable_state_diagnostics,
 )
 from ...services.storage_integrity import (
     audit_track_storage,
@@ -725,12 +720,6 @@ async def admin_diagnostics(
             exc,
         )
 
-    durability_status = (
-        await durable_state_diagnostics()
-    )
-
-    bot_state = get_state()
-
     return {
         "api": {
             "healthy": True,
@@ -739,29 +728,10 @@ async def admin_diagnostics(
         },
         "database":
             database_status,
-        "durability":
-            durability_status,
         "storage":
             storage_status,
         "catalog":
             catalog_status,
-        "bot": {
-            "healthy": True,
-            "running":
-                bool(
-                    bot_state.running,
-                ),
-            "status":
-                bot_state.status,
-            "current_job":
-                bot_state.current_job,
-            "queued_jobs":
-                bot_state.queued_jobs,
-            "completed_jobs":
-                bot_state.completed_jobs,
-            "failed_jobs":
-                bot_state.failed_jobs,
-        },
     }
 
 
