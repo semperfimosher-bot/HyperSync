@@ -1031,15 +1031,10 @@ pool-acquisition timeouts use the same response instead of leaking as a 500.
 `DB_POOL_SIZE + DB_MAX_OVERFLOW`; startup validation rejects settings that
 consume the full pool. Uvicorn also caps accepted connections at 32 by default.
 When changing these values, multiply each process's pool capacity by every API
-replica and worker process that connects to the same database. Include the
-within the provider's limit, and leave capacity for maintenance jobs and
-readiness checks.
+replica and worker process that connects to the same database. Keep total
+connections within the provider's limit, leaving capacity for maintenance jobs
+and readiness checks.
 
-On-demand track searches accept at most 20 results. Artist searches retain
-their separate 100-result cap. The client requests the same track-search cap,
-so the browser and API do not disagree about result
-size. Raise the cap only after adding pagination and checking provider and
-database work at that size.
 
 ### 22.1 Initial account tables
 
