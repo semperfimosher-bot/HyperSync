@@ -1094,10 +1094,7 @@ export default function TrackActionMenu({
                   : "Add to queue"}
               </span>
             </button>
-
-
-            {(
-              <button
+                          <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
@@ -1120,7 +1117,6 @@ export default function TrackActionMenu({
                 size={13}
               />
               </button>
-            ) : null}
 
 
             <button
@@ -1236,8 +1232,7 @@ export default function TrackActionMenu({
             <div className="track-action-menu__divider" />
 
 
-            {!menu.hideLikeAction &&
-            (
+            {!menu.hideLikeAction ? (
               <button
                 type="button"
                 role="menuitem"
@@ -1266,10 +1261,7 @@ export default function TrackActionMenu({
                 </span>
               </button>
             ) : null}
-
-
-            {(
-              <button
+                          <button
                 type="button"
                 role="menuitem"
                 disabled={
@@ -1298,7 +1290,6 @@ export default function TrackActionMenu({
                   : "Download for offline"}
               </span>
               </button>
-            ) : null}
 
           </>
         )}
