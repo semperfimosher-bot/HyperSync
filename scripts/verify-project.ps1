@@ -321,7 +321,6 @@ Invoke-NativeCheck `
     -Command {
         & $python -m ruff check `
             backend `
-            bot `
             migrations `
             scripts `
             tests
@@ -333,7 +332,6 @@ Invoke-NativeCheck `
         & $python -m ruff format `
             --check `
             backend `
-            bot `
             migrations `
             scripts `
             tests
@@ -352,7 +350,6 @@ Invoke-NativeCheck `
             -q `
             -r `
             backend `
-            bot `
             -ll `
             -ii
     }
