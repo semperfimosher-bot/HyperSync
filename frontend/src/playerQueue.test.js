@@ -66,12 +66,6 @@ test(
           null,
         durationSeconds:
           null,
-        onDemand:
-          false,
-        provisionKey:
-          null,
-        provisionId:
-          null,
       },
     },
     {
@@ -91,12 +85,6 @@ test(
           null,
         durationSeconds:
           null,
-        onDemand:
-          false,
-        provisionKey:
-          null,
-        provisionId:
-          null,
       },
     },
     {
@@ -115,12 +103,6 @@ test(
         artworkVersion:
           null,
         durationSeconds:
-          null,
-        onDemand:
-          false,
-        provisionKey:
-          null,
-        provisionId:
           null,
       },
     },
@@ -509,46 +491,6 @@ test(
 
 
 test(
-  "buildTrackQueue preserves lazy on-demand provisioning metadata",
-  async () => {
-    const queueModule =
-      await loadQueueModule();
-
-    const queue =
-      queueModule.buildTrackQueue([
-        {
-          id:
-            "ondemand:music:track",
-          source_type:
-            "on_demand",
-          provision_key:
-            "music:track",
-          title:
-            "Metadata Song",
-          artist:
-            "Metadata Artist",
-        },
-      ]);
-
-    assert.equal(
-      queue[0].meta.onDemand,
-      true,
-    );
-
-    assert.equal(
-      queue[0].meta.provisionKey,
-      "music:track",
-    );
-
-    assert.equal(
-      queue[0].meta.provisionId,
-      null,
-    );
-  },
-);
-
-
-test(
   "appendQueueEntry adds a manual track after all upcoming tracks",
   async () => {
     const queueModule =
@@ -644,7 +586,7 @@ test(
 
 
 test(
-  "autoplay catalog ID filtering drops temporary on-demand IDs",
+  "autoplay catalog ID filtering drops non-catalog IDs",
   async () => {
     const queueModule =
       await loadQueueModule();
@@ -661,7 +603,7 @@ test(
 
     assert.equal(
       queueModule.catalogTrackIdOrNull(
-        "ondemand:temporary-track",
+        "temporary-track",
       ),
       null,
     );
@@ -669,7 +611,7 @@ test(
     assert.deepEqual(
       queueModule.filterCatalogTrackIds(
         [
-          "ondemand:old",
+          "temporary-old",
           valid,
           valid,
           "not-a-uuid",
