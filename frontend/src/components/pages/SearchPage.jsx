@@ -935,16 +935,7 @@ useEffect(() => {
       return;
     }
 
-    const localTracks =
-      displayResults.tracks
-        .filter(
-          (track) =>
-            track.source_type !==
-              "on_demand" &&
-            !isOnDemandTrackId(
-              track.id,
-            ),
-        );
+    const localTracks = displayResults.tracks;
 
     const localIndex =
       localTracks.findIndex(
@@ -2805,15 +2796,7 @@ async function downloadOpenedPlaylist() {
                 }
                 role="button"
                 tabIndex={0}
-                {...(
-                  track.source_type ===
-                    "on_demand"
-                    ? {}
-                    : trackActionMenu
-                        .getTriggerProps(
-                          track,
-                        )
-                )}
+                {...trackActionMenu.getTriggerProps(track)}
                 className={[
                   "hs-search-track",
                   "hs-search-track--playlist-download",
@@ -3790,15 +3773,7 @@ displayResults.tracks.length > 0 ? (
                         key={track.id}
                         role="button"
                         tabIndex={0}
-                        {...(
-                          track.source_type ===
-                            "on_demand"
-                            ? {}
-                            : trackActionMenu
-                                .getTriggerProps(
-                                  track,
-                                )
-                        )}
+                        {...trackActionMenu.getTriggerProps(track)}
                         className={[
                         "hs-search-track",
                       
@@ -3909,39 +3884,13 @@ displayResults.tracks.length > 0 ? (
                         <span className="hs-search-track__signals">
 
                           <em>
-                            {track.source_type ===
-                              "on_demand"
-                              ? (
-                                  preparingOnDemandKey ===
-                                    track.provision_key
-                                    ? "PREPARING..."
-                                    : "AVAILABLE ON DEMAND"
-                                )
-                              : (
-                                  track.user_play_count > 0
-                                    ? "IN YOUR ROTATION"
-                                    : track.match_label
-                                )}
+                            {track.user_play_count > 0
+                              ? "IN YOUR ROTATION"
+                              : track.match_label}
                           </em>
 
                           <small>
-                            {track.source_type ===
-                              "on_demand"
-                              ? (
-                                  track.provider
-                                    ? String(
-                                        track.provider,
-                                      )
-                                      .replace(
-                                        "+",
-                                        " + ",
-                                      )
-                                      .toUpperCase()
-                                    : "DEEZER + ITUNES"
-                                )
-                              : (
-                                  `${track.global_play_count} plays`
-                                )}
+                            {`${track.global_play_count} plays`}
                           </small>
 
                         </span>
@@ -3956,14 +3905,7 @@ displayResults.tracks.length > 0 ? (
 
                         <span className="hs-search-track__play">
                           <Icon
-                            name={
-                              track.source_type ===
-                                "on_demand" &&
-                              preparingOnDemandKey ===
-                                track.provision_key
-                                ? "chart"
-                                : "play"
-                            }
+                            name="play"
                             size={16}
                           />
                         </span>
