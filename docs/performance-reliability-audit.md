@@ -16,14 +16,8 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 
 ### P1 — Process-local caches and retained state
 - `backend/app/services/music_metadata.py` now bounds each of its four process-local metadata caches to 256 entries with oldest-inserted eviction; expiry checks remain in place. This bounds cardinality but is not yet validated against real hit rates or memory measurements.
-- `backend/app/services/on_demand_ingestion.py` now bounds the process-local candidate map to 500 entries; durable storage remains the fallback. Session maps have TTL cleanup, but active resolving/ingesting sessions are intentionally retained and still need lifecycle/timeout review.
-- Next evidence: cache sizes, hit/miss rates, object/cardinality snapshots, and repeated-load memory measurements.
 
-### P1 — Background tasks and on-demand resolution
-- Startup can resume catalog/ingestion work and media-identity backfill. The backfill's cooperative yield is not itself a throughput or memory bound.
-- On-demand source resolution and catalog work should have explicit concurrency/time budgets and should not starve interactive API requests.
-- Source-refresh exceptions in the on-demand stream route now log a warning with traceback instead of disappearing silently; inspect sanitized deployment logs to determine whether this explains playback failures.
-- Next evidence: task inventory, cancellation/exception handling, batch size and duration, event-loop lag, and memory/CPU during cold starts.
+- Next evidence: cache sizes, hit/miss rates, object/cardinality snapshots, and repeated-load memory measurements.
 
 ### P2 — Database and network resources
 - The default SQLAlchemy pool is now reduced from five connections plus ten overflow connections to three plus two; default API admission concurrency is reduced from 12 to 3 to better fit the small container. This caps the default pool at five connections and lowers simultaneous request pressure, but may increase queueing under traffic. Explicit Northflank environment variables override these defaults, so verify the deployed `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, and `API_MAX_CONCURRENT_REQUESTS` values before expecting this change to affect production. Tune with observed request volume and pool wait/error metrics.
