@@ -1,6 +1,6 @@
 # HyperSync
 
-HyperSync is a mobile-first, full-stack music streaming platform designed to provide fast playback, synchronized lyrics, personal libraries, public playlists, listening statistics, administrative tools, background media processing, and a future worker bot that can discover and ingest authorized media.
+HyperSync is a mobile-first, full-stack music streaming platform designed to provide fast playback, synchronized lyrics, personal libraries, public playlists, listening statistics, administrative tools, background media processing.
 
 This repository is intended to become a production-quality application rather than a visual demo. Every feature described in this document should eventually be backed by real database records, real authentication, real storage, real APIs, permission checks, tests, and deployment configuration.
 
@@ -145,7 +145,6 @@ The frontend must never receive:
 - B2 application keys
 - rclone configuration
 - JWT signing secrets
-- Bot authentication secrets
 - Administrative service credentials
 - Private storage management credentials
 
@@ -229,22 +228,6 @@ Administrators may manage:
 
 Administrative access must be checked by the backend on every protected request.
 
-### 5.5 Bot or worker identity
-
-The bot is not a normal user account.
-
-It should authenticate as a service identity using:
-
-- A dedicated bot secret
-- Short-lived JWTs
-- A bot-specific audience
-- Hourly reauthentication
-- Heartbeats
-- Explicit job-claim permissions
-
-The bot must not use a human administrator password.
-
----
 
 ## 6. User Experience
 
@@ -543,11 +526,6 @@ The target access-token lifetime is approximately one hour.
 
 The client should refresh credentials without forcing the user to log in every hour.
 
-### 8.6 Bot authentication
-
-The bot should also use short-lived JWTs and reauthenticate hourly, but bot tokens must use separate secrets, claims, and permissions from user tokens.
-
----
 
 ## 9. Music Catalog
 
@@ -968,63 +946,6 @@ The system should support:
 
 ---
 
-## 19. Background Bot and Worker
-
-The bot should run as a separate service, likely on Northflank.
-
-The bot’s responsibilities may include:
-
-- Authenticate with FastAPI
-- Maintain a persistent WebSocket
-- Send heartbeats
-- Reauthenticate hourly
-- Claim jobs
-- Receive job commands
-- Search YouTube through Playwright
-- Inspect public search results
-- Send discovered metadata to HyperSync
-- Process authorized media
-- Run FFmpeg
-- Read metadata with Mutagen
-- Generate or normalize artwork
-- Upload finalized objects using rclone
-- Verify B2 uploads
-- Report progress
-- Clean temporary files
-- Mark jobs complete or failed
-
-### 19.1 YouTube discovery
-
-The Playwright bot may enter arbitrary queries into YouTube’s search interface and inspect result metadata.
-
-Discovery does not automatically authorize ingestion.
-
-The bot may only download, process, upload, or store media when the project owner owns it, licenses it, or has permission to use it.
-
-### 19.2 Worker WebSocket
-
-The worker WebSocket should support:
-
-- Authentication
-- Heartbeat
-- Job offer
-- Job claim
-- Claim acknowledgment
-- Progress update
-- Log event
-- Completion
-- Failure
-- Cancellation
-- Token refresh or reauthentication
-- Reconnection with backoff
-
-### 19.3 Temporary files
-
-Temporary processing files should use controlled folders and be removed after success or failure.
-
-Temporary files must not accumulate forever.
-
----
 
 ## 20. Media Processing Pipeline
 
@@ -1111,7 +1032,6 @@ pool-acquisition timeouts use the same response instead of leaking as a 500.
 consume the full pool. Uvicorn also caps accepted connections at 32 by default.
 When changing these values, multiply each process's pool capacity by every API
 replica and worker process that connects to the same database. Include the
-separate bot service if it uses the same database. Keep total connections
 within the provider's limit, and leave capacity for maintenance jobs and
 readiness checks.
 
@@ -1216,7 +1136,7 @@ backend/
 - **Security:** Passwords, tokens, sessions, permissions
 - **Storage:** B2 and object-key logic
 - **Jobs:** Job creation and state transitions
-- **WebSockets:** Bot and real-time player/control communication
+- **WebSockets:** Real-time player/control communication
 - **Config:** Environment-based settings
 - **Database:** Engine and sessions
 
@@ -1320,15 +1240,6 @@ GET  /api/admin/storage
 GET  /api/admin/audit
 ```
 
-### Worker and WebSocket
-
-```text
-POST /api/worker/token
-WS   /ws/worker
-WS   /ws/player
-```
-
----
 
 ## 25. Frontend Architecture
 
@@ -1485,8 +1396,6 @@ Cloudflare
              +--> Worker WebSocket
 ```
 
-The bot runs as a separate Northflank service and communicates with the API.
-
 ---
 
 ## 29. Environment Variables
@@ -1511,10 +1420,6 @@ JWT_SECRET=
 JWT_ALGORITHM=
 ACCESS_TOKEN_TTL_MINUTES=
 REFRESH_TOKEN_TTL_DAYS=
-
-BOT_JWT_SECRET=
-BOT_JWT_AUDIENCE=
-BOT_TOKEN_TTL_MINUTES=
 
 RCLONE_REMOTE=
 B2_BUCKET_NAME=
@@ -1854,17 +1759,6 @@ Future privacy features should include:
 - Storage
 - Audit
 
-### Milestone 11 — Bot
-
-- WebSocket
-- Heartbeats
-- Hourly reauthentication
-- Job claiming
-- Playwright discovery
-- FFmpeg
-- Mutagen
-- rclone
-- Cleanup
 
 ### Milestone 12 — Generated playlists
 
@@ -1952,7 +1846,7 @@ The next intended work sequence is:
 11. Commit and push
 12. Begin real authentication
 
-Do not begin B2, LRCLIB, the worker bot, messaging, or recommendations before the account schema and authentication are stable.
+Do not begin B2, LRCLIB, messaging, or recommendations before the account schema and authentication are stable.
 
 ---
 
@@ -1982,7 +1876,6 @@ Do not redesign away:
 - LRCLIB
 - Persistent WebSocket architecture
 - Hourly worker reauthentication
-- Separate bot service
 - Guest mode
 - Admin dashboard
 - Mobile-first UI
@@ -2026,11 +1919,6 @@ Never ask the project owner to paste:
 
 When a secret is pasted into chat, instruct the owner to rotate it.
 
-### 39.6 Respect media authorization
-
-Do not provide instructions that expand the ingestion system into unauthorized downloading.
-
-The bot may search broadly, but ingestion must be limited to owned, licensed, or explicitly permitted media.
 
 ### 39.7 Keep mock behavior clearly isolated
 
