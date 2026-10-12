@@ -10,7 +10,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
-
 from .api.router import api_router
 from .config import get_settings
 from .database import (
