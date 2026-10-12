@@ -968,7 +968,7 @@ async function ensureAutoplayQueue({
   force = false,
 } = {}) {
   if (
-    !currentTrackId ||
+    !currentTrackId
   ) {
     return 0;
   }
