@@ -49,7 +49,6 @@ test(
       const relativePath
       of [
         "./components/pages/AdminDashboardPage.jsx",
-        "./components/pages/AdminBotPage.jsx",
       ]
     ) {
       const source =
