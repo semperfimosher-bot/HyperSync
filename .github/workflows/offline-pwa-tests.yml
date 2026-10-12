@@ -117,29 +117,6 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend scripts
 
-      - name: Validate local on-demand readiness helper
-        shell: pwsh
-        run: |
-          $output = @(
-            python scripts/local_on_demand_readiness.py
-          )
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Local readiness helper failed."
-          }
-
-          foreach ($required in @(
-            "database_kind=",
-            "database=",
-            "b2=",
-            "cookies=",
-            "admin="
-          )) {
-            if (-not ($output | Where-Object { $_.StartsWith($required) })) {
-              throw ("Missing readiness field: " + $required)
-            }
-          }
-
       - name: Validate Alembic migration chain
         env:
           MIGRATION_DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
@@ -156,17 +133,17 @@ jobs:
       - name: Run full backend regression suite
         run: python -m pytest -q
 
-      - name: Lint backend, bot, scripts, and tests
-        run: python -m ruff check backend bot scripts tests
+      - name: Lint backend, scripts, and tests
+        run: python -m ruff check backend scripts tests
 
-      - name: Type-check backend, bot, scripts, and tests
+      - name: Type-check backend, scripts, and tests
         run: python -m pyright
 
       - name: Audit backend dependencies
         run: python -m pip_audit -r requirements.backend.txt
 
       - name: Scan backend for security issues
-        run: python -m bandit -q -r backend bot -ll
+        run: python -m bandit -q -r backend -ll
 
   backend-image:
     runs-on: ubuntu-latest
@@ -178,14 +155,11 @@ jobs:
       - name: Build production backend image
         run: docker build --file Dockerfile.backend --tag hypersynced-backend-ci .
 
-      - name: Verify yt-dlp, Deno, Node, FFmpeg, and migrations
+      - name: Verify scraper runtimes are absent and FFmpeg and migrations remain
         run: |
-          docker run --rm hypersynced-backend-ci python -c "import yt_dlp; print(yt_dlp.version.__version__)"
-          docker run --rm hypersynced-backend-ci python -c "import yt_dlp_ejs; print('yt-dlp-ejs available')"
-          docker run --rm hypersynced-backend-ci deno --version
-          docker run --rm hypersynced-backend-ci node --version
+          docker run --rm hypersynced-backend-ci python -c "import importlib.util; assert importlib.util.find_spec('yt_dlp') is None; assert importlib.util.find_spec('yt_dlp_ejs') is None; print('scraper packages absent')"
+          docker run --rm hypersynced-backend-ci sh -ec 'command -v deno >/dev/null && exit 1 || true; command -v node >/dev/null && exit 1 || true'
           docker run --rm hypersynced-backend-ci ffmpeg -version
-          docker run --rm hypersynced-backend-ci python -c "import os; print(os.environ['YT_DLP_DENO_PATH'])"
           docker run --rm \
             -e DATABASE_URL=postgresql://user:password@localhost/hypersync \
             -e MIGRATION_DATABASE_URL=postgresql://user:password@localhost/hypersync \
