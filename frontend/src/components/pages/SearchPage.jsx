@@ -3453,39 +3453,6 @@ async function downloadOpenedPlaylist() {
                               onSelect:
                                 async () => {
                                   try {
-                                    if (
-                                      playlist.transient
-                                    ) {
-                                      const warmKeys =
-                                        (
-                                          playlist.tracks ??
-                                          []
-                                        )
-                                          .map(
-                                            (track) =>
-                                              track?.provision_key ??
-                                              track?.provisionKey ??
-                                              null,
-                                          )
-                                          .filter(
-                                            Boolean,
-                                          );
-
-                                      void warmOnDemandTracks(
-                                        warmKeys,
-                                      ).catch(
-                                        () => {},
-                                      );
-
-                                      playOpenedPlaylist(
-                                        0,
-                                        playlist.tracks ??
-                                          [],
-                                      );
-
-                                      return;
-                                    }
-
                                     const fullPlaylist =
                                       await getPlaylist(
                                         playlist.id,
