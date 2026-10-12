@@ -50,11 +50,6 @@ import {
   canRecordListeningHistory,
 } from "./homeRecentlyPlayed.js";
 
-import {
-  isOnDemandTrackId,
-  onDemandPollDelay,
-} from "./onDemandMusic.js";
-
 
 const audio =
   new Audio();
@@ -187,12 +182,6 @@ function warmQueuedAudioEntry(
   if (
     !entry?.id ||
     !entry?.meta?.audioUrl ||
-    (
-      !entry.meta.onDemand &&
-      !isOnDemandTrackId(
-        entry.id,
-      )
-    ) ||
     typeof globalThis.fetch !==
       "function"
   ) {
@@ -394,204 +383,6 @@ function dispatchRemotePlaybackInBackground(
 }
 
 
-function promoteOnDemandPlayback(
-  provisionId,
-  trackId,
-) {
-  const permanentTrackId =
-    String(
-      trackId ?? "",
-    ).trim();
-
-  if (
-    !permanentTrackId ||
-    !provisionId ||
-    currentTrackMeta
-      ?.provisionId !==
-      provisionId
-  ) {
-    return false;
-  }
-
-  const previousTrackId =
-    currentTrackId;
-
-  const catalogAudioUrl =
-    "/api/audio/" +
-    encodeURIComponent(
-      permanentTrackId,
-    );
-
-  currentTrackId =
-    permanentTrackId;
-
-  currentTrackMeta =
-    normalizeTrackMeta({
-      ...currentTrackMeta,
-      audioUrl:
-        catalogAudioUrl,
-      onDemand:
-        false,
-      catalogTrackId:
-        permanentTrackId,
-    });
-
-  if (
-    loadedAudioTrackId ===
-      previousTrackId
-  ) {
-    loadedAudioTrackId =
-      permanentTrackId;
-  }
-
-  let queueChanged =
-    false;
-
-  currentQueue =
-    currentQueue.map(
-      (entry) => {
-        if (
-          String(
-            entry?.id ?? "",
-          ) !==
-            String(
-              previousTrackId ?? "",
-            )
-        ) {
-          return entry;
-        }
-
-        queueChanged =
-          true;
-
-        return {
-          id:
-            permanentTrackId,
-          meta:
-            normalizeTrackMeta({
-              ...(entry?.meta ?? {}),
-              ...currentTrackMeta,
-              audioUrl:
-                catalogAudioUrl,
-              onDemand:
-                false,
-              catalogTrackId:
-                permanentTrackId,
-            }),
-        };
-      },
-    );
-
-  if (queueChanged) {
-    queueRevision +=
-      1;
-  }
-
-  rememberAutoplayTrack(
-    permanentTrackId,
-  );
-
-  persistPlayerState({
-    force:
-      true,
-  });
-
-  notify();
-
-  void ensureAutoplayQueue({
-    force:
-      true,
-  }).catch(
-    () => {},
-  );
-
-  return true;
-}
-
-
-function waitForOnDemandHistory(
-  provisionId,
-  attempts = 0,
-  consecutiveFailures = 0,
-) {
-  if (
-    !provisionId ||
-    attempts >= 80
-  ) {
-    return;
-  }
-
-  globalThis.setTimeout?.(
-    async () => {
-      let nextFailures =
-        consecutiveFailures;
-
-      try {
-        const status =
-          await apiRequest(
-            `/on-demand/${encodeURIComponent(
-              provisionId,
-            )}/status`,
-          );
-
-        if (
-          status?.state ===
-            "ready"
-        ) {
-          if (
-            status?.track_id
-          ) {
-            promoteOnDemandPlayback(
-              provisionId,
-              status.track_id,
-            );
-          }
-
-          notifyListeningHistoryChanged();
-          return;
-        }
-
-        if (
-          status?.state ===
-            "failed"
-        ) {
-          return;
-        }
-
-        nextFailures = 0;
-      } catch (error) {
-        const statusCode =
-          Number(
-            error?.status ??
-            0,
-          );
-
-        if (
-          statusCode === 404 ||
-          statusCode === 410
-        ) {
-          return;
-        }
-
-        nextFailures =
-          Math.min(
-            consecutiveFailures + 1,
-            5,
-          );
-      }
-
-      waitForOnDemandHistory(
-        provisionId,
-        attempts + 1,
-        nextFailures,
-      );
-    },
-    onDemandPollDelay(
-      consecutiveFailures,
-    ),
-  );
-}
-
 function beginListeningEvent(
   trackId,
   meta = {},
@@ -599,72 +390,6 @@ function beginListeningEvent(
   if (!canRecordListeningHistory(getAccessToken(), hasStoredSession())) {
     activeListeningEvent =
       null;
-
-    return;
-  }
-
-  const provisional =
-    isOnDemandTrackId(
-      trackId,
-    )
-    || Boolean(
-      meta?.onDemand ??
-      meta?.on_demand ??
-      false,
-    );
-
-  if (provisional) {
-    activeListeningEvent =
-      null;
-
-    const provisionId =
-      meta?.provisionId ??
-      meta?.provision_id ??
-      null;
-
-    if (!provisionId) {
-      return;
-    }
-
-    void apiRequest(
-      `/on-demand/${encodeURIComponent(
-        provisionId,
-      )}/played`,
-      {
-        method:
-          "POST",
-      },
-    )
-      .then(
-        (data) => {
-          if (
-            data?.recorded
-          ) {
-            if (
-              data?.track_id
-            ) {
-              promoteOnDemandPlayback(
-                provisionId,
-                data.track_id,
-              );
-            }
-
-            notifyListeningHistoryChanged();
-            return;
-          }
-
-          if (
-            data?.pending
-          ) {
-            waitForOnDemandHistory(
-              provisionId,
-            );
-          }
-        },
-      )
-      .catch(
-        () => {},
-      );
 
     return;
   }
@@ -977,18 +702,6 @@ function persistPlayerState({
     return;
   }
 
-  if (
-    isOnDemandTrackId(
-      currentTrackId,
-    )
-    || currentTrackMeta
-      ?.onDemand
-  ) {
-    clearPersistedPlayerState();
-
-    return;
-  }
-
   const now =
     Date.now();
 
@@ -1273,11 +986,6 @@ async function ensureAutoplayQueue({
 } = {}) {
   if (
     !currentTrackId ||
-    isOnDemandTrackId(
-      currentTrackId,
-    ) ||
-    currentTrackMeta
-      ?.onDemand
   ) {
     return 0;
   }
@@ -2764,93 +2472,6 @@ function applyTrackMetadata(
 }
 
 
-async function resolveOnDemandPlaybackMeta(
-  trackId,
-  meta = {},
-) {
-  const normalized =
-    normalizeTrackMeta(
-      meta,
-    );
-
-  const provisional =
-    isOnDemandTrackId(
-      trackId,
-    )
-    || normalized.onDemand;
-
-  if (
-    !provisional ||
-    normalized.audioUrl
-  ) {
-    return normalized;
-  }
-
-  const candidateKey =
-    normalized.provisionKey;
-
-  if (!candidateKey) {
-    throw new Error(
-      "This on-demand track is missing its metadata key.",
-    );
-  }
-
-  const prepared =
-    await apiRequest(
-      "/on-demand/prepare",
-      {
-        method:
-          "POST",
-
-        body:
-          JSON.stringify({
-            candidate_key:
-              candidateKey,
-          }),
-      },
-    );
-
-  const permanentTrackId =
-    prepared?.track_id ??
-    null;
-
-  const streamPath =
-    permanentTrackId
-      ? (
-          "/api/audio/" +
-          encodeURIComponent(
-            permanentTrackId,
-          )
-        )
-      : prepared?.stream_url;
-
-  const audioUrl =
-    resolveMediaUrl(
-      streamPath,
-    );
-
-  if (!audioUrl) {
-    throw new Error(
-      "Audio is still preparing. Try again in a moment.",
-    );
-  }
-
-  return normalizeTrackMeta({
-    ...meta,
-    audioUrl,
-    onDemand:
-      true,
-    provisionKey:
-      candidateKey,
-    provisionId:
-      prepared?.provision_id ??
-      null,
-    catalogTrackId:
-      permanentTrackId,
-  });
-}
-
-
 async function playTrackInternal(
   trackId,
   meta = {},
@@ -2890,64 +2511,6 @@ async function playTrackInternal(
     normalizeTrackMeta(
       meta,
     );
-
-  if (
-    isOnDemandTrackId(
-      trackId,
-    )
-    || playbackMeta.onDemand
-  ) {
-    try {
-      playbackMeta =
-        await resolveOnDemandPlaybackMeta(
-          trackId,
-          playbackMeta,
-        );
-
-      if (
-        !isPlaybackSessionCurrent(
-          session,
-        )
-      ) {
-        return null;
-      }
-
-      currentTrackMeta =
-        playbackMeta;
-
-      currentArtworkUrl =
-        playbackMeta.artworkUrl;
-
-      currentTrackTitle =
-        playbackMeta.title;
-
-      currentTrackArtist =
-        playbackMeta.artist;
-
-      notify();
-
-    } catch (error) {
-      if (
-        !isPlaybackSessionCurrent(
-          session,
-        )
-      ) {
-        return null;
-      }
-
-      setPlaybackPhase(
-        "error",
-        error instanceof Error
-          ? error.message
-          : "Unable to prepare on-demand playback.",
-      );
-
-      notify();
-
-      throw error;
-    }
-  }
-
 
   const useStableMediaRoute =
     Boolean(
