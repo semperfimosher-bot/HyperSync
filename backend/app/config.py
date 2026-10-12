@@ -120,9 +120,6 @@ class Settings(BaseSettings):
 
     admin_account_creation_password: str = ""
 
-    bot_jwt_secret: str = ""
-    bot_jwt_audience: str = "hypersync-bot"
-    bot_token_ttl_minutes: int = 60
 
     rclone_remote: str = "hypersync-b2"
 
@@ -175,17 +172,6 @@ class Settings(BaseSettings):
     apple_search_min_interval_seconds: float = 3.1
     apple_search_cache_hours: int = 24
 
-    on_demand_search_limit: int = 20
-    on_demand_prewarm_limit: int = 2
-    on_demand_search_rate_limit: int = 30
-    on_demand_prepare_rate_limit: int = 12
-    on_demand_rate_window_seconds: int = 60
-    on_demand_source_timeout_seconds: float = 12.0
-    on_demand_session_ttl_seconds: int = 1800
-
-    yt_dlp_search_results: int = 8
-    yt_dlp_socket_timeout_seconds: float = 8.0
-    yt_dlp_cookies_file: str = ""
 
     lastfm_base_url: str = "https://ws.audioscrobbler.com"
     lastfm_api_key: str = ""
