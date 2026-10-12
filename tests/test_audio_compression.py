@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import io
+import shutil
 import subprocess
 import wave
 from pathlib import Path
-import shutil
 
 import pytest
 from mutagen.id3 import ID3
