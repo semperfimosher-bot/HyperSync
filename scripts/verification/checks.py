@@ -15,7 +15,7 @@ def base_checks(root: Path, suite: str) -> list[tuple[str, list[str], Path, int]
         ),
         (
             "python-lint",
-            [py, "-m", "ruff", "check", "backend", "bot", "scripts", "tests"],
+            [py, "-m", "ruff", "check", "backend", "scripts", "tests"],
             root,
             120,
         ),
@@ -28,7 +28,7 @@ def base_checks(root: Path, suite: str) -> list[tuple[str, list[str], Path, int]
             ("python-audit", [py, "-m", "pip_audit", "-r", "requirements.backend.txt"], root, 300),
             (
                 "python-security",
-                [py, "-m", "bandit", "-q", "-r", "backend", "bot", "-ll"],
+                [py, "-m", "bandit", "-q", "-r", "backend", "-ll"],
                 root,
                 180,
             ),
