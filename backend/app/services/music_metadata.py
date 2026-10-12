@@ -2089,7 +2089,7 @@ async def lookup_external_track_metadata(
     # Explicit client injection is retained for
     # deterministic legacy MusicBrainz unit tests.
     # Production uploads now use the same canonical
-    # Deezer + iTunes resolver as on-demand ingest.
+    # Deezer + iTunes resolver for catalog metadata enrichment.
     if client is not None:
         return await _lookup_musicbrainz_track_metadata(
             title=title,
