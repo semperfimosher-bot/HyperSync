@@ -4,6 +4,7 @@ import asyncio
 import base64
 import contextlib
 import hmac
+import shutil
 import time
 from dataclasses import (
     asdict,
@@ -1037,6 +1038,7 @@ async def _run_ingest(
 
     lock_connection = None
     job_accounted = False
+    audio: DownloadedAudio | None = None
 
     try:
         # Local asyncio locks only coordinate one process.
@@ -1151,6 +1153,7 @@ async def _run_ingest(
                     audio_content=(
                         audio.content
                     ),
+                    audio_path=audio.path,
                     audio_filename=(
                         audio.filename
                     ),
@@ -1172,8 +1175,8 @@ async def _run_ingest(
                     ),
                 )
             )
-            # Drop large payload references before allowing the next ingest.
-            del audio, artwork_data
+            # Release any small artwork buffer before the next ingest.
+            del artwork_data
 
         async with _lock:
             session.track_id = (
@@ -1238,6 +1241,13 @@ async def _run_ingest(
             )
 
     finally:
+        if audio is not None and audio.temp_dir is not None:
+            await asyncio.to_thread(
+                shutil.rmtree,
+                audio.temp_dir,
+                ignore_errors=True,
+            )
+
         await _release_distributed_ingest_lock(
             session.id,
             lock_connection,
