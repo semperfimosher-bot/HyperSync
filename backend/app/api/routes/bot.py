@@ -116,7 +116,10 @@ async def bot_start(
 async def bot_stop(
     user: AdminUser,
 ):
-    return stop_bot()
+    state = stop_bot()
+    cancel_scan()
+    await request_scan_cancel()
+    return state
 
 
 @router.post("/scan")
