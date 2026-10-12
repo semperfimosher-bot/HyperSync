@@ -33,7 +33,7 @@ from .media_identity import (
     sync_track_media_identity,
     track_identity_lock_key,
 )
-from .on_demand_metadata import (
+from .catalog_metadata import (
     CatalogTrackCandidate,
 )
 
