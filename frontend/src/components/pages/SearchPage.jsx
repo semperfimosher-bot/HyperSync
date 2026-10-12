@@ -1461,22 +1461,6 @@ function playOpenedPlaylist(
           track.durationSeconds ??
           null,
 
-        onDemand:
-          track.source_type ===
-            "on_demand" ||
-          isOnDemandTrackId(
-            track.id,
-          ),
-
-        provisionKey:
-          track.provision_key ??
-          track.provisionKey ??
-          null,
-
-        provisionId:
-          track.provision_id ??
-          track.provisionId ??
-          null,
       }),
     );
 
