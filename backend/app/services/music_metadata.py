@@ -19,7 +19,7 @@ from ..models.media import Track
 from .generated_playlists import (
     refresh_smart_playlists_for_track,
 )
-from .on_demand_metadata import (
+from .catalog_metadata import (
     resolve_exact_track_metadata,
 )
 
