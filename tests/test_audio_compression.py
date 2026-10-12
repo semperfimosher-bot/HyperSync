@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import io
-import shutil
 import subprocess
 import wave
 from pathlib import Path
+import shutil
 
 import pytest
 from mutagen.id3 import ID3
@@ -245,6 +245,7 @@ def test_real_compression_preserves_core_metadata_artwork_and_playability() -> N
 
     assert covers[0].data == artwork
     assert covers[0].mime == "image/jpeg"
+
 
 @pytest.mark.skipif(
     not _has_lame_encoder(),
