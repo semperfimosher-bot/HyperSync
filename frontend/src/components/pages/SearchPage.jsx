@@ -28,25 +28,12 @@ import {
 } from "../../offlineDownloads.js";
 
 import {
-  getOnDemandStatus,
   getSearchPreferences,
-  prepareOnDemandTrack,
   saveSearchPreferences,
   searchHypersync,
-  searchOnDemandArtistMusic,
-  searchOnDemandMusic,
-  warmOnDemandTracks,
 } from "../../searchApi.js";
 
-import {
-  buildOnDemandArtistPlaylist,
-  inferOnDemandArtistName,
-  isOnDemandTrackId,
-  normalizeOnDemandTrack,
-  onDemandArtistLookupQuery,
-  onDemandPollDelay,
-  prioritizeSearchPlaybackTracks,
-} from "../../onDemandMusic.js";
+
 
 import {
   SEARCH_QUICK_COMMANDS,
@@ -478,26 +465,6 @@ useEffect(() => {
     setSearchError,
   ] = useState("");
 
-  const [
-    onDemandTracks,
-    setOnDemandTracks,
-  ] = useState([]);
-
-  const [
-    onDemandArtistTracks,
-    setOnDemandArtistTracks,
-  ] = useState([]);
-
-  const [
-    preparingOnDemandKey,
-    setPreparingOnDemandKey,
-  ] = useState("");
-
-  const provisionPollTimersRef =
-    useRef(
-      new Set(),
-    );
-
   const searchInputRef =
   useRef(null);
 
@@ -508,26 +475,6 @@ useEffect(() => {
     quietSearchVersion,
     setQuietSearchVersion,
   ] = useState(0);
-
-
-  useEffect(
-    () => () => {
-      for (
-        const timer
-        of provisionPollTimersRef
-          .current
-      ) {
-        window.clearTimeout(
-          timer,
-        );
-      }
-
-      provisionPollTimersRef
-        .current
-        .clear();
-    },
-    [],
-  );
 
 
   useQuietRefresh(
@@ -705,14 +652,6 @@ useEffect(() => {
         EMPTY_RESULTS,
       );
 
-      setOnDemandTracks(
-        [],
-      );
-
-      setOnDemandArtistTracks(
-        [],
-      );
-
       setLoading(false);
       setSearchError("");
 
@@ -809,10 +748,6 @@ useEffect(() => {
                 localTracks,
               );
 
-              setOnDemandTracks(
-                [],
-              );
-
               setSearchError(
                 localTracks.length > 0
                   ? ""
@@ -844,290 +779,7 @@ useEffect(() => {
           }
 
           try {
-            const shouldLoadOnDemand =
-              isRegistered &&
-              normalizedQuery.length >= 3 &&
-              !looksLikeSmartPlaylistQuery(
-                normalizedQuery,
-              );
 
-            const onDemandPromise =
-              shouldLoadOnDemand
-                ? searchOnDemandMusic(
-                    normalizedQuery,
-                    {
-                      signal:
-                        controller.signal,
-                    },
-                  ).catch(
-                    () => null,
-                  )
-                : Promise.resolve(
-                    null,
-                  );
-
-            const data =
-              await searchHypersync(
-                normalizedQuery,
-                sortMode,
-                {
-                  signal:
-                    controller.signal,
-                  bypassCache:
-                    quietRefresh,
-                },
-              );
-
-            if (
-              controller.signal
-                .aborted
-            ) {
-              return;
-            }
-
-            setResults({
-              ...EMPTY_RESULTS,
-              ...(data || {}),
-
-              counts: {
-                ...EMPTY_RESULTS.counts,
-                ...(data?.counts || {}),
-              },
-
-              tracks:
-                data?.tracks || [],
-
-              artists:
-                data?.artists || [],
-
-              collaborations:
-                data?.collaborations || [],
-
-              albums:
-                data?.albums || [],
-
-              people:
-                data?.people || [],
-
-              playlists:
-                data?.playlists || [],
-            });
-
-            if (!quietRefresh) {
-              setSelectedTrackIndex(
-                -1,
-              );
-            }
-
-            searchLoadKeyRef.current =
-              searchKey;
-
-            setSearchError(
-              "",
-            );
-
-            if (!quietRefresh) {
-              setLoading(
-                false,
-              );
-            }
-
-            const remoteData =
-              await onDemandPromise;
-
-            if (
-              controller.signal
-                .aborted
-            ) {
-              return;
-            }
-
-            const remoteTracks =
-              Array.isArray(
-                remoteData?.tracks,
-              )
-                ? remoteData.tracks
-                    .map(
-                      normalizeOnDemandTrack,
-                    )
-                    .filter(
-                      Boolean,
-                    )
-                : [];
-
-            setOnDemandTracks(
-              remoteTracks,
-            );
-
-            let artistName =
-              inferOnDemandArtistName(
-                normalizedQuery,
-                remoteTracks,
-              );
-
-            let artistSeedTracks =
-              [];
-
-            if (!artistName) {
-              const lookupName =
-                onDemandArtistLookupQuery(
-                  normalizedQuery,
-                );
-
-              const normalizedLookupName =
-                lookupName
-                  ?.normalize(
-                    "NFKC",
-                  )
-                  .toLocaleLowerCase() ??
-                "";
-
-              const catalogHasLookupArtist =
-                Boolean(
-                  normalizedLookupName,
-                ) &&
-                (
-                  Array.isArray(
-                    data?.artists,
-                  )
-                    ? data.artists
-                    : []
-                ).some(
-                  (artist) =>
-                    String(
-                      artist?.name ??
-                        "",
-                    )
-                      .normalize(
-                        "NFKC",
-                      )
-                      .toLocaleLowerCase() ===
-                    normalizedLookupName,
-                );
-
-              if (
-                lookupName &&
-                !catalogHasLookupArtist
-              ) {
-                const artistProbe =
-                  await searchOnDemandArtistMusic(
-                    lookupName,
-                    {
-                      signal:
-                        controller.signal,
-                      limit:
-                        25,
-                    },
-                  ).catch(
-                    () => null,
-                  );
-
-                if (
-                  controller.signal
-                    .aborted
-                ) {
-                  return;
-                }
-
-                artistSeedTracks =
-                  Array.isArray(
-                    artistProbe?.tracks,
-                  )
-                    ? artistProbe.tracks
-                        .map(
-                          normalizeOnDemandTrack,
-                        )
-                        .filter(
-                          Boolean,
-                        )
-                    : [];
-
-                artistName =
-                  inferOnDemandArtistName(
-                    lookupName,
-                    artistSeedTracks,
-                  );
-              }
-            }
-
-            const normalizedArtist =
-              artistName
-                ?.normalize(
-                  "NFKC",
-                )
-                .toLocaleLowerCase() ??
-              "";
-
-            const catalogHasArtist =
-              Boolean(
-                normalizedArtist,
-              ) &&
-              (
-                Array.isArray(
-                  data?.artists,
-                )
-                  ? data.artists
-                  : []
-              ).some(
-                (artist) =>
-                  String(
-                    artist?.name ??
-                      "",
-                  )
-                    .normalize(
-                      "NFKC",
-                    )
-                    .toLocaleLowerCase() ===
-                  normalizedArtist,
-              );
-
-            if (
-              artistName &&
-              !catalogHasArtist
-            ) {
-              const artistData =
-                await searchOnDemandArtistMusic(
-                  artistName,
-                  {
-                    signal:
-                      controller.signal,
-                    limit:
-                      500,
-                  },
-                ).catch(
-                  () => null,
-                );
-
-              if (
-                controller.signal
-                  .aborted
-              ) {
-                return;
-              }
-
-              const fullArtistTracks =
-                Array.isArray(
-                  artistData?.tracks,
-                )
-                  ? artistData.tracks
-                      .map(
-                        normalizeOnDemandTrack,
-                      )
-                      .filter(
-                        Boolean,
-                      )
-                  : [];
-
-              setOnDemandArtistTracks(
-                fullArtistTracks.length > 0
-                  ? fullArtistTracks
-                  : artistSeedTracks,
-              );
-            } else {
-              setOnDemandArtistTracks(
-                [],
-              );
-            }
           } catch (error) {
             if (
               error?.name ===
@@ -1208,140 +860,7 @@ useEffect(() => {
     sortMode,
   ]);
 
-  const onDemandArtistPlaylist =
-    useMemo(
-      () => {
-        const playlistMetadataTracks =
-          onDemandArtistTracks.length > 0
-            ? onDemandArtistTracks
-            : onDemandTracks;
-
-        const artistName =
-          inferOnDemandArtistName(
-            normalizedQuery,
-            playlistMetadataTracks,
-          )
-          ?? inferOnDemandArtistName(
-            normalizedQuery,
-            onDemandTracks,
-          );
-
-        if (!artistName) {
-          return null;
-        }
-
-        const normalizedArtist =
-          artistName
-            .normalize(
-              "NFKC",
-            )
-            .toLocaleLowerCase();
-
-        const alreadyInCatalog =
-          (
-            Array.isArray(
-              results.artists,
-            )
-              ? results.artists
-              : []
-          ).some(
-            (artist) =>
-              String(
-                artist?.name ??
-                  "",
-              )
-                .normalize(
-                  "NFKC",
-                )
-                .toLocaleLowerCase() ===
-              normalizedArtist,
-          );
-
-        if (alreadyInCatalog) {
-          return null;
-        }
-
-        return buildOnDemandArtistPlaylist({
-          artistName,
-          catalogTracks:
-            results.tracks,
-          onDemandTracks:
-            playlistMetadataTracks,
-        });
-      },
-      [
-        normalizedQuery,
-        onDemandArtistTracks,
-        onDemandTracks,
-        results.artists,
-        results.tracks,
-      ],
-    );
-
-
-  const combinedResults =
-    useMemo(
-      () => {
-        const playlists =
-          Array.isArray(
-            results.playlists,
-          )
-            ? [
-                ...results.playlists,
-              ]
-            : [];
-
-        if (onDemandArtistPlaylist) {
-          playlists.push(
-            onDemandArtistPlaylist,
-          );
-        }
-
-        return {
-          ...results,
-
-          counts: {
-            ...results.counts,
-            tracks:
-              Number(
-                results.counts
-                  ?.tracks ??
-                0,
-              )
-              + onDemandTracks.length,
-            playlists:
-              Number(
-                results.counts
-                  ?.playlists ??
-                0,
-              )
-              + (
-                onDemandArtistPlaylist
-                  ? 1
-                  : 0
-              ),
-          },
-
-          tracks: [
-            ...(
-              Array.isArray(
-                results.tracks,
-              )
-                ? results.tracks
-                : []
-            ),
-            ...onDemandTracks,
-          ],
-
-          playlists,
-        };
-      },
-      [
-        onDemandArtistPlaylist,
-        onDemandTracks,
-        results,
-      ],
-    );
+  const combinedResults = results;
 
 
   const displayResults =
