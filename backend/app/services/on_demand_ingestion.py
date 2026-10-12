@@ -1127,25 +1127,29 @@ async def _run_ingest(
                 )
             )
 
-            audio, artwork = (
-                await asyncio.gather(
-                    audio_task,
-                    artwork_task,
-                )
+            # Collect both outcomes before raising either error. If
+            # artwork fails after audio succeeds, retain the audio result
+            # so the finally block can still remove its workspace.
+            audio_result, artwork_result = await asyncio.gather(
+                audio_task,
+                artwork_task,
+                return_exceptions=True,
             )
 
-            if not isinstance(
-                audio,
-                DownloadedAudio,
-            ):
+            if isinstance(audio_result, BaseException):
+                raise audio_result
+
+            audio = audio_result
+            if not isinstance(audio, DownloadedAudio):
                 raise RuntimeError(
                     "Audio acquisition did not "
                     "return a valid file."
                 )
 
-            artwork_data, artwork_type = (
-                artwork
-            )
+            if isinstance(artwork_result, BaseException):
+                raise artwork_result
+
+            artwork_data, artwork_type = artwork_result
 
             result = (
                 await publish_authorized_audio(
