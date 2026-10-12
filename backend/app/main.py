@@ -164,19 +164,6 @@ def _activity_description(
             "User profile or social activity",
         )
 
-    if (
-        path.startswith(
-            "/api/admin/bot/",
-        )
-        or path.startswith(
-            "/api/bot/",
-        )
-    ):
-        return (
-            "bot",
-            "Bot control activity",
-        )
-
     if path.startswith(
         "/api/admin/",
     ):
