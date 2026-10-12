@@ -16,11 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
-from .generated_playlists import (
-    refresh_smart_playlists_for_track,
-)
 from .catalog_metadata import (
     resolve_exact_track_metadata,
+)
+from .generated_playlists import (
+    refresh_smart_playlists_for_track,
 )
 
 logger = logging.getLogger(__name__)
