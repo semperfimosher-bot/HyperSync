@@ -27,7 +27,6 @@ $PackageJson = Join-Path $FrontendRoot "package.json"
 $PackageLock = Join-Path $FrontendRoot "package-lock.json"
 $RebootScript = Join-Path $RepoRoot "reboot-local.ps1"
 $InstallGoScript = Join-Path $RepoRoot "install-go.ps1"
-$ReadinessScript = Join-Path $RepoRoot "scripts\local_on_demand_readiness.py"
 
 function Invoke-CheckedCommand {
     param(
@@ -170,91 +169,6 @@ function Update-FrontendDependencies {
     }
     finally {
         Pop-Location
-    }
-}
-
-function Get-OnDemandReadinessValues {
-    if (-not (Test-Path -LiteralPath $ReadinessScript)) {
-        throw (
-            "Local readiness helper was not found at " +
-            $ReadinessScript
-        )
-    }
-
-    Push-Location $RepoRoot
-
-    try {
-        $probeOutput = @(
-            & $PythonPath $ReadinessScript
-        )
-
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not inspect local on-demand configuration."
-        }
-    }
-    finally {
-        Pop-Location
-    }
-
-    $values = @{}
-
-    foreach ($line in $probeOutput) {
-        $parts = ([string]$line).Split("=", 2)
-
-        if ($parts.Count -eq 2) {
-            $values[$parts[0]] = $parts[1]
-        }
-    }
-
-    return $values
-}
-
-function Show-OnDemandReadiness {
-    try {
-        $values = Get-OnDemandReadinessValues
-    }
-    catch {
-        Write-Warning (
-            "Could not display the optional local readiness summary: " +
-            $_.Exception.Message
-        )
-
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Local on-demand readiness:" -ForegroundColor Cyan
-    Write-Host ("  Database:        " + $values["database"]) -ForegroundColor DarkGray
-    Write-Host "  Deezer + iTunes: ready (no API key required)" -ForegroundColor Green
-    Write-Host "  yt-dlp:          installed with backend dependencies" -ForegroundColor Green
-
-    if ($values["b2"] -eq "ready") {
-        Write-Host "  B2 publishing:   ready" -ForegroundColor Green
-    }
-    else {
-        Write-Warning (
-            "B2 publishing is not fully configured in backend/.env. " +
-            "Search and temporary on-demand playback can still work, " +
-            "but permanent ingest cannot finish until B2_ENDPOINT, " +
-            "B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET_NAME are set."
-        )
-    }
-
-    if ($values["cookies"] -eq "configured-but-missing") {
-        Write-Warning "YT_DLP_COOKIES_FILE is configured but the file does not exist."
-    }
-    elseif ($values["cookies"] -eq "ready") {
-        Write-Host "  yt-dlp cookies:  ready" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  yt-dlp cookies:  optional / not configured" -ForegroundColor DarkGray
-    }
-
-    if ($values["admin"] -eq "ready") {
-        Write-Host "  Admin setup:     ready" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  Admin setup:     existing admins can sign in; creation secret is not set" -ForegroundColor DarkGray
     }
 }
 
@@ -475,7 +389,6 @@ if (-not $SkipMigrations) {
     Update-DatabaseSchema
 }
 
-Show-OnDemandReadiness
 
 if (Test-Path -LiteralPath $InstallGoScript) {
     & $InstallGoScript -Quiet
