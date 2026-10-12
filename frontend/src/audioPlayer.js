@@ -2655,14 +2655,7 @@ void recordTrackPlayback(
 );
 
 
-/*
- * Start a backend listening session.
- *
- * Catalog tracks write directly to the
- * listening endpoint. On-demand tracks
- * mark their provision as played so the
- * event can be attached after lazy ingest.
- */
+/* Start a backend listening session for the selected catalog track. */
 beginListeningEvent(
   trackId,
   playbackMeta,
