@@ -99,7 +99,6 @@ import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
 import SectionHeading from "./components/ui/SectionHeading.jsx";
 
 import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
-import AdminBotPage from "./components/pages/AdminBotPage.jsx";
 import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
 import AdminDashboardPage from "./components/pages/AdminDashboardPage.jsx";
 
@@ -477,15 +476,6 @@ function MainPage({
               onNavigate
             }
           />
-        );
-      }
-
-      if (
-        page ===
-        "admin-bot"
-      ) {
-        return (
-          <AdminBotPage />
         );
       }
 
