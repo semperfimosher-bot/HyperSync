@@ -18,7 +18,6 @@ RUN pip install --no-cache-dir -r requirements.backend.txt
 RUN ffmpeg -version
 
 COPY backend ./backend
-COPY bot ./bot
 COPY migrations ./migrations
 COPY alembic.ini ./
 
