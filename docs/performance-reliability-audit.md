@@ -38,7 +38,7 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 
 ## Guardrails
 
-- All changes and commits must target `Shane`.
+- Changes for this removal task must target `Bot-Deletion`.
 - Do not edit, merge into, or force-update `main`.
 - Do not run stress tests against production without an approved test window.
 - Do not claim performance gains without measurements; source inspection alone cannot establish actual production memory attribution.
