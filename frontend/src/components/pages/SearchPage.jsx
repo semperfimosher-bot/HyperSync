@@ -684,10 +684,6 @@ useEffect(() => {
       setLoading(true);
       setSearchError("");
 
-      setOnDemandTracks(
-        [],
-      );
-
       setOnDemandArtistTracks(
         [],
       );
