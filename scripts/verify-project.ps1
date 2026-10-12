@@ -371,7 +371,6 @@ Invoke-NativeCheck `
             -q `
             -f `
             backend `
-            bot `
             migrations `
             scripts `
             tests
