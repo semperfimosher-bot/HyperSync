@@ -187,8 +187,6 @@ export default function TrackActionMenu({
     currentUser?.account_type ===
     "registered";
 
-  const onDemandTrack = false;
-
   const offlineOwnerKey =
     getOfflineOwnerKey(
       currentUser,
@@ -294,7 +292,6 @@ export default function TrackActionMenu({
     menu,
     track?.id,
     isRegistered,
-    onDemandTrack,
     likedSongsDownloadPinRef,
     manualDownloadPinRef,
     offlineOwnerKey,
@@ -1113,7 +1110,7 @@ export default function TrackActionMenu({
             </button>
 
 
-            {!onDemandTrack ? (
+            {(
               <button
                 type="button"
                 role="menuitem"
@@ -1254,7 +1251,7 @@ export default function TrackActionMenu({
 
 
             {!menu.hideLikeAction &&
-            !onDemandTrack ? (
+            (
               <button
                 type="button"
                 role="menuitem"
@@ -1285,7 +1282,7 @@ export default function TrackActionMenu({
             ) : null}
 
 
-            {!onDemandTrack ? (
+            {(
               <button
                 type="button"
                 role="menuitem"
