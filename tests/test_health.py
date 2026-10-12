@@ -39,7 +39,7 @@ async def test_live_health() -> None:
 
 
 @pytest.mark.asyncio
-async def test_lifespan_runs_database_and_resume_startup_steps(
+async def test_lifespan_runs_database_and_background_startup_steps(
     monkeypatch: MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -47,50 +47,39 @@ async def test_lifespan_runs_database_and_resume_startup_steps(
     async def fake_database_ready() -> None:
         calls.append("database-ready")
 
-    async def fake_catalog_resume():
-        calls.append("catalog-resume")
-        return None
-
-    async def fake_on_demand_resume() -> int:
-        calls.append("on-demand-resume")
-        return 0
-
     async def fake_keepalive() -> None:
-        return None
+        calls.append("keepalive")
 
     async def fake_retention() -> None:
-        return None
+        calls.append("retention")
+
+    async def fake_rate_limit_cleanup() -> None:
+        calls.append("rate-limit-cleanup")
 
     async def fake_media_identity() -> None:
-        return None
-
-    async def fake_shutdown() -> None:
-        calls.append("shutdown")
-
-    async def fake_reset() -> None:
-        calls.append("reset")
+        calls.append("media-identity")
 
     async def fake_close() -> None:
         calls.append("close")
 
     monkeypatch.setattr(main_module, "wait_for_database_ready", fake_database_ready)
-    monkeypatch.setattr(main_module, "resume_catalog_scan_on_startup", fake_catalog_resume)
-    monkeypatch.setattr(main_module, "resume_on_demand_ingests_on_startup", fake_on_demand_resume)
     monkeypatch.setattr(main_module, "keep_database_warm", fake_keepalive)
     monkeypatch.setattr(main_module, "run_message_retention_cleanup", fake_retention)
+    monkeypatch.setattr(main_module, "run_rate_limit_cleanup", fake_rate_limit_cleanup)
     monkeypatch.setattr(main_module, "run_media_identity_backfill", fake_media_identity)
-    monkeypatch.setattr(main_module, "shutdown_background_tasks", fake_shutdown)
-    monkeypatch.setattr(main_module, "reset_transient_state", fake_reset)
     monkeypatch.setattr(main_module, "close_database", fake_close)
 
     async with main_module.lifespan(app):
-        assert calls[:3] == [
-            "database-ready",
-            "catalog-resume",
-            "on-demand-resume",
-        ]
+        await asyncio.sleep(0)
+        assert calls[0] == "database-ready"
+        assert set(calls[1:]) == {
+            "keepalive",
+            "retention",
+            "rate-limit-cleanup",
+            "media-identity",
+        }
 
-    assert calls[-3:] == ["shutdown", "reset", "close"]
+    assert calls[-1] == "close"
 
 
 @pytest.mark.asyncio
