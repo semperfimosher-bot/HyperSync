@@ -50,14 +50,10 @@ REQUIRED_FILES = {
     "backend/app/models/__init__.py",
     "backend/app/models/base.py",
     "backend/app/models/account.py",
-    "backend/app/models/bot.py",
-    "backend/app/models/on_demand.py",
-    "backend/app/services/bot_catalog_jobs.py",
     "backend/app/services/media_identity.py",
     "backend/app/security/__init__.py",
     "backend/app/security/passwords.py",
     "backend/app/security/tokens.py",
-    "bot/__init__.py",
     "migrations/env.py",
     "migrations/script.py.mako",
     "scripts/__init__.py",
@@ -105,13 +101,8 @@ EXPECTED_TABLES = {
     "users",
     "user_profiles",
     "user_sessions",
-    "bot_catalog_scans",
-    "bot_catalog_scan_items",
     "track_identities",
     "track_artist_credits",
-    "on_demand_candidates",
-    "on_demand_provisions",
-    "on_demand_pending_listeners",
 }
 
 EXPECTED_USER_COLUMNS = {
@@ -852,16 +843,6 @@ def verify_settings() -> None:
         ),
         "JWT_SECRET still looks like a placeholder.",
     )
-
-    if settings.bot_jwt_secret:
-        _require(
-            len(settings.bot_jwt_secret) >= 32,
-            "BOT_JWT_SECRET must contain at least 32 characters when configured.",
-        )
-        _require(
-            settings.bot_jwt_secret != settings.jwt_secret,
-            "BOT_JWT_SECRET must differ from JWT_SECRET.",
-        )
 
     _require(bool(settings.sqlalchemy_database_url), "DATABASE_URL is not configured.")
     _require(
