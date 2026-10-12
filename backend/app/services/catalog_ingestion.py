@@ -212,6 +212,7 @@ async def publish_authorized_audio(
 
         if (
             not compression.content
+            or not compression.compressed
             or compression.mime_type
             != "audio/mpeg"
             or compression.extension
