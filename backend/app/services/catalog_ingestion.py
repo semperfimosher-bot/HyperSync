@@ -24,6 +24,9 @@ from .b2 import (
     delete_all_object_versions,
     get_b2_bucket,
 )
+from .catalog_metadata import (
+    CatalogTrackCandidate,
+)
 from .generated_playlists import (
     ensure_artist_playlist,
     refresh_smart_playlists_for_track,
@@ -32,9 +35,6 @@ from .media_identity import (
     find_duplicate_track,
     sync_track_media_identity,
     track_identity_lock_key,
-)
-from .catalog_metadata import (
-    CatalogTrackCandidate,
 )
 
 logger = logging.getLogger(__name__)
