@@ -18,11 +18,6 @@ export const ADMIN_NAV_ITEMS = [
     icon: "shield",
   },
   {
-    id: "admin-bot",
-    label: "Bot Control",
-    icon: "chart",
-  },
-  {
     id: "admin-uploads",
     label: "Uploads",
     icon: "plus",
@@ -81,7 +76,6 @@ export const PAGE_TITLES = {
   profile: "Profile",
 
   admin: "Admin Dashboard",
-  "admin-bot": "Bot Control",
   "admin-uploads": "Uploads",
   "admin-catalog": "Media Catalog",
 };
