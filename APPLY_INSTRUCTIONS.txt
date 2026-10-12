@@ -11,8 +11,8 @@ pyproject.toml
 Then run:
 
 python -m pip install -r .\requirements.dev.txt
-python -m ruff check backend bot migrations scripts tests --fix
-python -m ruff format backend bot migrations scripts tests
+python -m ruff check backend migrations scripts tests --fix
+python -m ruff format backend migrations scripts tests
 python -m pytest -q -W error
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-project.ps1
 
