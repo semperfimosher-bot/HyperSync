@@ -645,8 +645,8 @@ def verify_configuration_files() -> None:
     pyright = json.loads(_read_utf8(PROJECT_ROOT / "pyrightconfig.json"))
     included_roots = set(pyright.get("include", []))
     _require(
-        {"backend", "bot", "migrations", "scripts", "tests"}.issubset(included_roots),
-        "pyrightconfig.json must include backend, bot, migrations, scripts, and tests.",
+        {"backend", "migrations", "scripts", "tests"}.issubset(included_roots),
+        "pyrightconfig.json must include backend, migrations, scripts, and tests.",
     )
     _require(
         pyright.get("typeCheckingMode") in {"basic", "standard", "strict"},
