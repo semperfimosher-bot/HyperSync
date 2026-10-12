@@ -10,12 +10,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
-from bot.runtime import (
-    shutdown_background_tasks,
-)
-from bot.worker import (
-    resume_catalog_scan_on_startup,
-)
 
 from .api.router import api_router
 from .config import get_settings
@@ -46,13 +40,6 @@ from .services.media_identity import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
-from .services.on_demand_ingestion import (
-    reset_transient_state,
-    resume_on_demand_ingests_on_startup,
-)
-from .services.on_demand_state import (
-    cleanup_expired_state,
-)
 from .services.playback import handle_playback_event
 from .services.playback_events import run_playback_event_listener
 
@@ -63,7 +50,6 @@ DATABASE_KEEPALIVE_SECONDS = 240.0
 DATABASE_STARTUP_ATTEMPTS = 6
 DATABASE_STARTUP_MAX_DELAY_SECONDS = 10.0
 MESSAGE_RETENTION_CLEANUP_SECONDS = 3600.0
-ON_DEMAND_STATE_CLEANUP_SECONDS = 900.0
 RATE_LIMIT_CLEANUP_SECONDS = 3600.0
 MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 
@@ -77,7 +63,6 @@ _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/messages/notifications/",
     "/api/messages/messages/",
     "/api/recommendations/autoplay",
-    "/api/on-demand/",
     "/api/admin/tracks/upload/prepare",
     "/api/admin/tracks/upload/cancel",
     "/api/auth/refresh",
@@ -308,21 +293,6 @@ async def run_message_retention_cleanup() -> None:
         )
 
 
-async def run_on_demand_state_cleanup() -> None:
-    while True:
-        try:
-            await cleanup_expired_state()
-        except Exception:
-            # Candidate/provision retention is maintenance only.
-            logger.exception(
-                "On-demand state cleanup failed.",
-            )
-
-        await asyncio.sleep(
-            ON_DEMAND_STATE_CLEANUP_SECONDS,
-        )
-
-
 async def run_media_identity_backfill() -> None:
     while True:
         try:
@@ -381,20 +351,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # ensure_demo_data().
     await wait_for_database_ready()
 
-    bot_resume_task = (
-        await resume_catalog_scan_on_startup()
-    )
-
-    resumed_on_demand_ingests = (
-        await resume_on_demand_ingests_on_startup()
-    )
-
-    if resumed_on_demand_ingests:
-        logger.info(
-            "Resumed %s interrupted on-demand ingest(s).",
-            resumed_on_demand_ingests,
-        )
-
     keepalive_task = asyncio.create_task(
         keep_database_warm(),
     )
@@ -402,10 +358,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     retention_task = asyncio.create_task(
         run_message_retention_cleanup(),
     )
-    on_demand_cleanup_task = asyncio.create_task(
-        run_on_demand_state_cleanup(),
-    )
-
     rate_limit_cleanup_task = asyncio.create_task(
         run_rate_limit_cleanup(),
     )
@@ -431,7 +383,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
         keepalive_task.cancel()
         retention_task.cancel()
-        on_demand_cleanup_task.cancel()
         rate_limit_cleanup_task.cancel()
 
         if not media_identity_task.done():
@@ -441,17 +392,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 asyncio.CancelledError,
             ):
                 await media_identity_task
-
-        if (
-            bot_resume_task is not None
-            and not bot_resume_task.done()
-        ):
-            bot_resume_task.cancel()
-
-            with suppress(
-                asyncio.CancelledError,
-            ):
-                await bot_resume_task
 
         with suppress(
             asyncio.CancelledError,
@@ -467,16 +407,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             asyncio.CancelledError,
         ):
             await rate_limit_cleanup_task
-
-        # Any route-started bot task must stop before the
-        # database engine closes. Durable catalog scans remain
-        # resumable and will be picked up on the next startup.
-        await shutdown_background_tasks()
-
-        # On-demand source resolution and ingest tasks keep
-        # references to DB/B2 work of their own. Drain them
-        # explicitly before the database engine disappears.
-        await reset_transient_state()
 
         await close_database()
 
