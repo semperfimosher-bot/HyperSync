@@ -1,10 +1,10 @@
 # HyperSync Performance and Reliability Audit
 
-Target branch: `Shane` only. Do not merge into or modify `main`.
+Target branch for this feature-removal work: `Bot-Deletion`. Do not merge into or modify `main`.
 
 ## Scope and method
 
-Audit backend memory/CPU, request admission and retry behavior, database access, background jobs, on-demand playback/ingestion, HTTP client lifetimes, frontend polling and rendering, service-worker/offline storage, security boundaries, and test/load-test coverage. Separate source-confirmed issues from hypotheses that require production logs or profiling.
+Audit backend memory/CPU, request admission and retry behavior, database access, background jobs, HTTP client lifetimes, frontend polling and rendering, service-worker/offline storage, security boundaries, and test/load-test coverage. Separate source-confirmed issues from hypotheses that require production logs or profiling.
 
 ## Initial findings (source review; not all are confirmed runtime causes)
 
