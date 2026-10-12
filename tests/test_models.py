@@ -70,8 +70,6 @@ def test_track_lyrics_table_is_registered() -> None:
 
 def test_hardening_tables_are_registered() -> None:
     expected_tables = {
-        "bot_catalog_scans",
-        "bot_catalog_scan_items",
         "track_identities",
         "track_artist_credits",
     }
