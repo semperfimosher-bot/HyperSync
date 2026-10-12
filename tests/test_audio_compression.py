@@ -4,6 +4,7 @@ import io
 import shutil
 import subprocess
 import wave
+from pathlib import Path
 
 import pytest
 from mutagen.id3 import ID3
@@ -16,6 +17,7 @@ from backend.app.services.audio_compression import (
     AudioProbe,
     compress_audio_for_storage,
     should_attempt_audio_compression,
+    transcode_audio_file_to_mp3,
 )
 
 
@@ -243,3 +245,52 @@ def test_real_compression_preserves_core_metadata_artwork_and_playability() -> N
 
     assert covers[0].data == artwork
     assert covers[0].mime == "image/jpeg"
+
+@pytest.mark.skipif(
+    not _has_lame_encoder(),
+    reason=(
+        "FFmpeg with libmp3lame "
+        "is unavailable."
+    ),
+)
+def test_disk_transcode_produces_valid_mp3_with_metadata(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.wav"
+    output_path = tmp_path / "converted.mp3"
+    source_path.write_bytes(
+        _wav_bytes(seconds=4),
+    )
+
+    result = transcode_audio_file_to_mp3(
+        source_path,
+        output_path,
+        title="Disk Transcode Test",
+        artist="HyperSync Artist",
+        album="Disk Album",
+        genre="Electronic",
+        artwork_data=None,
+        artwork_mime_type=None,
+        mp3_vbr_quality=2,
+        timeout_seconds=60,
+        release_year=2026,
+    )
+
+    assert result.output_path == output_path
+    assert result.mime_type == "audio/mpeg"
+    assert result.extension == "mp3"
+    assert result.original_size == source_path.stat().st_size
+    assert result.final_size == output_path.stat().st_size
+    assert result.final_size > 0
+    assert source_path.is_file()
+
+    parsed = MP3(output_path)
+    assert parsed.info.length > 0
+
+    tags = ID3(output_path)
+    assert str(tags.get("TIT2")) == "Disk Transcode Test"
+    assert str(tags.get("TPE1")) == "HyperSync Artist"
+    assert str(tags.get("TALB")) == "Disk Album"
+    assert str(tags.get("TCON")) == "Electronic"
+    assert str(tags.get("TDRC")) == "2026"
+
