@@ -4,6 +4,7 @@ import asyncio
 import mimetypes
 import os
 import re
+import shutil
 import tempfile
 import unicodedata
 from collections.abc import Callable
@@ -922,7 +923,6 @@ def _download_sync(
             temp_dir=Path(temp_dir),
         )
     except BaseException:
-        import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
@@ -949,7 +949,6 @@ async def download_youtube_audio(
             pass
         else:
             if downloaded.temp_dir is not None:
-                import shutil
                 await asyncio.to_thread(
                     shutil.rmtree,
                     downloaded.temp_dir,
