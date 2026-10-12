@@ -1,7 +1,6 @@
 {
   "include": [
     "backend",
-    "bot",
     "migrations",
     "scripts",
     "tests"
