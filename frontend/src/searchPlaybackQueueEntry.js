@@ -1,17 +1,9 @@
 import { resolveArtworkUrl } from "./artworkUrl.js";
-import { isOnDemandTrackId } from "./onDemandMusic.js";
 
 export function searchPlaybackQueueEntry(
   track,
   overrides = {},
 ) {
-  const onDemand =
-    track?.source_type ===
-      "on_demand" ||
-    isOnDemandTrackId(
-      track?.id,
-    );
-
   return {
     id:
       overrides.id ??
@@ -69,22 +61,6 @@ export function searchPlaybackQueueEntry(
     durationSeconds:
       track?.duration_seconds ??
       track?.durationSeconds ??
-      null,
-
-    onDemand:
-      overrides.onDemand ??
-      onDemand,
-
-    provisionKey:
-      overrides.provisionKey ??
-      track?.provision_key ??
-      track?.provisionKey ??
-      null,
-
-    provisionId:
-      overrides.provisionId ??
-      track?.provision_id ??
-      track?.provisionId ??
       null,
 
     catalogTrackId:
