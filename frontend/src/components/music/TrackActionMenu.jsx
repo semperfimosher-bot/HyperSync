@@ -11,14 +11,6 @@ import {
 } from "../../api/client.js";
 
 import {
-  queueOnDemandTrack,
-} from "../../searchApi.js";
-
-import {
-  isOnDemandTrackId,
-} from "../../onDemandMusic.js";
-
-import {
   addLikedTrackOfflinePin,
   downloadTrackForOffline,
   getLikedSongsDownloadPinRef,
@@ -108,27 +100,6 @@ function playerTrack(
       track.releaseYear ??
       null,
 
-    onDemand:
-      overrides.onDemand ??
-      Boolean(
-        track.onDemand ??
-        track.on_demand ??
-        track.source_type ===
-          "on_demand",
-      ),
-
-    provisionKey:
-      overrides.provisionKey ??
-      track.provision_key ??
-      track.provisionKey ??
-      null,
-
-    provisionId:
-      overrides.provisionId ??
-      track.provision_id ??
-      track.provisionId ??
-      null,
-
     catalogTrackId:
       overrides.catalogTrackId ??
       track.catalog_track_id ??
@@ -216,19 +187,7 @@ export default function TrackActionMenu({
     currentUser?.account_type ===
     "registered";
 
-  const onDemandTrack =
-    Boolean(
-      track &&
-      (
-        track.source_type ===
-          "on_demand" ||
-        track.onDemand ||
-        track.on_demand ||
-        isOnDemandTrackId(
-          track.id,
-        )
-      )
-    );
+  const onDemandTrack = false;
 
   const offlineOwnerKey =
     getOfflineOwnerKey(
@@ -655,87 +614,8 @@ export default function TrackActionMenu({
 
 
   async function prepareTrackForQueue() {
-    if (!onDemandTrack) {
-      return playerTrack(
-        track,
-      );
-    }
-
-    if (!isRegistered) {
-      requireAccount();
-
-      return null;
-    }
-
-    const candidateKey =
-      String(
-        track.provision_key ??
-        track.provisionKey ??
-        "",
-      ).trim();
-
-    if (!candidateKey) {
-      throw new Error(
-        "This on-demand song is missing its provisioning key.",
-      );
-    }
-
-    const prepared =
-      await queueOnDemandTrack(
-        candidateKey,
-      );
-
-    const permanentTrackId =
-      prepared?.track_id ??
-      null;
-
-    const provisionId =
-      prepared?.provision_id ??
-      null;
-
-    const playbackId =
-      permanentTrackId ??
-      (
-        "ondemand:" +
-        String(
-          provisionId ??
-          candidateKey,
-        )
-      );
-
-    const audioUrl =
-      permanentTrackId
-        ? (
-            "/api/audio/" +
-            encodeURIComponent(
-              permanentTrackId,
-            )
-          )
-        : prepared?.stream_url;
-
-    if (!audioUrl) {
-      throw new Error(
-        "The queued song could not be prewarmed.",
-      );
-    }
-
-    return playerTrack(
-      track,
-      {
-        id:
-          playbackId,
-        audioUrl,
-        onDemand:
-          !permanentTrackId,
-        provisionKey:
-          candidateKey,
-        provisionId,
-        catalogTrackId:
-          permanentTrackId,
-      },
-    );
+    return playerTrack(track);
   }
-
 
   async function queueTrack(
     mode,
