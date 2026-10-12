@@ -103,10 +103,6 @@ import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
 import AdminDashboardPage from "./components/pages/AdminDashboardPage.jsx";
 
 import {
-  isOnDemandTrackId,
-} from "./onDemandMusic.js";
-
-import {
   getOfflineOwnerKey,
   removeAllOfflineDownloadsForOwner,
 } from "./offlineDownloads.js";
@@ -2862,10 +2858,7 @@ const deviceId =
       (state) => {
         if (
           state?.phase ===
-            "loading" ||
-          isOnDemandTrackId(
-            state?.trackId,
-          )
+            "loading"
         ) {
           return false;
         }
