@@ -749,7 +749,7 @@ export default function AdminBotPage() {
             </em>
             <button
               type="button"
-              className={isOnline ? "secondary-admin-button" : "primary-admin-button"}
+              className="secondary-admin-button"
               disabled={botToggleBusy || loading}
               onClick={() => { void toggleBot(); }}
               aria-pressed={isOnline}
