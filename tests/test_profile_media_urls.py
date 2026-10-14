@@ -312,9 +312,9 @@ def test_profile_avatar_url_changes_when_object_key_changes() -> None:
         ),
     )
 
-    first_url = users_route.avatar_url(user)
+    first_url = users_route.avatar_url(cast(User, user))
     user.profile.avatar_object_key = "profiles/user/second-image.webp"
-    second_url = users_route.avatar_url(user)
+    second_url = users_route.avatar_url(cast(User, user))
 
     assert first_url == "/api/users/listener/avatar?v=first-image.webp"
     assert second_url == "/api/users/listener/avatar?v=second-image.webp"
