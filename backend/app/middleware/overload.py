@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+logger = logging.getLogger(__name__)
 
 OVERLOAD_DETAIL = "The service is busy. Please retry shortly."
 RETRY_AFTER_SECONDS = "1"
@@ -71,6 +74,14 @@ class DatabaseAdmissionMiddleware:
                 timeout=self.admission_timeout_seconds,
             )
         except TimeoutError:
+            logger.warning(
+                "Request rejected by admission control: %s %s "
+                "(limit=%d, timeout=%.3fs).",
+                scope.get("method", "WEBSOCKET"),
+                scope.get("path", ""),
+                self.max_concurrent_requests,
+                self.admission_timeout_seconds,
+            )
             if scope_type == "websocket":
                 await send(
                     {
@@ -143,9 +154,14 @@ class DatabaseAdmissionMiddleware:
 
 
 async def database_pool_timeout_handler(
-    _request: Request,
+    request: Request,
     _exc: Exception,
 ) -> JSONResponse:
+    logger.warning(
+        "Request failed with database connection-pool timeout: %s %s.",
+        request.method,
+        request.url.path,
+    )
     return JSONResponse(
         status_code=503,
         content={
