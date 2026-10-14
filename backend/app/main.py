@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import (
     asynccontextmanager,
@@ -280,7 +281,16 @@ async def run_message_retention_cleanup() -> None:
 
 
 async def run_media_identity_backfill() -> None:
+    started_at = time.perf_counter()
+    media_rows_processed = 0
+    artist_rows_processed = 0
+    media_batches = 0
+    artist_batches = 0
+
+    logger.info("Media and artist identity backfill started.")
+
     while True:
+        batch_started_at = time.perf_counter()
         try:
             processed = (
                 await backfill_missing_media_identities(
@@ -301,7 +311,17 @@ async def run_media_identity_backfill() -> None:
             )
             continue
 
+        media_batches += 1
+        media_rows_processed += processed
+        logger.debug(
+            "Media identity backfill batch completed: rows=%d elapsed_seconds=%.3f total_rows=%d",
+            processed,
+            time.perf_counter() - batch_started_at,
+            media_rows_processed,
+        )
+
         if processed == 0:
+            batch_started_at = time.perf_counter()
             try:
                 artist_profiles_processed = (
                     await backfill_missing_artist_profiles(
@@ -318,7 +338,24 @@ async def run_media_identity_backfill() -> None:
                 )
                 continue
 
+            artist_batches += 1
+            artist_rows_processed += artist_profiles_processed
+            logger.debug(
+                "Artist profile backfill batch completed: rows=%d elapsed_seconds=%.3f total_rows=%d",
+                artist_profiles_processed,
+                time.perf_counter() - batch_started_at,
+                artist_rows_processed,
+            )
+
             if artist_profiles_processed == 0:
+                logger.info(
+                    "Media and artist identity backfill completed: media_rows=%d media_batches=%d artist_rows=%d artist_batches=%d elapsed_seconds=%.3f",
+                    media_rows_processed,
+                    media_batches,
+                    artist_rows_processed,
+                    artist_batches,
+                    time.perf_counter() - started_at,
+                )
                 return
 
         # Yield between batches so startup maintenance
