@@ -509,7 +509,8 @@ def make_user_response(
     avatar_url = None
 
     if user.profile is not None and user.profile.avatar_object_key and user.username:
-        avatar_url = f"/api/users/{user.username}/avatar"
+        version = user.profile.avatar_object_key.rsplit("/", 1)[-1]
+        avatar_url = f"/api/users/{user.username}/avatar?v={version}"
 
     return UserResponse(
         id=str(user.id),
