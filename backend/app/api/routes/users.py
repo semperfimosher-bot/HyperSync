@@ -320,7 +320,9 @@ def avatar_url(
     if user.profile is None or not user.profile.avatar_object_key:
         return None
 
-    return f"/api/users/{user.username}/avatar"
+    version = user.profile.avatar_object_key.rsplit("/", 1)[-1]
+
+    return f"/api/users/{user.username}/avatar?v={version}"
 
 
 async def get_user_by_username(
