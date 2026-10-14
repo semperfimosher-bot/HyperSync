@@ -192,6 +192,7 @@ jobs:
           trap cleanup EXIT
 
           docker run --detach --name "$name" \
+            -p 127.0.0.1:18080:80 \
             -e API_UPSTREAM_URL=https://127.0.0.1:9443 \
             -e API_UPSTREAM_HOST=staging-api.example.test \
             -e FRONTEND_WS_ORIGIN=wss://hypersync-staging.example.test \
@@ -225,3 +226,8 @@ jobs:
           '
 
           docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy || { docker logs "$name"; echo "Frontend health endpoint failed"; exit 1; }
+
+          # The UI/API allow 5 MiB profile images. Ensure Nginx accepts a full-size multipart upload.
+          dd if=/dev/zero of=/tmp/profile-picture-upload-test.png bs=1M count=5 status=none
+          upload_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 -F "file=@/tmp/profile-picture-upload-test.png;type=image/png" http://127.0.0.1:18080/api/users/me/avatar)"
+          test "$upload_status" = "502" || { echo "Expected the test upstream to return 502 after Nginx accepts a 5 MiB upload, got $upload_status (413 means the upload was blocked)"; docker logs "$name"; exit 1; }
