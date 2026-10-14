@@ -61,3 +61,23 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 - No dependencies or application features have been removed.
 - The dead-code/duplicate audit is not complete. Search results are candidate evidence only; before deletion, trace dynamic imports, entry points, environment contracts, migrations, tests, CI, and Docker copy/build behavior. Runtime-only usage may not be discoverable by text search.
 - No live load test or before/after memory measurement has been run. Do not attribute the production OOM to any single code path without correlated logs or profiling.
+
+
+### Additional source review — startup and background work
+
+- `backend/app/main.py` starts database keepalive, message-retention cleanup, rate-limit cleanup, and media/artist identity backfill tasks inside the API process. These are active maintenance responsibilities, not dead code. Do not remove them as cleanup. Their database workload and shutdown behavior should be measured; if the backend and bot are later split onto the VPS, keep the maintenance ownership explicit to avoid duplicate jobs across replicas.
+- `run_media_identity_backfill()` repeatedly processes batches of up to 250, yields with `asyncio.sleep(0)`, and runs until both media identity and artist profile backfills report no work. It is a potential startup/ongoing database-load hotspot, but source inspection alone does not establish it as the OOM cause. Next safe improvement is instrumentation and a controlled batch/load test before changing batch size or scheduling.
+- The database pool defaults and API admission limits are intentionally bounded for small containers. Avoid raising concurrency simply because the VPS has more cores; first measure database capacity, request latency, and per-process memory.
+- `Dockerfile.backend` installs FFmpeg and copies backend code plus Alembic migrations/configuration. FFmpeg and migrations are required by current runtime/build behavior; do not remove them based on image-size goals. CI explicitly builds this Dockerfile and verifies production image contents.
+- `requirements.dev.txt` includes backend requirements, test/lint/type/security tools, and Pillow. It is not copied by `Dockerfile.backend`; don't move dev tooling into or remove runtime dependencies from the production requirements without tracing actual imports and image/CI use.
+- The repository search found real uses for HTTPX, SQLAlchemy engine creation, background tasks, B2 SDKs, Mutagen, and FFmpeg-related code. Search excerpts are not a complete static call graph, so no dependency removals are justified by the current evidence.
+
+### Next deletion gate
+Before any deletion, require all of:
+1. Repository-wide reference search across backend, frontend, bot, scripts, migrations, tests, workflows, docs, and deployment configuration.
+2. Check dynamic imports, entry points, environment variables, CLI/script references, and external API contracts.
+3. A focused test or explicit rationale demonstrating the candidate is not required.
+4. Full CI on the exact candidate commit.
+5. A reviewable diff with the candidate and evidence recorded here.
+
+No dead code or duplicate implementation has yet met this deletion gate. That is intentional: the current evidence supports preserving the reviewed items.
