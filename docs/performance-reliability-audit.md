@@ -81,3 +81,13 @@ Before any deletion, require all of:
 5. A reviewable diff with the candidate and evidence recorded here.
 
 No dead code or duplicate implementation has yet met this deletion gate. That is intentional: the current evidence supports preserving the reviewed items.
+
+
+### Latest recheck — 2026-10-14
+
+- Latest commit before instrumentation, `5c9592a00b66fa6b17cf1984c79ae8505848dd04`, passed both PR workflows: Project verification (run `38655230853`) and Offline PWA checks (run `38655230859`). The project workflow passed its `journeys` and `windows-runner` jobs; offline checks passed backend image build/content verification, backend syntax/regression/lint/type/dependency/security checks, and frontend image/build/tests.
+- Separate PR #44, `fix/profile-picture-upload`, also has successful latest workflow runs on head `614768986df68ddb8b0821784c5a0862bd19c01a` (Project verification `38519155817`, Offline PWA checks `38519155795`). It remains a separate draft PR and has not been merged.
+- Added timing diagnostics to `run_media_identity_backfill()` on the optimization branch. Debug logs now include per-batch row counts and elapsed time; an info log records total rows, batches, and elapsed time at completion. Batch size, scheduling, query behavior, and task lifecycle were not changed. This gives us evidence for a later controlled test without prematurely tuning or removing maintenance.
+- This diagnostics commit still requires its own CI run. Do not treat the prior passing workflow runs as validation of the new commit.
+- Still outstanding: capture real runtime memory/CPU/request-error baselines; inspect effective deployment environment overrides without changing them; run a representative non-production workload; compare Docker image size/build time against a recorded baseline; and finish reference tracing before considering any code/dependency deletion.
+- No production workload or Northflank/VPS service was accessed or modified as part of this recheck. No deployment, merge, account change, or production stress test was performed.
