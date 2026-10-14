@@ -230,10 +230,13 @@ def _avatar_url(
     ):
         return None
 
+    version = user.profile.avatar_object_key.rsplit("/", 1)[-1]
+
     return (
         "/api/users/"
         + str(user.username)
-        + "/avatar"
+        + "/avatar?v="
+        + version
     )
 
 
