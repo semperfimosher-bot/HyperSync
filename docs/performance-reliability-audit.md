@@ -42,3 +42,22 @@ Audit backend memory/CPU, request admission and retry behavior, database access,
 - Do not edit, merge into, or force-update `main`.
 - Do not run stress tests against production without an approved test window.
 - Do not claim performance gains without measurements; source inspection alone cannot establish actual production memory attribution.
+
+
+## Repository-wide dead-code and duplication audit (in progress)
+
+### Verified references — preserve these
+- `rclone_remote` appears in backend settings, `.env.example`, and README configuration documentation. A text search alone does not prove it is unused at runtime; do not remove until all bot/integration entry points and environment contracts are traced.
+- `local_log_root` is present in settings and verification environment setup. Keep until logging and test fixture behavior are traced.
+- `demo_audio_path` is consumed by `backend/app/api/routes/audio.py` and used by verification setup. It is not dead configuration.
+- `boto3` and `b2sdk` are both imported by `backend/app/services/b2.py`; both have plausible distinct runtime roles and must not be removed based on dependency-name searches alone.
+- `mutagen` is used by audio metadata, compression, and admin route code and corresponding tests. Preserve it.
+
+### Confirmed safe Docker change
+- `Dockerfile.backend` uses `pip install --no-cache-dir --no-compile -r requirements.backend.txt`. This avoids generating installed bytecode during the build; `PYTHONDONTWRITEBYTECODE=1` is already set for runtime. This is a conservative build-layer optimization and is not claimed to fix runtime OOMs.
+
+### Validation update
+- GitHub Actions run `38644275625` completed successfully for both `journeys` and `windows-runner` on this branch's initial optimization commit.
+- No dependencies or application features have been removed.
+- The dead-code/duplicate audit is not complete. Search results are candidate evidence only; before deletion, trace dynamic imports, entry points, environment contracts, migrations, tests, CI, and Docker copy/build behavior. Runtime-only usage may not be discoverable by text search.
+- No live load test or before/after memory measurement has been run. Do not attribute the production OOM to any single code path without correlated logs or profiling.
