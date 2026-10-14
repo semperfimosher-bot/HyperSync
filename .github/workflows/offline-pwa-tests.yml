@@ -192,6 +192,7 @@ jobs:
           trap cleanup EXIT
 
           docker run --detach --name "$name" \
+            -p 127.0.0.1:18080:80 \
             -e API_UPSTREAM_URL=https://127.0.0.1:9443 \
             -e API_UPSTREAM_HOST=staging-api.example.test \
             -e FRONTEND_WS_ORIGIN=wss://hypersync-staging.example.test \
@@ -225,3 +226,21 @@ jobs:
           '
 
           docker exec "$name" wget -qO- http://127.0.0.1/health | grep -Fxq healthy || { docker logs "$name"; echo "Frontend health endpoint failed"; exit 1; }
+
+          # Exercise the rendered Nginx config over HTTP, not just with nginx -t.
+          index_headers="$(curl --fail --silent --show-error --dump-header - --output /dev/null http://127.0.0.1:18080/index.html)"
+          printf '%s\n' "$index_headers" | grep -Eiq '^Cache-Control:.*no-cache.*no-store.*must-revalidate' || { echo "index.html cache policy is missing"; printf '%s\n' "$index_headers"; exit 1; }
+
+          spa_headers="$(curl --fail --silent --show-error --dump-header - --output /dev/null http://127.0.0.1:18080/__cache-policy-spa-test)"
+          printf '%s\n' "$spa_headers" | grep -Eiq '^Cache-Control:.*no-cache.*no-store.*must-revalidate' || { echo "SPA fallback did not inherit the HTML cache policy"; printf '%s\n' "$spa_headers"; exit 1; }
+
+          asset_path="$(docker exec "$name" sh -ec 'find /usr/share/nginx/html/assets -type f -print -quit' | sed 's#^/usr/share/nginx/html##')"
+          test -n "$asset_path" || { echo "No built frontend assets found"; exit 1; }
+          asset_headers="$(curl --fail --silent --show-error --dump-header - --output /dev/null "http://127.0.0.1:18080$asset_path")"
+          printf '%s\n' "$asset_headers" | grep -Eiq '^Cache-Control:.*max-age=31536000.*immutable' || { echo "Hashed asset cache policy is missing"; printf '%s\n' "$asset_headers"; exit 1; }
+
+          missing_asset_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/assets/__definitely_missing_cache_test__.js)"
+          test "$missing_asset_status" = "404" || { echo "Missing hashed assets must return 404, got $missing_asset_status"; exit 1; }
+
+          api_headers="$(curl --silent --show-error --dump-header - --output /dev/null http://127.0.0.1:18080/api/__cache-policy-test)"
+          printf '%s\n' "$api_headers" | grep -Eiq '^Cache-Control:.*private, no-store' || { echo "Proxied API response is missing private no-store policy"; printf '%s\n' "$api_headers"; exit 1; }
