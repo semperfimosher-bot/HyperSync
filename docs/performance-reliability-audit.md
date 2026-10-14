@@ -1,6 +1,6 @@
 # HyperSync Performance and Reliability Audit
 
-Target branch for this feature-removal work: `Bot-Deletion`. Do not merge into or modify `main`.
+This audit was originally started for feature-removal work on `Bot-Deletion`. The current optimization work is isolated to `feat/backend-docker-optimization`, based on `feat/browser-cache-disk-usage`. This document does not authorize merging into or modifying `main`.
 
 ## Scope and method
 
