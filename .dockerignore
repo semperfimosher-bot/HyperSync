@@ -3,12 +3,30 @@
 .env
 .env.*
 !.env.example
+
+# Python bytecode and local tooling caches
 __pycache__
 *.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
 
+# Frontend dependencies and generated output (built in the image)
 frontend/node_modules
 frontend/dist
+node_modules
+dist
+build
+coverage
+playwright-report
+test-results
 
+# Local runtime artifacts and logs
 *.log
+*.tmp
+*.temp
+.cache
 .DS_Store
 Thumbs.db
