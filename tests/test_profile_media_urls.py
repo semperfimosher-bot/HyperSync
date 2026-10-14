@@ -302,3 +302,20 @@ async def test_profile_dashboard_populates_media_cache_metadata() -> None:
     assert recent.file_size == (5_000_000)
 
     assert recent.media_version is not None
+
+
+def test_profile_avatar_url_changes_when_object_key_changes() -> None:
+    user = SimpleNamespace(
+        username="listener",
+        profile=SimpleNamespace(
+            avatar_object_key="profiles/user/first-image.webp",
+        ),
+    )
+
+    first_url = users_route.avatar_url(user)
+    user.profile.avatar_object_key = "profiles/user/second-image.webp"
+    second_url = users_route.avatar_url(user)
+
+    assert first_url == "/api/users/listener/avatar?v=first-image.webp"
+    assert second_url == "/api/users/listener/avatar?v=second-image.webp"
+    assert first_url != second_url
