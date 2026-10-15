@@ -85,6 +85,36 @@ function sendDirectB2Upload({
       const xhr =
         new XMLHttpRequest();
 
+      const noProgressTimeoutMs = 20000;
+      let noProgressTimer = null;
+      let settled = false;
+      let timedOut = false;
+
+      const clearNoProgressTimer = () => {
+        if (noProgressTimer !== null) {
+          clearTimeout(noProgressTimer);
+          noProgressTimer = null;
+        }
+      };
+
+      const finish = (callback, value) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearNoProgressTimer();
+        callback(value);
+      };
+
+      const armNoProgressTimer = () => {
+        clearNoProgressTimer();
+        noProgressTimer = setTimeout(() => {
+          timedOut = true;
+          xhr.abort();
+        }, noProgressTimeoutMs);
+      };
+
       xhr.open(
         "PUT",
         preparation.upload_url,
@@ -97,27 +127,21 @@ function sendDirectB2Upload({
 
       xhr.upload.onprogress =
         (event) => {
-          if (
-            !event.lengthComputable
-          ) {
+          if (!event.lengthComputable) {
             return;
           }
+
+          armNoProgressTimer();
 
           const progress =
             Math.min(
               95,
               Math.round(
-                (
-                  event.loaded /
-                  event.total
-                ) *
-                95,
+                (event.loaded / event.total) * 95,
               ),
             );
 
-          onProgress(
-            progress,
-          );
+          onProgress(progress);
         };
 
       xhr.onload =
@@ -126,8 +150,7 @@ function sendDirectB2Upload({
             xhr.status >= 200 &&
             xhr.status < 300
           ) {
-            resolve();
-
+            finish(resolve);
             return;
           }
 
@@ -139,22 +162,31 @@ function sendDirectB2Upload({
           error.status =
             xhr.status;
 
-          reject(
-            error,
-          );
+          finish(reject, error);
         };
 
       xhr.onerror =
         () => {
-          reject(
+          finish(
+            reject,
             new Error(
-              "Direct B2 upload was unavailable.",
+              "Direct B2 upload failed due to a network or CORS error.",
             ),
           );
         };
 
       xhr.onabort =
         () => {
+          if (timedOut) {
+            finish(
+              reject,
+              new Error(
+                "Direct B2 upload made no progress for 20 seconds; falling back to backend upload.",
+              ),
+            );
+            return;
+          }
+
           const error =
             new Error(
               "Upload cancelled.",
@@ -163,17 +195,14 @@ function sendDirectB2Upload({
           error.name =
             "AbortError";
 
-          reject(
-            error,
-          );
+          finish(reject, error);
         };
 
       if (signal) {
-        if (
-          signal.aborted
-        ) {
-          xhr.abort();
-
+        if (signal.aborted) {
+          const error = new Error("Upload cancelled.");
+          error.name = "AbortError";
+          finish(reject, error);
           return;
         }
 
@@ -183,19 +212,20 @@ function sendDirectB2Upload({
             xhr.abort();
           },
           {
-            once:
-              true,
+            once: true,
           },
         );
       }
 
+      // A direct PUT that never begins sending data can otherwise remain
+      // pending forever. The timer is refreshed by actual upload progress.
+      armNoProgressTimer();
       xhr.send(
         item.file,
       );
     },
   );
 }
-
 
 function artworkFilename(
   mimeType,
