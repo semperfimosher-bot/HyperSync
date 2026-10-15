@@ -185,14 +185,8 @@ async def persist_candidates(
             now = _now()
             expiry = _expires_at()
 
-            await session.execute(
-                delete(
-                    OnDemandCandidate,
-                ).where(
-                    OnDemandCandidate.expires_at
-                    < now,
-                )
-            )
+            # Expired-row retention is handled by the periodic maintenance
+            # task, not on every search batch.
 
             # Candidate persistence is shared by concurrent API
             # requests. A select-then-insert sequence can race:

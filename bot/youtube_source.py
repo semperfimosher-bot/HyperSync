@@ -4,14 +4,17 @@ import asyncio
 import mimetypes
 import os
 import re
+import shutil
 import tempfile
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 from backend.app.config import get_settings
 from backend.app.services.audio_metadata import (
@@ -50,6 +53,9 @@ _PREFERRED_TERMS = (
     "audio",
 )
 
+# Keep temporary media and the in-memory copy bounded on small containers.
+_MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class YouTubeSource:
@@ -70,6 +76,8 @@ class DownloadedAudio:
     content: bytes
     filename: str
     mime_type: str
+    path: Path | None = None
+    temp_dir: Path | None = None
 
 
 def _normalize(
@@ -499,6 +507,7 @@ def _source_search_queries(
         f"{metadata.artist} {metadata.title} official audio",
         f"{metadata.title} {metadata.artist}",
         f"{metadata.artist} {metadata.title}",
+        f"{metadata.title} official audio",
     )
 
     return tuple(
@@ -623,42 +632,62 @@ def _webpage_url(
     return None
 
 
-def _resolve_sync(
+def _candidate_deduplication_key(
+    item: dict[str, Any],
+) -> str:
+    for field in (
+        "id",
+        "webpage_url",
+        "url",
+    ):
+        value = item.get(field)
+        if value:
+            return str(value)
+
+    title = str(item.get("title") or "")
+    uploader = str(item.get("uploader") or item.get("channel") or "")
+    return title + "\x1f" + uploader
+
+
+def _search_ranked_candidates(
     metadata: CatalogTrackCandidate,
-) -> YouTubeSource:
-    # Some tracks are indexed under a different title/artist order or
-    # without the "official audio" suffix. Retry only when the first
-    # search does not produce a strong match; keep the same scoring and
-    # rejection rules across every query.
+    search: Callable[..., list[dict[str, Any]]] = _search_sync,
+) -> list[tuple[float, dict[str, Any]]]:
     entries_by_key: dict[str, dict[str, Any]] = {}
     ranked: list[tuple[float, dict[str, Any]]] = []
 
     for query in _source_search_queries(metadata):
-        for item in _search_sync(
-            metadata,
-            query=query,
-        ):
-            item_id = str(
-                item.get("id")
-                or item.get("webpage_url")
-                or item.get("url")
-                or (
-                    str(item.get("title") or "")
-                    + "\\x1f"
-                    + str(item.get("uploader") or item.get("channel") or "")
-                )
+        try:
+            entries = search(
+                metadata,
+                query=query,
             )
+        except (DownloadError, OSError, TimeoutError):
+            # A transient upstream failure for one query must not prevent
+            # the remaining title/artist fallbacks from being attempted.
+            continue
+
+        for item in entries:
+            item_id = _candidate_deduplication_key(item)
             entries_by_key.setdefault(item_id, item)
 
         ranked = rank_source_candidates(
             list(entries_by_key.values()),
             metadata,
         )
-        # Avoid extra upstream requests when the initial results already
-        # contain a strong candidate. We still search again for borderline
-        # results instead of rejecting a valid recording prematurely.
+        # Keep the existing confidence threshold and rejection rules.
         if ranked and ranked[0][0] >= 65.0:
             break
+
+    return ranked
+
+
+def _resolve_sync(
+    metadata: CatalogTrackCandidate,
+) -> YouTubeSource:
+    ranked = _search_ranked_candidates(
+        metadata,
+    )
 
     if (
         not ranked
@@ -847,104 +876,82 @@ async def resolve_youtube_source(
 def _download_sync(
     source: YouTubeSource,
 ) -> DownloadedAudio:
-    with tempfile.TemporaryDirectory(
-        prefix="hypersynced-ytdlp-",
-    ) as temp_dir:
-        output_template = str(
-            Path(
-                temp_dir,
-            )
-            / "%(id)s.%(ext)s"
-        )
-
+    temp_dir = tempfile.mkdtemp(prefix="hypersynced-ytdlp-")
+    try:
+        output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
         options = {
             **_common_options(),
-            "format":
-                (
-                    "bestaudio[ext=m4a][acodec^=mp4a]/"
-                    "bestaudio[ext=m4a]/"
-                    "bestaudio[acodec!=none]/"
-                    "bestaudio/best"
-                ),
-            "outtmpl":
-                output_template,
-            "overwrites":
-                True,
+            "format": (
+                "bestaudio[ext=m4a][acodec^=mp4a]/"
+                "bestaudio[ext=m4a]/"
+                "bestaudio[acodec!=none]/"
+                "bestaudio/best"
+            ),
+            "outtmpl": output_template,
+            "overwrites": True,
+            "max_filesize": _MAX_DOWNLOAD_BYTES,
         }
+        with yt_dlp.YoutubeDL(cast(Any, options)) as ydl:
+            info = ydl.extract_info(source.webpage_url, download=True)
+            if not isinstance(info, dict):
+                raise RuntimeError("yt-dlp returned invalid download information.")
+            path = Path(ydl.prepare_filename(info))
 
-        with yt_dlp.YoutubeDL(
-            cast(Any, options),
-        ) as ydl:
-            info = ydl.extract_info(
-                source.webpage_url,
-                download=True,
-            )
-
-            if not isinstance(
-                info,
-                dict,
-            ):
-                raise RuntimeError(
-                    "yt-dlp returned invalid "
-                    "download information."
-                )
-
-            path = Path(
-                ydl.prepare_filename(
-                    info,
-                )
-            )
-
-        if (
-            not path.exists()
-            or not path.is_file()
-        ):
-            matches = [
-                item
-                for item in Path(
-                    temp_dir,
-                ).iterdir()
-                if item.is_file()
-            ]
-
+        if not path.exists() or not path.is_file():
+            matches = [item for item in Path(temp_dir).iterdir() if item.is_file()]
             if not matches:
-                raise RuntimeError(
-                    "yt-dlp did not create "
-                    "an audio file."
-                )
+                raise RuntimeError("yt-dlp did not create an audio file.")
+            path = max(matches, key=lambda item: item.stat().st_size)
 
-            path = max(
-                matches,
-                key=lambda item:
-                    item.stat().st_size,
-            )
-
-        content = path.read_bytes()
-
-        if not content:
-            raise RuntimeError(
-                "Downloaded audio is empty."
-            )
+        file_size = path.stat().st_size
+        if file_size <= 0:
+            raise RuntimeError("Downloaded audio is empty.")
+        if file_size > _MAX_DOWNLOAD_BYTES:
+            raise RuntimeError("Downloaded audio exceeds the 40 MiB safety limit.")
 
         mime_type = (
-            mimetypes.guess_type(
-                path.name,
-            )[0]
+            mimetypes.guess_type(path.name)[0]
             or source.mime_type
             or "application/octet-stream"
         )
-
+        # The caller owns this directory and must remove it after conversion/upload.
         return DownloadedAudio(
-            content=content,
+            content=b"",
             filename=path.name,
             mime_type=mime_type,
+            path=path,
+            temp_dir=Path(temp_dir),
         )
+    except BaseException:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
 
 async def download_youtube_audio(
     source: YouTubeSource,
 ) -> DownloadedAudio:
-    return await asyncio.to_thread(
-        _download_sync,
-        source,
+    # Cancelling asyncio.to_thread() does not stop its worker thread.
+    # Shield the worker, then collect and remove its workspace before
+    # propagating cancellation so a late download cannot orphan files.
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            _download_sync,
+            source,
+        )
     )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            downloaded = await asyncio.shield(worker)
+        except BaseException:
+            # _download_sync removes its workspace if it fails.
+            pass
+        else:
+            if downloaded.temp_dir is not None:
+                await asyncio.to_thread(
+                    shutil.rmtree,
+                    downloaded.temp_dir,
+                    ignore_errors=True,
+                )
+        raise

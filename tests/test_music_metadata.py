@@ -18,6 +18,24 @@ from backend.app.services.music_metadata import (
 from scripts.verification.postgres_database import create_postgres_test_engine
 
 
+def test_metadata_cache_evicts_oldest_entries() -> None:
+    cache: dict[str, tuple[float, str | None]] = {}
+    limit = music_metadata._METADATA_CACHE_MAX_ENTRIES
+
+    for index in range(limit + 2):
+        music_metadata._store_bounded_cache(
+            cache,
+            f"key-{index}",
+            (float(index), None),
+        )
+
+    assert len(cache) == limit
+    assert "key-0" not in cache
+    assert "key-1" not in cache
+    assert "key-2" in cache
+    assert cache[f"key-{limit + 1}"] == (float(limit + 1), None)
+
+
 @pytest.mark.asyncio
 async def test_musicbrainz_lookup_returns_genre_and_release_year() -> None:
     def handler(

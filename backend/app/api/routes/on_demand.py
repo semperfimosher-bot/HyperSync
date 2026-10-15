@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -42,12 +43,15 @@ from ..dependencies import (
     CurrentUser,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/on-demand",
     tags=["on-demand"],
 )
 
-ON_DEMAND_SEARCH_RESULT_LIMIT = 100
+ON_DEMAND_SEARCH_RESULT_LIMIT = 20
+ON_DEMAND_ARTIST_RESULT_LIMIT = 100
 
 
 class PrepareOnDemandRequest(
@@ -164,9 +168,9 @@ async def search_on_demand_artist(
         max_length=180,
     ),
     limit: int = Query(
-        default=ON_DEMAND_SEARCH_RESULT_LIMIT,
+        default=ON_DEMAND_ARTIST_RESULT_LIMIT,
         ge=1,
-        le=ON_DEMAND_SEARCH_RESULT_LIMIT,
+        le=ON_DEMAND_ARTIST_RESULT_LIMIT,
     ),
 ):
     _require_registered(
@@ -607,6 +611,10 @@ async def stream_on_demand(
                         session,
                     )
                 except Exception:
+                    logger.warning(
+                        "Failed to refresh temporary audio source after connection error",
+                        exc_info=True,
+                    )
                     source = None
 
                 if source is not None:
@@ -649,6 +657,10 @@ async def stream_on_demand(
                     session,
                 )
             except Exception:
+                logger.warning(
+                    "Failed to refresh temporary audio source after upstream error",
+                    exc_info=True,
+                )
                 source = None
 
             if session.track_id is not None:

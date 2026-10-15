@@ -379,28 +379,28 @@ Commit message: `Add cross-replica playback events`
 - Add a reconnect scheduler/helper in `playbackDevices.js` that owns one timer, exponential attempt state, `ready` reset, and cancellation.
 - Add bounded command-id dedupe shared by realtime and poll handling; retain the most recent 256 command ids for the active session.
 
-- [ ] **Step 1: Add reconnect-policy tests**
+- [x] **Step 1: Add reconnect-policy tests**
 
 In `playbackDevices.test.js`, assert delay growth from the 750 ms base, 15 s cap, jitter bounds, successful `ready` reset, **Review Focus #5** only one pending reconnect timer, and cancellation preventing a later reconnect callback.
 
-- [ ] **Step 2: Add safety-poll and dedupe tests**
+- [x] **Step 2: Add safety-poll and dedupe tests**
 
 Assert ready realtime selects 60 s polling, disconnected/unavailable realtime selects 15 s polling, and **Review Focus #4** the same command id arriving once through realtime and once through a later poll is accepted only once.
 
-- [ ] **Step 3: Run the focused frontend test and verify failures**
+- [x] **Step 3: Run the focused frontend test and verify failures**
 
 From `frontend`: `node --test src/playbackDevices.test.js`
 Expected: FAIL until the new helpers/policy exist.
 
-- [ ] **Step 4: Implement policy helpers in `playbackDevices.js`**
+- [x] **Step 4: Implement policy helpers in `playbackDevices.js`**
 
 Keep `connectPlaybackDeviceLive` wire behavior unchanged. The close event remains the sole owner of reconnect scheduling; `error` does not schedule independently.
 
-- [ ] **Step 5: Replace fixed reconnect/poll orchestration in `App.jsx`**
+- [x] **Step 5: Replace fixed reconnect/poll orchestration in `App.jsx`**
 
 Use the scheduler/helper, reset attempts on `ready`, switch between 60 s safety polling and 15 s fallback polling, and run all recovered commands through the same 256-id dedupe before applying them.
 
-- [ ] **Step 6: Run focused and full frontend unit tests**
+- [x] **Step 6: Run focused and full frontend unit tests**
 
 From `frontend`:
 - `node --test src/playbackDevices.test.js`
@@ -408,7 +408,7 @@ From `frontend`:
 - `npm run build`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Commit message: `Harden playback realtime recovery`
 

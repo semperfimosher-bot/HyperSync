@@ -25,6 +25,17 @@ from .on_demand_metadata import (
 
 logger = logging.getLogger(__name__)
 
+_METADATA_CACHE_MAX_ENTRIES = 256
+def _store_bounded_cache[T](
+    cache: dict[str, tuple[float, T]],
+    key: str,
+    value: tuple[float, T],
+) -> None:
+    """Store a cache entry and evict oldest inserted entries over the limit."""
+    cache[key] = value
+    while len(cache) > _METADATA_CACHE_MAX_ENTRIES:
+        cache.pop(next(iter(cache)))
+
 
 class ExternalTrackMetadata(TypedDict):
     source: str
@@ -992,11 +1003,10 @@ async def lookup_apple_track_metadata(
             }
 
         if owns_client:
-            _apple_lookup_cache[
-                cache_key
-            ] = (
-                now,
-                result,
+            _store_bounded_cache(
+                _apple_lookup_cache,
+                cache_key,
+                (now, result),
             )
 
         return result
@@ -1149,11 +1159,10 @@ async def _artist_genre(
         ),
     )
 
-    _artist_genre_cache[
-        artist_id
-    ] = (
-        now,
-        genre,
+    _store_bounded_cache(
+        _artist_genre_cache,
+        artist_id,
+        (now, genre),
     )
 
     return genre
@@ -1416,11 +1425,10 @@ async def _lookup_musicbrainz_track_metadata(
                 }
 
         if owns_client:
-            _lookup_cache[
-                cache_key
-            ] = (
-                now,
-                result,
+            _store_bounded_cache(
+                _lookup_cache,
+                cache_key,
+                (now, result),
             )
 
         return result
@@ -1933,11 +1941,10 @@ async def lookup_lastfm_track_metadata(
                 }
 
         if owns_client:
-            _lastfm_lookup_cache[
-                cache_key
-            ] = (
-                now,
-                result,
+            _store_bounded_cache(
+                _lastfm_lookup_cache,
+                cache_key,
+                (now, result),
             )
 
         return result

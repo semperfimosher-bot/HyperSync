@@ -46,7 +46,7 @@ def _prepare_asyncpg_url(value: str) -> str:
 class Settings(BaseSettings):
     app_name: str = "Hypersynced"
     app_version: str = "0.1.0"
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "staging", "production"] = "development"
 
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
@@ -56,14 +56,17 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
+    playback_realtime_database_url: str = ""
+    # Keep the default database connection footprint modest for small containers.
+    # Increase only after measuring memory and concurrent database demand.
+    db_pool_size: int = 3
+    db_max_overflow: int = 2
     db_pool_timeout_seconds: int = 2
     db_command_timeout_seconds: int = 30
     db_statement_timeout_ms: int = 30000
     db_lock_timeout_ms: int = 5000
     db_idle_transaction_timeout_ms: int = 30000
-    api_max_concurrent_requests: int = 12
+    api_max_concurrent_requests: int = 3
     api_admission_timeout_seconds: float = 2.0
 
     jwt_secret: str = ""
@@ -172,8 +175,8 @@ class Settings(BaseSettings):
     apple_search_min_interval_seconds: float = 3.1
     apple_search_cache_hours: int = 24
 
-    on_demand_search_limit: int = 100
-    on_demand_prewarm_limit: int = 8
+    on_demand_search_limit: int = 20
+    on_demand_prewarm_limit: int = 2
     on_demand_search_rate_limit: int = 30
     on_demand_prepare_rate_limit: int = 12
     on_demand_rate_window_seconds: int = 60
@@ -228,6 +231,12 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
+            )
+
+        realtime_url = self.playback_realtime_database_url.strip()
+        if realtime_url and urlsplit(realtime_url).scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                "PLAYBACK_REALTIME_DATABASE_URL must be a PostgreSQL connection string."
             )
 
         return self.validate_database_capacity()
@@ -318,6 +327,16 @@ class Settings(BaseSettings):
     def sqlalchemy_migration_url(self) -> str:
         source = self.migration_database_url or self.database_url
         return _prepare_asyncpg_url(source)
+
+    @property
+    def asyncpg_playback_realtime_url(self) -> str:
+        source = self.playback_realtime_database_url.strip()
+        if not source:
+            return ""
+        normalized = _prepare_asyncpg_url(source)
+        if normalized.startswith("postgresql+asyncpg://"):
+            return normalized.replace("postgresql+asyncpg://", "postgresql://", 1)
+        return normalized
 
 
 @lru_cache

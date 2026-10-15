@@ -483,9 +483,11 @@ export async function apiRequest(
     requestMethod === "HEAD" ||
     requestMethod === "OPTIONS";
 
+  // Keep overload recovery bounded: multiple rapid retries from every
+  // browser can amplify a backend that is already returning 503s.
   const transientRetryLimit =
     canRetryTransient
-      ? 3
+      ? 1
       : 0;
 
   const requestPromise = (async () => {

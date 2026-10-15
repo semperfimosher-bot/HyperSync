@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, text
@@ -17,6 +18,7 @@ from .artists import (
 )
 from .audio_compression import (
     compress_audio_for_storage,
+    transcode_audio_file_to_mp3,
 )
 from .b2 import (
     delete_all_object_versions,
@@ -82,6 +84,10 @@ async def lock_track_identity(
     )
 
 
+def _is_nonempty_file(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
+
+
 def _valid_release_year(
     value: int | None,
 ) -> int | None:
@@ -129,6 +135,7 @@ async def publish_authorized_audio(
     audio_content: bytes,
     audio_filename: str,
     audio_mime_type: str,
+    audio_path: Path | None = None,
     artwork_data: bytes | None = None,
     artwork_mime_type: str | None = None,
     source_provider: str | None = None,
@@ -136,10 +143,11 @@ async def publish_authorized_audio(
 ) -> CatalogPublishResult:
     settings = get_settings()
 
-    if not audio_content:
-        raise RuntimeError(
-            "Cannot publish empty audio."
-        )
+    if audio_path is not None:
+        if not await asyncio.to_thread(_is_nonempty_file, audio_path):
+            raise RuntimeError("Cannot publish a missing or empty audio file.")
+    elif not audio_content:
+        raise RuntimeError("Cannot publish empty audio.")
 
     session_factory = (
         get_session_factory()
@@ -175,52 +183,61 @@ async def publish_authorized_audio(
                 ),
             )
 
-        compression = (
-            await asyncio.to_thread(
+        compressed_content = b""
+
+        if audio_path is not None:
+            output_path = audio_path.with_name(f"converted-{uuid4()}.mp3")
+            try:
+                compression = await asyncio.to_thread(
+                    transcode_audio_file_to_mp3,
+                    audio_path,
+                    output_path,
+                    title=metadata.title,
+                    artist=metadata.artist,
+                    album=metadata.album,
+                    genre=metadata.genre,
+                    artwork_data=artwork_data,
+                    artwork_mime_type=artwork_mime_type,
+                    mp3_vbr_quality=settings.audio_compression_mp3_vbr_quality,
+                    timeout_seconds=settings.audio_compression_timeout_seconds,
+                    release_year=metadata.release_year,
+                )
+            except Exception:
+                output_path.unlink(missing_ok=True)
+                raise
+            final_audio_path = compression.output_path
+            final_audio_size = compression.final_size
+        else:
+            compression = await asyncio.to_thread(
                 compress_audio_for_storage,
                 audio_content,
                 filename=audio_filename,
-                mime_type=(
-                    audio_mime_type
-                    or "application/octet-stream"
-                ),
+                mime_type=(audio_mime_type or "application/octet-stream"),
                 title=metadata.title,
                 artist=metadata.artist,
                 album=metadata.album,
                 genre=metadata.genre,
                 artwork_data=artwork_data,
-                artwork_mime_type=(
-                    artwork_mime_type
-                ),
+                artwork_mime_type=artwork_mime_type,
                 enabled=True,
-                mp3_vbr_quality=(
-                    settings
-                    .audio_compression_mp3_vbr_quality
-                ),
+                mp3_vbr_quality=settings.audio_compression_mp3_vbr_quality,
                 min_source_kbps=1,
                 min_savings_percent=0,
-                timeout_seconds=(
-                    settings
-                    .audio_compression_timeout_seconds
-                ),
+                timeout_seconds=settings.audio_compression_timeout_seconds,
                 force_transcode=True,
-                release_year=(
-                    metadata.release_year
-                ),
+                release_year=metadata.release_year,
             )
-        )
+            if (
+                not compression.content
+                or not compression.compressed
+                or compression.mime_type != "audio/mpeg"
+                or compression.extension != "mp3"
+            ):
+                raise RuntimeError("FFmpeg could not produce the canonical MP3 output.")
+            compressed_content = compression.content
+            final_audio_path = None
+            final_audio_size = compression.final_size
 
-        if (
-            not compression.content
-            or compression.mime_type
-            != "audio/mpeg"
-            or compression.extension
-            != "mp3"
-        ):
-            raise RuntimeError(
-                "FFmpeg could not produce "
-                "the canonical MP3 output."
-            )
 
         audio_object_key = (
             f"{settings.b2_audio_prefix}/"
@@ -242,12 +259,20 @@ async def publish_authorized_audio(
         uploaded_artwork = False
 
         try:
-            await asyncio.to_thread(
-                bucket.upload_bytes,
-                compression.content,
-                audio_object_key,
-                content_type="audio/mpeg",
-            )
+            if final_audio_path is not None:
+                await asyncio.to_thread(
+                    bucket.upload_local_file,
+                    local_file=str(final_audio_path),
+                    file_name=audio_object_key,
+                    content_type="audio/mpeg",
+                )
+            else:
+                await asyncio.to_thread(
+                    bucket.upload_bytes,
+                    compressed_content,
+                    audio_object_key,
+                    content_type="audio/mpeg",
+                )
 
             uploaded_audio = True
 
@@ -329,7 +354,7 @@ async def publish_authorized_audio(
                 ),
                 mime_type="audio/mpeg",
                 file_size=(
-                    compression.final_size
+                    final_audio_size
                 ),
                 duration_seconds=(
                     metadata.duration_seconds

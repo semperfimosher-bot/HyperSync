@@ -13,6 +13,16 @@ from sqlalchemy.ext.asyncio import (
 from .config import get_settings
 
 
+def database_ssl_context() -> ssl.SSLContext | bool:
+    """Share the database TLS policy with direct PostgreSQL listeners."""
+    settings = get_settings()
+    return (
+        False
+        if settings.environment == "test"
+        else ssl.create_default_context()
+    )
+
+
 def resolve_database_url() -> str:
     settings = get_settings()
     database_url = settings.sqlalchemy_database_url.strip()
@@ -28,11 +38,7 @@ def resolve_database_url() -> str:
 def get_engine() -> AsyncEngine:
     settings = get_settings()
     database_url = resolve_database_url()
-    ssl_context = (
-        False
-        if settings.environment == "test"
-        else ssl.create_default_context()
-    )
+    ssl_context = database_ssl_context()
 
     return create_async_engine(
         database_url,

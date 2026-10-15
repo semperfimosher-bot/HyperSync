@@ -210,7 +210,7 @@ async def test_on_demand_search_rejects_unbounded_client_limit(
         )
 
     assert default_response.status_code == 200
-    assert requested_limits == [100]
+    assert requested_limits == [20]
     assert oversized_response.status_code == 422
     assert oversized_artist_response.status_code == 422
 

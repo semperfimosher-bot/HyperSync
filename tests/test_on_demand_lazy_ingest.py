@@ -57,6 +57,37 @@ def _candidate() -> CatalogTrackCandidate:
     )
 
 
+
+def test_in_memory_candidate_cache_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    cache: dict[str, CatalogTrackCandidate] = {}
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_candidates",
+        cache,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_MAX_IN_MEMORY_CANDIDATES",
+        3,
+    )
+
+    for index in range(5):
+        candidate = replace(
+            _candidate(),
+            key=f"metadata:test-track-{index}",
+        )
+        on_demand_ingestion._remember_candidate_locked(candidate)
+
+    assert len(cache) == 3
+    assert "metadata:test-track-0" not in cache
+    assert "metadata:test-track-1" not in cache
+    assert "metadata:test-track-2" in cache
+    assert "metadata:test-track-4" in cache
+
 def test_on_demand_state_normalizes_naive_timestamp_to_utc() -> None:
     naive = datetime(
         2026,
@@ -316,7 +347,7 @@ async def test_queue_route_prewarms_and_starts_ingest_without_recording_play(
 
 
 @pytest.mark.asyncio
-async def test_playlist_warm_registers_500_without_ingest(
+async def test_playlist_warm_caps_sessions_and_source_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await (
@@ -388,7 +419,13 @@ async def test_playlist_warm_registers_500_without_ingest(
         )
     )
 
-    assert len(warmed) == 500
+    # A full playlist may contain 500 metadata keys, but only the configured
+    # prewarm budget (hard-capped at two) should create sessions.
+    assert len(warmed) == 2
+    assert [item["candidate_key"] for item in warmed] == [
+        "metadata:warm-0",
+        "metadata:warm-1",
+    ]
 
     assert all(
         item["track_id"] is None

@@ -135,6 +135,11 @@ export default function AdminBotPage() {
   ] = useState("");
 
   const [
+    botToggleBusy,
+    setBotToggleBusy,
+  ] = useState(false);
+
+  const [
     loading,
     setLoading,
   ] = useState(false);
@@ -390,6 +395,24 @@ export default function AdminBotPage() {
           : 6000,
     },
   );
+
+
+  const toggleBot = async () => {
+    if (botToggleBusy) return;
+    setBotToggleBusy(true);
+    setMessage("");
+    try {
+      const endpoint = isOnline ? "/admin/bot/stop" : "/admin/bot/start";
+      const result = await apiRequest(endpoint, { method: "POST" });
+      setBotData((current) => ({ ...current, ...(result ?? {}) }));
+      setMessage(isOnline ? "Admin upload bot turned off." : "Admin upload bot turned on.");
+      await refreshStatus({ quiet: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to change bot state.");
+    } finally {
+      setBotToggleBusy(false);
+    }
+  };
 
 
   const startGapScan =
@@ -712,7 +735,7 @@ export default function AdminBotPage() {
 
           <div>
             <small>
-              BOT STATUS
+              ADMIN UPLOAD BOT
             </small>
 
             <strong>
@@ -722,9 +745,17 @@ export default function AdminBotPage() {
             </strong>
 
             <em>
-              {botData.current_job ||
-                "Standing by"}
+              {botData.current_job || (isOnline ? "Standing by" : "Automation paused")}
             </em>
+            <button
+              type="button"
+              className="secondary-admin-button"
+              disabled={botToggleBusy || loading}
+              onClick={() => { void toggleBot(); }}
+              aria-pressed={isOnline}
+            >
+              {botToggleBusy ? "Please wait..." : (isOnline ? "Turn bot off" : "Turn bot on")}
+            </button>
           </div>
         </div>
       </section>
