@@ -3649,6 +3649,53 @@ span svg {
 }
 
 
+/* Recently Played loading cards use the same geometry as real tracks. */
+.home-track-grid--loading {
+  align-items: stretch;
+}
+
+.home-track-card--skeleton {
+  display: block;
+  min-width: 0;
+  pointer-events: none;
+  border-color: rgba(80, 164, 211, 0.13);
+  background: rgba(4, 12, 19, 0.86);
+  box-shadow: none;
+  cursor: default;
+}
+
+.home-track-card--skeleton:hover {
+  transform: none;
+  border-color: rgba(80, 164, 211, 0.13);
+  box-shadow: none;
+}
+
+.home-track-card--skeleton .home-track-card__art {
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.home-track-card--skeleton .home-track-card__info {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px;
+  align-content: center;
+}
+
+.home-track-card--skeleton .home-skeleton-line {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-skeleton-block,
+  .home-skeleton-line {
+    animation: none;
+  }
+}
+
+
 /* =========================================================
    EMPTY HOME STATE
    ========================================================= */
@@ -5524,12 +5571,6 @@ button.is-active span {
     rgba(0, 0, 0, 0.24);
 }
 
-.library-detail-art img {
-  width: 100%;
-  height: 100%;
-
-  object-fit: cover;
-}
 
 .library-detail-art__fallback {
   display: grid;
@@ -5744,9 +5785,6 @@ button.is-active span {
     background 140ms ease;
 }
 
-.library-track-row:last-child {
-  border-bottom: 0;
-}
 
 .library-track-row:hover {
   background:
@@ -5817,13 +5855,6 @@ button.is-active span {
   object-fit: cover;
 }
 
-.library-track-copy {
-  display: grid;
-
-  min-width: 0;
-
-  gap: 3px;
-}
 
 .library-track-copy strong {
   overflow: hidden;

@@ -38,6 +38,10 @@ capacity problem; inspect query duration and pool wait first.
 - Admission control rejects excess work with a retryable 503 instead of allowing
   an unbounded queue of requests to accumulate. Liveness remains independent of
   database readiness; readiness is admission-controlled because it queries DB.
+- Persistent rate-limit counters are row-locked in PostgreSQL for cross-replica
+  correctness. Expired buckets are deleted by hourly maintenance, never from the
+  request hot path; an advisory transaction lock lets only one replica clean at
+  a time.
 
 The PostgreSQL server-side settings are applied to runtime connections. They
 do not change migration connections, which should use the separate direct

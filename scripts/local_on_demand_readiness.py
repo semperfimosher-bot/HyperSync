@@ -17,26 +17,8 @@ from backend.app.config import get_settings  # noqa: E402  # repo root is added 
 def main() -> None:
     settings = get_settings()
 
-    database_url = settings.database_url.strip()
-    database_kind = (
-        "none"
-        if not database_url
-        else (
-            "sqlite"
-            if database_url.startswith("sqlite")
-            else "remote"
-        )
-    )
-
-    database_mode = (
-        "Neon PostgreSQL"
-        if database_kind == "remote"
-        else (
-            "SQLite (tests only)"
-            if database_kind == "sqlite"
-            else "MISSING - Neon DATABASE_URL is required"
-        )
-    )
+    database_kind = "postgresql"
+    database_mode = "PostgreSQL"
 
     b2_ready = all(
         value.strip()

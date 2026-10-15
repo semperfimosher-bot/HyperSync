@@ -57,8 +57,30 @@ import {
 } from "../../searchAlphabetical.js";
 
 import {
+  searchPlaybackQueueEntry,
+} from "../../searchPlaybackQueueEntry.js";
+
+import {
+  formatDuration,
+  memberFor,
+} from "../../searchFormatting.js";
+
+import {
+  searchFilterCount,
+  totalSearchResultCount,
+} from "../../searchCounts.js";
+
+import {
+  EMPTY_RESULTS,
+  FILTERS,
+} from "../../searchConstants.js";
+
+import {
   pickTopSignal,
 } from "../../searchTopSignal.js";
+
+import SearchEntityPanel from
+  "../search/SearchEntityPanel.jsx";
 
 import Avatar from
   "../profile/Avatar.jsx";
@@ -114,288 +136,6 @@ import {
   downloadPlaylistByIdForOffline,
 } from "../../playlistOfflineAction.js";
 
-
-const EMPTY_RESULTS = {
-  query: "",
-  interpreted_query: "",
-  intent: "general",
-  sort_mode: "smart",
-  processing_ms: 0,
-
-  counts: {
-  tracks: 0,
-  artists: 0,
-  collaborations: 0,
-  albums: 0,
-  people: 0,
-  playlists: 0,
-},
-
-  tracks: [],
-  artists: [],
-  collaborations: [],
-  albums: [],
-  people: [],
-  playlists: [],
-};
-
-
-const FILTERS = [
-  ["all", "All"],
-  ["albums", "Albums"],
-  ["artists", "Artists"],
-  [
-    "collaborations",
-    "Collaborations",
-  ],
-  ["people", "People"],
-  ["playlists", "Playlists"],
-  ["tracks", "Tracks"],
-];
-
-function memberFor(value) {
-  if (!value) {
-    return "New member";
-  }
-
-  const days = Math.max(
-    0,
-    Math.floor(
-      (
-        Date.now() -
-        new Date(value).getTime()
-      ) /
-        86400000,
-    ),
-  );
-
-  if (days < 30) {
-    return `${Math.max(
-      days,
-      1,
-    )}d on HyperSynced`;
-  }
-
-  if (days < 365) {
-    return `${Math.max(
-      1,
-      Math.floor(days / 30),
-    )}mo on HyperSynced`;
-  }
-
-  return `${Math.floor(
-    days / 365,
-  )}y on HyperSynced`;
-}
-
-
-function formatDuration(seconds) {
-  const safe = Number(seconds);
-
-  if (
-    !Number.isFinite(safe) ||
-    safe <= 0
-  ) {
-    return "--:--";
-  }
-
-  const minutes =
-    Math.floor(
-      safe / 60,
-    );
-
-  const remainder =
-    Math.floor(
-      safe % 60,
-    )
-      .toString()
-      .padStart(
-        2,
-        "0",
-      );
-
-  return (
-    `${minutes}:${remainder}`
-  );
-}
-
-
-function searchPlaybackQueueEntry(
-  track,
-  overrides = {},
-) {
-  const onDemand =
-    track?.source_type ===
-      "on_demand" ||
-    isOnDemandTrackId(
-      track?.id,
-    );
-
-  return {
-    id:
-      overrides.id ??
-      track?.id,
-
-    audioUrl:
-      overrides.audioUrl ??
-      track?.audio_url ??
-      track?.audioUrl ??
-      null,
-
-    artworkUrl:
-      resolveArtworkUrl(
-        track?.artwork_url ??
-        track?.artworkUrl ??
-        null,
-      ),
-
-    mimeType:
-      track?.mime_type ??
-      track?.mimeType ??
-      null,
-
-    fileSize:
-      track?.file_size ??
-      track?.fileSize ??
-      null,
-
-    mediaVersion:
-      track?.media_version ??
-      track?.mediaVersion ??
-      null,
-
-    title:
-      track?.title ??
-      "",
-
-    artist:
-      track?.artist ??
-      "",
-
-    album:
-      track?.album ??
-      "",
-
-    genre:
-      track?.genre ??
-      "",
-
-    releaseYear:
-      track?.release_year ??
-      track?.releaseYear ??
-      null,
-
-    durationSeconds:
-      track?.duration_seconds ??
-      track?.durationSeconds ??
-      null,
-
-    onDemand:
-      overrides.onDemand ??
-      onDemand,
-
-    provisionKey:
-      overrides.provisionKey ??
-      track?.provision_key ??
-      track?.provisionKey ??
-      null,
-
-    provisionId:
-      overrides.provisionId ??
-      track?.provision_id ??
-      track?.provisionId ??
-      null,
-
-    catalogTrackId:
-      overrides.catalogTrackId ??
-      track?.catalog_track_id ??
-      track?.catalogTrackId ??
-      null,
-  };
-}
-
-
-function totalCount(
-  counts,
-) {
-  return (
-    Number(
-      counts?.tracks || 0,
-    ) +
-    Number(
-      counts?.artists || 0,
-    ) +
-    Number(
-      counts?.collaborations || 0,
-    ) +
-    Number(
-      counts?.albums || 0,
-    ) +
-    Number(
-      counts?.people || 0,
-    ) +
-    Number(
-      counts?.playlists || 0,
-    )
-  );
-}
-
-
-function filterCount(
-  filter,
-  counts,
-) {
-  if (filter === "all") {
-    return totalCount(
-      counts
-    );
-  }
-
-  return Number(
-    counts?.[filter] || 0,
-  );
-}
-
-function SearchEntityPanel({
-  eyebrow,
-  title,
-  count,
-  modifier,
-  children,
-}) {
-  return (
-    <section
-      className={
-        "hs-search-section " +
-        "hs-search-discovery-panel " +
-        modifier
-      }
-    >
-      <div className="hs-search-section__heading">
-
-        <div>
-          <span>
-            {eyebrow}
-          </span>
-
-          <h3>
-            {title}
-          </h3>
-        </div>
-
-        <strong>
-          {count}
-        </strong>
-
-      </div>
-
-      <div className="hs-search-entity-grid">
-        {children}
-      </div>
-
-    </section>
-  );
-}
 
 function SearchPage({
   query,
@@ -949,7 +689,7 @@ useEffect(() => {
    * endpoints immediately after
    * every query change.
    *
-   * We wait 220ms and abort stale
+   * We wait 500ms and abort stale
    * searches while the user types.
    */
   useEffect(() => {
@@ -1448,7 +1188,7 @@ useEffect(() => {
             }
           }
         },
-        80,
+        500,
       );
 
     return () => {
@@ -1617,7 +1357,7 @@ useEffect(() => {
   const resultTotal =
     useMemo(
       () =>
-        totalCount(
+        totalSearchResultCount(
           combinedResults.counts,
         ),
       [
@@ -1900,7 +1640,7 @@ useEffect(() => {
           relevantTracks
             .slice(
               1,
-              17,
+              3,
             )
             .map(
               (track) =>
@@ -4157,7 +3897,7 @@ async function downloadOpenedPlaylist() {
                   </span>
 
                   <strong>
-                    {filterCount(
+                    {searchFilterCount(
                       filter,
                       combinedResults
                         .counts,

@@ -3,7 +3,10 @@ import test from "node:test";
 
 import {
   buildAccountPlaybackSyncState,
+  createPlaybackReconnectScheduler,
   getPlaybackDeviceDescriptor,
+  getPlaybackPollIntervalMs,
+  rememberPlaybackCommandId,
   resolvePlaybackControlTarget,
 } from "./playbackDevices.js";
 
@@ -1270,3 +1273,95 @@ test(
     );
   },
 );
+
+
+test("playback reconnect scheduler uses bounded exponential backoff with jitter", () => {
+  const delays = [];
+  const timers = new Map();
+  let nextTimer = 1;
+  let reconnects = 0;
+  const scheduler = createPlaybackReconnectScheduler({
+    onReconnect: () => { reconnects += 1; },
+    random: () => 0.5,
+    setTimeoutFn: (callback, delay) => {
+      const id = nextTimer++;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeoutFn: (id) => timers.delete(id),
+  });
+  for (let i = 0; i < 6; i += 1) {
+    delays.push(scheduler.schedule());
+    const [id, timer] = timers.entries().next().value;
+    timers.delete(id);
+    timer.callback();
+  }
+  assert.deepEqual(delays, [750, 1500, 3000, 6000, 12000, 15000]);
+  assert.equal(reconnects, 6);
+  scheduler.cancel();
+});
+
+test("playback reconnect scheduler keeps one timer, resets after ready, and cancels safely", () => {
+  const timers = new Map();
+  let nextTimer = 1;
+  let reconnects = 0;
+  const scheduler = createPlaybackReconnectScheduler({
+    onReconnect: () => { reconnects += 1; },
+    random: () => 0.5,
+    setTimeoutFn: (callback, delay) => {
+      const id = nextTimer++;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeoutFn: (id) => timers.delete(id),
+  });
+  assert.equal(scheduler.schedule(), 750);
+  assert.equal(scheduler.schedule(), null);
+  assert.equal(timers.size, 1);
+  scheduler.reset();
+  assert.equal(timers.size, 0);
+  assert.equal(scheduler.schedule(), 750);
+  const pending = timers.values().next().value;
+  scheduler.cancel();
+  assert.equal(timers.size, 0);
+  pending.callback();
+  assert.equal(reconnects, 0);
+  assert.equal(scheduler.schedule(), null);
+});
+
+test("playback reconnect jitter stays within bounds before the hard cap", () => {
+  const delays = [];
+  for (const random of [0, 1]) {
+    const scheduler = createPlaybackReconnectScheduler({
+      onReconnect: () => {},
+      random: () => random,
+      setTimeoutFn: (_callback, delay) => {
+        delays.push(delay);
+        return delays.length;
+      },
+      clearTimeoutFn: () => {},
+    });
+    scheduler.schedule();
+    scheduler.cancel();
+  }
+  assert.deepEqual(delays, [563, 938]);
+});
+
+test("playback polling interval is short while disconnected and a safety poll while ready", () => {
+  assert.equal(getPlaybackPollIntervalMs(false), 15000);
+  assert.equal(getPlaybackPollIntervalMs(true), 60000);
+});
+
+test("playback command dedupe accepts realtime or poll delivery once and bounds retained ids", () => {
+  const seen = new Set();
+  assert.equal(rememberPlaybackCommandId(seen, "cmd-1"), true);
+  assert.equal(rememberPlaybackCommandId(seen, "cmd-1"), false);
+  assert.equal(rememberPlaybackCommandId(seen, "cmd-2"), true);
+  assert.equal(rememberPlaybackCommandId(seen, "cmd-2"), false);
+  for (let i = 0; i < 300; i += 1) {
+    rememberPlaybackCommandId(seen, "cmd-" + (i + 3), 256);
+  }
+  assert.equal(seen.size, 256);
+  assert.equal(seen.has("cmd-1"), false);
+  assert.equal(seen.has("cmd-302"), true);
+});

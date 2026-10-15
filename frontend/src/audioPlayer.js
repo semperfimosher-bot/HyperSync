@@ -3515,6 +3515,9 @@ export async function playQueueIndex(
 export async function playTrackQueue(
   tracks,
   startIndex = 0,
+  {
+    forceLocal = false,
+  } = {},
 ) {
   const queue =
     buildTrackQueue(
@@ -3579,6 +3582,7 @@ export async function playTrackQueue(
     );
 
   if (
+    !forceLocal &&
     !provisional &&
     await dispatchRemotePlayback(
       "play_track",

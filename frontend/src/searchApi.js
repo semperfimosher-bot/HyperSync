@@ -123,7 +123,7 @@ export function searchOnDemandMusic(
       q:
         query,
       limit:
-        "100",
+        "20",
     });
 
   return apiRequest(

@@ -13,6 +13,7 @@ from bot.runtime import (
     spawn_background_task,
 )
 from bot.service import (
+    bot_is_enabled,
     get_state,
     queue_job,
     start_bot,
@@ -115,7 +116,10 @@ async def bot_start(
 async def bot_stop(
     user: AdminUser,
 ):
-    return stop_bot()
+    state = stop_bot()
+    cancel_scan()
+    await request_scan_cancel()
+    return state
 
 
 @router.post("/scan")
@@ -123,6 +127,12 @@ async def bot_scan(
     user: AdminUser,
     payload: AdminBotScanRequest | None = None,
 ):
+    if not bot_is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin upload bot is off. Turn it on to start a scan.",
+        )
+
     request = (
         payload
         or AdminBotScanRequest()
@@ -233,6 +243,12 @@ async def bot_scan_cancel(
 async def bot_process(
     user: AdminUser,
 ):
+    if not bot_is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin upload bot is off. Turn it on to process jobs.",
+        )
+
     queue_job()
 
     spawn_background_task(
@@ -293,6 +309,12 @@ async def bot_ingest(
     payload: AdminBotIngestRequest,
     user: AdminUser,
 ):
+    if not bot_is_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Admin upload bot is off. Turn it on to ingest tracks.",
+        )
+
     try:
         return await prepare_candidate(
             payload.candidate_key,

@@ -6,25 +6,21 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.app.config import get_settings
-from backend.app.database import close_database, get_engine, get_session_factory
+from backend.app.database import close_database, get_session_factory
 from backend.app.main import app
-from backend.app.models import Base
 from backend.app.models.jam import JamSession
 from backend.app.models.media import Track
 from backend.app.services.jam_sessions import utcnow
 
 
 @pytest.fixture(autouse=True)
-async def jam_schema(monkeypatch: pytest.MonkeyPatch, tmp_path) -> AsyncIterator[None]:
+async def jam_schema(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
     async def no_auth_rate_limit(*args: object, **kwargs: object) -> None:
         pass
 
     monkeypatch.setattr("backend.app.api.routes.auth.enforce_rate_limit", no_auth_rate_limit)
     await close_database()
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'jam.db'}")
     get_settings.cache_clear()
-    async with get_engine().begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
     yield
     await close_database()
     get_settings.cache_clear()

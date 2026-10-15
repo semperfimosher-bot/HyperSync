@@ -26,10 +26,9 @@ def as_utc_aware(
 ) -> datetime | None:
     """Return a UTC-aware datetime without changing the instant.
 
-    SQLite can return timezone-naive values even for columns declared
-    with timezone=True, while PostgreSQL normally returns aware values.
-    Normalize at application boundaries so comparisons behave the same
-    in tests, local development, and production.
+    PostgreSQL normally returns aware values for timezone-aware columns,
+    but imported or legacy values can still arrive without tzinfo.
+    Normalize at application boundaries so comparisons remain stable.
     """
 
     if value is None:

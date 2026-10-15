@@ -8,10 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Request
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.api.routes import (
     on_demand as on_demand_routes,
@@ -36,6 +33,7 @@ from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
 from bot.youtube_source import DownloadedAudio, YouTubeSource
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 def _candidate() -> CatalogTrackCandidate:
@@ -58,6 +56,37 @@ def _candidate() -> CatalogTrackCandidate:
         confidence=0.95,
     )
 
+
+
+def test_in_memory_candidate_cache_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    cache: dict[str, CatalogTrackCandidate] = {}
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_candidates",
+        cache,
+    )
+    monkeypatch.setattr(
+        on_demand_ingestion,
+        "_MAX_IN_MEMORY_CANDIDATES",
+        3,
+    )
+
+    for index in range(5):
+        candidate = replace(
+            _candidate(),
+            key=f"metadata:test-track-{index}",
+        )
+        on_demand_ingestion._remember_candidate_locked(candidate)
+
+    assert len(cache) == 3
+    assert "metadata:test-track-0" not in cache
+    assert "metadata:test-track-1" not in cache
+    assert "metadata:test-track-2" in cache
+    assert "metadata:test-track-4" in cache
 
 def test_on_demand_state_normalizes_naive_timestamp_to_utc() -> None:
     naive = datetime(
@@ -318,7 +347,7 @@ async def test_queue_route_prewarms_and_starts_ingest_without_recording_play(
 
 
 @pytest.mark.asyncio
-async def test_playlist_warm_registers_500_without_ingest(
+async def test_playlist_warm_caps_sessions_and_source_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await (
@@ -390,7 +419,13 @@ async def test_playlist_warm_registers_500_without_ingest(
         )
     )
 
-    assert len(warmed) == 500
+    # A full playlist may contain 500 metadata keys, but only the configured
+    # prewarm budget (hard-capped at two) should create sessions.
+    assert len(warmed) == 2
+    assert [item["candidate_key"] for item in warmed] == [
+        "metadata:warm-0",
+        "metadata:warm-1",
+    ]
 
     assert all(
         item["track_id"] is None
@@ -627,9 +662,7 @@ async def test_on_demand_search_uses_indexed_identity_with_legacy_fallback(
         .reset_transient_state()
     )
 
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -1159,9 +1192,7 @@ async def test_local_provision_adopts_durable_terminal_result(
 async def test_durable_provision_terminal_state_cannot_regress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -1278,9 +1309,7 @@ async def test_durable_provision_terminal_state_cannot_regress(
 async def test_durable_ready_can_recover_previous_failed_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

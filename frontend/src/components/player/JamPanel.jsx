@@ -211,7 +211,7 @@ export default function JamPanel({ currentUser, onOpenAuth, homeActive }) {
   };
 
   useEffect(() => {
-    const show = () => { if (!homeActive) return; if (registered) setOpen(true); else onOpenAuth?.(); };
+    const show = () => { if (registered) setOpen(true); else onOpenAuth?.(); };
     window.addEventListener(OPEN_JAM_EVENT, show);
     return () => window.removeEventListener(OPEN_JAM_EVENT, show);
   }, [homeActive, registered, onOpenAuth]);

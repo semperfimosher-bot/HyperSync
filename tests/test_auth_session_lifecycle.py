@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -273,6 +274,146 @@ async def test_refresh_keeps_one_stable_browser_session_and_purges_dead_rows() -
 
 
 @pytest.mark.asyncio
+async def test_concurrent_refreshes_share_one_stable_session() -> None:
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        registered = await _register(
+            client,
+        )
+
+        claims = decode_access_token(
+            registered["access_token"],
+        )
+
+        original_refresh_token = (
+            client.cookies.get(
+                "hypersync_refresh",
+            )
+        )
+
+        assert original_refresh_token
+
+    cookie_header = (
+        "hypersync_refresh="
+        + original_refresh_token
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={
+            "Cookie": cookie_header,
+        },
+    ) as first_tab:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={
+                "Cookie": cookie_header,
+            },
+        ) as second_tab:
+            first_response, second_response = (
+                await asyncio.gather(
+                    first_tab.post(
+                        "/api/auth/refresh",
+                    ),
+                    second_tab.post(
+                        "/api/auth/refresh",
+                    ),
+                )
+            )
+
+            assert (
+                first_response.status_code
+                == 200
+            ), first_response.text
+
+            assert (
+                second_response.status_code
+                == 200
+            ), second_response.text
+
+            first_claims = decode_access_token(
+                first_response.json()[
+                    "access_token"
+                ],
+            )
+
+            second_claims = decode_access_token(
+                second_response.json()[
+                    "access_token"
+                ],
+            )
+
+            assert (
+                first_claims.session_id
+                == claims.session_id
+            )
+            assert (
+                second_claims.session_id
+                == claims.session_id
+            )
+
+            rotated_tokens = {
+                first_tab.cookies.get(
+                    "hypersync_refresh",
+                ),
+                second_tab.cookies.get(
+                    "hypersync_refresh",
+                ),
+            }
+
+    assert None not in rotated_tokens
+    assert len(rotated_tokens) == 2
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        row = await session.get(
+            UserSession,
+            claims.session_id,
+        )
+
+        assert row is not None
+
+        stored_hashes = {
+            row.refresh_token_hash,
+            row.previous_refresh_token_hash,
+        }
+
+        assert stored_hashes == {
+            hash_refresh_token(
+                token,
+            )
+            for token in rotated_tokens
+            if token is not None
+        }
+
+        count_result = (
+            await session.execute(
+                select(
+                    func.count(
+                        UserSession.id,
+                    )
+                ).where(
+                    UserSession.user_id
+                    == row.user_id,
+                )
+            )
+        )
+
+        assert count_result.scalar_one() == 1
+
+
+@pytest.mark.asyncio
 async def test_legacy_reuse_row_deletes_only_itself_not_live_sibling() -> None:
     transport = ASGITransport(
         app=app,
@@ -391,6 +532,162 @@ async def test_logout_physically_deletes_current_browser_session() -> None:
             )
 
             assert row is None
+
+
+@pytest.mark.asyncio
+async def test_logout_accepts_immediately_previous_refresh_secret() -> None:
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        registered = await _register(
+            client,
+        )
+
+        claims = decode_access_token(
+            registered["access_token"],
+        )
+
+        original_refresh_token = (
+            client.cookies.get(
+                "hypersync_refresh",
+            )
+        )
+
+        assert original_refresh_token
+
+        refreshed = await client.post(
+            "/api/auth/refresh",
+        )
+
+        assert refreshed.status_code == 200
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={
+            "Cookie": (
+                "hypersync_refresh="
+                + original_refresh_token
+            ),
+        },
+    ) as stale_tab:
+        response = await stale_tab.post(
+            "/api/auth/logout",
+        )
+
+        assert response.status_code == 200
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        row = await session.get(
+            UserSession,
+            claims.session_id,
+        )
+
+        assert row is None
+
+
+@pytest.mark.asyncio
+async def test_logout_all_accepts_previous_secret_and_deletes_siblings() -> None:
+    transport = ASGITransport(
+        app=app,
+    )
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        registered = await _register(
+            client,
+        )
+
+        claims = decode_access_token(
+            registered["access_token"],
+        )
+
+        original_refresh_token = (
+            client.cookies.get(
+                "hypersync_refresh",
+            )
+        )
+
+        assert original_refresh_token
+
+        refreshed = await client.post(
+            "/api/auth/refresh",
+        )
+
+        assert refreshed.status_code == 200
+
+    session_factory = (
+        get_session_factory()
+    )
+
+    async with session_factory() as session:
+        current = await session.get(
+            UserSession,
+            claims.session_id,
+        )
+
+        assert current is not None
+
+        session.add(
+            UserSession(
+                user_id=current.user_id,
+                family_id=current.family_id,
+                refresh_token_hash=(
+                    hash_refresh_token(
+                        create_refresh_token(),
+                    )
+                ),
+                expires_at=(
+                    datetime.now(UTC)
+                    + timedelta(days=2)
+                ),
+            )
+        )
+
+        await session.commit()
+
+        user_id = current.user_id
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={
+            "Cookie": (
+                "hypersync_refresh="
+                + original_refresh_token
+            ),
+        },
+    ) as stale_tab:
+        response = await stale_tab.post(
+            "/api/auth/logout-all",
+        )
+
+        assert response.status_code == 200
+
+    async with session_factory() as session:
+        count_result = await session.execute(
+            select(
+                func.count(
+                    UserSession.id,
+                )
+            ).where(
+                UserSession.user_id
+                == user_id,
+            )
+        )
+
+        assert count_result.scalar_one() == 0
 
 
 @pytest.mark.asyncio

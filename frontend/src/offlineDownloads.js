@@ -653,16 +653,56 @@ export function getOfflineArtworkUrl(
 }
 
 
+const PERSISTENT_STORAGE_REQUEST_TIMEOUT_MS =
+  1500;
+
+
 async function requestPersistentStorage() {
   try {
-    if (
+    const persist =
       globalThis.navigator
         ?.storage
-        ?.persist
+        ?.persist;
+
+    if (
+      typeof persist !==
+        "function"
     ) {
-      return await globalThis.navigator
-        .storage
-        .persist();
+      return false;
+    }
+
+    /*
+     * Persistent-storage permission is only an
+     * optimization. Some browser engines can leave
+     * the permission promise pending indefinitely in
+     * headless/private contexts, so it must never
+     * block the actual offline media download.
+     */
+    let timeoutId = null;
+
+    try {
+      return await Promise.race([
+        Promise.resolve(
+          persist.call(
+            globalThis.navigator.storage,
+          ),
+        ).then(Boolean),
+        new Promise(
+          (resolve) => {
+            timeoutId =
+              globalThis.setTimeout(
+                () => resolve(false),
+                PERSISTENT_STORAGE_REQUEST_TIMEOUT_MS,
+              );
+          },
+        ),
+      ]);
+    } finally {
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(
+          timeoutId,
+        );
+      }
     }
   } catch {
     // Storage persistence is best effort.

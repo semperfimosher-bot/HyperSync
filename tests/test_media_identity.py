@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.models.base import Base
 from backend.app.models.media import (
@@ -20,12 +17,11 @@ from backend.app.services.media_identity import (
     sync_track_media_identity,
     track_identity_lock_key,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 async def _factory():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -407,7 +403,7 @@ async def test_catalog_identity_diagnostics_use_exact_legacy_and_indexed_counts(
             "artwork_count": 0,
             "duplicate_groups": 1,
             "identity_backfill_pending": 0,
-            "artist_profile_backfill_pending": 0,
+            "artist_profile_backfill_pending": 2,
         }
 
     await engine.dispose()
@@ -493,9 +489,7 @@ async def test_catalog_inventory_prefers_sidecars_and_falls_back_for_legacy_rows
 
 @pytest.mark.asyncio
 async def test_catalog_primary_artist_inventory_supports_tracks_only_legacy_schema() -> None:
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(

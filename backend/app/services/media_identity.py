@@ -379,8 +379,7 @@ async def catalog_primary_artist_inventory(
 
     try:
         # Keep optional-sidecar failures inside a savepoint.
-        # SQLite compatibility tests and partially migrated
-        # databases may intentionally have only the tracks
+        # Partially migrated legacy databases may have only the tracks
         # table; a failed indexed query must not poison the
         # caller's surrounding transaction.
         async with session.begin_nested():

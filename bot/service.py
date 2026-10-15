@@ -99,25 +99,27 @@ def get_state() -> BotState:
         )
 
 
+def bot_is_enabled() -> bool:
+    with _lock:
+        return _state.running
+
+
 def start_bot() -> BotState:
-    # Legacy compatibility endpoint. The bot runtime is
-    # permanently available now, so "start" just confirms
-    # the always-on state.
     with _lock:
         _state.running = True
         _state.status = "online"
 
+    _event("info", "Admin upload bot enabled.")
     return get_state()
 
 
 def stop_bot() -> BotState:
-    # Legacy compatibility endpoint. Older cached clients
-    # may still call /stop; never allow that to disable the
-    # always-on automation runtime.
     with _lock:
-        _state.running = True
-        _state.status = "online"
+        _state.running = False
+        _state.status = "offline"
+        _state.current_job = None
 
+    _event("warning", "Admin upload bot disabled.")
     return get_state()
 
 
@@ -132,8 +134,7 @@ def job_started(
     job_name: str,
 ) -> None:
     with _lock:
-        _state.running = True
-        _state.status = "running"
+        _state.status = "running" if _state.running else "offline"
         _state.queued_jobs = max(
             0,
             _state.queued_jobs - 1,
@@ -150,8 +151,7 @@ def job_completed(
     message: str,
 ) -> None:
     with _lock:
-        _state.running = True
-        _state.status = "online"
+        _state.status = "online" if _state.running else "offline"
         _state.current_job = None
         _state.completed_jobs += 1
 
@@ -162,8 +162,7 @@ def job_failed(
     message: str,
 ) -> None:
     with _lock:
-        _state.running = True
-        _state.status = "online"
+        _state.status = "online" if _state.running else "offline"
         _state.current_job = None
         _state.failed_jobs += 1
 

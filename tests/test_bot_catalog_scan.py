@@ -6,10 +6,7 @@ import pytest
 from sqlalchemy import (
     select,
 )
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import bot.service
 import bot.worker
@@ -28,6 +25,7 @@ from backend.app.services import (
 from backend.app.services.on_demand_metadata import (
     CatalogTrackCandidate,
 )
+from scripts.verification.postgres_database import create_postgres_test_engine
 
 
 def _candidate(
@@ -67,9 +65,7 @@ async def _catalog_factory(
         tuple[str, str]
     ],
 ):
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-    )
+    engine = create_postgres_test_engine()
 
     async with engine.begin() as connection:
         await connection.run_sync(
@@ -506,11 +502,11 @@ async def test_catalog_gap_scan_uses_primary_artist_for_collaborations(
     await engine.dispose()
 
 
-def test_bot_runtime_is_always_online() -> None:
+def test_admin_bot_can_be_disabled_and_reenabled() -> None:
     stopped = bot.service.stop_bot()
 
-    assert stopped.running is True
-    assert stopped.status == "online"
+    assert stopped.running is False
+    assert stopped.status == "offline"
 
     started = bot.service.start_bot()
 

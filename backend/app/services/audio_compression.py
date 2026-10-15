@@ -847,3 +847,93 @@ def compress_audio_for_storage(
                 probe.bitrate_kbps
             ),
         )
+
+
+
+@dataclass(frozen=True)
+class AudioFileCompressionResult:
+    output_path: Path
+    mime_type: str
+    extension: str
+    original_size: int
+    final_size: int
+    source_codec: str | None
+    source_bitrate_kbps: float | None
+
+
+def transcode_audio_file_to_mp3(
+    input_path: Path,
+    output_path: Path,
+    *,
+    title: str,
+    artist: str,
+    album: str | None,
+    genre: str | None,
+    artwork_data: bytes | None,
+    artwork_mime_type: str | None,
+    mp3_vbr_quality: int,
+    timeout_seconds: int,
+    release_year: int | None = None,
+) -> AudioFileCompressionResult:
+    """Transcode a disk-backed source to a validated MP3 without loading audio into RAM."""
+    if not input_path.is_file() or input_path.stat().st_size <= 0:
+        raise RuntimeError("Audio source file is empty or missing.")
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg is required to create the canonical MP3.")
+
+    original_size = input_path.stat().st_size
+    probe = _probe_audio(input_path, timeout_seconds=timeout_seconds)
+    quality = max(0, min(int(mp3_vbr_quality), 9))
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(input_path), "-map", "0:a:0", "-map_metadata", "0",
+        "-vn", "-c:a", "libmp3lame", "-q:a", str(quality),
+        "-id3v2_version", "3", "-write_id3v1", "1",
+        "-metadata", f"title={title}", "-metadata", f"artist={artist}",
+    ]
+    if album:
+        command.extend(["-metadata", f"album={album}"])
+    if genre:
+        command.extend(["-metadata", f"genre={genre}"])
+    if release_year:
+        command.extend(["-metadata", f"date={int(release_year)}"])
+    command.append(str(output_path))
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=max(int(timeout_seconds), 1),
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Audio transcoding failed.") from exc
+
+    if completed.returncode != 0 or not output_path.is_file() or output_path.stat().st_size <= 0:
+        raise RuntimeError("FFmpeg did not produce a complete MP3.")
+
+    _embed_resolved_metadata(
+        output_path,
+        title=title,
+        artist=artist,
+        album=album,
+        genre=genre,
+        artwork_data=artwork_data,
+        artwork_mime_type=artwork_mime_type,
+    )
+    if not _validate_output(output_path, expected_title=title, expected_artist=artist):
+        raise RuntimeError("The converted MP3 failed validation.")
+
+    final_size = output_path.stat().st_size
+    return AudioFileCompressionResult(
+        output_path=output_path,
+        mime_type="audio/mpeg",
+        extension="mp3",
+        original_size=original_size,
+        final_size=final_size,
+        source_codec=probe.codec,
+        source_bitrate_kbps=probe.bitrate_kbps,
+    )
