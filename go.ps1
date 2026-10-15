@@ -2,7 +2,7 @@
 param(
     [int]$FrontendPort = 4153,
     [int]$BackendPort = 8000,
-    [string]$Branch = "main",
+    [string]$Branch = "fix/docker-direct-upload-cors-resilience",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations
@@ -17,8 +17,10 @@ if (-not (Test-Path -LiteralPath $UpdateScript)) {
     throw "update-local.ps1 was not found next to go.ps1."
 }
 
-if ($Branch -ne "main") {
-    throw "go.ps1 is intentionally locked to GitHub main. Use update-local.ps1 directly only when you explicitly need another branch."
+$LatestChangeBranch = "fix/docker-direct-upload-cors-resilience"
+
+if ($Branch -ne $LatestChangeBranch) {
+    throw "go.ps1 is locked to the latest HyperSync change branch: $LatestChangeBranch."
 }
 
 if ($FrontendPort -ne 4153) {
