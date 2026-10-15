@@ -91,3 +91,15 @@ No dead code or duplicate implementation has yet met this deletion gate. That is
 - This diagnostics commit still requires its own CI run. Do not treat the prior passing workflow runs as validation of the new commit.
 - Still outstanding: capture real runtime memory/CPU/request-error baselines; inspect effective deployment environment overrides without changing them; run a representative non-production workload; compare Docker image size/build time against a recorded baseline; and finish reference tracing before considering any code/dependency deletion.
 - No production workload or Northflank/VPS service was accessed or modified as part of this recheck. No deployment, merge, account change, or production stress test was performed.
+
+### Final repo-only recheck — 2026-10-15
+
+- Exact optimization branch head checked: `09083232b294213740f401b758ff643b20895513`.
+- Project verification passed on workflow run `38657810108`: `windows-runner` and `journeys` both succeeded; isolated application verification passed.
+- Offline PWA checks passed on workflow run `38657810041`: frontend production image/Nginx checks; backend syntax, migration-chain validation, full regression suite, lint, type checking, dependency audit, security scan, and backend production image/content checks; frontend offline regression, dependency audit, and build.
+- The backend image check confirms FFmpeg and Alembic migrations remain present and scraper runtimes remain absent. The CI logs do not report a reproducible final image-size comparison or a controlled before/after build-time benchmark, so those measurements remain open.
+- Source configuration on this branch currently defaults to `DB_POOL_SIZE=3`, `DB_MAX_OVERFLOW=2`, and `API_MAX_CONCURRENT_REQUESTS=3`; the Docker command defaults Uvicorn concurrency to 32. These are code defaults only. They do not establish the effective values supplied by Northflank environment overrides, which were not accessed or changed.
+- The Docker install tweak and backfill timing diagnostics are the only application/Docker changes in this PR; no feature or dependency was removed. The backfill diagnostic logs can be used to estimate work duration when run in an approved environment, but cannot by themselves measure process RSS, CPU saturation, request latency, or OOM attribution.
+- Repository-only review still found no candidate that meets the deletion gate. Preserve uncertain configuration, SDKs, runtime dependencies, background maintenance, FFmpeg, and migrations until full call-site/entry-point tracing demonstrates they are unused.
+- Not performed: Northflank/VPS inspection, effective production environment inspection, live or staging load test, runtime memory/CPU/restart/503 measurement, and baseline-vs-candidate image size/build timing. These require an authorized non-production runtime and/or access to sanitized deployment metrics; do not infer them from CI success.
+- Guardrails remain: draft PR #45 only; no merge, deployment, production configuration change, account change, or Northflank/VPS modification.
