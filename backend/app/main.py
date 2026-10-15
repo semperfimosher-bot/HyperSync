@@ -341,7 +341,8 @@ async def run_media_identity_backfill() -> None:
             artist_batches += 1
             artist_rows_processed += artist_profiles_processed
             logger.debug(
-                "Artist profile backfill batch completed: rows=%d elapsed_seconds=%.3f total_rows=%d",
+                "Artist profile backfill batch completed: rows=%d "
+                "elapsed_seconds=%.3f total_rows=%d",
                 artist_profiles_processed,
                 time.perf_counter() - batch_started_at,
                 artist_rows_processed,
@@ -349,7 +350,9 @@ async def run_media_identity_backfill() -> None:
 
             if artist_profiles_processed == 0:
                 logger.info(
-                    "Media and artist identity backfill completed: media_rows=%d media_batches=%d artist_rows=%d artist_batches=%d elapsed_seconds=%.3f",
+                    "Media and artist identity backfill completed: "
+                    "media_rows=%d media_batches=%d artist_rows=%d "
+                    "artist_batches=%d elapsed_seconds=%.3f",
                     media_rows_processed,
                     media_batches,
                     artist_rows_processed,
