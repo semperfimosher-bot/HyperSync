@@ -2,8 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 from scripts.verification.models import CheckResult, aggregate_exit_code
 from scripts.verification.processes import run_check
 
@@ -74,7 +72,6 @@ def test_aggregate_never_claims_unexecuted_checks_passed(states, code):
     assert aggregate_exit_code([CheckResult(s, s, 0, None, None, "") for s in states]) == code
 
 
-@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "1441"])
 def test_cli_list_does_not_create_reports_or_require_browser(tmp_path):
     import subprocess
 
