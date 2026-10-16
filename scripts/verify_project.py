@@ -4,7 +4,9 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -63,6 +65,7 @@ def run_smoke(target: str, output_dir: Path) -> int:
 
 
 def execute_suite(args: argparse.Namespace, checks: list[tuple[str, list[str], Path, int]]) -> int:
+    import asyncio
     run_id = uuid4().hex
     run_dir = args.output_dir.resolve() / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + run_id[:8])
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -79,25 +82,47 @@ def execute_suite(args: argparse.Namespace, checks: list[tuple[str, list[str], P
     results: list[CheckResult] = []
     write_report(run_dir, metadata, results)
     started = time.monotonic()
-    for name, command, cwd, timeout in checks:
-        print(f"Running {name}", flush=True)
-        result = run_check(command, cwd=cwd, env=dict(os.environ), timeout_seconds=timeout,
-                           log_path=run_dir / f"{name}.log", secrets=())
-        results.append(result)
-        write_report(run_dir, metadata, results)
-        print(f"{name}: {result.status}", flush=True)
-        if result.detail:
-            print(f"{name} detail: {result.detail}", flush=True)
-        if result.status in {"failed", "blocked", "interrupted"}:
-            break
-    if args.suite == "full":
+    with ExitStack() as stack:
         try:
-            from scripts.verification.postgres import verify_postgres
-            postgres_url = os.environ.get("HYPERSYNC_TEST_POSTGRES_URL", "")
-            results.extend(verify_postgres(postgres_url, run_id, run_dir))
-        except (Exception, KeyboardInterrupt) as error:
-            results.append(CheckResult("postgres", "failed", 0, None, None,
-                                       f"PostgreSQL stage failed: {type(error).__name__}"))
+            from scripts.verification.environment import child_environment, create_environment, owned_cleanup
+            temporary = stack.enter_context(tempfile.TemporaryDirectory(prefix="hypersync-verify-"))
+            environment = create_environment(Path(temporary) / "runtime")
+            stack.callback(owned_cleanup, environment)
+            env = child_environment(environment)
+            secrets: tuple[str, ...] = ()
+            for name, command, cwd, timeout in checks:
+                print(f"Running {name}", flush=True)
+                result = run_check(command, cwd=cwd, env=env, timeout_seconds=timeout,
+                                   log_path=run_dir / f"{name}.log", secrets=secrets)
+                results.append(result)
+                write_report(run_dir, metadata, results)
+                print(f"{name}: {result.status}", flush=True)
+                if result.detail:
+                    print(f"{name} detail: {result.detail}", flush=True)
+                if result.status in {"failed", "blocked", "interrupted"}:
+                    break
+        except KeyboardInterrupt:
+            results.append(CheckResult("runner", "interrupted", 0, None, None, "Interrupted by user"))
+        except (ImportError, FileNotFoundError, RuntimeError, ValueError) as error:
+            results.append(CheckResult("prerequisites", "blocked", 0, None, None,
+                                       f"Verification prerequisite unavailable: {type(error).__name__}"))
+        except Exception as error:
+            results.append(CheckResult("runner", "failed", 0, None, None,
+                                       f"Verification infrastructure failed: {type(error).__name__}"))
+        finally:
+            if args.suite == "full":
+                try:
+                    from scripts.verification.postgres import verify_postgres
+                    postgres_url = os.environ.get("HYPERSYNC_TEST_POSTGRES_URL", "")
+                    results.extend(verify_postgres(postgres_url, run_id, run_dir))
+                except (Exception, KeyboardInterrupt) as error:
+                    results.append(CheckResult("postgres", "failed", 0, None, None,
+                                               f"PostgreSQL stage failed: {type(error).__name__}"))
+            try:
+                stack.close()
+            except Exception as error:
+                results.append(CheckResult("cleanup", "failed", 0, None, None,
+                                           f"Owned cleanup failed: {type(error).__name__}"))
     metadata["state"] = "completed"
     metadata["elapsed_seconds"] = round(time.monotonic() - started, 2)
     write_report(run_dir, metadata, results)
