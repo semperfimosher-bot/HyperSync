@@ -2,7 +2,7 @@
 param(
     [int]$FrontendPort = 4153,
     [int]$BackendPort = 8000,
-    [string]$Branch = "main",
+    [string]$Branch = "PERFECT",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations
@@ -17,8 +17,8 @@ if (-not (Test-Path -LiteralPath $UpdateScript)) {
     throw "update-local.ps1 was not found next to go.ps1."
 }
 
-if ($Branch -ne "main") {
-    throw "go.ps1 is intentionally locked to GitHub main. Use update-local.ps1 directly only when you explicitly need another branch."
+if ($Branch -ne "PERFECT") {
+    throw "go.ps1 is intentionally locked to the PERFECT baseline branch."
 }
 
 if ($FrontendPort -ne 4153) {
@@ -29,4 +29,16 @@ if ($BackendPort -ne 8000) {
     throw "HyperSync local backend is fixed to port 8000."
 }
 
-& $UpdateScript @PSBoundParameters
+# Pass every parameter explicitly. @PSBoundParameters omits default-valued
+# parameters that the caller did not type, which previously let update-local
+# fall back to its own default branch ("main").
+$updateParameters = @{
+    FrontendPort = $FrontendPort
+    BackendPort = $BackendPort
+    Branch = $Branch
+    NoBrowser = $NoBrowser
+    SkipDependencies = $SkipDependencies
+    SkipMigrations = $SkipMigrations
+}
+
+& $UpdateScript @updateParameters
