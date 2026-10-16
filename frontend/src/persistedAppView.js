@@ -5,8 +5,9 @@ function storageKey(userId) {
   return id ? STORAGE_PREFIX + encodeURIComponent(id) : "";
 }
 
-export function readPersistedAppView(userId, storage = globalThis.localStorage) {
+export function readPersistedAppView(userId, storage = null) {
   const key = storageKey(userId);
+  try { storage ??= globalThis.localStorage; } catch { return null; }
   if (!key || !storage?.getItem) return null;
 
   try {
@@ -29,8 +30,9 @@ export function readPersistedAppView(userId, storage = globalThis.localStorage) 
   }
 }
 
-export function writePersistedAppView(userId, state, storage = globalThis.localStorage) {
+export function writePersistedAppView(userId, state, storage = null) {
   const key = storageKey(userId);
+  try { storage ??= globalThis.localStorage; } catch { return false; }
   if (!key || !storage?.setItem || !state || typeof state !== "object") {
     return false;
   }
@@ -56,8 +58,9 @@ export function writePersistedAppView(userId, state, storage = globalThis.localS
   }
 }
 
-export function clearPersistedAppView(userId, storage = globalThis.localStorage) {
+export function clearPersistedAppView(userId, storage = null) {
   const key = storageKey(userId);
+  try { storage ??= globalThis.localStorage; } catch { return false; }
   if (!key || !storage?.removeItem) return false;
   try {
     storage.removeItem(key);
