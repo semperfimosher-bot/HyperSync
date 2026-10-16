@@ -85,19 +85,66 @@ window.addEventListener(
 
 if (import.meta.env.DEV) {
   /*
-   * A production/preview service worker can
-   * survive on the same localhost origin and
-   * cache an old Vite client. Vite 8 uses a
-   * per-process WebSocket token, so that stale
-   * client is rejected with HTTP 400.
+   * A production/preview service worker can survive on the
+   * same localhost origin and serve an old Vite client. Vite
+   * 8 rejects that client's stale WebSocket token with HTTP
+   * 400, and cached HTML/modules can point at files that no
+   * longer exist (which leaves the app looking blank).
    *
-   * Keep offline media databases intact; only
-   * remove service workers and app-shell caches.
+   * Clear only service workers and app-shell caches. If
+   * anything was removed, reload once so the browser fetches
+   * the current Vite entry point without the stale worker.
+   * The session flag prevents reload loops.
+   *
+   * Keep offline media databases intact.
    */
   void clearDevelopmentServiceWorkerState()
-    .catch(
-      () => {},
-    );
+    .then((result) => {
+      const cleared =
+        (result?.registrationsCleared ?? 0) > 0 ||
+        (result?.appShellCachesCleared ?? 0) > 0;
+
+      const reloadKey =
+        "hypersync:dev-service-worker-reload";
+
+      let alreadyReloaded = false;
+
+      try {
+        alreadyReloaded =
+          globalThis.sessionStorage
+            ?.getItem(reloadKey) === "1";
+      } catch {
+        // If storage is blocked, avoid a forced reload loop.
+        return;
+      }
+
+      if (cleared && !alreadyReloaded) {
+        try {
+          globalThis.sessionStorage
+            ?.setItem(reloadKey, "1");
+        } catch {
+          return;
+        }
+
+        window.location.reload();
+        return;
+      }
+
+      if (alreadyReloaded && !cleared) {
+        try {
+          globalThis.sessionStorage
+            ?.removeItem(reloadKey);
+        } catch {
+          // The app still works if cleanup is unavailable.
+        }
+      }
+    })
+    .catch((error) => {
+      console.warn(
+        "Unable to clear stale development service-worker state.",
+        error,
+      );
+    });
 } else if (import.meta.env.PROD) {
   const registerAppWorker =
     () => {
