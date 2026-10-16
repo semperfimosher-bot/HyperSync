@@ -14,8 +14,8 @@ and a production build. Full adds dependency/security checks, a backend Docker b
 and disposable PostgreSQL verification. Browser automation and separately installed
 browser binaries are no longer required. Use `--list` to list checks without running them.
 
-Full requires an explicitly disposable local PostgreSQL service with database creation
-privileges. Set `HYPERSYNC_TEST_POSTGRES_URL` to its admin connection URL. Only localhost,
+Both quick and full require an explicitly disposable local PostgreSQL service with database creation
+privileges for the isolated test database. Full additionally runs the PostgreSQL migration/concurrency checks. Set `HYPERSYNC_TEST_POSTGRES_URL` to its admin connection URL. Only localhost,
 127.0.0.1, and ::1 endpoints without query overrides are accepted. Never use a tunnel
 to a live database. The runner creates a random `hs_verify_...` database, exercises
 migrations and concurrent writes, and removes only the database it owns.
