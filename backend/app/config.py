@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     db_lock_timeout_ms: int = 5000
     db_idle_transaction_timeout_ms: int = 30000
     api_max_concurrent_requests: int = 3
-    api_admission_timeout_seconds: float = 2.0
+    api_admission_timeout_seconds: float = 5.0
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
