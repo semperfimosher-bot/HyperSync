@@ -28,6 +28,10 @@ import {
 import { apiRequest } from "./api/client.js";
 
 import { normalizeAppViewState } from "./appViewState.js";
+import {
+  readPersistedAppView,
+  writePersistedAppView,
+} from "./persistedAppView.js";
 
 import {
   PAGE_WARM_SWEEP_MS,
@@ -3700,6 +3704,24 @@ const restoreSavedAppView =
         return;
       }
 
+      // Restore the last local view immediately. The server remains
+      // authoritative and will replace this state when its request succeeds.
+      const localView = readPersistedAppView(user?.id);
+      if (localView) {
+        const restoredLocal = normalizeAppViewState(
+          localView,
+          user?.role,
+        );
+        if (
+          navigationGenerationRef.current ===
+          restoreGeneration
+        ) {
+          setActivePage(restoredLocal.activePage);
+          setSearchQuery(restoredLocal.searchQuery);
+          setActiveProfileUsername(restoredLocal.profileUsername);
+        }
+      }
+
       try {
         const state =
           await apiRequest(
@@ -3761,6 +3783,8 @@ const persistAppView =
       if (!currentUser) {
         return;
       }
+
+      writePersistedAppView(currentUser.id, state);
 
       void apiRequest(
         "/users/me/app-state",
