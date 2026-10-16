@@ -64,10 +64,6 @@ export default function PlayerBar({
     setNotificationsOpen,
   ] = useState(false);
 
-  const [
-    devicesOpen,
-    setDevicesOpen,
-  ] = useState(false);
 
   const [
     remoteClock,
@@ -925,10 +921,6 @@ export default function PlayerBar({
 
               setNotificationsOpen(
                 (open) => !open,
-              );
-
-              setDevicesOpen(
-                false,
               );
             }}
           >
