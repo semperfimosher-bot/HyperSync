@@ -31,6 +31,7 @@ import { normalizeAppViewState } from "./appViewState.js";
 import {
   readPersistedAppView,
   writePersistedAppView,
+  clearPersistedAppView,
 } from "./persistedAppView.js";
 
 import {
@@ -3813,6 +3814,7 @@ const persistAppView =
   function handleLogout() {
   navigationGenerationRef.current += 1;
   cancelPendingSearchSave();
+  clearPersistedAppView(currentUser?.id);
 
   /*
    * Keep the song/source/player bar,
