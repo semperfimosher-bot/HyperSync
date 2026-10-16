@@ -16,7 +16,6 @@ from .artist import (
     ArtistProfile,
 )
 from .base import Base
-from .jam import JamMember, JamQueueItem, JamSession
 from .media import (
     Track,
     TrackArtistCredit,
@@ -51,9 +50,6 @@ __all__ = [
     "Message",
     "PushSubscription",
     "ListeningEvent",
-    "JamSession",
-    "JamMember",
-    "JamQueueItem",
     "PlaybackCommand",
     "PlaybackDevice",
     "PasswordRecovery",
