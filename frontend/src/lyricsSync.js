@@ -8,198 +8,63 @@ const CATALOG_TRACK_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 
-export function catalogLyricsTrackId(
-  value,
-) {
-  const trackId =
-    String(
-      value ?? "",
-    ).trim();
-
-  return (
-    CATALOG_TRACK_ID_PATTERN.test(
-      trackId,
-    )
-      ? trackId
-      : null
-  );
+export function catalogLyricsTrackId(value) {
+  const trackId = String(value ?? "").trim();
+  return CATALOG_TRACK_ID_PATTERN.test(trackId) ? trackId : null;
 }
 
 
-function fractionToSeconds(
-  fraction,
-) {
-  if (!fraction) {
-    return 0;
-  }
-
-  const value =
-    Number(
-      `0.${fraction}`,
-    );
-
-  return Number.isFinite(value)
-    ? value
-    : 0;
+function fractionToSeconds(fraction) {
+  if (!fraction) return 0;
+  const value = Number(`0.${fraction}`);
+  return Number.isFinite(value) ? value : 0;
 }
 
 
-export function parseSyncedLyrics(
-  syncedLyrics,
-) {
-  if (
-    typeof syncedLyrics !==
-      "string" ||
-    syncedLyrics.trim() === ""
-  ) {
-    return [];
-  }
+export function parseSyncedLyrics(syncedLyrics) {
+  if (typeof syncedLyrics !== "string" || syncedLyrics.trim() === "") return [];
 
-  const offsetMatch =
-    syncedLyrics.match(
-      OFFSET_PATTERN,
-    );
-
-  const offsetSeconds =
-    offsetMatch
-      ? (
-          Number(
-            offsetMatch[1],
-          ) / 1000
-        )
-      : 0;
-
+  const offsetMatch = syncedLyrics.match(OFFSET_PATTERN);
+  const offsetSeconds = offsetMatch ? Number(offsetMatch[1]) / 1000 : 0;
   const parsed = [];
 
-  for (
-    const rawLine
-    of syncedLyrics.split(
-      /\r?\n/,
-    )
-  ) {
-    const timestamps = [
-      ...rawLine.matchAll(
-        TIMESTAMP_PATTERN,
-      ),
-    ];
+  for (const rawLine of syncedLyrics.split(/\r?\n/)) {
+    const timestamps = [...rawLine.matchAll(TIMESTAMP_PATTERN)];
+    if (timestamps.length === 0) continue;
 
-    if (
-      timestamps.length === 0
-    ) {
-      continue;
-    }
+    const text = rawLine.replace(TIMESTAMP_PATTERN, "").trim();
+    if (!text) continue;
 
-    const text =
-      rawLine
-        .replace(
-          TIMESTAMP_PATTERN,
-          "",
-        )
-        .trim();
+    for (const timestamp of timestamps) {
+      const minutes = Number(timestamp[1]);
+      const seconds = Number(timestamp[2]);
+      if (!Number.isFinite(minutes) || !Number.isFinite(seconds) || seconds >= 60) continue;
 
-    if (!text) {
-      continue;
-    }
-
-    for (
-      const timestamp
-      of timestamps
-    ) {
-      const minutes =
-        Number(
-          timestamp[1],
-        );
-
-      const seconds =
-        Number(
-          timestamp[2],
-        );
-
-      if (
-        !Number.isFinite(
-          minutes,
-        ) ||
-        !Number.isFinite(
-          seconds,
-        ) ||
-        seconds >= 60
-      ) {
-        continue;
-      }
-
-      const fraction =
-        fractionToSeconds(
-          timestamp[3],
-        );
-
-      const timeSeconds =
-        Math.max(
-          0,
-          (
-            minutes * 60
-          ) +
-          seconds +
-          fraction +
-          offsetSeconds,
-        );
-
-      parsed.push({
-        timeSeconds,
-        text,
-      });
+      const fraction = fractionToSeconds(timestamp[3]);
+      const timeSeconds = Math.max(0, minutes * 60 + seconds + fraction + offsetSeconds);
+      parsed.push({ timeSeconds, text });
     }
   }
 
-  return parsed.sort(
-    (a, b) =>
-      a.timeSeconds -
-      b.timeSeconds,
-  );
+  return parsed.sort((a, b) => a.timeSeconds - b.timeSeconds);
 }
 
 
-export function getActiveLyricIndex(
-  lines,
-  currentTime,
-) {
-  if (
-    !Array.isArray(lines) ||
-    lines.length === 0 ||
-    typeof currentTime !==
-      "number" ||
-    !Number.isFinite(
-      currentTime,
-    )
-  ) {
-    return -1;
-  }
+export function getActiveLyricIndex(lines, currentTime) {
+  if (!Array.isArray(lines) || lines.length === 0 ||
+      typeof currentTime !== "number" || !Number.isFinite(currentTime)) return -1;
 
   let low = 0;
-
-  let high =
-    lines.length - 1;
-
+  let high = lines.length - 1;
   let activeIndex = -1;
 
   while (low <= high) {
-    const middle =
-      Math.floor(
-        (low + high) / 2,
-      );
-
-    if (
-      lines[middle]
-        .timeSeconds
-      <= currentTime
-    ) {
-      activeIndex =
-        middle;
-
-      low =
-        middle + 1;
+    const middle = Math.floor((low + high) / 2);
+    if (lines[middle].timeSeconds <= currentTime) {
+      activeIndex = middle;
+      low = middle + 1;
     } else {
-      high =
-        middle - 1;
+      high = middle - 1;
     }
   }
 
@@ -207,136 +72,14 @@ export function getActiveLyricIndex(
 }
 
 
-
-export function getRemoteLyricsPosition(
-  snapshot,
-  nowMs = Date.now(),
-) {
-  const basePosition =
-    Math.max(
-      Number(
-        snapshot?.position_seconds ??
-          0,
-      ) || 0,
-      0,
-    );
-
-  if (
-    snapshot?.paused ||
-    !snapshot?.track?.id
-  ) {
-    return basePosition;
-  }
-
-  const updatedAtMs =
-    Date.parse(
-      String(
-        snapshot?.updated_at ??
-          "",
-      ),
-    );
-
-  if (
-    !Number.isFinite(
-      updatedAtMs,
-    )
-  ) {
-    return basePosition;
-  }
-
-  return (
-    basePosition +
-    Math.max(
-      (
-        Number(
-          nowMs,
-        ) -
-        updatedAtMs
-      ) / 1000,
-      0,
-    )
-  );
-}
-
-
-export function getEffectiveLyricsPlaybackState({
-  localState = {},
-  accountSnapshot = null,
-  currentPlaybackDeviceId = null,
-  nowMs = Date.now(),
-} = {}) {
-  const currentDeviceId =
-    String(
-      currentPlaybackDeviceId ??
-        "",
-    ).trim();
-
-  const ownerDeviceId =
-    String(
-      accountSnapshot?.device_id ??
-        "",
-    ).trim();
-
-  const controllingRemote =
-    Boolean(
-      accountSnapshot?.track?.id &&
-      ownerDeviceId &&
-      currentDeviceId &&
-      ownerDeviceId !==
-        currentDeviceId
-    );
-
-  if (!controllingRemote) {
-    return {
-      ...localState,
-      controllingRemote:
-        false,
-    };
-  }
-
-  const remoteTrack =
-    accountSnapshot.track;
-
+/*
+ * Cross-device playback is disabled. Lyrics must always use the local audio
+ * player's clock; account snapshots must never override the current track or
+ * position used for highlighting.
+ */
+export function getEffectiveLyricsPlaybackState({ localState = {} } = {}) {
   return {
     ...localState,
-    trackId:
-      String(
-        remoteTrack.id,
-      ),
-    catalogTrackId:
-      catalogLyricsTrackId(
-        remoteTrack.id,
-      ),
-    title:
-      remoteTrack.title ??
-      "",
-    artist:
-      remoteTrack.artist ??
-      "",
-    album:
-      remoteTrack.album ??
-      "",
-    artworkUrl:
-      remoteTrack.artwork_url ??
-      null,
-    duration:
-      Math.max(
-        Number(
-          remoteTrack.duration_seconds ??
-            0,
-        ) || 0,
-        0,
-      ),
-    currentTime:
-      getRemoteLyricsPosition(
-        accountSnapshot,
-        nowMs,
-      ),
-    paused:
-      Boolean(
-        accountSnapshot.paused,
-      ),
-    controllingRemote:
-      true,
+    controllingRemote: false,
   };
 }
