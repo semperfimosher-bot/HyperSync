@@ -7,7 +7,6 @@ from .routes import (
     auth,
     catalog,
     health,
-    jams,
     media,
     messages,
     playlists,
@@ -67,8 +66,6 @@ api_router.include_router(
     messages.router,
     prefix="/api",
 )
-
-api_router.include_router(jams.router, prefix="/api")
 
 api_router.include_router(
     recommendations.router,
