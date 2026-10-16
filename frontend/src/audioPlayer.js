@@ -160,17 +160,6 @@ let playbackPhase =
 let playbackError =
   null;
 
-let remotePlaybackController =
-  null;
-
-let jamTrackEndedController = null;
-
-export function setJamTrackEndedController(controller) {
-  jamTrackEndedController = typeof controller === "function" ? controller : null;
-}
-
-let forceLocalPlaybackDepth =
-  0;
 
 const queuedAudioWarmups =
   new Map();
@@ -272,114 +261,6 @@ function warmQueuedAudioEntry(
   );
 
   return task;
-}
-
-
-export function setRemotePlaybackController(
-  controller,
-) {
-  remotePlaybackController =
-    controller &&
-    typeof controller ===
-      "object"
-      ? controller
-      : null;
-}
-
-
-export async function runWithLocalPlaybackControl(
-  callback,
-) {
-  forceLocalPlaybackDepth +=
-    1;
-
-  try {
-    return await callback();
-  } finally {
-    forceLocalPlaybackDepth =
-      Math.max(
-        forceLocalPlaybackDepth -
-          1,
-        0,
-      );
-  }
-}
-
-
-function shouldRoutePlaybackRemotely() {
-  if (
-    forceLocalPlaybackDepth >
-      0 ||
-    !remotePlaybackController
-  ) {
-    return false;
-  }
-
-  try {
-    return Boolean(
-      remotePlaybackController
-        .shouldHandle?.(),
-    );
-  } catch {
-    return false;
-  }
-}
-
-
-async function dispatchRemotePlayback(
-  action,
-  payload = null,
-) {
-  if (
-    !shouldRoutePlaybackRemotely()
-  ) {
-    return false;
-  }
-
-  try {
-    await remotePlaybackController
-      .dispatch?.(
-        action,
-        payload,
-      );
-  } catch {
-    /*
-     * Never fall through to local audio
-     * after a remote-control failure.
-     * The selected playback device remains
-     * authoritative until the user changes it.
-     */
-  }
-
-  return true;
-}
-
-
-function dispatchRemotePlaybackInBackground(
-  action,
-  payload = null,
-) {
-  if (
-    !shouldRoutePlaybackRemotely()
-  ) {
-    return false;
-  }
-
-  try {
-    void Promise.resolve(
-      remotePlaybackController
-        .dispatch?.(
-          action,
-          payload,
-        ),
-    ).catch(
-      () => {},
-    );
-  } catch {
-    // Keep the local speaker silent.
-  }
-
-  return true;
 }
 
 
@@ -568,96 +449,6 @@ function normalizeTrackMeta(
       meta.album ??
       "",
   };
-}
-
-
-function applyRemoteSelectionShadow(
-  trackId,
-  meta = {},
-  queue = null,
-  queueIndex = 0,
-) {
-  if (!trackId) {
-    return;
-  }
-
-  const normalizedMeta =
-    normalizeTrackMeta(
-      meta,
-    );
-
-  currentTrackId =
-    String(
-      trackId,
-    );
-
-  currentTrackMeta =
-    normalizedMeta;
-
-  currentArtworkUrl =
-    normalizedMeta.artworkUrl;
-
-  currentTrackTitle =
-    normalizedMeta.title;
-
-  currentTrackArtist =
-    normalizedMeta.artist;
-
-  if (
-    Array.isArray(
-      queue,
-    ) &&
-    queue.length > 0
-  ) {
-    currentQueue =
-      queue.map(
-        (entry) => ({
-          id:
-            String(
-              entry.id,
-            ),
-          meta: {
-            ...entry.meta,
-          },
-        }),
-      );
-
-    currentQueueIndex =
-      Math.min(
-        Math.max(
-          Number.isInteger(
-            queueIndex,
-          )
-            ? queueIndex
-            : 0,
-          0,
-        ),
-        currentQueue.length - 1,
-      );
-  } else {
-    currentQueue = [
-      {
-        id:
-          String(
-            trackId,
-          ),
-        meta:
-          normalizedMeta,
-      },
-    ];
-
-    currentQueueIndex =
-      0;
-  }
-
-  queueRevision +=
-    1;
-
-  rememberAutoplayTrack(
-    currentTrackId,
-  );
-
-  notify();
 }
 
 
@@ -1742,11 +1533,6 @@ function attachEvents() {
         : getSafeCurrentTime(),
     );
 
-    try {
-      if (jamTrackEndedController?.(currentTrackId) === true) return;
-    } catch {
-      // A Jam callback must never prevent ordinary queue progression.
-    }
 
     void playNextQueueTrack()
       .catch(
@@ -2665,270 +2451,12 @@ beginListeningEvent(
 return getState();
 }
 
-export async function restoreAccountPlayback(
-  track,
-  positionSeconds = 0,
-) {
-  const trackId =
-    String(
-      track?.id ??
-      "",
-    ).trim();
-
-  if (!trackId) {
-    stopTrack();
-
-    return getState();
-  }
-
-  const meta =
-    normalizeTrackMeta(
-      track,
-    );
-
-  const requestedTime =
-    Number.isFinite(
-      Number(
-        positionSeconds,
-      ),
-    )
-      ? Math.max(
-          Number(
-            positionSeconds,
-          ),
-          0,
-        )
-      : 0;
-
-  /*
-   * Account sync never auto-starts audio.
-   * A user gesture on this device is still
-   * required before it takes playback over.
-   */
-  audio.pause();
-
-  if (
-    currentTrackId ===
-      trackId &&
-    currentTrackMeta
-  ) {
-    currentTrackMeta =
-      meta;
-
-    currentArtworkUrl =
-      meta.artworkUrl;
-
-    currentTrackTitle =
-      meta.title;
-
-    currentTrackArtist =
-      meta.artist;
-
-    restoredTimeSeconds =
-      requestedTime;
-
-    const canReuseSource =
-      canReuseLoadedAudioSource({
-        logicalTrackId:
-          trackId,
-        loadedTrackId:
-          loadedAudioTrackId,
-        hasSource:
-          hasAudioSource(),
-      });
-
-    if (
-      canReuseSource
-    ) {
-      const duration =
-        Number.isFinite(
-          audio.duration,
-        ) &&
-        audio.duration > 0
-          ? audio.duration
-          : requestedTime;
-
-      try {
-        audio.currentTime =
-          Math.max(
-            0,
-            Math.min(
-              requestedTime,
-              duration,
-            ),
-          );
-      } catch {
-        // The source may still be loading.
-      }
-    }
-
-    setPlaybackPhase(
-      "paused",
-    );
-
-    rememberAutoplayTrack(
-      trackId,
-    );
-
-    persistPlayerState({
-      force:
-        true,
-      currentTime:
-        requestedTime,
-    });
-
-    clearQueue();
-
-    ensureCurrentTrackInQueue();
-
-    notify();
-
-    if (!canReuseSource) {
-      cancelActivePlaybackSession();
-
-      audio.removeAttribute(
-        "src",
-      );
-
-      loadedAudioTrackId =
-        null;
-
-      audio.load();
-
-      try {
-        await ensureCurrentTrackSource();
-      } catch {
-        setPlaybackPhase(
-          "paused",
-        );
-
-        notify();
-      }
-    }
-
-    void ensureAutoplayQueue({
-      force:
-        true,
-    }).catch(
-      () => {},
-    );
-
-    return getState();
-  }
-
-  cancelActivePlaybackSession();
-
-  clearQueue();
-
-  audio.removeAttribute(
-    "src",
-  );
-
-  loadedAudioTrackId =
-    null;
-
-  audio.load();
-
-  currentTrackId =
-    trackId;
-
-  currentTrackMeta =
-    meta;
-
-  currentArtworkUrl =
-    meta.artworkUrl;
-
-  currentTrackTitle =
-    meta.title;
-
-  currentTrackArtist =
-    meta.artist;
-
-  rememberAutoplayTrack(
-    trackId,
-  );
-
-  restoredTimeSeconds =
-    requestedTime;
-
-  setPlaybackPhase(
-    "paused",
-  );
-
-  persistPlayerState({
-    force:
-      true,
-    currentTime:
-      requestedTime,
-  });
-
-  notify();
-
-  void ensureAutoplayQueue({
-    force:
-      true,
-  }).catch(
-    () => {},
-  );
-
-  try {
-    await ensureCurrentTrackSource();
-  } catch {
-    if (
-      currentTrackId ===
-        trackId
-    ) {
-      setPlaybackPhase(
-        "paused",
-      );
-
-      notify();
-    }
-  }
-
-  return getState();
-}
-
 
 export async function playTrack(
   trackId,
   meta = {},
 ) {
-  const remoteQueue = [
-    {
-      id:
-        String(
-          trackId,
-        ),
-      meta:
-        normalizeTrackMeta(
-          meta,
-        ),
-    },
-  ];
 
-  if (
-    await dispatchRemotePlayback(
-      "play_track",
-      {
-        trackId,
-        meta,
-        queue:
-          remoteQueue,
-        queueIndex:
-          0,
-      },
-    )
-  ) {
-    applyRemoteSelectionShadow(
-      trackId,
-      meta,
-      remoteQueue,
-      0,
-    );
-
-    return getState();
-  }
 
   finishListeningEvent(
   "skipped",
@@ -2966,30 +2494,6 @@ export async function playQueueIndex(
     return false;
   }
 
-  if (
-    await dispatchRemotePlayback(
-      "play_track",
-      {
-        trackId:
-          track.id,
-        meta:
-          track.meta,
-        queue:
-          currentQueue,
-        queueIndex:
-          index,
-      },
-    )
-  ) {
-    applyRemoteSelectionShadow(
-      track.id,
-      track.meta,
-      currentQueue,
-      index,
-    );
-
-    return getState();
-  }
 
   finishListeningEvent(
   "skipped",
@@ -3032,9 +2536,6 @@ export async function playQueueIndex(
 export async function playTrackQueue(
   tracks,
   startIndex = 0,
-  {
-    forceLocal = false,
-  } = {},
 ) {
   const queue =
     buildTrackQueue(
@@ -3088,31 +2589,6 @@ export async function playTrackQueue(
       currentQueueIndex
     ];
 
-  if (
-    !forceLocal &&
-    await dispatchRemotePlayback(
-      "play_track",
-      {
-        trackId:
-          track.id,
-        meta:
-          track.meta,
-        queue:
-          currentQueue,
-        queueIndex:
-          currentQueueIndex,
-      },
-    )
-  ) {
-    applyRemoteSelectionShadow(
-      track.id,
-      track.meta,
-      currentQueue,
-      currentQueueIndex,
-    );
-
-    return getState();
-  }
 
   finishListeningEvent(
     "skipped",
@@ -3235,17 +2711,7 @@ export async function playUrl(
   url,
   meta = {},
 ) {
-  if (
-    await dispatchRemotePlayback(
-      "play_url",
-      {
-        url,
-        meta,
-      },
-    )
-  ) {
-    return getState();
-  }
+
 
   if (!url) {
     return null;
@@ -3360,13 +2826,7 @@ export async function playUrl(
 
 
 export async function togglePlay() {
-  if (
-    await dispatchRemotePlayback(
-      "toggle",
-    )
-  ) {
-    return getState();
-  }
+
 
   if (audio.paused) {
     /*
@@ -3423,196 +2883,8 @@ export async function togglePlay() {
 }
 
 
-export async function restoreAccountPlaybackQueue(
-  queue,
-  queueIndex = 0,
-  positionSeconds = 0,
-) {
-  const builtQueue =
-    buildTrackQueue(
-      Array.isArray(
-        queue,
-      )
-        ? queue
-        : [],
-    );
-
-  if (!builtQueue.length) {
-    return getState();
-  }
-
-  const safeIndex =
-    Math.min(
-      Math.max(
-        Number.isInteger(
-          queueIndex,
-        )
-          ? queueIndex
-          : 0,
-        0,
-      ),
-      builtQueue.length - 1,
-    );
-
-  const selected =
-    builtQueue[
-      safeIndex
-    ];
-
-  await restoreAccountPlayback(
-    {
-      id:
-        selected.id,
-      ...selected.meta,
-    },
-    positionSeconds,
-  );
-
-  queueRevision +=
-    1;
-
-  currentQueue =
-    builtQueue;
-
-  currentQueueIndex =
-    safeIndex;
-
-  notify();
-
-  return getState();
-}
-
-
-export function syncAccountPlaybackShadow(
-  snapshot,
-) {
-  const queue =
-    buildTrackQueue(
-      Array.isArray(
-        snapshot?.queue,
-      )
-        ? snapshot.queue
-        : [],
-    );
-
-  if (!queue.length) {
-    queueRevision +=
-      1;
-
-    currentQueue =
-      [];
-
-    currentQueueIndex =
-      -1;
-
-    if (!snapshot?.track?.id) {
-      currentTrackId =
-        null;
-
-      currentTrackMeta =
-        null;
-
-      currentArtworkUrl =
-        null;
-
-      currentTrackTitle =
-        "";
-
-      currentTrackArtist =
-        "";
-    }
-
-    notify();
-
-    return getState();
-  }
-
-  const requestedIndex =
-    Number(
-      snapshot?.queue_index,
-    );
-
-  let safeIndex =
-    Number.isInteger(
-      requestedIndex,
-    )
-      ? Math.min(
-          Math.max(
-            requestedIndex,
-            0,
-          ),
-          queue.length - 1,
-        )
-      : 0;
-
-  const trackId =
-    String(
-      snapshot?.track?.id ??
-        "",
-    );
-
-  const matchingIndex =
-    trackId
-      ? queue.findIndex(
-          (entry) =>
-            String(
-              entry.id,
-            ) === trackId,
-        )
-      : -1;
-
-  if (matchingIndex >= 0) {
-    safeIndex =
-      matchingIndex;
-  }
-
-  const selected =
-    queue[
-      safeIndex
-    ];
-
-  queueRevision +=
-    1;
-
-  currentQueue =
-    queue;
-
-  currentQueueIndex =
-    safeIndex;
-
-  currentTrackId =
-    String(
-      selected.id,
-    );
-
-  currentTrackMeta =
-    normalizeTrackMeta(
-      selected.meta,
-    );
-
-  currentArtworkUrl =
-    currentTrackMeta.artworkUrl;
-
-  currentTrackTitle =
-    currentTrackMeta.title;
-
-  currentTrackArtist =
-    currentTrackMeta.artist;
-
-  notify();
-
-  return getState();
-}
-
-
 export function pausePlayback() {
-  if (
-    dispatchRemotePlaybackInBackground(
-      "pause",
-    )
-  ) {
-    return getState();
-  }
+
 
   return silenceLocalPlayback();
 }
@@ -3660,16 +2932,7 @@ export function silenceLocalPlayback() {
 export function stopTrack(
   trackId = null,
 ) {
-  if (
-    dispatchRemotePlaybackInBackground(
-      "stop",
-      {
-        trackId,
-      },
-    )
-  ) {
-    return true;
-  }
+
 
   if (
     trackId &&
@@ -3757,18 +3020,6 @@ export function seekTo(
     return;
   }
 
-  if (
-    dispatchRemotePlaybackInBackground(
-      "seek",
-      {
-        value:
-          timeSeconds,
-      },
-    )
-  ) {
-    return;
-  }
-
 
   audio.currentTime =
     Math.max(
@@ -3792,16 +3043,7 @@ export function seekTo(
 export function setVolume(
   value,
 ) {
-  if (
-    dispatchRemotePlaybackInBackground(
-      "volume",
-      {
-        value,
-      },
-    )
-  ) {
-    return;
-  }
+
 
   audio.volume =
     Math.max(
@@ -3833,11 +3075,8 @@ if (
 ) {
   window.__HYPERSYNC_PLAYER = {
     playTrack,
-    restoreAccountPlayback,
-    restoreAccountPlaybackQueue,
-    syncAccountPlaybackShadow,
-    runWithLocalPlaybackControl,
-    setRemotePlaybackController,
+
+
     silenceLocalPlayback,
     playTrackQueue,
     playTrackNext,
@@ -3858,13 +3097,7 @@ if (
 }
 
 export async function skipToNext() {
-  if (
-    await dispatchRemotePlayback(
-      "next",
-    )
-  ) {
-    return true;
-  }
+
 
   if (!currentTrackId) {
     return false;
@@ -3886,15 +3119,8 @@ export async function skipToNext() {
 }
 
 
-
 export async function skipToPrevious() {
-  if (
-    await dispatchRemotePlayback(
-      "previous",
-    )
-  ) {
-    return true;
-  }
+
 
   if (!currentTrackId) {
     return false;

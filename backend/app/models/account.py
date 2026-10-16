@@ -425,6 +425,8 @@ class ListeningEvent(
     )
 
 
+# Legacy schema mappings are retained for existing databases and admin cleanup.
+# PERFECT has no runtime device-control routes, services or background transport.
 class PlaybackDevice(
     Base,
 ):

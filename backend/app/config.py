@@ -56,7 +56,6 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
-    playback_realtime_database_url: str = ""
     # Keep the default database connection footprint modest for small containers.
     # Increase only after measuring memory and concurrent database demand.
     db_pool_size: int = 3
@@ -219,12 +218,6 @@ class Settings(BaseSettings):
                 "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
             )
 
-        realtime_url = self.playback_realtime_database_url.strip()
-        if realtime_url and urlsplit(realtime_url).scheme.lower() not in allowed_schemes:
-            raise ValueError(
-                "PLAYBACK_REALTIME_DATABASE_URL must be a PostgreSQL connection string."
-            )
-
         return self.validate_database_capacity()
 
     def validate_database_capacity(self) -> "Settings":
@@ -314,15 +307,6 @@ class Settings(BaseSettings):
         source = self.migration_database_url or self.database_url
         return _prepare_asyncpg_url(source)
 
-    @property
-    def asyncpg_playback_realtime_url(self) -> str:
-        source = self.playback_realtime_database_url.strip()
-        if not source:
-            return ""
-        normalized = _prepare_asyncpg_url(source)
-        if normalized.startswith("postgresql+asyncpg://"):
-            return normalized.replace("postgresql+asyncpg://", "postgresql://", 1)
-        return normalized
 
 
 @lru_cache

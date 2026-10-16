@@ -25,22 +25,12 @@ import {
 } from "../../mediaStore.js";
 
 
-function LiveLyrics({
-  accountPlaybackSnapshot = null,
-  currentPlaybackDeviceId = null,
-}) {
+function LiveLyrics() {
   const [
     localPlayerState,
     setLocalPlayerState,
   ] = useState(
     () => player.getState(),
-  );
-
-  const [
-    remoteClock,
-    setRemoteClock,
-  ] = useState(
-    () => Date.now(),
   );
 
   const [
@@ -69,71 +59,7 @@ function LiveLyrics({
   }, []);
 
 
-  const playerState =
-    getEffectiveLyricsPlaybackState({
-      localState:
-        localPlayerState,
-      accountSnapshot:
-        accountPlaybackSnapshot,
-      currentPlaybackDeviceId,
-      nowMs:
-        remoteClock,
-    });
-
-
-  useEffect(() => {
-    if (
-      !playerState
-        .controllingRemote ||
-      playerState.paused ||
-      !playerState.trackId
-    ) {
-      return undefined;
-    }
-
-    const intervalId =
-      window.setInterval(
-        () => {
-          setRemoteClock(
-            Date.now(),
-          );
-        },
-        100,
-      );
-
-    return () => {
-      window.clearInterval(
-        intervalId,
-      );
-    };
-  }, [
-    playerState
-      .controllingRemote,
-    playerState.paused,
-    playerState.trackId,
-    accountPlaybackSnapshot
-      ?.updated_at,
-  ]);
-
-
-  useEffect(() => {
-    setRemoteClock(
-      Date.now(),
-    );
-  }, [
-    accountPlaybackSnapshot
-      ?.track?.id,
-    accountPlaybackSnapshot
-      ?.position_seconds,
-    accountPlaybackSnapshot
-      ?.paused,
-    accountPlaybackSnapshot
-      ?.updated_at,
-    accountPlaybackSnapshot
-      ?.device_id,
-    currentPlaybackDeviceId,
-  ]);
-
+  const playerState = getEffectiveLyricsPlaybackState({ localState: localPlayerState });
 
   /*
    * Only fetch lyrics when the

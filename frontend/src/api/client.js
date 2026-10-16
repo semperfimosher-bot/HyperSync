@@ -52,9 +52,6 @@ function pathRequiresAuthentication(
       "/messages",
     ) ||
     path.startsWith(
-      "/jams",
-    ) ||
-    path.startsWith(
       "/admin",
     ) ||
     path.startsWith(

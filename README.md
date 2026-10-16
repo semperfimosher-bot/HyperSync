@@ -1,5 +1,7 @@
 # HyperSync
 
+> **PERFECT baseline:** playback and queues are local to each browser; Jam and live device control are removed. Account sessions and shared libraries remain. See [baseline scope](docs/PERFECT-BASELINE-PLAN.md) and [reliability review](docs/PERFECT-RELIABILITY-REVIEW.md) for current behavior and verification status; later architecture sections also include future goals.
+
 HyperSync is a mobile-first, full-stack music streaming platform designed to provide fast playback, synchronized lyrics, personal libraries, public playlists, listening statistics, administrative tools, background media processing.
 
 This repository is intended to become a production-quality application rather than a visual demo. Every feature described in this document should eventually be backed by real database records, real authentication, real storage, real APIs, permission checks, tests, and deployment configuration.
@@ -598,7 +600,7 @@ Audio bytes should be delivered using one of these controlled designs:
 - Short-lived authorized B2 URLs
 - Another secure method that supports seeking and private objects
 
-The persistent WebSocket architecture should be used for real-time control, state synchronization, events, heartbeats, and future device coordination. Audio byte transfer itself should remain compatible with browser media playback and seeking.
+On the PERFECT baseline, playback controls and queues belong to the current browser. Accounts can sign in on multiple devices and share their library, but cannot control another device. Audio transfer uses HTTP with seeking support; playback has no live socket or device polling.
 
 ### 10.2 Player state
 
@@ -621,14 +623,6 @@ Mobile and desktop controls must read and modify the same player state.
 ---
 
 ## 11. Queue
-
-### Jam sessions
-
-Registered users can start an invite-only Jam from the player bar. The host chooses **Host device** or **Every device**, shares the generated link, and can change playback location, queue order, guest controls, or membership. Participants can add published catalog tracks. Listening on a device requires tapping **Listen on this device**; browsers may require another gesture after a reload. A host can rotate the invite or end the Jam, and participants can leave. The host must start a new Jam after ending one.
-
-Jam state lives in the database, so backend replicas share one revisioned queue and timeline. Clients poll every two seconds and correct significant drift. Invitations expire after 24 hours, are stored only as hashes, and never appear in regular snapshots. One account can join one active Jam at a time; a Jam supports 20 members and 200 queue entries. The current version has no automatic inactive-session expiry: a host should end a session when finished. The existing solo player remains available outside Jam. Lock-screen media controls use the browser's existing Media Session integration; physical device behavior depends on browser and operating system.
-
-When a catalog track has no saved duration, playback advances when the host's listening device reaches the end. If the host enables guest playback controls, a listening guest can advance it too. Otherwise the host can use **Next**. This avoids trusting an unapproved guest to skip tracks.
 
 The queue should support:
 

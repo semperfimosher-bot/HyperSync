@@ -39,8 +39,6 @@ from .services.media_identity import (
 from .services.message_retention import (
     cleanup_expired_messages,
 )
-from .services.playback import handle_playback_event
-from .services.playback_events import run_playback_event_listener
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +53,6 @@ MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
     "/api/users/me/app-state",
-    "/api/users/me/playback-state",
-    "/api/users/me/playback-devices",
     "/api/messages/push/",
     "/api/messages/admin-notifications/",
     "/api/messages/notifications/",
@@ -352,21 +348,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_media_identity_backfill(),
     )
 
-    playback_event_task = None
-    if get_settings().playback_realtime_database_url.strip():
-        playback_event_task = asyncio.create_task(
-            run_playback_event_listener(handle_playback_event),
-            name="playback-event-listener",
-        )
-
     try:
         yield
     finally:
-        if playback_event_task is not None:
-            playback_event_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await playback_event_task
-
         keepalive_task.cancel()
         retention_task.cancel()
         rate_limit_cleanup_task.cancel()
