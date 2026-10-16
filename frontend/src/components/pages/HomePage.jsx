@@ -128,20 +128,15 @@ function CachedArtwork({
   );
 }
 
-import HomeContextMenu from "../ui/HomeContextMenu.jsx";
-import useCollectionActionMenu from "../../hooks/useCollectionActionMenu.js";
 
 function HomePage({
   currentUser,
   onNavigate,
   onOpenAuth,
 }) {
-  const homeMenu = useCollectionActionMenu();
-  const homeTrigger = homeMenu.getTriggerProps({ key: "home" });
   const historyRequest = useRef(0);
   const historyOwner = useRef(currentUser?.id);
   historyOwner.current = currentUser?.id;
-  const allowHomeMenu = (event) => !event.defaultPrevented && !event.target.closest("button, a, input, textarea, select, [role=menu], .track-action-layer");
 
   const online =
     useOnlineStatus();
@@ -449,15 +444,7 @@ useQuietRefresh(
   };
 
   return (
-    <div className="page-stack home-page"
-      {...homeTrigger}
-      onContextMenu={(event) => { if (allowHomeMenu(event)) homeTrigger.onContextMenu(event); }}
-      onPointerDown={(event) => { if (allowHomeMenu(event)) homeTrigger.onPointerDown(event); }}
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) homeTrigger.onContextMenu(event);
-      }}>
-      <HomeContextMenu menu={homeMenu.menu} onClose={homeMenu.closeMenu} />
+    <div className="page-stack home-page">
 
       {/* =====================================================
           HYPERSYNC HERO
