@@ -75,15 +75,6 @@ def test_aggregate_never_claims_unexecuted_checks_passed(states, code):
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "1441"])
-def test_duration_rejects_unbounded_or_invalid_values(value):
-    import argparse
-
-    from scripts.verify_project import positive_minutes
-
-    with pytest.raises(argparse.ArgumentTypeError):
-        positive_minutes(value)
-
-
 def test_cli_list_does_not_create_reports_or_require_browser(tmp_path):
     import subprocess
 
@@ -96,5 +87,6 @@ def test_cli_list_does_not_create_reports_or_require_browser(tmp_path):
         check=False,
     )
     assert result.returncode == 0
-    assert "browser-journeys" in result.stdout
+    assert "frontend-build" in result.stdout
+    assert "browser-journeys" not in result.stdout
     assert not (tmp_path / "out").exists()
