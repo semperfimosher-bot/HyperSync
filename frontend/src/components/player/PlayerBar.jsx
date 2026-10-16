@@ -31,9 +31,6 @@ import PlaylistUpdateNotice from
 import TrackArtwork from
   "../ui/TrackArtwork.jsx";
 
-import PlaybackDevicesPanel from
-  "./PlaybackDevicesPanel.jsx";
-
 
 
 export default function PlayerBar({
@@ -126,15 +123,7 @@ export default function PlayerBar({
     ) ??
     null;
 
-  const controllingRemote =
-    Boolean(
-      currentUser?.account_type ===
-        "registered" &&
-      controlledPlaybackDeviceId &&
-      controlledPlaybackDeviceId !==
-        currentPlaybackDeviceId &&
-      controlledDevice?.is_online,
-    );
+
 
   useEffect(() => {
     if (
@@ -905,61 +894,6 @@ export default function PlayerBar({
 
 
       <div className="player-bar__right">
-        {currentUser?.account_type ===
-        "registered" ? (
-          <div className="desktop-player-device-center">
-            <button
-              type="button"
-              className={[
-                "icon-button",
-                "desktop-player-device-button",
-                controllingRemote
-                  ? "is-remote"
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              aria-label="Choose playback device"
-              aria-expanded={
-                devicesOpen
-              }
-              title={
-                controlledDevice?.name
-                  ? (
-                      "Controlling " +
-                      controlledDevice.name
-                    )
-                  : "Choose playback device"
-              }
-              onClick={() => {
-                setDevicesOpen(
-                  (open) =>
-                    !open,
-                );
-
-                setNotificationsOpen(
-                  false,
-                );
-              }}
-            >
-              <Icon
-                name="devices"
-                size={18}
-              />
-
-              {playbackDevices.filter(
-                (device) =>
-                  device.is_online,
-              ).length > 1 ? (
-                <span
-                  className="icon-button__dot"
-                  aria-hidden="true"
-                />
-              ) : null}
-            </button>
-          </div>
-        ) : null}
-
         <PlaylistUpdateNotice
           update={playlistUpdate}
           variant="desktop"
@@ -1101,39 +1035,6 @@ export default function PlayerBar({
         </button>
 
       </div>
-
-      {devicesOpen &&
-      currentUser?.account_type ===
-        "registered" ? (
-        <div className="playback-devices-popover">
-          <PlaybackDevicesPanel
-            devices={
-              playbackDevices
-            }
-            currentDeviceId={
-              currentPlaybackDeviceId
-            }
-            controlledDeviceId={
-              controlledPlaybackDeviceId
-            }
-            onSelectDevice={(
-              deviceId,
-            ) => {
-              onSelectPlaybackDevice?.(
-                deviceId,
-              );
-            }}
-            onTransferToDevice={(
-              deviceId,
-            ) => {
-              void onPlaybackDeviceCommand?.(
-                deviceId,
-                "transfer",
-              );
-            }}
-          />
-        </div>
-      ) : null}
 
 
 
