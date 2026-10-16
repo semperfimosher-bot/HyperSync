@@ -123,7 +123,8 @@ export default function PlayerBar({
     ) ??
     null;
 
-
+  // Cross-device playback is disabled; controls always target this browser.
+  const controllingRemote = false;
 
   useEffect(() => {
     if (
