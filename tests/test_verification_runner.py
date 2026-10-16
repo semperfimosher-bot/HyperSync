@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.verification.models import CheckResult, aggregate_exit_code
 from scripts.verification.processes import run_check
 
