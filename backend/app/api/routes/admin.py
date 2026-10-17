@@ -1125,14 +1125,6 @@ async def finalize_direct_track_upload(
         str,
         Form(...),
     ],
-    album: Annotated[
-        str,
-        Form(...),
-    ],
-    genre: Annotated[
-        str,
-        Form(...),
-    ],
     duration_seconds: Annotated[
         int,
         Form(...),
@@ -1148,6 +1140,8 @@ async def finalize_direct_track_upload(
     user: AdminUser,
     session: DatabaseSession,
     background_tasks: BackgroundTasks,
+    album: Annotated[str, Form()] = "",
+    genre: Annotated[str, Form()] = "",
     release_year: Annotated[
         int | None,
         Form(),
@@ -1496,11 +1490,11 @@ async def upload_track(
     file: Annotated[UploadFile, File(...)],
     title: Annotated[str, Form(...)],
     artist: Annotated[str, Form(...)],
-    album: Annotated[str, Form(...)],
     duration_seconds: Annotated[int, Form(...)],
     user: AdminUser,
     session: DatabaseSession,
     background_tasks: BackgroundTasks,
+    album: Annotated[str, Form()] = "",
     title_edited: Annotated[bool, Form()] = False,
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,

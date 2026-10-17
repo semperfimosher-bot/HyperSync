@@ -244,14 +244,14 @@ async def test_upload_releases_connection_during_io_and_cleans_concurrent_duplic
     )
     with pytest.raises(HTTPException) as error:
         await admin.upload_track(
-            file,
-            "Song",
-            "Artist",
-            "Album",
-            120,
-            User(id=uuid4(), role=UserRole.ADMIN),
-            session,
-            BackgroundTasks(),
+            file=file,
+            title="Song",
+            artist="Artist",
+            album="Album",
+            duration_seconds=120,
+            user=User(id=uuid4(), role=UserRole.ADMIN),
+            session=session,
+            background_tasks=BackgroundTasks(),
         )
     assert error.value.status_code == 409
     assert checks == 2
@@ -282,3 +282,84 @@ def test_cors_cli_uses_native_api(monkeypatch, capsys, apply):
     assert '"s3_put"' in output
     assert fresh.update.call_count == int(apply)
     s3.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata", [{}, {"album": "", "genre": ""}, {"album": "Album", "genre": "Rock"}]
+)
+@pytest.mark.parametrize("direct", [True, False])
+async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
+    monkeypatch, metadata, direct
+):
+    import httpx
+    from fastapi import FastAPI
+
+    from backend.app.api import dependencies
+    from backend.app.api.routes import admin
+
+    app = FastAPI()
+    endpoint = admin.finalize_direct_track_upload if direct else admin.upload_track
+    app.add_api_route("/upload", endpoint, methods=["POST"])
+    session = MagicMock(commit=AsyncMock(), rollback=AsyncMock())
+    app.dependency_overrides[dependencies.require_admin] = lambda: User(
+        id=uuid4(), role=UserRole.ADMIN
+    )
+    app.dependency_overrides[dependencies.get_database_session] = lambda: session
+    monkeypatch.setattr(admin, "get_b2_bucket", lambda: MagicMock())
+    monkeypatch.setattr(
+        admin, "head_b2_object", lambda _key: {"ContentLength": 5, "ContentType": "audio/mpeg"}
+    )
+    monkeypatch.setattr(admin, "_find_duplicate_track", AsyncMock(return_value=None))
+    for helper in [
+        "lock_track_identity",
+        "ensure_artist_profiles_for_credit",
+        "sync_track_media_identity",
+        "ensure_artist_playlist",
+        "refresh_smart_playlists_for_track",
+    ]:
+        monkeypatch.setattr(admin, helper, AsyncMock())
+    enrichment = AsyncMock()
+    monkeypatch.setattr(admin, "enrich_track_metadata_by_id", enrichment)
+    monkeypatch.setattr(
+        admin,
+        "extract_embedded_audio_metadata",
+        lambda _content: {
+            "title": None,
+            "artist": None,
+            "album": None,
+            "genre": None,
+            "duration_seconds": None,
+        },
+    )
+    monkeypatch.setattr(
+        admin,
+        "compress_audio_for_storage",
+        lambda content, **_kwargs: SimpleNamespace(
+            content=content,
+            final_size=len(content),
+            mime_type="audio/mpeg",
+            extension="mp3",
+            compressed=False,
+            savings_bytes=0,
+            savings_percent=0.0,
+            source_codec=None,
+            source_bitrate_kbps=None,
+        ),
+    )
+    data = {"title": "Song", "artist": "Artist", "duration_seconds": "120", **metadata}
+    if direct:
+        data.update(object_key="audio/test.mp3", mime_type="audio/mpeg", original_file_size="5")
+        files = {"multipart_marker": (None, "true")}
+    else:
+        files = {"file": ("song.mp3", b"audio", "audio/mpeg")}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/upload", data=data, files=files)
+    assert response.status_code == 200, response.text
+    assert response.json()["metadata_enrichment_scheduled"] is True
+    stored = session.add.call_args.args[0]
+    assert stored.genre == (metadata.get("genre") or None)
+    assert stored.album == (metadata.get("album") or None)
+    enrichment.assert_awaited_once_with(stored.id)
