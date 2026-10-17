@@ -5,7 +5,6 @@ import pytest
 
 from backend.app.services import b2 as b2_service
 
-
 VALID_SETTINGS = {
     "b2_key_id": "fixture-key-id",
     "b2_application_key": "fixture-application-key",
