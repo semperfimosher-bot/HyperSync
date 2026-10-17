@@ -2,6 +2,11 @@ import {
   resolveArtworkUrl,
 } from "../../artworkUrl.js";
 
+import {
+  resetArtworkRetry,
+  retryTransientArtwork,
+} from "../../artworkRetry.js";
+
 import Icon from "./Icon.jsx";
 
 
@@ -137,17 +142,55 @@ export default function PlaylistArtwork({
             className="playlist-artwork-collage__tile"
           >
             {source ? (
-              <img
-                src={
-                  source
-                }
-                alt=""
-                loading={
-                  index < 4
-                    ? "eager"
-                    : "lazy"
-                }
-              />
+              <>
+                <img
+                  src={source}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  fetchPriority="low"
+                  onLoad={(event) => {
+                    resetArtworkRetry(
+                      event.currentTarget,
+                    );
+                  }}
+                  onError={(event) => {
+                    if (
+                      retryTransientArtwork(
+                        event,
+                        source,
+                      )
+                    ) {
+                      return;
+                    }
+
+                    event.currentTarget.style.display = "none";
+
+                    const fallback =
+                      event.currentTarget.nextElementSibling;
+
+                    if (fallback) {
+                      fallback.style.display = "grid";
+                    }
+                  }}
+                />
+                <span
+                  className="playlist-artwork-collage__fallback"
+                  style={{
+                    display: "none",
+                  }}
+                >
+                  <Icon
+                    name="music"
+                    size={Math.max(
+                      14,
+                      Math.round(
+                        fallbackSize * 0.65,
+                      ),
+                    )}
+                  />
+                </span>
+              </>
             ) : (
               <span className="playlist-artwork-collage__fallback">
                 <Icon
