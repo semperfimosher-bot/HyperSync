@@ -72,26 +72,36 @@ def get_b2_s3_client():
     if not settings.b2_application_key:
         raise RuntimeError("B2_APPLICATION_KEY is not configured.")
 
-    hostname = (
-        urlsplit(
-            endpoint,
-        ).hostname
-        or ""
-    )
+    try:
+        parsed_endpoint = urlsplit(endpoint)
+        hostname = parsed_endpoint.hostname or ""
+        endpoint_port = parsed_endpoint.port
+    except ValueError as exc:
+        raise RuntimeError(
+            "B2_ENDPOINT must be a valid HTTPS Backblaze S3 endpoint origin."
+        ) from exc
 
     hostname_parts = hostname.split(".")
+    is_https_origin = (
+        parsed_endpoint.scheme.lower() == "https"
+        and parsed_endpoint.username is None
+        and parsed_endpoint.password is None
+        and parsed_endpoint.path in ("", "/")
+        and not parsed_endpoint.query
+        and not parsed_endpoint.fragment
+        and endpoint_port in (None, 443)
+    )
 
     if (
-        len(hostname_parts) < 4
+        not is_https_origin
+        or len(hostname_parts) < 4
         or hostname_parts[0] != "s3"
         or not hostname.endswith(".backblazeb2.com")
     ):
         raise RuntimeError(
-            "B2_ENDPOINT must be a "
-            "Backblaze S3 endpoint, "
-            "for example "
-            "https://s3.us-west-004."
-            "backblazeb2.com"
+            "B2_ENDPOINT must be an HTTPS Backblaze S3 endpoint origin, "
+            "for example https://s3.us-west-004.backblazeb2.com, with no "
+            "credentials, path, query, or fragment."
         )
 
     region = hostname_parts[1]
