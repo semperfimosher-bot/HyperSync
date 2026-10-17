@@ -23,15 +23,16 @@ export function createOwnerScopedRequestCoordinator() {
     inFlight = null;
   }
 
-  function run(owner, request) {
+  function run(owner, request, isOwnerActive = () => true) {
     const normalizedOwner =
       owner == null ? null : String(owner);
 
-    setOwner(normalizedOwner);
-
-    if (normalizedOwner === null) {
+    // A stale callback must not change the coordinator back to its old owner.
+    if (normalizedOwner === null || !isOwnerActive()) {
       return Promise.resolve({ current: false });
     }
+
+    setOwner(normalizedOwner);
 
     if (inFlight?.owner === normalizedOwner) {
       return inFlight.promise;
@@ -50,13 +51,15 @@ export function createOwnerScopedRequestCoordinator() {
         (value) => ({
           current:
             activeOwner === normalizedOwner &&
-            generation === requestGeneration,
+            generation === requestGeneration &&
+            isOwnerActive(),
           value,
         }),
         (error) => ({
           current:
             activeOwner === normalizedOwner &&
-            generation === requestGeneration,
+            generation === requestGeneration &&
+            isOwnerActive(),
           error,
         }),
       )

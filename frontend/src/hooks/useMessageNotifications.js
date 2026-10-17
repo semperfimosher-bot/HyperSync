@@ -55,6 +55,14 @@ export default function useMessageNotifications({
     setPushEnabled,
   ] = useState(false);
 
+  // The ref identifies the current render's owner even inside older async callbacks.
+  const activeNotificationOwnerRef = useRef(null);
+  activeNotificationOwnerRef.current =
+    currentUser?.account_type === "registered" &&
+    currentUser?.id != null
+      ? String(currentUser.id)
+      : null;
+
   // Share refreshes only within one account and discard results from prior sessions.
   const notificationRefreshCoordinatorRef = useRef(null);
   if (!notificationRefreshCoordinatorRef.current) {
@@ -108,6 +116,7 @@ export default function useMessageNotifications({
           await notificationRefreshCoordinatorRef.current.run(
             ownerId,
             getMessageNotifications,
+            () => activeNotificationOwnerRef.current === ownerId,
           );
 
         // A request that finishes after logout/account switch must not mutate

@@ -119,3 +119,39 @@ test(
     assert.strictEqual(result.error, failure);
   },
 );
+
+
+test(
+  "a stale callback cannot reclaim ownership after the active account changes",
+  async () => {
+    const coordinator = createOwnerScopedRequestCoordinator();
+    let activeOwner = "account-a";
+    const staleRequest = deferred();
+
+    const first = coordinator.run(
+      "account-a",
+      () => staleRequest.promise,
+      () => activeOwner === "account-a",
+    );
+    await Promise.resolve();
+
+    activeOwner = "account-b";
+
+    const staleCallback = await coordinator.run(
+      "account-a",
+      () => {
+        throw new Error("stale callback must not start a request");
+      },
+      () => activeOwner === "account-a",
+    );
+    assert.deepEqual(staleCallback, { current: false });
+
+    coordinator.setOwner("account-b");
+    staleRequest.resolve({ notifications: ["account-a"] });
+
+    assert.deepEqual(await first, {
+      current: false,
+      value: { notifications: ["account-a"] },
+    });
+  },
+);
