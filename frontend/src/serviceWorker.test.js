@@ -486,15 +486,12 @@ test(
 
       let responsePromise = null;
       const event = {
-        request: new Request(
-          "https://example.test/assets/SearchPage-abc123.js",
-          {
-            mode: "cors",
-            headers: {
-              Origin: "https://example.test",
-            },
-          },
-        ),
+        request: {
+          url: "https://example.test/assets/SearchPage-abc123.js",
+          method: "GET",
+          mode: "cors",
+          destination: "script",
+        },
         respondWith(response) {
           responsePromise = Promise.resolve(response);
         },
