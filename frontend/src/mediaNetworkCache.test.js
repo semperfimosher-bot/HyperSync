@@ -200,3 +200,64 @@ test(
     );
   },
 );
+test(
+  "rejects a mismatched Content-Range before persisting any offline media chunks",
+  async () => {
+    const mediaStore =
+      await import("./mediaStore.js");
+
+    const mediaNetworkCache =
+      await loadMediaNetworkCacheModule();
+
+    const trackId =
+      "mismatched-content-range-track";
+    const mediaVersion =
+      "mismatched-content-range-version";
+    const fileSize = 8;
+
+    await mediaStore.saveMediaRecord(
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType: "audio/mpeg",
+        fileSize,
+        state: "NONE",
+      }),
+    );
+
+    const response = new Response(
+      new Uint8Array([1, 2, 3, 4]),
+      {
+        status: 206,
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Content-Length": "4",
+          "Content-Range": "bytes 1-4/8",
+        },
+      },
+    );
+
+    await assert.rejects(
+      () =>
+        mediaNetworkCache.cacheNetworkMediaResponse({
+          response,
+          trackId,
+          mediaVersion,
+          byteStart: 0,
+          byteEnd: 3,
+          fileSize,
+        }),
+      /Content-Range does not match/,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+  },
+);
+
