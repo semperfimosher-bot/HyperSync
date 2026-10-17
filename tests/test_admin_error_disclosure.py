@@ -85,3 +85,65 @@ async def test_admin_reset_does_not_return_database_exception_details(monkeypatc
     assert caught.value.status_code == 500
     assert "database-private-detail" not in caught.value.detail
     assert "storage objects were deleted" in caught.value.detail.lower()
+
+
+
+@pytest.mark.asyncio
+async def test_admin_diagnostics_does_not_return_database_exception_details(monkeypatch) -> None:
+    async def fail_database(*args, **kwargs):
+        raise RuntimeError("database-private-connection-detail")
+
+    monkeypatch.setattr(
+        admin,
+        "run_blocking",
+        AsyncMock(return_value=SimpleNamespace(name="fixture-bucket")),
+    )
+    session = SimpleNamespace(
+        execute=fail_database,
+        rollback=AsyncMock(),
+    )
+
+    result = await admin.admin_diagnostics(
+        user=_admin_user(),
+        session=session,
+    )
+
+    assert result["database"]["healthy"] is False
+    assert result["database"]["message"] == (
+        "Database check failed; inspect server logs."
+    )
+    assert "database-private-connection-detail" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_admin_diagnostics_does_not_return_storage_exception_details(monkeypatch) -> None:
+    async def execute(*args, **kwargs):
+        return object()
+
+    async def diagnostics(*args, **kwargs):
+        return {
+            "track_count": 0,
+            "duplicate_groups": 0,
+            "identity_backfill_pending": 0,
+        }
+
+    async def fail_storage(*args, **kwargs):
+        raise RuntimeError("storage-private-credential-detail")
+
+    monkeypatch.setattr(admin, "catalog_identity_diagnostics", diagnostics)
+    monkeypatch.setattr(admin, "run_blocking", fail_storage)
+    session = SimpleNamespace(
+        execute=execute,
+        rollback=AsyncMock(),
+    )
+
+    result = await admin.admin_diagnostics(
+        user=_admin_user(),
+        session=session,
+    )
+
+    assert result["storage"]["healthy"] is False
+    assert result["storage"]["message"] == (
+        "Storage check failed; inspect server logs."
+    )
+    assert "storage-private-credential-detail" not in repr(result)

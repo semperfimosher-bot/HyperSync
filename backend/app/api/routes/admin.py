@@ -691,13 +691,12 @@ async def admin_diagnostics(
             **catalog_counts,
         }
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Admin diagnostics database check failed.")
         await session.rollback()
 
-        database_status[
-            "message"
-        ] = str(
-            exc,
+        database_status["message"] = (
+            "Database check failed; inspect server logs."
         )
 
     try:
@@ -714,11 +713,10 @@ async def admin_diagnostics(
                 ),
         }
 
-    except Exception as exc:
-        storage_status[
-            "message"
-        ] = str(
-            exc,
+    except Exception:
+        logger.exception("Admin diagnostics storage check failed.")
+        storage_status["message"] = (
+            "Storage check failed; inspect server logs."
         )
 
     return {
@@ -2258,13 +2256,15 @@ async def delete_tracks_bulk(
                     None,
                 )
 
-            except Exception as exc:
+            except Exception:
+                logger.exception(
+                    "Bulk storage deletion failed for track %s.",
+                    track.id,
+                )
                 return (
                     track,
                     0,
-                    str(
-                        exc,
-                    ),
+                    "Storage deletion failed.",
                 )
 
     storage_queue: asyncio.Queue[
@@ -2340,10 +2340,9 @@ async def delete_tracks_bulk(
                         ),
                     "message":
                         (
-                            "Failed to permanently "
-                            "remove track files from "
-                            f"B2: {error_message}. Track remains hidden; "
-                            "retry deletion to finish cleanup."
+                            "Failed to permanently remove track files from B2. "
+                            "Track remains hidden; retry deletion to finish cleanup. "
+                            "Inspect server logs for diagnostic details."
                         ),
                 }
             )
