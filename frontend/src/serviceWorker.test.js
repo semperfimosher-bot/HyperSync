@@ -10,6 +10,121 @@ async function loadServiceWorkerModule() {
 }
 
 test(
+  "service worker precaches dynamic page chunks without forcing activation over open clients",
+  async () => {
+    const listeners = new Map();
+    const entries = new Map();
+    const origin = "https://example.test";
+    const hadSelf = Object.prototype.hasOwnProperty.call(globalThis, "self");
+    const oldSelf = globalThis.self;
+    const hadCaches = Object.prototype.hasOwnProperty.call(globalThis, "caches");
+    const oldCaches = globalThis.caches;
+    const hadFetch = Object.prototype.hasOwnProperty.call(globalThis, "fetch");
+    const oldFetch = globalThis.fetch;
+    let skipWaitingCalls = 0;
+
+    const cacheKey = (request) => {
+      const value = typeof request === "string" ? request : request.url;
+      return new URL(value, origin).href;
+    };
+    const cache = {
+      async put(request, response) {
+        entries.set(cacheKey(request), response.clone());
+      },
+      async match(request) {
+        return entries.get(cacheKey(request))?.clone();
+      },
+    };
+
+    globalThis.self = {
+      location: { origin },
+      addEventListener(type, listener) {
+        const current = listeners.get(type) ?? [];
+        current.push(listener);
+        listeners.set(type, current);
+      },
+      async skipWaiting() {
+        skipWaitingCalls += 1;
+      },
+    };
+    globalThis.caches = {
+      async open(name) {
+        assert.equal(name, "hypersync-app-shell-v4");
+        return cache;
+      },
+      async keys() {
+        return ["hypersync-app-shell-v4"];
+      },
+    };
+    globalThis.fetch = async (request) => {
+      const url = new URL(
+        typeof request === "string" ? request : request.url,
+        origin,
+      );
+      if (url.pathname === "/") {
+        return new Response(
+          '<html><script type="module" src="/assets/app-current.js"></script>' +
+            '<link rel="stylesheet" href="/assets/app-current.css"></html>',
+          { headers: { "Content-Type": "text/html" } },
+        );
+      }
+      if (url.pathname === "/manifest.json") {
+        return new Response(
+          JSON.stringify({
+            "index.html": {
+              file: "assets/app-current.js",
+              isEntry: true,
+              css: ["assets/app-current.css"],
+            },
+            "src/components/pages/LibraryPage.jsx": {
+              file: "assets/LibraryPage-current.js",
+              isDynamicEntry: true,
+            },
+            "src/shared.js": {
+              file: "assets/shared-current.js",
+            },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        "cached " + url.pathname,
+        { headers: { "Content-Type": url.pathname.endsWith(".css") ? "text/css" : "text/javascript" } },
+      );
+    };
+
+    try {
+      await loadServiceWorkerModule();
+      const installListener = (listeners.get("install") ?? [])[0];
+      assert.equal(typeof installListener, "function");
+
+      let installPromise = null;
+      installListener({
+        waitUntil(promise) {
+          installPromise = Promise.resolve(promise);
+        },
+      });
+      assert.ok(installPromise instanceof Promise);
+      await installPromise;
+
+      assert.equal(skipWaitingCalls, 0);
+      assert.ok(entries.has("https://example.test/"));
+      assert.ok(entries.has("https://example.test/assets/app-current.js"));
+      assert.ok(entries.has("https://example.test/assets/app-current.css"));
+      assert.ok(entries.has("https://example.test/assets/LibraryPage-current.js"));
+      assert.ok(entries.has("https://example.test/assets/shared-current.js"));
+    } finally {
+      if (hadSelf) globalThis.self = oldSelf;
+      else delete globalThis.self;
+      if (hadCaches) globalThis.caches = oldCaches;
+      else delete globalThis.caches;
+      if (hadFetch) globalThis.fetch = oldFetch;
+      else delete globalThis.fetch;
+    }
+  },
+);
+
+test(
   "Vite manifest precache list includes dynamic pages but rejects foreign and non-code assets",
   async () => {
     const serviceWorker = await loadServiceWorkerModule();

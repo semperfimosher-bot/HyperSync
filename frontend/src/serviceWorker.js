@@ -263,9 +263,13 @@ globalThis.self?.addEventListener?.(
     event.waitUntil(
       (
         async () => {
+          /*
+           * Keep the browser's default waiting lifecycle. Immediately activating
+           * a new worker can strand already-open React clients on hashed lazy
+           * chunks from the previous build, especially when cache cleanup runs.
+           * Let existing controlled clients close before switching worker versions.
+           */
           await precacheAppShell();
-
-          await self.skipWaiting();
         }
       )(),
     );
