@@ -1996,10 +1996,12 @@ async def backfill_track_metadata(
                     )
                 )
 
-        except Exception as exc:
-            embedded_error = str(
-                exc,
+        except Exception:
+            logger.exception(
+                "Unable to read embedded metadata for track %s.",
+                track.id,
             )
+            embedded_error = "Embedded metadata could not be read."
 
         still_missing = (
             not (
