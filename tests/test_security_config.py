@@ -23,10 +23,12 @@ def test_staging_and_production_reject_missing_or_placeholder_jwt_secrets(
     secret: str,
 ) -> None:
     with pytest.raises(ValidationError, match="JWT_SECRET"):
-        Settings(
-            environment=environment,
-            database_url=DATABASE_URL,
-            jwt_secret=secret,
+        Settings.model_validate(
+            {
+                "environment": environment,
+                "database_url": DATABASE_URL,
+                "jwt_secret": secret,
+            }
         )
 
 
@@ -34,10 +36,12 @@ def test_staging_and_production_reject_missing_or_placeholder_jwt_secrets(
 def test_staging_and_production_accept_a_long_non_placeholder_jwt_secret(
     environment: str,
 ) -> None:
-    settings = Settings(
-        environment=environment,
-        database_url=DATABASE_URL,
-        jwt_secret=VALID_SECRET,
+    settings = Settings.model_validate(
+        {
+            "environment": environment,
+            "database_url": DATABASE_URL,
+            "jwt_secret": VALID_SECRET,
+        }
     )
     assert settings.jwt_secret == VALID_SECRET
 
@@ -56,11 +60,13 @@ def test_unsupported_jwt_algorithms_are_rejected(algorithm: str) -> None:
 @pytest.mark.parametrize("field", ["jwt_issuer", "jwt_audience"])
 def test_blank_jwt_issuer_or_audience_is_rejected(field: str) -> None:
     with pytest.raises(ValidationError, match="must not be empty"):
-        Settings(
-            environment="development",
-            database_url=DATABASE_URL,
-            jwt_secret=VALID_SECRET,
-            **{field: "   "},
+        Settings.model_validate(
+            {
+                "environment": "development",
+                "database_url": DATABASE_URL,
+                "jwt_secret": VALID_SECRET,
+                field: "   ",
+            }
         )
 
 

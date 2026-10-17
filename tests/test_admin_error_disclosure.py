@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -105,7 +106,7 @@ async def test_admin_diagnostics_does_not_return_database_exception_details(monk
 
     result = await admin.admin_diagnostics(
         user=_admin_user(),
-        session=session,
+        session=cast(Any, session),
     )
 
     assert result["database"]["healthy"] is False
@@ -139,7 +140,7 @@ async def test_admin_diagnostics_does_not_return_storage_exception_details(monke
 
     result = await admin.admin_diagnostics(
         user=_admin_user(),
-        session=session,
+        session=cast(Any, session),
     )
 
     assert result["storage"]["healthy"] is False
