@@ -65,5 +65,5 @@ Owner files: migrations/env.py, Dockerfile.backend, new scripts/tooling tests an
 
 ### Task 8: Integration, review and publication
 - [x] Integrate owned changes, run Ruff/Pyright/frontend build+suite and meaningful offline/DB CI tests.
-- [ ] Independent review; resolve important issues; verify migration graph/data preservation and all full CI gates.
+- [x] Independent review; resolve important issues; verify migration graph/data preservation and all full CI gates (6c74aaa green; final safeguard reruns the same gates).
 - [ ] Update reliability report, commit and publish same PR; report changes, tests and remaining operational limits.

@@ -132,3 +132,24 @@ async def test_concurrent_alembic_invocations_commit_schema_and_version():
                 process.kill()
                 await process.wait()
         await drop_owned_database(service, run_id, prefix)
+
+
+@pytest.mark.asyncio
+async def test_lost_session_lock_invalidates_connection_and_fails():
+    engine = create_postgres_test_engine()
+    try:
+        async with engine.connect() as connection:
+
+            def lose_lock(sync_connection):
+                with migration_lock(sync_connection):
+                    assert sync_connection.scalar(
+                        text("SELECT pg_advisory_unlock(:key)"),
+                        {"key": MIGRATION_LOCK_ID},
+                    )
+                    sync_connection.commit()
+
+            with pytest.raises(RuntimeError, match="Migration advisory lock was not held"):
+                await connection.run_sync(lose_lock)
+            assert connection.invalidated
+    finally:
+        await engine.dispose()

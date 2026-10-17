@@ -15,7 +15,11 @@ after a successful upgrade. For a release-managed deployment:
 2. Run `python -m alembic -c /app/alembic.ini upgrade head` once as the release
    command using the new image and the **direct** `MIGRATION_DATABASE_URL`.
    Session advisory locks require a session-preserving direct connection; do
-   not use a transaction pooler for migrations.
+   not use a transaction pooler for migrations. Online migrations reject known
+   `-pooler.` hostnames before executing migration SQL, including when the
+   migration URL falls back to `DATABASE_URL`. Application runtime connections
+   can continue using the pooled URL. This hostname guard cannot identify every
+   third-party pooler: a direct, session-preserving endpoint remains required.
 3. Require the release command to succeed, then start all application replicas
    with `MIGRATE_ON_START=false`. That switch assumes release orchestration has
    already migrated the database; it does not itself check the schema version.
@@ -26,7 +30,10 @@ the actual migration connection before inspecting/applying revisions. The lock
 survives individual transaction commits. The lock-acquisition SELECT is
 committed before Alembic starts its own transaction, so SQLAlchemy autobegin
 cannot silently turn migration DDL/version writes into a rollback-on-close.
-Unlock runs in `finally`; a failed unlock invalidates the physical connection.
+Unlock runs in `finally`; an exception or false result from unlock invalidates
+the physical connection and fails the invocation instead of claiming success.
+An unlock failure cannot undo already committed revisions, so verify the schema
+revision before retrying.
 Caller-managed transactions retain an additional same-key transaction lock until
 the caller commits or rolls back, so competitors cannot enter during the gap
 between session unlock and the caller's final commit. A crashed process releases

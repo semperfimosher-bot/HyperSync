@@ -11,6 +11,12 @@ MIGRATION_LOCK_ID = 0x485950455253594E
 
 @contextmanager
 def migration_lock(connection: Connection):
+    host = (connection.engine.url.host or "").lower()
+    if "-pooler." in host:
+        raise RuntimeError(
+            "Set MIGRATION_DATABASE_URL to a direct PostgreSQL endpoint; "
+            "transaction-pooler endpoints cannot hold the migration session lock."
+        )
     external_transaction = connection.in_transaction()
     acquired = False
     failed = False
@@ -40,9 +46,14 @@ def migration_lock(connection: Connection):
     finally:
         if acquired:
             try:
-                connection.execute(
+                unlocked = connection.execute(
                     text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_LOCK_ID}
-                )
+                ).scalar_one()
+                if unlocked is not True:
+                    raise RuntimeError(
+                        "Migration advisory lock was not held by this session; "
+                        "use a direct MIGRATION_DATABASE_URL."
+                    )
                 if not external_transaction:
                     connection.commit()
             except BaseException:
