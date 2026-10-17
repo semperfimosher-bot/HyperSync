@@ -88,6 +88,7 @@ const serviceWorker =
 export default defineConfig({
   plugins: [react()],
   build: {
+    manifest: "manifest.json",
     rolldownOptions: {
       input: {
         app: indexHtml,

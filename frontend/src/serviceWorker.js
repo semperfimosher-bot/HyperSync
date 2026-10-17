@@ -31,7 +31,7 @@ const DEFAULT_API_BASE_URL =
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v3";
+  "hypersync-app-shell-v4";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -41,6 +41,61 @@ const NAVIGATION_NETWORK_TIMEOUT_MS =
 
 const MEDIA_CLEANUP_INTERVAL_MS =
   6 * 60 * 60 * 1000;
+
+const PRECACHE_ASSET_PATTERN =
+  /\.(?:m?js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|ico)$/i;
+
+
+export function collectBuildAssetUrls(
+  manifest,
+  origin,
+) {
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    typeof origin !== "string" ||
+    !origin
+  ) {
+    return [];
+  }
+
+  const urls = new Set();
+
+  for (const entry of Object.values(manifest)) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const candidates = [
+      entry.file,
+      ...(Array.isArray(entry.css) ? entry.css : []),
+      ...(Array.isArray(entry.assets) ? entry.assets : []),
+    ];
+
+    for (const candidate of candidates) {
+      if (
+        typeof candidate !== "string" ||
+        !PRECACHE_ASSET_PATTERN.test(candidate)
+      ) {
+        continue;
+      }
+
+      try {
+        const url = new URL(candidate, origin);
+        if (
+          url.origin === origin &&
+          (url.protocol === "https:" || url.protocol === "http:")
+        ) {
+          urls.add(url.href);
+        }
+      } catch {
+        // Ignore malformed or unsupported manifest assets.
+      }
+    }
+  }
+
+  return [...urls];
+}
 
 let lastMediaCleanupAt =
   0;
@@ -152,6 +207,49 @@ async function precacheAppShell() {
       },
     ),
   );
+
+  /*
+   * Dynamic page chunks are not referenced directly by index.html.
+   * Load the Vite manifest so pages remain available after an offline
+   * launch even if the user has not visited every page yet.
+   */
+  try {
+    const manifestResponse = await fetch(
+      "/manifest.json",
+      {
+        cache: "no-cache",
+      },
+    );
+
+    if (manifestResponse.ok) {
+      const manifest = await manifestResponse.json();
+      const buildAssetUrls = collectBuildAssetUrls(
+        manifest,
+        self.location.origin,
+      );
+
+      await Promise.allSettled(
+        buildAssetUrls.map(async (url) => {
+          if (await cache.match(url)) {
+            return;
+          }
+
+          const assetResponse = await fetch(
+            url,
+            {
+              cache: "no-cache",
+            },
+          );
+
+          if (assetResponse.ok) {
+            await cache.put(url, assetResponse);
+          }
+        }),
+      );
+    }
+  } catch {
+    // Keep app-shell installation resilient if manifest fetching fails.
+  }
 }
 
 

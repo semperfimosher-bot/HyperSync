@@ -10,6 +10,47 @@ async function loadServiceWorkerModule() {
 }
 
 test(
+  "Vite manifest precache list includes dynamic pages but rejects foreign and non-code assets",
+  async () => {
+    const serviceWorker = await loadServiceWorkerModule();
+    const urls = serviceWorker.collectBuildAssetUrls(
+      {
+        "src/main.jsx": {
+          file: "assets/app-main.js",
+          css: ["assets/app.css"],
+          assets: ["assets/interface.woff2"],
+        },
+        "src/components/pages/LibraryPage.jsx": {
+          file: "assets/LibraryPage-abc123.js",
+          isDynamicEntry: true,
+          imports: ["src/shared.js"],
+        },
+        "src/duplicate.js": {
+          file: "assets/app-main.js",
+        },
+        "src/external.js": {
+          file: "https://cdn.example.test/external.js",
+        },
+        "src/metadata.json": {
+          file: "assets/metadata.json",
+        },
+      },
+      "https://example.test",
+    );
+
+    assert.deepEqual(
+      urls.sort(),
+      [
+        "https://example.test/assets/LibraryPage-abc123.js",
+        "https://example.test/assets/app-main.js",
+        "https://example.test/assets/app.css",
+        "https://example.test/assets/interface.woff2",
+      ].sort(),
+    );
+  },
+);
+
+test(
   "service worker media handler serves a cached range from the stable media route",
   async () => {
     const mediaStore =
