@@ -22,6 +22,10 @@ import {
   removeNotificationFromSnapshot,
 } from "../messageNotifications.js";
 
+import {
+  createOwnerScopedRequestCoordinator,
+} from "../notificationRefreshCoordinator.js";
+
 
 export default function useMessageNotifications({
   currentUser,
@@ -51,13 +55,18 @@ export default function useMessageNotifications({
     setPushEnabled,
   ] = useState(false);
 
-  // Share one in-flight refresh across interval, focus, and visibility events.
-  const refreshInFlightRef = useRef(null);
+  // Share refreshes only within one account and discard results from prior sessions.
+  const notificationRefreshCoordinatorRef = useRef(null);
+  if (!notificationRefreshCoordinatorRef.current) {
+    notificationRefreshCoordinatorRef.current =
+      createOwnerScopedRequestCoordinator();
+  }
 
 
   const resetMessageNotifications =
     useCallback(
       () => {
+        notificationRefreshCoordinatorRef.current.setOwner(null);
         setMessageNotifications(
           emptyNotificationSnapshot(),
         );
@@ -76,75 +85,52 @@ export default function useMessageNotifications({
 
   const refreshMessageNotifications =
     useCallback(
-      () => {
+      async () => {
+        const ownerId =
+          currentUser?.account_type === "registered" &&
+          currentUser?.id != null
+            ? String(currentUser.id)
+            : null;
+
         if (
-          currentUser?.account_type !==
-            "registered" ||
-          globalThis.navigator
-            ?.onLine ===
-            false
+          ownerId === null ||
+          globalThis.navigator?.onLine === false
         ) {
-          if (
-            currentUser?.account_type !==
-              "registered"
-          ) {
-            setMessageNotifications(
-              emptyNotificationSnapshot(),
-            );
+          if (ownerId === null) {
+            notificationRefreshCoordinatorRef.current.setOwner(null);
+            setMessageNotifications(emptyNotificationSnapshot());
           }
 
-          return Promise.resolve();
+          return;
         }
 
-        // A timer tick and a focus/visibility event can happen together.
-        // Reuse the same request instead of stacking duplicate API calls.
-        if (refreshInFlightRef.current) {
-          return refreshInFlightRef.current;
+        const outcome =
+          await notificationRefreshCoordinatorRef.current.run(
+            ownerId,
+            getMessageNotifications,
+          );
+
+        // A request that finishes after logout/account switch must not mutate
+        // the notification state belonging to the new session.
+        if (!outcome?.current || outcome.error) {
+          return;
         }
 
-        const request = (async () => {
-          try {
-            const result =
-              await getMessageNotifications();
-
-            setMessageNotifications({
-              unread_count:
-                Number(
-                  result
-                    ?.unread_count ??
-                    0,
-                ) || 0,
-              notifications:
-                Array.isArray(
-                  result
-                    ?.notifications,
-                )
-                  ? result.notifications
-                  : [],
-            });
-          } catch {
-            // Keep the current snapshot during a
-            // temporary network or API failure.
-          } finally {
-            if (
-              refreshInFlightRef.current ===
-                request
-            ) {
-              refreshInFlightRef.current = null;
-            }
-          }
-        })();
-
-        refreshInFlightRef.current = request;
-        return request;
+        const result = outcome.value;
+        setMessageNotifications({
+          unread_count:
+            Number(result?.unread_count ?? 0) || 0,
+          notifications:
+            Array.isArray(result?.notifications)
+              ? result.notifications
+              : [],
+        });
       },
       [
-        currentUser
-          ?.account_type,
+        currentUser?.account_type,
         currentUser?.id,
       ],
     );
-
 
   const consumeNotification =
     useCallback(
@@ -432,6 +418,8 @@ export default function useMessageNotifications({
         "visibilitychange",
         handleVisibility,
       );
+
+      notificationRefreshCoordinatorRef.current.setOwner(null);
     };
   }, [
     currentUser
