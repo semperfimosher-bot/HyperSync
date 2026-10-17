@@ -277,3 +277,49 @@ async def test_get_track_returns_media_cache_metadata(
     assert response.file_size == (5_000_000)
 
     assert response.media_version is not None
+
+
+
+@pytest.mark.asyncio
+async def test_artwork_proxy_does_not_expose_storage_exceptions(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    track = SimpleNamespace(
+        id=uuid4(),
+        is_published=True,
+        artwork_object_key="artwork/private.jpg",
+    )
+
+    class FakeResult:
+        @staticmethod
+        def scalar_one_or_none():
+            return track
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *args, **kwargs):
+            return FakeResult()
+
+    async def fail_storage(*args, **kwargs):
+        raise RuntimeError("private-storage-credentials-detail")
+
+    monkeypatch.setattr(
+        catalog_route,
+        "get_session_factory",
+        lambda: lambda: FakeSession(),
+    )
+    monkeypatch.setattr(catalog_route, "run_blocking", fail_storage)
+
+    with pytest.raises(HTTPException) as caught:
+        await catalog_route.get_track_artwork(track.id)
+
+    assert caught.value.status_code == 500
+    assert "private-storage-credentials-detail" not in caught.value.detail
+    assert caught.value.detail == (
+        "Artwork is temporarily unavailable. Please retry later."
+    )

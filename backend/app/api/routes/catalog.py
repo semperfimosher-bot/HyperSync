@@ -708,7 +708,8 @@ async def get_track_artwork(track_id: UUID):
             },
         )
     except Exception as exc:
+        logger.exception("Unable to retrieve catalog artwork from storage.")
         raise HTTPException(
             status_code=500,
-            detail=f"Artwork unavailable: {str(exc)}",
+            detail="Artwork is temporarily unavailable. Please retry later.",
         ) from exc
