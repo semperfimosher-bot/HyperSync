@@ -10,6 +10,74 @@ async function loadServiceWorkerModule() {
 }
 
 test(
+  "navigation timeout bounds a stalled preload and serves the cached app shell",
+  async () => {
+    const serviceWorker = await loadServiceWorkerModule();
+    const cachedShell = new Response("cached app shell");
+    let cacheWrites = 0;
+    let fallbackFetches = 0;
+
+    const response = await serviceWorker.fetchNavigationWithFallback({
+      request: new Request("https://example.test/library"),
+      preloadResponse: new Promise(() => {}),
+      cache: {
+        async match() {
+          return cachedShell.clone();
+        },
+        async put() {
+          cacheWrites += 1;
+        },
+      },
+      fetchLike: async () => {
+        fallbackFetches += 1;
+        throw new Error("The unresolved preload should time out first.");
+      },
+      timeoutMs: 10,
+    });
+
+    assert.equal(await response.text(), "cached app shell");
+    assert.equal(cacheWrites, 0);
+    assert.equal(fallbackFetches, 0);
+  },
+);
+
+test(
+  "navigation falls back to the cached shell on HTTP 503 and preserves fresh responses when cache writes fail",
+  async () => {
+    const serviceWorker = await loadServiceWorkerModule();
+    const cache = {
+      async match() {
+        return new Response("cached app shell");
+      },
+      async put() {
+        throw new Error("Storage quota is unavailable.");
+      },
+    };
+
+    const fallback = await serviceWorker.fetchNavigationWithFallback({
+      request: new Request("https://example.test/library"),
+      preloadResponse: Promise.resolve(
+        new Response("upstream unavailable", { status: 503 }),
+      ),
+      cache,
+      timeoutMs: 100,
+    });
+    assert.equal(await fallback.text(), "cached app shell");
+
+    const fresh = await serviceWorker.fetchNavigationWithFallback({
+      request: new Request("https://example.test/library"),
+      preloadResponse: Promise.resolve(
+        new Response("fresh page html", { status: 200 }),
+      ),
+      cache,
+      timeoutMs: 100,
+    });
+    assert.equal(fresh.status, 200);
+    assert.equal(await fresh.text(), "fresh page html");
+  },
+);
+
+test(
   "service worker precaches dynamic page chunks without forcing activation over open clients",
   async () => {
     const listeners = new Map();

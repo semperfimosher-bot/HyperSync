@@ -50,6 +50,87 @@ const PRECACHE_ASSET_PATTERN =
   /\.(?:m?js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|ico)$/i;
 
 
+export async function fetchNavigationWithFallback({
+  request,
+  preloadResponse,
+  cache,
+  fetchLike = globalThis.fetch,
+  timeoutMs = NAVIGATION_NETWORK_TIMEOUT_MS,
+}) {
+  const controller = new AbortController();
+  let timeoutId;
+
+  const networkResponse = Promise.resolve(preloadResponse).then(
+    (preloaded) =>
+      preloaded ??
+      fetchLike(
+        new Request(
+          request,
+          {
+            signal: controller.signal,
+          },
+        ),
+      ),
+  );
+
+  const timeoutResponse = new Promise((_, reject) => {
+    timeoutId = globalThis.setTimeout(
+      () => {
+        controller.abort();
+        reject(new Error("Navigation request timed out."));
+      },
+      timeoutMs,
+    );
+  });
+
+  try {
+    const response = await Promise.race([
+      networkResponse,
+      timeoutResponse,
+    ]);
+
+    if (!response.ok) {
+      const cached = await cache.match("/");
+      return cached ?? response;
+    }
+
+    /*
+     * A cache write is best effort. Storage/quota failures must not
+     * turn a successful online navigation into an offline error page.
+     */
+    await cache.put(
+      "/",
+      response.clone(),
+    ).catch(() => {});
+
+    return response;
+  } catch {
+    try {
+      const cached = await cache.match("/");
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // Fall through to a minimal offline response when cache access fails.
+    }
+
+    return new Response(
+      "HyperSynced is offline.",
+      {
+        status: 503,
+        headers: {
+          "Content-Type": "text/plain",
+        },
+      },
+    );
+  } finally {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+}
+
+
 export function collectBuildAssetUrls(
   manifest,
   origin,
@@ -1141,70 +1222,12 @@ globalThis.self?.addEventListener?.(
                 APP_SHELL_CACHE,
               );
 
-            const controller =
-              new AbortController();
-
-            const timeoutId =
-              setTimeout(
-                () => {
-                  controller.abort();
-                },
-                NAVIGATION_NETWORK_TIMEOUT_MS,
-              );
-
-            try {
-              const preloaded =
-                await event
-                  .preloadResponse;
-
-              const response =
-                preloaded ??
-                await fetch(
-                  new Request(
-                    request,
-                    {
-                      signal:
-                        controller.signal,
-                    },
-                  ),
-                );
-
-              if (
-                response.ok
-              ) {
-                await cache.put(
-                  "/",
-                  response.clone(),
-                );
-              }
-
-              return response;
-            } catch {
-              const cached =
-                await cache.match(
-                  "/",
-                );
-
-              if (cached) {
-                return cached;
-              }
-
-              return new Response(
-                "HyperSynced is offline.",
-                {
-                  status: 503,
-
-                  headers: {
-                    "Content-Type":
-                      "text/plain",
-                  },
-                },
-              );
-            } finally {
-              clearTimeout(
-                timeoutId,
-              );
-            }
+            return fetchNavigationWithFallback({
+              request,
+              preloadResponse:
+                event.preloadResponse,
+              cache,
+            });
           }
         )(),
       );
