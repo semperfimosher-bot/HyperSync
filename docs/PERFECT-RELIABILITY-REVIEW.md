@@ -30,6 +30,14 @@ Hardening commit `6c74aaa` passed both complete CI workflows: 442 backend tests 
 
 No production load/soak test, real provider outage exercise or actual backup restore was performed. Whole-file fallback audio is now bounded by the request ceiling but can still consume that memory per admitted request. An ambiguous commit or failed storage cleanup can retain orphan objects for auditing. Deployment capacity and backup recoverability remain operational gates, not properties certified by green unit tests.
 
+## Server memory follow-up — 2026-10-17
+
+Known bulk allocations are replaced with disk-backed upload/compression/backfill paths, bounded legacy catalog serialization, streamed artist ranking and64-target smart refresh pages. Media admission holds processing/stream permits through cancellation cleanup. Provider responses, SDK pools/buffers and lyrics cooldowns have explicit bounds. Durable worker retries skip already committed playlist pages and revisit them after later track changes.
+
+Fresh-process local fixtures produce byte-identical catalog JSON with peak traced Python allocations about32.13MiB→0.83MiB at10,000tracks; the new peak stays approximately flat at1,000/10,000tracks. Disk audio copy/compression-disabled allocations stay about2.01MiB at8/64MiB. These figures exclude database/FFmpeg/live B2 workloads and are not a total RSS budget. See docs/operations/server-memory.md.
+
+Independent review found and resolved nested metadata allocation and pre-response stream cancellation issues. Disposable CI now runs actual pg_dump/pg_restore and killed-worker restart/fencing rehearsals with preserved membership/order, pending jobs and fixture media hashes. Final CI evidence is reported on the PR; fixture restore/restart results do not establish production backup recoverability or live provider outage behavior.
+
 ## Cleanup delivered
 
 - Removed device selection/control props, account playback synchronization, polling, reconnect timers, remote command dispatch, live WebSocket handling, and PostgreSQL playback event listener/bridge.

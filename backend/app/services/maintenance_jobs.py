@@ -156,7 +156,7 @@ async def execute_job(claim: ClaimedJob) -> None:
             return
         for name in artist_names_for_credit(track.artist, include_combined=False):
             await ensure_artist_playlist(session, name)
-        await refresh_smart_playlists_for_track(session, track)
+        await refresh_smart_playlists_for_track(session, track, only_stale=True)
 
 
 async def process_next_job(factory: Factory | None = None) -> bool:

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
+from .bounded_http import get_json as bounded_get_json
 from .catalog_metadata import (
     resolve_exact_track_metadata,
 )
@@ -861,7 +862,7 @@ async def lookup_apple_track_metadata(
         if throttle:
             await _apple_throttle()
 
-        response = await client.get(
+        payload = await bounded_get_json(client,
             "/search",
             params={
                 "term":
@@ -879,10 +880,6 @@ async def lookup_apple_track_metadata(
                     "Yes",
             },
         )
-
-        response.raise_for_status()
-
-        payload = response.json()
 
         if not isinstance(
             payload,
@@ -1061,14 +1058,10 @@ async def _get_json(
     if throttle:
         await _throttle()
 
-    response = await client.get(
+    payload = await bounded_get_json(client,
         path,
         params=params,
     )
-
-    response.raise_for_status()
-
-    payload = response.json()
 
     if not isinstance(
         payload,
@@ -1614,7 +1607,7 @@ async def _lastfm_get_json(
     if throttle:
         await _lastfm_throttle()
 
-    response = await client.get(
+    payload = await bounded_get_json(client,
         "/2.0/",
         params={
             "method":
@@ -1624,10 +1617,6 @@ async def _lastfm_get_json(
             **params,
         },
     )
-
-    response.raise_for_status()
-
-    payload = response.json()
 
     if not isinstance(
         payload,

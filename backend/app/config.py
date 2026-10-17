@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     api_admission_timeout_seconds: float = 5.0
     maintenance_worker_enabled: bool = True
     request_max_body_bytes: int = 64 * 1024 * 1024
+    media_max_concurrent_uploads: int = 1
+    media_max_concurrent_streams: int = 4
+    catalog_max_concurrent_exports: int = 1
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -239,6 +242,9 @@ class Settings(BaseSettings):
             raise ValueError("DB_IDLE_TRANSACTION_TIMEOUT_MS must be at least 1.")
         if self.request_max_body_bytes < 1:
             raise ValueError("REQUEST_MAX_BODY_BYTES must be at least 1.")
+        if min(self.media_max_concurrent_uploads, self.media_max_concurrent_streams,
+               self.catalog_max_concurrent_exports) < 1:
+            raise ValueError("Media and catalog concurrency limits must be at least 1.")
         if self.api_max_concurrent_requests < 1:
             raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
         if self.api_admission_timeout_seconds < 0:

@@ -20,6 +20,7 @@ from .audio_metadata import (
     normalize_track_title_identity,
     primary_artist_credit,
 )
+from .bounded_http import get_response
 
 
 @dataclass(frozen=True)
@@ -782,8 +783,9 @@ async def _fetch_deezer_detail(
         return candidate
 
     try:
-        response = await client.get(
+        response = await get_response(client,
             f"/track/{candidate.deezer_track_id}",
+            params={},
         )
 
         response.raise_for_status()
@@ -886,7 +888,7 @@ async def _search_deezer(
             )
 
             try:
-                response = await client.get(
+                response = await get_response(client,
                     "/search/track",
                     params={
                         "q":
@@ -1032,7 +1034,7 @@ async def _search_itunes(
         },
     ) as client:
         try:
-            response = await client.get(
+            response = await get_response(client,
                 "/search",
                 params={
                     "term":

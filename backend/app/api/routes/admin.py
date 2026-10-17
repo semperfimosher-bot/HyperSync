@@ -2,7 +2,8 @@ import asyncio
 import base64
 import hmac
 import logging
-from io import BytesIO
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -18,7 +19,6 @@ from fastapi import (
     UploadFile,
     status,
 )
-from mutagen._file import File as MutagenFile
 from mutagen.flac import Picture
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -40,11 +40,12 @@ from ...services.artists import (
 )
 from ...services.audio_compression import (
     AudioProbe,
-    compress_audio_for_storage,
+    compress_audio_file_for_storage,
     should_attempt_audio_compression,
 )
 from ...services.audio_metadata import (
-    extract_embedded_audio_metadata,
+    bounded_mutagen_file,
+    extract_embedded_audio_metadata_file,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -77,6 +78,7 @@ from ...services.music_metadata import (
 from ...services.storage_integrity import (
     audit_track_storage,
 )
+from ...services.thread_work import run_blocking
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -699,7 +701,7 @@ async def admin_diagnostics(
         )
 
     try:
-        bucket = await asyncio.to_thread(
+        bucket = await run_blocking(
             get_b2_bucket,
         )
 
@@ -1170,18 +1172,16 @@ async def finalize_direct_track_upload(
             ),
         )
 
-    bucket = await asyncio.to_thread(get_b2_bucket)
+    bucket = await run_blocking(get_b2_bucket)
 
     cleanup_audio = True
     artwork_object_key = None
 
     try:
         try:
-            object_info = (
-                await asyncio.to_thread(
-                    head_b2_object,
-                    object_key,
-                )
+            object_info = await run_blocking(
+                head_b2_object,
+                object_key,
             )
 
         except Exception as exc:
@@ -1248,22 +1248,18 @@ async def finalize_direct_track_upload(
             )
 
         if artwork is not None:
-            artwork_data = (
-                await artwork.read()
-            )
+            artwork_data = await artwork.read(5 * 1024 * 1024 + 1)
+
+            if len(artwork_data) > 5 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Artwork exceeds 5 MiB.")
 
             artwork_mime_type = (
                 artwork.content_type
                 or ""
             )
 
-            if (
-                artwork_data
-                and artwork_mime_type
-                .lower()
-                .startswith(
-                    "image/",
-                )
+            if artwork_data and artwork_mime_type.lower().startswith(
+                "image/",
             ):
                 artwork_ext = (
                     artwork_mime_type
@@ -1285,13 +1281,11 @@ async def finalize_direct_track_upload(
                     f"{artwork_ext}"
                 )
 
-                await asyncio.to_thread(
+                await run_blocking(
                     bucket.upload_bytes,
                     artwork_data,
                     artwork_object_key,
-                    content_type=(
-                        artwork_mime_type
-                    ),
+                    content_type=(artwork_mime_type),
                 )
 
         await lock_track_identity(
@@ -1457,6 +1451,37 @@ async def finalize_direct_track_upload(
                     )
 
 
+def _copy_upload_to_path(upload, path: Path) -> None:
+    upload.seek(0)
+    with path.open("wb") as target:
+        shutil.copyfileobj(upload, target, length=1024 * 1024)
+
+
+def _extract_upload_artwork(path: Path):
+    try:
+        with path.open("rb") as source:
+            audio_file = bounded_mutagen_file(source, easy=False)
+        tags = getattr(
+            audio_file,
+            "tags",
+            None,
+        )
+        if tags:
+            if hasattr(tags, "getall"):
+                frames = tags.getall("APIC")
+                if frames and len(frames[0].data) <= 5 * 1024 * 1024:
+                    return frames[0].data, frames[0].mime
+            elif "metadata_block_picture" in tags:
+                encoded = tags["metadata_block_picture"][0]
+                if len(encoded) <= 7 * 1024 * 1024:
+                    picture = Picture(base64.b64decode(encoded))
+                    if len(picture.data) <= 5 * 1024 * 1024:
+                        return picture.data, picture.mime
+    except Exception:
+        pass
+    return None, None
+
+
 @router.post("/tracks/upload")
 async def upload_track(
     file: Annotated[UploadFile, File(...)],
@@ -1499,16 +1524,14 @@ async def upload_track(
     bucket = None
     pending_object_keys: list[str] = []
     commit_attempted = False
+    temporary = tempfile.TemporaryDirectory(prefix="hypersync-upload-")
+    source_path = Path(temporary.name) / "source.audio"
+    output_path = Path(temporary.name) / "output.mp3"
 
     try:
-        file_content = await file.read()
-        original_file_size = len(
-            file_content,
-        )
-
-        embedded_metadata = extract_embedded_audio_metadata(
-            file_content,
-        )
+        await run_blocking(_copy_upload_to_path, file.file, source_path)
+        original_file_size = source_path.stat().st_size
+        embedded_metadata = await run_blocking(extract_embedded_audio_metadata_file, source_path)
 
         resolved_metadata = resolve_track_metadata(
             submitted_title=title,
@@ -1554,116 +1577,25 @@ async def upload_track(
         # No database connection is needed during compression or B2 I/O.
         await session.commit()
 
-        artwork_data = None
-        artwork_mime_type = None
+        artwork_data, artwork_mime_type = await run_blocking(_extract_upload_artwork, source_path)
 
-        try:
-            audio_file = MutagenFile(
-                BytesIO(file_content),
-                easy=False,
-            )
-
-            if audio_file is not None:
-                tags = getattr(
-                    audio_file,
-                    "tags",
-                    None,
-                )
-
-                if tags:
-                    if hasattr(
-                        tags,
-                        "getall",
-                    ):
-                        apic_frames = tags.getall(
-                            "APIC",
-                        )
-
-                        if apic_frames:
-                            artwork_data = apic_frames[0].data
-
-                            artwork_mime_type = apic_frames[0].mime
-
-                    elif "metadata_block_picture" in tags:
-                        picture_data = base64.b64decode(
-                            tags["metadata_block_picture"][0],
-                        )
-
-                        picture = Picture(
-                            picture_data,
-                        )
-
-                        artwork_data = picture.data
-
-                        artwork_mime_type = picture.mime
-
-        except Exception:
-            # Artwork extraction should
-            # never prevent the upload.
-            pass
-
-        compression = (
-            await asyncio.to_thread(
-                compress_audio_for_storage,
-                file_content,
-                filename=(
-                    file.filename
-                ),
-                mime_type=(
-                    file.content_type
-                    or "application/octet-stream"
-                ),
-                title=(
-                    resolved_metadata[
-                        "title"
-                    ]
-                ),
-                artist=(
-                    resolved_metadata[
-                        "artist"
-                    ]
-                ),
-                album=(
-                    resolved_metadata[
-                        "album"
-                    ]
-                ),
-                genre=(
-                    resolved_metadata[
-                        "genre"
-                    ]
-                ),
-                artwork_data=(
-                    artwork_data
-                ),
-                artwork_mime_type=(
-                    artwork_mime_type
-                ),
-                enabled=(
-                    settings
-                    .audio_compression_enabled
-                ),
-                mp3_vbr_quality=(
-                    settings
-                    .audio_compression_mp3_vbr_quality
-                ),
-                min_source_kbps=(
-                    settings
-                    .audio_compression_min_source_kbps
-                ),
-                min_savings_percent=(
-                    settings
-                    .audio_compression_min_savings_percent
-                ),
-                timeout_seconds=(
-                    settings
-                    .audio_compression_timeout_seconds
-                ),
-            )
-        )
-
-        file_content = (
-            compression.content
+        compression = await run_blocking(
+            compress_audio_file_for_storage,
+            source_path,
+            output_path,
+            filename=(file.filename),
+            mime_type=(file.content_type or "application/octet-stream"),
+            title=(resolved_metadata["title"]),
+            artist=(resolved_metadata["artist"]),
+            album=(resolved_metadata["album"]),
+            genre=(resolved_metadata["genre"]),
+            artwork_data=(artwork_data),
+            artwork_mime_type=(artwork_mime_type),
+            enabled=(settings.audio_compression_enabled),
+            mp3_vbr_quality=(settings.audio_compression_mp3_vbr_quality),
+            min_source_kbps=(settings.audio_compression_min_source_kbps),
+            min_savings_percent=(settings.audio_compression_min_savings_percent),
+            timeout_seconds=(settings.audio_compression_timeout_seconds),
         )
 
         file_size = (
@@ -1683,18 +1615,16 @@ async def upload_track(
             f"{uuid4()}.{file_ext}"
         )
 
-        bucket = await asyncio.to_thread(
+        bucket = await run_blocking(
             get_b2_bucket,
         )
         pending_object_keys.append(object_key)
 
-        await asyncio.to_thread(
-            bucket.upload_bytes,
-            file_content,
-            object_key,
-            content_type=(
-                upload_mime_type
-            ),
+        await run_blocking(
+            bucket.upload_local_file,
+            local_file=str(compression.output_path),
+            file_name=object_key,
+            content_type=(upload_mime_type),
         )
 
         artwork_object_key = None
@@ -1705,7 +1635,7 @@ async def upload_track(
             artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
 
             pending_object_keys.append(artwork_object_key)
-            await asyncio.to_thread(
+            await run_blocking(
                 bucket.upload_bytes,
                 artwork_data,
                 artwork_object_key,
@@ -1854,6 +1784,7 @@ async def upload_track(
         ) from exc
 
     finally:
+        temporary.cleanup()
         if bucket is not None and not commit_attempted:
             for pending_key in pending_object_keys:
                 try:
@@ -2017,35 +1948,15 @@ async def backfill_track_metadata(
         )
 
         try:
-            downloaded = (
-                await asyncio.to_thread(
-                    bucket.download_file_by_name,
-                    track.b2_object_key,
-                )
+            downloaded = await run_blocking(
+                bucket.download_file_by_name,
+                track.b2_object_key,
             )
 
-            def _read_bytes(downloaded=downloaded) -> bytes:
-                buffer = BytesIO()
-
-                downloaded.save(
-                    buffer,
-                )
-
-                return (
-                    buffer.getvalue()
-                )
-
-            file_content = (
-                await asyncio.to_thread(
-                    _read_bytes,
-                )
-            )
-
-            embedded = (
-                extract_embedded_audio_metadata(
-                    file_content,
-                )
-            )
+            with tempfile.TemporaryDirectory(prefix="hypersync-metadata-") as temp_dir:
+                source_path = Path(temp_dir) / "source.audio"
+                await run_blocking(downloaded.save_to, str(source_path))
+                embedded = await run_blocking(extract_embedded_audio_metadata_file, source_path)
 
             if (
                 not (
@@ -2209,6 +2120,7 @@ async def backfill_track_metadata(
         "failed":
             failed,
     }
+
 
 async def _stage_tracks_for_storage_delete(
     session: DatabaseSession,
@@ -2516,7 +2428,9 @@ async def delete_track(
 
     if track is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
             detail="Track not found.",
         )
 

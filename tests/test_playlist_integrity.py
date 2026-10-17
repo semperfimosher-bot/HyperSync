@@ -320,3 +320,51 @@ async def test_seed_string_values_fit_declared_column_limits(monkeypatch):
             value = getattr(row, column.name)
             if isinstance(column.type, String) and column.type.length and value is not None:
                 assert len(value) <= column.type.length, f"{row.__tablename__}.{column.name}"
+
+
+@pytest.mark.asyncio
+async def test_worker_smart_refresh_resumes_after_committed_page_and_new_track_change(monkeypatch):
+    from backend.app.services import generated_playlists as generated
+
+    user_id, track_ids, _ = await seed()
+    factory = get_session_factory()
+    async with factory() as session:
+        track = await session.get(Track, track_ids[0])
+        assert track is not None
+        for query in ("country", "country mix", "country music"):
+            playlist = await ensure_smart_playlist(session, user_id, query)
+            assert playlist is not None
+            playlist.generated_at = track.updated_at - timedelta(days=1)
+        await session.commit()
+        original = generated.ensure_smart_playlist
+        committed_ids = []
+        interrupt = True
+
+        async def refresh(*args, **kwargs):
+            nonlocal interrupt
+            playlist = await original(*args, **kwargs)
+            assert playlist is not None
+            committed_ids.append(playlist.id)
+            if interrupt:
+                interrupt = False
+                raise TimeoutError("deadline after playlist commit")
+            return playlist
+
+        monkeypatch.setattr(generated, "SMART_REFRESH_TARGET_BATCH_SIZE", 1)
+        monkeypatch.setattr(generated, "ensure_smart_playlist", refresh)
+        with pytest.raises(TimeoutError):
+            await generated.refresh_smart_playlists_for_track(session, track, only_stale=True)
+        assert await generated.refresh_smart_playlists_for_track(
+            session, track, only_stale=True,
+        ) == 2
+        assert len(committed_ids) == len(set(committed_ids)) == 3
+        assert await generated.refresh_smart_playlists_for_track(
+            session, track, only_stale=True,
+        ) == 0
+        # A later metadata edit must make every completed target eligible again.
+        track.title += " changed"
+        await session.commit()
+        await session.refresh(track)
+        assert await generated.refresh_smart_playlists_for_track(
+            session, track, only_stale=True,
+        ) == 3

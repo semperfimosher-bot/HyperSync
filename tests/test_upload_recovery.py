@@ -213,23 +213,26 @@ async def test_upload_releases_connection_during_io_and_cleans_concurrent_duplic
         nonlocal active
         active = True
 
-    def compress(content, **_kwargs):
+    def compress(source_path, output_path, **_kwargs):
         assert not active, "compression must not hold a database connection"
         return SimpleNamespace(
-            content=content, final_size=len(content), mime_type="audio/mpeg", extension="mp3"
+            output_path=source_path,
+            final_size=source_path.stat().st_size,
+            mime_type="audio/mpeg",
+            extension="mp3",
         )
 
     def upload(*_args, **_kwargs):
         assert not active, "B2 upload must not hold a database connection"
 
-    bucket = SimpleNamespace(upload_bytes=upload)
+    bucket = SimpleNamespace(upload_local_file=upload)
     cleanup = AsyncMock()
     monkeypatch.setattr(admin, "_find_duplicate_track", duplicate)
     monkeypatch.setattr(admin, "lock_track_identity", lock)
-    monkeypatch.setattr(admin, "compress_audio_for_storage", compress)
+    monkeypatch.setattr(admin, "compress_audio_file_for_storage", compress)
     monkeypatch.setattr(admin, "get_b2_bucket", lambda: bucket)
     monkeypatch.setattr(admin, "delete_all_object_versions", cleanup)
-    monkeypatch.setattr(admin, "extract_embedded_audio_metadata", lambda _content: {})
+    monkeypatch.setattr(admin, "extract_embedded_audio_metadata_file", lambda _content: {})
     monkeypatch.setattr(
         admin,
         "resolve_track_metadata",
@@ -339,7 +342,7 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
     monkeypatch.setattr(admin, "enqueue_track_maintenance", enqueue, raising=False)
     monkeypatch.setattr(
         admin,
-        "extract_embedded_audio_metadata",
+        "extract_embedded_audio_metadata_file",
         lambda _content: {
             "title": None,
             "artist": None,
@@ -350,10 +353,10 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
     )
     monkeypatch.setattr(
         admin,
-        "compress_audio_for_storage",
-        lambda content, **_kwargs: SimpleNamespace(
-            content=content,
-            final_size=len(content),
+        "compress_audio_file_for_storage",
+        lambda source_path, output_path, **_kwargs: SimpleNamespace(
+            output_path=source_path,
+            final_size=source_path.stat().st_size,
             mime_type="audio/mpeg",
             extension="mp3",
             compressed=False,

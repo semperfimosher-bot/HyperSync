@@ -16,6 +16,7 @@ from .database import (
     check_database,
     close_database,
 )
+from .middleware.memory_admission import MemoryAdmissionMiddleware
 from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
@@ -425,6 +426,13 @@ app.add_middleware(
 app.add_middleware(
     RequestBodyLimitMiddleware,
     max_body_bytes=settings.request_max_body_bytes,
+)
+
+app.add_middleware(
+    MemoryAdmissionMiddleware,
+    upload_limit=settings.media_max_concurrent_uploads,
+    stream_limit=settings.media_max_concurrent_streams,
+    catalog_limit=settings.catalog_max_concurrent_exports,
 )
 
 app.add_middleware(

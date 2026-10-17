@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import mimetypes
+import tempfile
 import time
 from collections.abc import Sequence
 from datetime import (
@@ -21,7 +22,6 @@ from fastapi import (
     Query,
     Response,
 )
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 
@@ -35,12 +35,14 @@ from ...services.b2 import (
     create_presigned_download_url,
     get_b2_bucket,
 )
+from ...services.disk_response import DiskJSONResponse
 from ...services.lrclib import (
     LrclibRateLimitedError,
     LrclibUnavailableError,
     fetch_lrclib_lyrics,
 )
-from .audio import stream_b2_file
+from ...services.thread_work import run_blocking, run_blocking_resource
+from .audio import B2StreamingResponse, close_b2_download
 
 router = APIRouter(
     prefix="/catalog",
@@ -56,6 +58,17 @@ LYRICS_NEGATIVE_CACHE_EPOCH = datetime.now(
 )
 LYRICS_PROVIDER_COOLDOWN_SECONDS = 15.0
 _lyrics_provider_cooldown_until: dict[UUID, float] = {}
+LYRICS_COOLDOWN_MAX_ENTRIES = 1024
+
+
+def _set_lyrics_cooldown(track_id: UUID, seconds: float) -> None:
+    now = time.monotonic()
+    for key, expires in list(_lyrics_provider_cooldown_until.items()):
+        if expires <= now:
+            _lyrics_provider_cooldown_until.pop(key, None)
+    _lyrics_provider_cooldown_until[track_id] = now + seconds
+    while len(_lyrics_provider_cooldown_until) > LYRICS_COOLDOWN_MAX_ENTRIES:
+        _lyrics_provider_cooldown_until.pop(next(iter(_lyrics_provider_cooldown_until)))
 
 
 class TrackResponse(BaseModel):
@@ -223,7 +236,7 @@ async def list_tracks(
     ),
     page_size: int | None = Query(default=None, ge=1, le=500),
     cursor: str | None = Query(default=None, max_length=1024),
-) -> list[TrackResponse] | CatalogPageResponse:
+) -> list[TrackResponse] | CatalogPageResponse | DiskJSONResponse:
 
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
 
@@ -233,6 +246,8 @@ async def list_tracks(
 
     query = (q or "").strip()
     paged = page_size is not None or cursor is not None
+    if not paged:
+        return await _legacy_catalog_response(query, dict(response.headers))
     limit = page_size or 250
     bounds = _decode_catalog_cursor(cursor, query) if cursor is not None else None
     session_factory = get_session_factory()
@@ -287,6 +302,46 @@ async def list_tracks(
         else None
     )
     return CatalogPageResponse(items=items, next_cursor=next_cursor)
+
+
+async def _legacy_catalog_response(query: str, headers: dict[str, str]) -> DiskJSONResponse:
+    """Keep the old sorted array contract using disk rather than a full ORM/JSON list.
+
+    Finish all database/presigning work before response headers. Slow clients
+    consume only a disk stream, never a database connection or whole catalog RAM.
+    """
+    source = tempfile.TemporaryFile(mode="w+b")
+    try:
+        await run_blocking(source.write, b"[")
+        first = True
+        async with get_session_factory()() as session:
+            stmt = select(Track).where(Track.is_published.is_(True))
+            if query:
+                term = f"%{query}%"
+                stmt = stmt.where(or_(
+                    Track.title.ilike(term), Track.artist.ilike(term),
+                    Track.album.ilike(term), Track.genre.ilike(term),
+                ))
+            stmt = stmt.order_by(Track.artist, Track.title, Track.id)
+            result = await session.stream(stmt.execution_options(yield_per=250))
+            try:
+                async for tracks in result.scalars().partitions(250):
+                    def encode_page(tracks=tracks, first=first):
+                        items = _catalog_track_responses(tracks)
+                        return (b"" if first else b",") + b",".join(
+                            item.model_dump_json().encode("utf-8") for item in items
+                        )
+                    encoded = await run_blocking(encode_page)
+                    if tracks:
+                        await run_blocking(source.write, encoded)
+                        first = False
+            finally:
+                await result.close()
+        await run_blocking(source.write, b"]")
+        return DiskJSONResponse(source, headers=headers)
+    except BaseException:
+        await run_blocking(source.close)
+        raise
 
 
 def _catalog_track_responses(tracks: Sequence[Track]) -> list[TrackResponse]:
@@ -530,9 +585,7 @@ async def get_track_lyrics(
                 max(float(exc.retry_after), LYRICS_PROVIDER_COOLDOWN_SECONDS),
                 60.0,
             )
-            _lyrics_provider_cooldown_until[track.id] = (
-                time.monotonic() + cooldown
-            )
+            _set_lyrics_cooldown(track.id, cooldown)
             logger.debug(
                 "LRCLIB rate limited lyrics lookup for track %s; retrying after cooldown.",
                 track.id,
@@ -542,9 +595,7 @@ async def get_track_lyrics(
             )
 
         except LrclibUnavailableError:
-            _lyrics_provider_cooldown_until[track.id] = (
-                time.monotonic() + LYRICS_PROVIDER_COOLDOWN_SECONDS
-            )
+            _set_lyrics_cooldown(track.id, LYRICS_PROVIDER_COOLDOWN_SECONDS)
             logger.debug(
                 "LRCLIB temporarily unavailable for track %s; serving a graceful empty result.",
                 track.id,
@@ -635,9 +686,10 @@ async def get_track_artwork(track_id: UUID):
     settings = get_settings()
 
     try:
-        bucket = get_b2_bucket()
-        downloaded = await asyncio.to_thread(
+        bucket = await run_blocking(get_b2_bucket)
+        downloaded = await run_blocking_resource(
             bucket.download_file_by_name,
+            close_b2_download,
             object_key,
         )
         content_type, _ = mimetypes.guess_type(object_key)
@@ -645,8 +697,8 @@ async def get_track_artwork(track_id: UUID):
             content_type = "image/jpeg"
 
         cache_seconds = max(settings.b2_presigned_url_ttl_seconds, 300)
-        return StreamingResponse(
-            stream_b2_file(downloaded),
+        return B2StreamingResponse(
+            downloaded,
             media_type=content_type,
             headers={
                 "Cache-Control": (
