@@ -76,4 +76,14 @@ export function resetArtworkRetry(image) {
 
   delete image.dataset.artworkRetryCount;
   delete image.dataset.artworkRetrySource;
+
+  // A reused image element may previously have reached the permanent fallback.
+  // Restore the image and hide its adjacent fallback after a later load succeeds.
+  if (image.style) {
+    image.style.display = "";
+  }
+
+  if (image.nextElementSibling?.style) {
+    image.nextElementSibling.style.display = "none";
+  }
 }

@@ -144,3 +144,26 @@ test(
     }
   },
 );
+
+
+
+test(
+  "restores a previously hidden image and hides its fallback after success",
+  () => {
+    const image = {
+      dataset: {
+        artworkRetryCount: "3",
+        artworkRetrySource: "https://api.example.test/api/catalog/tracks/track-1/artwork",
+      },
+      style: { display: "none" },
+      nextElementSibling: { style: { display: "grid" } },
+    };
+
+    resetArtworkRetry(image);
+
+    assert.equal(image.dataset.artworkRetryCount, undefined);
+    assert.equal(image.dataset.artworkRetrySource, undefined);
+    assert.equal(image.style.display, "");
+    assert.equal(image.nextElementSibling.style.display, "none");
+  },
+);
