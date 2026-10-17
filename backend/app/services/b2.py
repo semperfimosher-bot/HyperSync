@@ -21,7 +21,14 @@ def get_b2_client() -> b2.B2Api:
         raise RuntimeError("B2_APPLICATION_KEY is not configured.")
 
     info = b2.InMemoryAccountInfo()
-    api = b2.B2Api(account_info=info)  # type: ignore[arg-type]
+    api = b2.B2Api(
+        account_info=info,  # type: ignore[arg-type]
+        max_upload_workers=1,
+        max_copy_workers=1,
+        max_download_workers=2,
+        max_download_streams_per_file=1,
+        save_to_buffer_size=256 * 1024,
+    )
 
     api.authorize_account(
         "production",

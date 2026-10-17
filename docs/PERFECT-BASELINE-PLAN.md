@@ -41,3 +41,15 @@ This branch is an isolated work area. Do not merge it, deploy it, change Northfl
 ## Hosting migration is a separate phase
 
 Only after the local baseline is verified should a separate plan move the backend to the existing VPS while leaving the static frontend on Northflank. Production routing and deployment remain unchanged until explicitly authorized.
+
+## Cleanup implementation status — 2026-10-16
+
+Jam remnants and live device-control transports/services/UI are removed. Local-player
+regressions and endpoint/socket rejection checks are in place. Historical migrations,
+legacy playback schema mappings and existing data are retained; there is no destructive
+schema cleanup in this change. Generic proxy/CSP compatibility is unchanged.
+
+See [the reliability review](PERFECT-RELIABILITY-REVIEW.md) for executed checks and
+remaining risks. The baseline is **not certified stable**: the full PostgreSQL suite,
+same-account integration regression, migration execution, real browser/device journeys,
+Windows verification and backend image build still need to pass in a suitable environment.

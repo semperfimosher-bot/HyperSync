@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mutagen._file import File as MutagenFile
 from mutagen.id3._frames import (
     APIC,
     TALB,
@@ -16,7 +15,8 @@ from mutagen.id3._frames import (
     TIT2,
     TPE1,
 )
-from mutagen.mp3 import MP3
+
+from .audio_metadata import bounded_mutagen_file
 
 LOSSLESS_OR_UNCOMPRESSED_CODECS = {
     "alac",
@@ -138,17 +138,15 @@ def _probe_audio(
             "-select_streams",
             "a:0",
             "-show_entries",
-            (
-                "stream=codec_name,bit_rate,channels:"
-                "format=bit_rate,duration"
-            ),
+            ("stream=codec_name,bit_rate,channels:format=bit_rate,duration"),
             "-of",
             "json",
             str(
                 path,
             ),
         ],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         text=True,
         timeout=max(
             timeout_seconds,
@@ -301,9 +299,10 @@ def _embed_resolved_metadata(
     artwork_data: bytes | None,
     artwork_mime_type: str | None,
 ) -> None:
-    audio = MP3(
-        output_path,
-    )
+    with output_path.open("rb") as source:
+        audio = bounded_mutagen_file(source, easy=False)
+    if audio is None:
+        raise ValueError("Converted audio metadata could not be read safely.")
 
     if audio.tags is None:
         audio.add_tags()
@@ -386,6 +385,7 @@ def _embed_resolved_metadata(
         )
 
     audio.save(
+        output_path,
         v2_version=3,
     )
 
@@ -404,10 +404,8 @@ def _validate_output(
         return False
 
     try:
-        parsed = MutagenFile(
-            path,
-            easy=True,
-        )
+        with path.open("rb") as source:
+            parsed = bounded_mutagen_file(source, easy=True)
     except Exception:
         return False
 
@@ -607,12 +605,7 @@ def compress_audio_for_storage(
             content,
         )
 
-        probe = _probe_audio(
-            input_path,
-            timeout_seconds=(
-                timeout_seconds
-            ),
-        )
+        probe = _probe_audio(input_path, timeout_seconds=timeout_seconds)
 
         if (
             not force_transcode
@@ -634,89 +627,38 @@ def compress_audio_for_storage(
                 probe=probe,
             )
 
-        quality = max(
-            0,
-            min(
-                int(
-                    mp3_vbr_quality,
-                ),
-                9,
-            ),
-        )
+        quality = max(0, min(int(mp3_vbr_quality), 9))
 
         command = [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            str(
-                input_path,
-            ),
-            "-map",
-            "0:a:0",
-            "-map_metadata",
-            "0",
-            "-vn",
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            str(
-                quality,
-            ),
-            "-id3v2_version",
-            "3",
-            "-write_id3v1",
-            "1",
-            "-metadata",
-            f"title={title}",
-            "-metadata",
-            f"artist={artist}",
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(input_path), "-map", "0:a:0", "-map_metadata", "0",
+            "-vn", "-c:a", "libmp3lame", "-q:a", str(quality),
+            "-id3v2_version", "3", "-write_id3v1", "1",
+            "-metadata", f"title={title}", "-metadata", f"artist={artist}",
         ]
 
         if album:
-            command.extend(
-                [
-                    "-metadata",
-                    f"album={album}",
-                ]
-            )
+            command.extend(["-metadata", f"album={album}"])
 
         if genre:
-            command.extend(
-                [
-                    "-metadata",
-                    f"genre={genre}",
-                ]
-            )
+            command.extend(["-metadata", f"genre={genre}"])
 
         if release_year:
-            command.extend(
-                [
-                    "-metadata",
-                    f"date={int(release_year)}",
-                ]
-            )
+            command.extend(["-metadata", f"date={int(release_year)}"])
 
-        command.append(
-            str(
-                output_path,
-            )
-        )
+        command.append(str(output_path))
 
         try:
-            completed = (
-                subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=max(
-                        timeout_seconds,
-                        1,
-                    ),
-                    check=False,
-                )
+            completed = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=max(
+                    timeout_seconds,
+                    1,
+                ),
+                check=False,
             )
         except (
             OSError,
@@ -849,7 +791,6 @@ def compress_audio_for_storage(
         )
 
 
-
 @dataclass(frozen=True)
 class AudioFileCompressionResult:
     output_path: Path
@@ -879,7 +820,9 @@ def transcode_audio_file_to_mp3(
     if not input_path.is_file() or input_path.stat().st_size <= 0:
         raise RuntimeError("Audio source file is empty or missing.")
 
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = shutil.which(
+        "ffmpeg",
+    )
     if not ffmpeg:
         raise RuntimeError("FFmpeg is required to create the canonical MP3.")
 
@@ -904,7 +847,8 @@ def transcode_audio_file_to_mp3(
     try:
         completed = subprocess.run(
             command,
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
             timeout=max(int(timeout_seconds), 1),
             check=False,
@@ -937,3 +881,101 @@ def transcode_audio_file_to_mp3(
         source_codec=probe.codec,
         source_bitrate_kbps=probe.bitrate_kbps,
     )
+
+
+@dataclass(frozen=True)
+class AudioStorageFileResult:
+    output_path: Path
+    mime_type: str
+    extension: str
+    compressed: bool
+    original_size: int
+    final_size: int
+    savings_bytes: int
+    savings_percent: float
+    source_codec: str | None
+    source_bitrate_kbps: float | None
+
+
+def compress_audio_file_for_storage(
+    input_path: Path,
+    output_path: Path,
+    *,
+    filename: str | None,
+    mime_type: str,
+    title: str,
+    artist: str,
+    album: str | None,
+    genre: str | None,
+    artwork_data: bytes | None,
+    artwork_mime_type: str | None,
+    enabled: bool,
+    mp3_vbr_quality: int,
+    min_source_kbps: int,
+    min_savings_percent: int,
+    timeout_seconds: int,
+    force_transcode: bool = False,
+    release_year: int | None = None,
+) -> AudioStorageFileResult:
+    """Apply the legacy optional compression policy without reading audio bytes."""
+    size = input_path.stat().st_size
+    probe = AudioProbe(None, None, None, None)
+
+    def original():
+        return AudioStorageFileResult(
+            input_path,
+            mime_type,
+            Path(filename or "").suffix.lower().lstrip(".") or "bin",
+            False,
+            size,
+            size,
+            0,
+            0.0,
+            probe.codec,
+            probe.bitrate_kbps,
+        )
+
+    if not enabled or size <= 0 or not shutil.which("ffmpeg"):
+        return original()
+    try:
+        probe = _probe_audio(input_path, timeout_seconds=timeout_seconds)
+        if not force_transcode and not should_attempt_audio_compression(
+            filename=filename,
+            probe=probe,
+            original_size=size,
+            min_source_kbps=min_source_kbps,
+        ):
+            return original()
+        converted = transcode_audio_file_to_mp3(
+            input_path,
+            output_path,
+            title=title,
+            artist=artist,
+            album=album,
+            genre=genre,
+            artwork_data=artwork_data,
+            artwork_mime_type=artwork_mime_type,
+            mp3_vbr_quality=mp3_vbr_quality,
+            timeout_seconds=timeout_seconds,
+            release_year=release_year,
+        )
+        final_size = converted.final_size
+        if not force_transcode and final_size >= size * (1 - max(min_savings_percent, 0) / 100):
+            output_path.unlink(missing_ok=True)
+            return original()
+        savings = size - final_size
+        return AudioStorageFileResult(
+            output_path,
+            "audio/mpeg",
+            "mp3",
+            True,
+            size,
+            final_size,
+            savings,
+            savings / size * 100,
+            probe.codec,
+            probe.bitrate_kbps,
+        )
+    except Exception:
+        output_path.unlink(missing_ok=True)
+        return original()

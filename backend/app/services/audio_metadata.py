@@ -4,11 +4,94 @@ import math
 import re
 import unicodedata
 from io import BytesIO
+from pathlib import Path
 from typing import TypedDict
 
 from mutagen._file import (
     File as MutagenFile,
 )
+
+
+class MetadataBudgetExceeded(ValueError):
+    pass
+
+
+class MetadataReadBudget:
+    """Seekable parser input with a cumulative read budget (not an RSS limit)."""
+
+    def __init__(self, source, *, max_bytes=8 * 1024 * 1024):
+        self.source = source
+        self.remaining = max_bytes
+
+    def read(self, size=-1):
+        if size < 0:
+            position = self.source.tell()
+            self.source.seek(0, 2)
+            size = self.source.tell() - position
+            self.source.seek(position)
+        if size > self.remaining:
+            raise MetadataBudgetExceeded("Embedded metadata exceeds the read budget.")
+        data = self.source.read(size)
+        self.remaining -= len(data)
+        return data
+
+    def readinto(self, buffer):
+        data = self.read(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
+
+    def seek(self, *args):
+        return self.source.seek(*args)
+
+    def tell(self):
+        return self.source.tell()
+
+    @property
+    def name(self):
+        return getattr(self.source, "name", "")
+
+
+def bounded_mutagen_file(source, *, easy=True):
+    # Mutagen's compressed ID3 frame handling can expand a small input. Skip
+    # ID3v2 tags with compressed frames before handing them to the parser.
+    reader = MetadataReadBudget(source)
+    header = reader.read(10)
+    if header[:3] == b"ID3" and len(header) == 10:
+        version = header[3]
+        if header[5] & 0xC0:  # extended headers complicate safe frame preflight
+            raise MetadataBudgetExceeded("Extended ID3 metadata is skipped.")
+        size = 0
+        for value in header[6:10]:
+            if value & 0x80:
+                raise MetadataBudgetExceeded("Invalid ID3 size.")
+            size = (size << 7) | value
+        if size > reader.remaining:
+            raise MetadataBudgetExceeded("ID3 metadata exceeds the read budget.")
+        end = 10 + size
+        if version in (3, 4):
+            while reader.tell() + 10 <= end:
+                frame = reader.read(10)
+                if frame[:4] == b"\0" * 4:
+                    break
+                if frame[:4] in (b"CHAP", b"CTOC"):
+                    # These container frames recursively parse unchecked subframes.
+                    raise MetadataBudgetExceeded("Nested ID3 metadata is skipped.")
+                if frame[9] & (0x80 if version == 3 else 0x08):
+                    raise MetadataBudgetExceeded("Compressed ID3 frames are skipped.")
+                frame_size = int.from_bytes(frame[4:8], "big")
+                if version == 4:
+                    frame_size = 0
+                    for value in frame[4:8]:
+                        if value & 0x80:
+                            raise MetadataBudgetExceeded("Invalid ID3 frame size.")
+                        frame_size = (frame_size << 7) | value
+                if reader.tell() + frame_size > end:
+                    raise MetadataBudgetExceeded("Invalid ID3 frame boundary.")
+                reader.seek(frame_size, 1)
+        elif version == 2 and header[5] & 0x40:
+            raise MetadataBudgetExceeded("Compressed ID3 tags are skipped.")
+    reader.seek(0)
+    return MutagenFile(reader, easy=easy)
 
 
 class EmbeddedAudioMetadata(
@@ -383,8 +466,8 @@ def _release_year(
     return None
 
 
-def extract_embedded_audio_metadata(
-    file_content: bytes,
+def _extract_embedded_audio_metadata_source(
+    source,
 ) -> EmbeddedAudioMetadata:
     empty: EmbeddedAudioMetadata = {
         "title": None,
@@ -395,16 +478,8 @@ def extract_embedded_audio_metadata(
         "release_year": None,
     }
 
-    if not file_content:
-        return empty
-
     try:
-        audio_file = MutagenFile(
-            BytesIO(
-                file_content,
-            ),
-            easy=True,
-        )
+        audio_file = bounded_mutagen_file(source, easy=True)
     except Exception:
         return empty
 
@@ -479,6 +554,15 @@ def extract_embedded_audio_metadata(
             tags,
         ),
     }
+
+
+def extract_embedded_audio_metadata(file_content: bytes) -> EmbeddedAudioMetadata:
+    return _extract_embedded_audio_metadata_source(BytesIO(file_content))
+
+
+def extract_embedded_audio_metadata_file(path: Path) -> EmbeddedAudioMetadata:
+    with Path(path).open("rb") as source:
+        return _extract_embedded_audio_metadata_source(source)
 
 
 def resolve_track_metadata(

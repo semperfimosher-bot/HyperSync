@@ -52,8 +52,6 @@ function formatQueueDuration(
 function MobilePlayerDetails({
   open,
   onClose,
-  accountPlaybackSnapshot = null,
-  currentPlaybackDeviceId = null,
 }) {
   const [
     activeTab,
@@ -308,12 +306,8 @@ function MobilePlayerDetails({
         "lyrics" ? (
           <div className="mobile-player-details__lyrics">
             <LiveLyrics
-              accountPlaybackSnapshot={
-                accountPlaybackSnapshot
-              }
-              currentPlaybackDeviceId={
-                currentPlaybackDeviceId
-              }
+
+
             />
           </div>
         ) : (

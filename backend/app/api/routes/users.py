@@ -17,15 +17,12 @@ from fastapi import (
     File,
     HTTPException,
     UploadFile,
-    WebSocket,
-    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import (
     BaseModel,
     Field,
-    ValidationError,
 )
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -45,51 +42,14 @@ from ...services.b2 import (
     delete_all_object_versions,
     get_b2_bucket,
 )
-from ...services.playback import (
-    PLAYBACK_DEVICE_LIST_LIMIT,
-    PLAYBACK_DEVICE_ONLINE_TTL,
-    build_account_playback_queue,
-    build_playback_state,
-    list_playback_devices,
-    playback_device_is_online,
-    playback_queue_track_response,
-    playback_track_response,
-    poll_playback_device,
-    prune_offline_playback_devices,
-    require_registered_playback_user,
-    send_playback_device_command,
-    touch_playback_device,
-    update_playback_state,
-)
-from ...services.playback_events import (
-    PlaybackEvent,
-    notify_playback_event,
-)
-from ...services.playback_realtime import (
-    playback_realtime_hub,
-)
 from ...services.track_urls import (
     artwork_url,
     audio_url,
-    presigned_or_fallback,
 )
 from ..dependencies import (
     CurrentUser,
     DatabaseSession,
     OptionalCurrentUser,
-    authenticate_access_token,
-)
-from ..schemas.playback import (
-    PlaybackDeviceKind,
-    PlaybackDevicePollRequest,
-    PlaybackDevicePollResponse,
-    PlaybackDeviceResponse,
-    PlaybackRemoteAction,
-    PlaybackRemoteCommandRequest,
-    PlaybackRemoteCommandResponse,
-    PlaybackStateResponse,
-    PlaybackStateUpdateRequest,
-    PlaybackTrackResponse,
 )
 from .audio import stream_b2_file
 from .catalog import (
@@ -98,34 +58,6 @@ from .catalog import (
 )
 
 logger = logging.getLogger(__name__)
-
-__all__ = [
-    "PLAYBACK_DEVICE_LIST_LIMIT",
-    "PLAYBACK_DEVICE_ONLINE_TTL",
-    "list_playback_devices",
-    "playback_device_is_online",
-    "prune_offline_playback_devices",
-    "touch_playback_device",
-    "PlaybackDeviceKind",
-    "PlaybackDevicePollRequest",
-    "PlaybackDevicePollResponse",
-    "PlaybackDeviceResponse",
-    "PlaybackRemoteAction",
-    "PlaybackRemoteCommandRequest",
-    "PlaybackRemoteCommandResponse",
-    "PlaybackStateResponse",
-    "PlaybackStateUpdateRequest",
-    "PlaybackTrackResponse",
-    "artwork_url",
-    "audio_url",
-    "build_account_playback_queue",
-    "build_playback_state",
-    "playback_queue_track_response",
-    "playback_track_response",
-    "presigned_or_fallback",
-    "require_registered_playback_user",
-]
-
 
 router = APIRouter(
     prefix="/users",
@@ -466,6 +398,16 @@ async def follow_status_for(
         return "pending"
 
     return "accepted"
+
+
+def can_view_music_activity(
+    target: User,
+    relationship_status: str,
+) -> bool:
+    return bool(
+        (target.profile and target.profile.music_activity_public)
+        or relationship_status in {"self", "accepted"}
+    )
 
 
 async def build_dashboard(
@@ -840,17 +782,6 @@ async def record_listening(
 
     await session.commit()
 
-    await playback_realtime_hub.broadcast(
-        user.id,
-        {
-            "type":
-                "listening_history_changed",
-            "track_id":
-                str(
-                    track.id,
-                ),
-        },
-    )
 
 
     return {
@@ -1012,7 +943,8 @@ async def upload_my_avatar(
             detail=("Profile picture must be a JPG, PNG, or WebP image."),
         )
 
-    image_data = await file.read()
+    avatar_limit = 5 * 1024 * 1024
+    image_data = await file.read(avatar_limit + 1)
 
     if not image_data:
         raise HTTPException(
@@ -1020,7 +952,7 @@ async def upload_my_avatar(
             detail=("Profile picture is empty."),
         )
 
-    if len(image_data) > 5 * 1024 * 1024:
+    if len(image_data) > avatar_limit:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=("Profile picture must be 5 MB or smaller."),
@@ -1049,7 +981,7 @@ async def upload_my_avatar(
 
     object_key = f"{settings.b2_profile_prefix}/{user.id}/{uuid4()}.{extension}"
 
-    bucket = get_b2_bucket()
+    bucket = await asyncio.to_thread(get_b2_bucket)
 
     try:
         await asyncio.to_thread(
@@ -1120,7 +1052,7 @@ async def remove_my_avatar(
     await session.commit()
 
     try:
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(get_b2_bucket)
 
         await delete_all_object_versions(
             bucket,
@@ -1362,615 +1294,6 @@ async def update_my_app_state(
 
 
 @router.get(
-    "/me/playback-state",
-    response_model=PlaybackStateResponse,
-)
-async def get_my_playback_state(
-    user: CurrentUser,
-    session: DatabaseSession,
-):
-    return await build_playback_state(
-        session,
-        user,
-    )
-
-
-@router.patch(
-    "/me/playback-state",
-    response_model=PlaybackStateResponse,
-)
-async def update_my_playback_state(
-    payload: PlaybackStateUpdateRequest,
-    user: CurrentUser,
-    session: DatabaseSession,
-):
-    result = await update_playback_state(
-        payload,
-        user,
-        session,
-    )
-
-    if result.changed:
-        await playback_realtime_hub.broadcast(
-            user.id,
-            {
-                "type": "playback_state",
-                "playback_state":
-                    result.state.model_dump(
-                        mode="json",
-                    ),
-            },
-        )
-
-    return result.state
-
-
-@router.post(
-    "/me/playback-devices/poll",
-    response_model=PlaybackDevicePollResponse,
-)
-async def poll_my_playback_device(
-    payload: PlaybackDevicePollRequest,
-    user: CurrentUser,
-    session: DatabaseSession,
-):
-    return await poll_playback_device(
-        payload,
-        user,
-        session,
-    )
-
-
-@router.websocket(
-    "/me/playback-devices/live",
-)
-async def live_playback_device(
-    websocket: WebSocket,
-):
-    await websocket.accept()
-
-    user: User | None = None
-    device_id = ""
-    registered_socket = False
-
-    try:
-        try:
-            auth_message = await asyncio.wait_for(
-                websocket.receive_json(),
-                timeout=5,
-            )
-        except TimeoutError:
-            await websocket.close(
-                code=4408,
-            )
-            return
-
-        if (
-            not isinstance(
-                auth_message,
-                dict,
-            )
-            or auth_message.get(
-                "type",
-            ) != "authenticate"
-        ):
-            await websocket.close(
-                code=4401,
-            )
-            return
-
-        token = str(
-            auth_message.get(
-                "access_token",
-                "",
-            )
-        ).strip()
-
-        device_id = str(
-            auth_message.get(
-                "device_id",
-                "",
-            )
-        ).strip()
-
-        name = str(
-            auth_message.get(
-                "name",
-                "",
-            )
-        ).strip()
-
-        device_type = str(
-            auth_message.get(
-                "device_type",
-                "browser",
-            )
-        ).strip()
-
-        if (
-            not token
-            or not device_id
-            or len(
-                device_id,
-            ) > 64
-            or not name
-            or len(
-                name,
-            ) > 120
-            or device_type
-            not in {
-                "desktop",
-                "mobile",
-                "tablet",
-                "browser",
-            }
-        ):
-            await websocket.close(
-                code=4401,
-            )
-            return
-
-        session_factory = (
-            get_session_factory()
-        )
-
-        async with session_factory() as session:
-            try:
-                user = (
-                    await authenticate_access_token(
-                        session,
-                        token,
-                    )
-                )
-            except HTTPException:
-                await websocket.close(
-                    code=4401,
-                )
-                return
-
-            try:
-                require_registered_playback_user(
-                    user,
-                )
-            except HTTPException:
-                await websocket.close(
-                    code=4403,
-                )
-                return
-
-            now = datetime.now(
-                UTC,
-            )
-
-            await touch_playback_device(
-                session,
-                user,
-                device_id=device_id,
-                name=name,
-                device_type=cast(
-                    PlaybackDeviceKind,
-                    device_type,
-                ),
-                now=now,
-            )
-            # A WebSocket can attach to an already-fresh polled device row;
-            # announce the new live-socket signal to the other replicas too.
-            await notify_playback_event(
-                session,
-                PlaybackEvent(
-                    kind="presence_changed",
-                    user_id=user.id,
-                    target_device_id=device_id,
-                ),
-            )
-
-            await prune_offline_playback_devices(
-                session,
-                user,
-                now=now,
-            )
-
-            await session.commit()
-
-            playback_state = (
-                await build_playback_state(
-                    session,
-                    user,
-                )
-            )
-
-            devices = (
-                await list_playback_devices(
-                    session,
-                    user,
-                    active_device_id=(
-                        playback_state
-                        .device_id
-                    ),
-                    now=now,
-                )
-            )
-
-        await playback_realtime_hub.connect(
-            user.id,
-            device_id,
-            websocket,
-        )
-
-        registered_socket = True
-
-        await websocket.send_json(
-            {
-                "type": "ready",
-                "devices": [
-                    device.model_dump(
-                        mode="json",
-                    )
-                    for device in devices
-                ],
-                "playback_state":
-                    playback_state.model_dump(
-                        mode="json",
-                    ),
-            }
-        )
-
-        await playback_realtime_hub.broadcast(
-            user.id,
-            {
-                "type":
-                    "presence_changed",
-            },
-            exclude_device_id=(
-                device_id
-            ),
-        )
-
-        while True:
-            # Do not expire an authenticated playback socket just
-            # because its JavaScript heartbeat was throttled.
-            # Mobile browsers commonly suspend timers while the
-            # screen is locked or another app is foregrounded.
-            # The WebSocket itself remains the strongest presence
-            # signal and disconnect cleanup handles a real close.
-            message = (
-                await websocket.receive_json()
-            )
-
-            if not isinstance(
-                message,
-                dict,
-            ):
-                continue
-
-            message_type = str(
-                message.get(
-                    "type",
-                    "",
-                )
-            ).strip()
-
-            if message_type == "command":
-                request_id = str(
-                    message.get(
-                        "request_id",
-                        "",
-                    )
-                ).strip()[:96]
-
-                target_device_id = str(
-                    message.get(
-                        "target_device_id",
-                        "",
-                    )
-                ).strip()
-
-                try:
-                    if (
-                        not request_id
-                        or not target_device_id
-                        or len(
-                            target_device_id,
-                        ) > 64
-                    ):
-                        raise ValueError(
-                            "Invalid realtime playback command.",
-                        )
-
-                    command_payload = (
-                        PlaybackRemoteCommandRequest(
-                            source_device_id=(
-                                device_id
-                            ),
-                            action=cast(
-                                PlaybackRemoteAction,
-                                message.get("action"),
-                            ),
-                            value=message.get(
-                                "value",
-                            ),
-                            track_id=message.get(
-                                "track_id",
-                            ),
-                            queue_track_ids=(
-                                message.get(
-                                    "queue_track_ids",
-                                )
-                                or []
-                            ),
-                            queue_index=message.get(
-                                "queue_index",
-                            ),
-                            position_seconds=message.get(
-                                "position_seconds",
-                            ),
-                            paused=message.get(
-                                "paused",
-                            ),
-                        )
-                    )
-
-                    async with session_factory() as session:
-                        command_response = (
-                            await send_playback_device_command(
-                                target_device_id,
-                                command_payload,
-                                user,
-                                session,
-                            )
-                        )
-
-                    await websocket.send_json(
-                        {
-                            "type":
-                                "command_ack",
-                            "request_id":
-                                request_id,
-                            "command":
-                                command_response.model_dump(
-                                    mode="json",
-                                ),
-                        }
-                    )
-
-                except ValidationError as exc:
-                    await websocket.send_json(
-                        {
-                            "type":
-                                "command_error",
-                            "request_id":
-                                request_id,
-                            "status":
-                                400,
-                            "detail":
-                                "Invalid playback command.",
-                        }
-                    )
-
-                    logger.debug(
-                        "Rejected realtime playback command: %s",
-                        exc,
-                    )
-
-                except HTTPException as exc:
-                    await websocket.send_json(
-                        {
-                            "type":
-                                "command_error",
-                            "request_id":
-                                request_id,
-                            "status":
-                                exc.status_code,
-                            "detail":
-                                str(
-                                    exc.detail,
-                                ),
-                        }
-                    )
-
-                except ValueError as exc:
-                    await websocket.send_json(
-                        {
-                            "type":
-                                "command_error",
-                            "request_id":
-                                request_id,
-                            "status":
-                                400,
-                            "detail":
-                                str(
-                                    exc,
-                                ),
-                        }
-                    )
-
-                continue
-
-            if message_type == "playback_state":
-                try:
-                    state_payload = PlaybackStateUpdateRequest(
-                        track_id=message.get("track_id"),
-                        position_seconds=message.get(
-                            "position_seconds",
-                            0,
-                        ),
-                        paused=message.get(
-                            "paused",
-                            True,
-                        ),
-                        queue_track_ids=message.get(
-                            "queue_track_ids",
-                        ) or [],
-                        queue_index=message.get(
-                            "queue_index",
-                        ),
-                        device_id=device_id,
-                    )
-
-                    async with session_factory() as session:
-                        result = await update_playback_state(
-                            state_payload,
-                            user,
-                            session,
-                        )
-
-                    if result.changed:
-                        await playback_realtime_hub.broadcast(
-                            user.id,
-                            {
-                                "type": "playback_state",
-                                "playback_state":
-                                    result.state.model_dump(
-                                        mode="json",
-                                    ),
-                            },
-                            exclude_device_id=device_id,
-                        )
-
-                except ValidationError as exc:
-                    logger.debug(
-                        "Rejected invalid realtime playback state for %s: %s",
-                        device_id,
-                        exc,
-                    )
-
-                except HTTPException as exc:
-                    logger.debug(
-                        "Rejected realtime playback state for %s: %s",
-                        device_id,
-                        exc,
-                    )
-
-                continue
-
-            # A live WebSocket is the authoritative heartbeat for
-            # connected devices. Avoid a database session and write
-            # every time the client's 15-second heartbeat arrives.
-            if message_type == "heartbeat":
-                continue
-
-            if message_type != "presence":
-                continue
-
-            async with session_factory() as session:
-                now = datetime.now(
-                    UTC,
-                )
-
-                await touch_playback_device(
-                    session,
-                    user,
-                    device_id=device_id,
-                    name=name,
-                    device_type=cast(
-                        PlaybackDeviceKind,
-                        device_type,
-                    ),
-                    now=now,
-                )
-
-                await prune_offline_playback_devices(
-                    session,
-                    user,
-                    now=now,
-                )
-
-                await session.commit()
-
-    except WebSocketDisconnect:
-        pass
-    except RuntimeError as exc:
-        # A peer can close a socket between Starlette's receive
-        # bookkeeping and the next receive/send operation. Treat that
-        # as an ordinary disconnect instead of logging a noisy server
-        # exception or turning it into an application error.
-        logger.debug(
-            "Realtime playback socket closed during receive: %s",
-            exc,
-        )
-    finally:
-        should_cleanup = (
-            user is not None
-            and registered_socket
-            and bool(
-                device_id,
-            )
-        )
-
-        is_current_socket = False
-
-        if should_cleanup and user is not None:
-            is_current_socket = (
-                await playback_realtime_hub.disconnect(
-                    user.id,
-                    device_id,
-                    websocket,
-                )
-            )
-
-        if (
-            should_cleanup
-            and user is not None
-            and is_current_socket
-        ):
-            # A socket close can be temporary: Vite reloads,
-            # Wi-Fi changes, mobile backgrounding, and normal
-            # reconnects all create short disconnect windows.
-            #
-            # Do not delete the shared playback_devices row here.
-            # HTTP polling may already be refreshing that same
-            # device, which previously raced this DELETE and
-            # produced SQLAlchemy StaleDataError. The existing
-            # background-tolerant presence TTL removes truly
-            # offline devices and releases playback ownership.
-            try:
-                async with session_factory() as session:
-                    await notify_playback_event(
-                        session,
-                        PlaybackEvent(
-                            kind="presence_changed",
-                            user_id=user.id,
-                            target_device_id=device_id,
-                        ),
-                    )
-                    await session.commit()
-            except Exception:
-                # Presence is advisory; a failed hint must not turn a
-                # normal socket disconnect into an application failure.
-                logger.debug(
-                    "Unable to publish playback disconnect hint.",
-                    exc_info=True,
-                )
-
-            await playback_realtime_hub.broadcast(
-                user.id,
-                {
-                    "type":
-                        "presence_changed",
-                },
-            )
-
-
-@router.post(
-    "/me/playback-devices/{target_device_id}/commands",
-    response_model=PlaybackRemoteCommandResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def send_my_playback_device_command(
-    target_device_id: str,
-    payload: PlaybackRemoteCommandRequest,
-    user: CurrentUser,
-    session: DatabaseSession,
-):
-    return await send_playback_device_command(
-        target_device_id,
-        payload,
-        user,
-        session,
-    )
-
-
-@router.get(
     "/search",
     response_model=list[UserSearchResult],
 )
@@ -2075,7 +1398,7 @@ async def get_user_avatar(
     object_key = target.profile.avatar_object_key
 
     try:
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(get_b2_bucket)
 
         downloaded = await asyncio.to_thread(
             bucket.download_file_by_name,
@@ -2167,6 +1490,7 @@ async def get_followers(
 async def get_following(
     username: str,
     session: DatabaseSession,
+    viewer: OptionalCurrentUser,
 ):
     target = await get_user_by_username(
         session,
@@ -2177,6 +1501,13 @@ async def get_following(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
+        )
+
+    relationship_status = await follow_status_for(session, viewer, target)
+    if not can_view_music_activity(target, relationship_status):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Music activity is private.",
         )
 
     result = await session.execute(
@@ -2249,14 +1580,7 @@ async def get_public_profile(
 
     activity_public = bool(profile and profile.music_activity_public)
 
-    can_view_activity = (
-        relationship_status
-        in {
-            "self",
-            "accepted",
-        }
-        or activity_public
-    )
+    can_view_activity = can_view_music_activity(target, relationship_status)
 
     return PublicProfileResponse(
         id=target.id,

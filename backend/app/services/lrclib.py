@@ -10,6 +10,7 @@ from typing import TypedDict
 import httpx
 
 from ..config import get_settings
+from .bounded_http import get_response
 
 
 class LrclibLyrics(TypedDict):
@@ -328,7 +329,7 @@ async def _request_with_retry(
 
     for attempt in range(attempts):
         try:
-            response = await client.get(
+            response = await get_response(client,
                 path,
                 params=params,
             )
@@ -526,7 +527,7 @@ async def fetch_lrclib_lyrics(
     ):
         raise
 
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         raise LrclibUnavailableError(
             "Unable to reach LRCLIB.",
         ) from exc

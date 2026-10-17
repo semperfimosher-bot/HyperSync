@@ -1,5 +1,39 @@
 # HyperSync
 
+> **PERFECT baseline:** playback and queues are local to each browser; Jam and live device control are removed. Account sessions and shared libraries remain. See [baseline scope](docs/PERFECT-BASELINE-PLAN.md) and [reliability review](docs/PERFECT-RELIABILITY-REVIEW.md) for current behavior and verification status; later architecture sections also include future goals.
+
+## Local launch and updates
+
+Plain `go` fetches all `origin` branches, selects the tip with the most recent
+Git committer date, and updates to that exact fetched commit before starting
+HyperSync. This includes unmerged review branches. Equal dates keep the current
+branch when possible, then use branch-name order. The selected branch and full
+commit are printed at startup. Use `go -Branch PERFECT` (or another branch name)
+to explicitly select one branch instead.
+
+The launcher refuses startup when there are uncommitted files, when the selected
+local branch has commits absent from the remote, or when fetching fails. It never
+resets, stashes, or discards local work. Ignored local configuration such as
+`backend/.env` stays untouched. Existing dependency/migration/startup flags remain
+available; frontend dependencies are installed from the committed lockfile.
+
+Install this updater once from the review branch before relying on plain `go`:
+
+```powershell
+git fetch origin
+git switch codex/perfect-local-playback-reliability
+git pull --ff-only origin codex/perfect-local-playback-reliability
+.\install-go.ps1
+go
+```
+
+The installed launcher lives outside the Git checkout, so selecting a branch
+with older launcher files does not restore the former PERFECT-only behavior.
+`update-local.ps1` uses the same update policy when invoked directly from this
+version of the checkout. Git access and Python 3 must be available; an offline
+fetch failure stops startup rather than silently running an outdated checkout.
+
+
 HyperSync is a mobile-first, full-stack music streaming platform designed to provide fast playback, synchronized lyrics, personal libraries, public playlists, listening statistics, administrative tools, background media processing.
 
 This repository is intended to become a production-quality application rather than a visual demo. Every feature described in this document should eventually be backed by real database records, real authentication, real storage, real APIs, permission checks, tests, and deployment configuration.
@@ -598,7 +632,7 @@ Audio bytes should be delivered using one of these controlled designs:
 - Short-lived authorized B2 URLs
 - Another secure method that supports seeking and private objects
 
-The persistent WebSocket architecture should be used for real-time control, state synchronization, events, heartbeats, and future device coordination. Audio byte transfer itself should remain compatible with browser media playback and seeking.
+On the PERFECT baseline, playback controls and queues belong to the current browser. Accounts can sign in on multiple devices and share their library, but cannot control another device. Audio transfer uses HTTP with seeking support; playback has no live socket or device polling.
 
 ### 10.2 Player state
 
@@ -621,14 +655,6 @@ Mobile and desktop controls must read and modify the same player state.
 ---
 
 ## 11. Queue
-
-### Jam sessions
-
-Registered users can start an invite-only Jam from the player bar. The host chooses **Host device** or **Every device**, shares the generated link, and can change playback location, queue order, guest controls, or membership. Participants can add published catalog tracks. Listening on a device requires tapping **Listen on this device**; browsers may require another gesture after a reload. A host can rotate the invite or end the Jam, and participants can leave. The host must start a new Jam after ending one.
-
-Jam state lives in the database, so backend replicas share one revisioned queue and timeline. Clients poll every two seconds and correct significant drift. Invitations expire after 24 hours, are stored only as hashes, and never appear in regular snapshots. One account can join one active Jam at a time; a Jam supports 20 members and 200 queue entries. The current version has no automatic inactive-session expiry: a host should end a session when finished. The existing solo player remains available outside Jam. Lock-screen media controls use the browser's existing Media Session integration; physical device behavior depends on browser and operating system.
-
-When a catalog track has no saved duration, playback advances when the host's listening device reaches the end. If the host enables guest playback controls, a listening guest can advance it too. Otherwise the host can use **Next**. This avoids trusting an unapproved guest to skip tracks.
 
 The queue should support:
 
@@ -1571,6 +1597,16 @@ Provider order:
 3. MusicBrainz — final fallback with conservative public-API request spacing.
 
 Uploads do not wait for these providers. The track is committed first, then missing metadata is enriched in a background task. Provider errors leave the uploaded track intact.
+
+If direct uploads from `http://localhost:4153` report a B2 CORS preflight error, preview the bucket policy from the repository root, then apply it after reviewing the exact origins:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.set_b2_cors
+.\.venv\Scripts\python.exe -m scripts.set_b2_cors --apply
+```
+
+The script uses the B2 Native API so it can read and preserve both Native and S3 CORS rules. Applying requires a key with `writeBuckets` capability and uses the bucket revision to reject concurrent edits. Its defaults include the production origin and localhost/127.0.0.1 on port 4153. Repeat `--origin` to supply a different origin list. Without `--apply`, it only previews. Browser transport failures temporarily route subsequent files through the backend for two minutes before retrying direct uploads.
+
 
 For local development, put the provider variables in `backend/.env`. For production on Northflank, add the same variables to the backend service environment/secret configuration. Keep `LASTFM_API_KEY` server-side and never expose it as a `VITE_*` variable.
 

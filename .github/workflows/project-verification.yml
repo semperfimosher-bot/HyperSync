@@ -55,6 +55,20 @@ jobs:
           SUITE: ${{ inputs.suite || 'full' }}
           HYPERSYNC_TEST_POSTGRES_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
         run: python scripts/verify_project.py --suite "$SUITE"
+      - name: Measure bounded fixture memory
+        timeout-minutes: 3
+        run: python -m scripts.memory_profile
+      - name: Rehearse actual backup restore and killed worker recovery
+        if: ${{ inputs.suite != 'quick' }}
+        timeout-minutes: 5
+        env:
+          HYPERSYNC_TEST_POSTGRES_URL: postgresql://verification:disposable-ci-only@127.0.0.1:5432/verification
+        run: >-
+          python -m scripts.operational_rehearsal
+          --postgres-container '${{ job.services.postgres.id }}'
+          --output verification-results/operations.json
+      - name: Verify operational rehearsal safety contracts
+        run: python -m pytest scripts/tests/test_operational_rehearsal.py -q
       - name: Verify PostgreSQL for explicitly selected quick runs
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.suite == 'quick' }}
         env:

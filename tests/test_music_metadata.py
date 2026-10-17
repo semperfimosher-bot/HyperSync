@@ -616,7 +616,7 @@ def test_lastfm_genre_remains_when_apple_has_no_genre() -> None:
 
 
 @pytest.mark.asyncio
-async def test_metadata_enrichment_survives_playlist_refresh_failure(
+async def test_metadata_enrichment_durably_schedules_playlist_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = create_postgres_test_engine()
@@ -639,6 +639,7 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
     async def fake_lookup(
         **_kwargs,
     ):
+        assert not session.in_transaction(), "external lookup must release the read connection"
         return {
             "source":
                 "test-provider",
@@ -652,24 +653,10 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
                 0.99,
         }
 
-    async def failed_playlist_refresh(
-        _session,
-        _track,
-    ) -> int:
-        raise RuntimeError(
-            "playlist refresh failed",
-        )
-
     monkeypatch.setattr(
         music_metadata,
         "lookup_external_track_metadata",
         fake_lookup,
-    )
-
-    monkeypatch.setattr(
-        music_metadata,
-        "refresh_smart_playlists_for_track",
-        failed_playlist_refresh,
     )
 
     async with factory() as session:
@@ -691,6 +678,9 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
 
         track_id = track.id
 
+        # Start a real read transaction, as both API and background callers do.
+        await session.refresh(track)
+
         result = await music_metadata.enrich_track_metadata(
             session,
             track,
@@ -709,5 +699,12 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
         assert persisted is not None
         assert persisted.genre == "Country"
         assert persisted.release_year == 2025
+        from sqlalchemy import select
+
+        from backend.app.models.maintenance import MaintenanceJob
+        job = (await session.execute(select(MaintenanceJob).where(
+            MaintenanceJob.track_id == track_id, MaintenanceJob.kind == "playlists",
+        ))).scalar_one()
+        assert job.completed_at is None
 
     await engine.dispose()

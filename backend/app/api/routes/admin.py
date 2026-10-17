@@ -2,7 +2,8 @@ import asyncio
 import base64
 import hmac
 import logging
-from io import BytesIO
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -18,7 +19,6 @@ from fastapi import (
     UploadFile,
     status,
 )
-from mutagen._file import File as MutagenFile
 from mutagen.flac import Picture
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -36,16 +36,16 @@ from ...models.account import (
 )
 from ...models.media import Track
 from ...services.artists import (
-    artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
 from ...services.audio_compression import (
     AudioProbe,
-    compress_audio_for_storage,
+    compress_audio_file_for_storage,
     should_attempt_audio_compression,
 )
 from ...services.audio_metadata import (
-    extract_embedded_audio_metadata,
+    bounded_mutagen_file,
+    extract_embedded_audio_metadata_file,
     resolve_track_metadata,
 )
 from ...services.b2 import (
@@ -58,9 +58,10 @@ from ...services.b2 import (
 from ...services.catalog_ingestion import (
     lock_track_identity,
 )
-from ...services.generated_playlists import (
-    ensure_artist_playlist,
-    refresh_smart_playlists_for_track,
+from ...services.maintenance_jobs import (
+    enqueue_track_maintenance,
+    maintenance_status,
+    retry_failed_job,
 )
 from ...services.media_identity import (
     catalog_identity_diagnostics,
@@ -73,11 +74,11 @@ from ...services.media_identity import (
 )
 from ...services.music_metadata import (
     enrich_track_metadata,
-    enrich_track_metadata_by_id,
 )
 from ...services.storage_integrity import (
     audit_track_storage,
 )
+from ...services.thread_work import run_blocking
 from ..dependencies import AdminUser, DatabaseSession
 
 router = APIRouter(
@@ -700,7 +701,7 @@ async def admin_diagnostics(
         )
 
     try:
-        bucket = await asyncio.to_thread(
+        bucket = await run_blocking(
             get_b2_bucket,
         )
 
@@ -1010,6 +1011,8 @@ async def prepare_direct_track_upload(
             ),
         )
 
+    await session.commit()
+
     if not _direct_upload_is_safe(
         payload,
     ):
@@ -1123,14 +1126,6 @@ async def finalize_direct_track_upload(
         str,
         Form(...),
     ],
-    album: Annotated[
-        str,
-        Form(...),
-    ],
-    genre: Annotated[
-        str,
-        Form(...),
-    ],
     duration_seconds: Annotated[
         int,
         Form(...),
@@ -1146,6 +1141,8 @@ async def finalize_direct_track_upload(
     user: AdminUser,
     session: DatabaseSession,
     background_tasks: BackgroundTasks,
+    album: Annotated[str, Form()] = "",
+    genre: Annotated[str, Form()] = "",
     release_year: Annotated[
         int | None,
         Form(),
@@ -1175,18 +1172,16 @@ async def finalize_direct_track_upload(
             ),
         )
 
-    bucket = get_b2_bucket()
+    bucket = await run_blocking(get_b2_bucket)
 
     cleanup_audio = True
     artwork_object_key = None
 
     try:
         try:
-            object_info = (
-                await asyncio.to_thread(
-                    head_b2_object,
-                    object_key,
-                )
+            object_info = await run_blocking(
+                head_b2_object,
+                object_key,
             )
 
         except Exception as exc:
@@ -1252,6 +1247,47 @@ async def finalize_direct_track_upload(
                 ),
             )
 
+        if artwork is not None:
+            artwork_data = await artwork.read(5 * 1024 * 1024 + 1)
+
+            if len(artwork_data) > 5 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Artwork exceeds 5 MiB.")
+
+            artwork_mime_type = (
+                artwork.content_type
+                or ""
+            )
+
+            if artwork_data and artwork_mime_type.lower().startswith(
+                "image/",
+            ):
+                artwork_ext = (
+                    artwork_mime_type
+                    .split(
+                        "/",
+                        1,
+                    )[-1]
+                    .split(
+                        ";",
+                        1,
+                    )[0]
+                    .strip()
+                    or "jpg"
+                )
+
+                artwork_object_key = (
+                    f"{get_settings().b2_artwork_prefix}/"
+                    f"{uuid4()}."
+                    f"{artwork_ext}"
+                )
+
+                await run_blocking(
+                    bucket.upload_bytes,
+                    artwork_data,
+                    artwork_object_key,
+                    content_type=(artwork_mime_type),
+                )
+
         await lock_track_identity(
             session,
             title=clean_title,
@@ -1278,53 +1314,6 @@ async def finalize_direct_track_upload(
                     "exists in the catalog."
                 ),
             )
-
-        if artwork is not None:
-            artwork_data = (
-                await artwork.read()
-            )
-
-            artwork_mime_type = (
-                artwork.content_type
-                or ""
-            )
-
-            if (
-                artwork_data
-                and artwork_mime_type
-                .lower()
-                .startswith(
-                    "image/",
-                )
-            ):
-                artwork_ext = (
-                    artwork_mime_type
-                    .split(
-                        "/",
-                        1,
-                    )[-1]
-                    .split(
-                        ";",
-                        1,
-                    )[0]
-                    .strip()
-                    or "jpg"
-                )
-
-                artwork_object_key = (
-                    f"{get_settings().b2_artwork_prefix}/"
-                    f"{uuid4()}."
-                    f"{artwork_ext}"
-                )
-
-                await asyncio.to_thread(
-                    bucket.upload_bytes,
-                    artwork_data,
-                    artwork_object_key,
-                    content_type=(
-                        artwork_mime_type
-                    ),
-                )
 
         track = Track(
             id=uuid4(),
@@ -1365,9 +1354,7 @@ async def finalize_direct_track_upload(
             is_published=True,
         )
 
-        session.add(
-            track,
-        )
+        session.add(track)
 
         await ensure_artist_profiles_for_credit(
             session,
@@ -1380,82 +1367,38 @@ async def finalize_direct_track_upload(
             track,
         )
 
-        await session.commit()
-
-        background_tasks.add_task(
-            enrich_track_metadata_by_id,
-            track.id,
-        )
-
+        await enqueue_track_maintenance(session, track.id)
+        # Once COMMIT is sent, a lost acknowledgement cannot prove rollback.
+        # Retain objects for reconciliation instead of deleting committed audio.
         cleanup_audio = False
+        await session.commit()
 
         response_payload = {
             "success": True,
-            "track_id":
-                str(
-                    track.id,
-                ),
-            "title":
-                track.title,
-            "artist":
-                track.artist,
-            "album":
-                track.album,
-            "genre":
-                track.genre,
-            "release_year":
-                track.release_year,
-            "b2_object_key":
-                object_key,
-            "artwork_object_key":
-                artwork_object_key,
-            "file_size":
-                stored_size,
-            "original_file_size":
-                original_file_size,
-            "direct_upload":
-                True,
-            "compression": {
-                "applied":
-                    False,
-                "saved_bytes":
-                    0,
-                "saved_percent":
-                    0.0,
-                "source_codec":
-                    None,
-                "source_bitrate_kbps":
-                    None,
-                "stored_mime_type":
-                    stored_mime_type,
-            },
-            "duration_seconds":
-                track.duration_seconds,
-        }
-
-        try:
-            for artist_name in artist_names_for_credit(
-                track.artist,
-                include_combined=False,
-            ):
-                await ensure_artist_playlist(
-                    session,
-                    artist_name,
-                )
-
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track upload succeeded but generated "
-                    "playlist refresh failed for %s."
-                ),
+            "metadata_enrichment_scheduled": True,
+            "track_id": str(
                 track.id,
-            )
+            ),
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "genre": track.genre,
+            "release_year": track.release_year,
+            "b2_object_key": object_key,
+            "artwork_object_key": artwork_object_key,
+            "file_size": stored_size,
+            "original_file_size": original_file_size,
+            "direct_upload": True,
+            "compression": {
+                "applied": False,
+                "saved_bytes": 0,
+                "saved_percent": 0.0,
+                "source_codec": None,
+                "source_bitrate_kbps": None,
+                "stored_mime_type": stored_mime_type,
+            },
+            "duration_seconds": track.duration_seconds,
+        }
 
         return response_payload
 
@@ -1508,16 +1451,47 @@ async def finalize_direct_track_upload(
                     )
 
 
+def _copy_upload_to_path(upload, path: Path) -> None:
+    upload.seek(0)
+    with path.open("wb") as target:
+        shutil.copyfileobj(upload, target, length=1024 * 1024)
+
+
+def _extract_upload_artwork(path: Path):
+    try:
+        with path.open("rb") as source:
+            audio_file = bounded_mutagen_file(source, easy=False)
+        tags = getattr(
+            audio_file,
+            "tags",
+            None,
+        )
+        if tags:
+            if hasattr(tags, "getall"):
+                frames = tags.getall("APIC")
+                if frames and len(frames[0].data) <= 5 * 1024 * 1024:
+                    return frames[0].data, frames[0].mime
+            elif "metadata_block_picture" in tags:
+                encoded = tags["metadata_block_picture"][0]
+                if len(encoded) <= 7 * 1024 * 1024:
+                    picture = Picture(base64.b64decode(encoded))
+                    if len(picture.data) <= 5 * 1024 * 1024:
+                        return picture.data, picture.mime
+    except Exception:
+        pass
+    return None, None
+
+
 @router.post("/tracks/upload")
 async def upload_track(
     file: Annotated[UploadFile, File(...)],
     title: Annotated[str, Form(...)],
     artist: Annotated[str, Form(...)],
-    album: Annotated[str, Form(...)],
     duration_seconds: Annotated[int, Form(...)],
     user: AdminUser,
     session: DatabaseSession,
     background_tasks: BackgroundTasks,
+    album: Annotated[str, Form()] = "",
     title_edited: Annotated[bool, Form()] = False,
     artist_edited: Annotated[bool, Form()] = False,
     album_edited: Annotated[bool, Form()] = False,
@@ -1547,15 +1521,17 @@ async def upload_track(
 
     settings = get_settings()
 
-    try:
-        file_content = await file.read()
-        original_file_size = len(
-            file_content,
-        )
+    bucket = None
+    pending_object_keys: list[str] = []
+    commit_attempted = False
+    temporary = tempfile.TemporaryDirectory(prefix="hypersync-upload-")
+    source_path = Path(temporary.name) / "source.audio"
+    output_path = Path(temporary.name) / "output.mp3"
 
-        embedded_metadata = extract_embedded_audio_metadata(
-            file_content,
-        )
+    try:
+        await run_blocking(_copy_upload_to_path, file.file, source_path)
+        original_file_size = source_path.stat().st_size
+        embedded_metadata = await run_blocking(extract_embedded_audio_metadata_file, source_path)
 
         resolved_metadata = resolve_track_metadata(
             submitted_title=title,
@@ -1569,6 +1545,104 @@ async def upload_track(
             embedded=embedded_metadata,
         )
 
+        duplicate = (
+            await _find_duplicate_track(
+                session,
+                title=(
+                    resolved_metadata[
+                        "title"
+                    ]
+                ),
+                artist=(
+                    resolved_metadata[
+                        "artist"
+                    ]
+                ),
+            )
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "Duplicate track prevented: "
+                    f'\"{duplicate.title}\" by '
+                    f"{duplicate.artist} already "
+                    "exists in the catalog."
+                ),
+            )
+
+        # No database connection is needed during compression or B2 I/O.
+        await session.commit()
+
+        artwork_data, artwork_mime_type = await run_blocking(_extract_upload_artwork, source_path)
+
+        compression = await run_blocking(
+            compress_audio_file_for_storage,
+            source_path,
+            output_path,
+            filename=(file.filename),
+            mime_type=(file.content_type or "application/octet-stream"),
+            title=(resolved_metadata["title"]),
+            artist=(resolved_metadata["artist"]),
+            album=(resolved_metadata["album"]),
+            genre=(resolved_metadata["genre"]),
+            artwork_data=(artwork_data),
+            artwork_mime_type=(artwork_mime_type),
+            enabled=(settings.audio_compression_enabled),
+            mp3_vbr_quality=(settings.audio_compression_mp3_vbr_quality),
+            min_source_kbps=(settings.audio_compression_min_source_kbps),
+            min_savings_percent=(settings.audio_compression_min_savings_percent),
+            timeout_seconds=(settings.audio_compression_timeout_seconds),
+        )
+
+        file_size = (
+            compression.final_size
+        )
+
+        upload_mime_type = (
+            compression.mime_type
+        )
+
+        file_ext = (
+            compression.extension
+        )
+
+        object_key = (
+            f"{settings.b2_audio_prefix}/"
+            f"{uuid4()}.{file_ext}"
+        )
+
+        bucket = await run_blocking(
+            get_b2_bucket,
+        )
+        pending_object_keys.append(object_key)
+
+        await run_blocking(
+            bucket.upload_local_file,
+            local_file=str(compression.output_path),
+            file_name=object_key,
+            content_type=(upload_mime_type),
+        )
+
+        artwork_object_key = None
+
+        if artwork_data and artwork_mime_type:
+            artwork_ext = artwork_mime_type.split("/")[-1] if "/" in artwork_mime_type else "jpg"
+
+            artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
+
+            pending_object_keys.append(artwork_object_key)
+            await run_blocking(
+                bucket.upload_bytes,
+                artwork_data,
+                artwork_object_key,
+                content_type=(artwork_mime_type),
+            )
+
+        # Serialize only the final catalog write, then recheck concurrent uploads.
         await lock_track_identity(
             session,
             title=(
@@ -1612,160 +1686,6 @@ async def upload_track(
                 ),
             )
 
-        artwork_data = None
-        artwork_mime_type = None
-
-        try:
-            audio_file = MutagenFile(
-                BytesIO(file_content),
-                easy=False,
-            )
-
-            if audio_file is not None:
-                tags = getattr(
-                    audio_file,
-                    "tags",
-                    None,
-                )
-
-                if tags:
-                    if hasattr(
-                        tags,
-                        "getall",
-                    ):
-                        apic_frames = tags.getall(
-                            "APIC",
-                        )
-
-                        if apic_frames:
-                            artwork_data = apic_frames[0].data
-
-                            artwork_mime_type = apic_frames[0].mime
-
-                    elif "metadata_block_picture" in tags:
-                        picture_data = base64.b64decode(
-                            tags["metadata_block_picture"][0],
-                        )
-
-                        picture = Picture(
-                            picture_data,
-                        )
-
-                        artwork_data = picture.data
-
-                        artwork_mime_type = picture.mime
-
-        except Exception:
-            # Artwork extraction should
-            # never prevent the upload.
-            pass
-
-        compression = (
-            await asyncio.to_thread(
-                compress_audio_for_storage,
-                file_content,
-                filename=(
-                    file.filename
-                ),
-                mime_type=(
-                    file.content_type
-                    or "application/octet-stream"
-                ),
-                title=(
-                    resolved_metadata[
-                        "title"
-                    ]
-                ),
-                artist=(
-                    resolved_metadata[
-                        "artist"
-                    ]
-                ),
-                album=(
-                    resolved_metadata[
-                        "album"
-                    ]
-                ),
-                genre=(
-                    resolved_metadata[
-                        "genre"
-                    ]
-                ),
-                artwork_data=(
-                    artwork_data
-                ),
-                artwork_mime_type=(
-                    artwork_mime_type
-                ),
-                enabled=(
-                    settings
-                    .audio_compression_enabled
-                ),
-                mp3_vbr_quality=(
-                    settings
-                    .audio_compression_mp3_vbr_quality
-                ),
-                min_source_kbps=(
-                    settings
-                    .audio_compression_min_source_kbps
-                ),
-                min_savings_percent=(
-                    settings
-                    .audio_compression_min_savings_percent
-                ),
-                timeout_seconds=(
-                    settings
-                    .audio_compression_timeout_seconds
-                ),
-            )
-        )
-
-        file_content = (
-            compression.content
-        )
-
-        file_size = (
-            compression.final_size
-        )
-
-        upload_mime_type = (
-            compression.mime_type
-        )
-
-        file_ext = (
-            compression.extension
-        )
-
-        object_key = (
-            f"{settings.b2_audio_prefix}/"
-            f"{uuid4()}.{file_ext}"
-        )
-
-        bucket = get_b2_bucket()
-
-        await asyncio.to_thread(
-            bucket.upload_bytes,
-            file_content,
-            object_key,
-            content_type=(
-                upload_mime_type
-            ),
-        )
-
-        artwork_object_key = None
-
-        if artwork_data and artwork_mime_type:
-            artwork_ext = artwork_mime_type.split("/")[-1] if "/" in artwork_mime_type else "jpg"
-
-            artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
-
-            await asyncio.to_thread(
-                bucket.upload_bytes,
-                artwork_data,
-                artwork_object_key,
-                content_type=(artwork_mime_type),
-            )
-
         track = Track(
             id=uuid4(),
             title=(resolved_metadata["title"]),
@@ -1806,15 +1726,15 @@ async def upload_track(
             track,
         )
 
+        await enqueue_track_maintenance(session, track.id)
+        # Ambiguous commit failures must not delete audio belonging to a
+        # potentially committed row. Storage auditing can reconcile an orphan.
+        commit_attempted = True
         await session.commit()
-
-        background_tasks.add_task(
-            enrich_track_metadata_by_id,
-            track.id,
-        )
 
         response_payload = {
             "success": True,
+            "metadata_enrichment_scheduled": True,
             "track_id": str(
                 track.id,
             ),
@@ -1822,77 +1742,31 @@ async def upload_track(
             "artist": track.artist,
             "album": track.album,
             "genre": track.genre,
-            "release_year":
-                track.release_year,
+            "release_year": track.release_year,
             "b2_object_key": (object_key),
             "artwork_object_key": (artwork_object_key),
-            "file_size":
-                file_size,
-            "original_file_size":
-                original_file_size,
+            "file_size": file_size,
+            "original_file_size": original_file_size,
             "compression": {
-                "applied":
-                    compression.compressed,
-                "saved_bytes":
-                    compression.savings_bytes,
-                "saved_percent":
-                    round(
-                        compression.savings_percent,
-                        1,
-                    ),
-                "source_codec":
-                    compression.source_codec,
-                "source_bitrate_kbps":
-                    (
-                        round(
-                            compression
-                            .source_bitrate_kbps,
-                            1,
-                        )
-                        if compression
-                        .source_bitrate_kbps
-                        is not None
-                        else None
-                    ),
-                "stored_mime_type":
-                    upload_mime_type,
-            },
-            "duration_seconds":
-                track.duration_seconds,
-        }
-
-        # Generated artist playlists are shared
-        # objects. Refresh the matching playlist as
-        # soon as new published music lands so every
-        # saved copy sees the same membership.
-        #
-        # The playlist read path also performs this
-        # freshness check, so an unexpected refresh
-        # failure must not turn a successfully
-        # committed upload into a false upload error.
-        try:
-            for artist_name in artist_names_for_credit(
-                track.artist,
-                include_combined=False,
-            ):
-                await ensure_artist_playlist(
-                    session,
-                    artist_name,
-                )
-
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track upload succeeded but generated "
-                    "playlist refresh failed for %s."
+                "applied": compression.compressed,
+                "saved_bytes": compression.savings_bytes,
+                "saved_percent": round(
+                    compression.savings_percent,
+                    1,
                 ),
-                track.id,
-            )
+                "source_codec": compression.source_codec,
+                "source_bitrate_kbps": (
+                    round(
+                        compression.source_bitrate_kbps,
+                        1,
+                    )
+                    if compression.source_bitrate_kbps is not None
+                    else None
+                ),
+                "stored_mime_type": upload_mime_type,
+            },
+            "duration_seconds": track.duration_seconds,
+        }
 
         return response_payload
 
@@ -1908,6 +1782,15 @@ async def upload_track(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail=(f"Upload failed: {exc}"),
         ) from exc
+
+    finally:
+        temporary.cleanup()
+        if bucket is not None and not commit_attempted:
+            for pending_key in pending_object_keys:
+                try:
+                    await delete_all_object_versions(bucket, pending_key)
+                except Exception:
+                    logger.exception("Unable to clean failed upload object %s.", pending_key)
 
 
 async def _delete_track_object_versions(
@@ -1930,12 +1813,19 @@ async def _delete_track_object_versions(
                 object_key,
             )
             for object_key in object_keys
-        )
+        ),
+        return_exceptions=True,
     )
 
-    return sum(
-        deleted_versions,
-    )
+    # A failed delete can still have removed versions, and sibling
+    # operations may also succeed. Settle all outcomes before reporting
+    # failure; callers must retain the durable unpublished staging row.
+    total = 0
+    for result in deleted_versions:
+        if isinstance(result, BaseException):
+            raise result
+        total += result
+    return total
 
 
 @router.post(
@@ -2058,35 +1948,15 @@ async def backfill_track_metadata(
         )
 
         try:
-            downloaded = (
-                await asyncio.to_thread(
-                    bucket.download_file_by_name,
-                    track.b2_object_key,
-                )
+            downloaded = await run_blocking(
+                bucket.download_file_by_name,
+                track.b2_object_key,
             )
 
-            def _read_bytes(downloaded=downloaded) -> bytes:
-                buffer = BytesIO()
-
-                downloaded.save(
-                    buffer,
-                )
-
-                return (
-                    buffer.getvalue()
-                )
-
-            file_content = (
-                await asyncio.to_thread(
-                    _read_bytes,
-                )
-            )
-
-            embedded = (
-                extract_embedded_audio_metadata(
-                    file_content,
-                )
-            )
+            with tempfile.TemporaryDirectory(prefix="hypersync-metadata-") as temp_dir:
+                source_path = Path(temp_dir) / "source.audio"
+                await run_blocking(downloaded.save_to, str(source_path))
+                embedded = await run_blocking(extract_embedded_audio_metadata_file, source_path)
 
             if (
                 not (
@@ -2251,6 +2121,7 @@ async def backfill_track_metadata(
             failed,
     }
 
+
 async def _stage_tracks_for_storage_delete(
     session: DatabaseSession,
     tracks: list[Track],
@@ -2276,35 +2147,6 @@ async def _stage_tracks_for_storage_delete(
         raise
 
     return original
-
-
-async def _restore_staged_tracks(
-    session: DatabaseSession,
-    original: dict[UUID, bool],
-    track_ids: set[UUID],
-) -> None:
-    if not track_ids:
-        return
-
-    result = await session.execute(
-        select(
-            Track,
-        ).where(
-            Track.id.in_(
-                track_ids,
-            )
-        )
-    )
-
-    for track in result.scalars().all():
-        track.is_published = (
-            original.get(
-                track.id,
-                True,
-            )
-        )
-
-    await session.commit()
 
 
 @router.post(
@@ -2361,11 +2203,9 @@ async def delete_tracks_bulk(
     }
 
     try:
-        original_publication = (
-            await _stage_tracks_for_storage_delete(
-                session,
-                tracks,
-            )
+        await _stage_tracks_for_storage_delete(
+            session,
+            tracks,
         )
     except Exception as exc:
         raise HTTPException(
@@ -2378,7 +2218,16 @@ async def delete_tracks_bulk(
             ),
         ) from exc
 
-    bucket = get_b2_bucket()
+    try:
+        bucket = get_b2_bucket()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Unable to access storage for deletion. Tracks remain hidden; "
+                "retry deletion to finish cleanup."
+            ),
+        ) from exc
 
     storage_limit = (
         asyncio.Semaphore(
@@ -2472,18 +2321,12 @@ async def delete_tracks_bulk(
     failed: list[dict[str, str]] = []
     deleted_b2_versions = 0
 
-    failed_storage_ids: set[UUID] = set()
-
     for (
         track,
         deleted_versions,
         error_message,
     ) in storage_results:
         if error_message is not None:
-            failed_storage_ids.add(
-                track.id,
-            )
-
             failed.append(
                 {
                     "track_id":
@@ -2494,16 +2337,10 @@ async def delete_tracks_bulk(
                         (
                             "Failed to permanently "
                             "remove track files from "
-                            f"B2: {error_message}"
+                            f"B2: {error_message}. Track remains hidden; "
+                            "retry deletion to finish cleanup."
                         ),
                 }
-            )
-
-            track.is_published = (
-                original_publication.get(
-                    track.id,
-                    True,
-                )
             )
 
             continue
@@ -2543,24 +2380,8 @@ async def delete_tracks_bulk(
     except Exception as exc:
         await session.rollback()
 
-        # The initial staging commit remains durable. Any
-        # track whose B2 files were already removed therefore
-        # stays unpublished instead of becoming a broken
-        # public catalog row. Restore only storage failures in
-        # a fresh transaction when possible.
-        try:
-            await _restore_staged_tracks(
-                session,
-                original_publication,
-                failed_storage_ids,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                "Unable to restore publication state after "
-                "bulk-delete database failure.",
-            )
-
+        # Staging remains durable for every target, including storage
+        # failures that may already have removed some object versions.
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -2607,7 +2428,9 @@ async def delete_track(
 
     if track is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+            ),
             detail="Track not found.",
         )
 
@@ -2617,13 +2440,6 @@ async def delete_track(
     deleted_artwork_object_key = (
         track.artwork_object_key
     )
-    original_publication = {
-        track.id:
-            bool(
-                track.is_published,
-            )
-    }
-
     try:
         await _stage_tracks_for_storage_delete(
             session,
@@ -2642,9 +2458,8 @@ async def delete_track(
             ),
         ) from exc
 
-    bucket = get_b2_bucket()
-
     try:
+        bucket = get_b2_bucket()
         deleted_versions = (
             await _delete_track_object_versions(
                 bucket,
@@ -2655,27 +2470,12 @@ async def delete_track(
     except Exception as exc:
         await session.rollback()
 
-        try:
-            await _restore_staged_tracks(
-                session,
-                original_publication,
-                {
-                    track_id,
-                },
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                "Unable to restore track publication after "
-                "B2 deletion failure for %s.",
-                track_id,
-            )
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "Failed to permanently remove track files "
-                "from B2. The catalog track was restored."
+                "from B2. The track remains hidden; retry deletion "
+                "to finish cleanup."
             ),
         ) from exc
 
@@ -2713,3 +2513,15 @@ async def delete_track(
         "deleted_artwork_object_key": deleted_artwork_object_key,
         "deleted_b2_versions": deleted_versions,
     }
+
+
+@router.get("/maintenance/jobs")
+async def get_maintenance_jobs(user: AdminUser, session: DatabaseSession):
+    return await maintenance_status(session)
+
+
+@router.post("/maintenance/jobs/{job_id}/retry")
+async def retry_maintenance_job(job_id: UUID, user: AdminUser, session: DatabaseSession):
+    if not await retry_failed_job(session, job_id):
+        raise HTTPException(status_code=404, detail="Exhausted maintenance job not found.")
+    return {"success": True}

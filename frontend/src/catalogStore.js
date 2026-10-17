@@ -45,51 +45,97 @@ export function subscribeToCatalog(listener) {
 }
 
 
+function catalogAbortError() {
+  return new DOMException("Catalog request aborted.", "AbortError");
+}
+
+
+function waitForCatalog(request, signal) {
+  if (!signal) return request;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(catalogAbortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    request.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", onAbort);
+    });
+  });
+}
+
+
 export async function loadCatalog({
   force = false,
+  signal,
 } = {}) {
-  if (catalogLoaded && !force) {
-    return catalogTracks;
+  if (signal?.aborted) throw catalogAbortError();
+  if (catalogLoaded && !force) return catalogTracks;
+  if (catalogRequest && !force) {
+    return waitForCatalog(catalogRequest.promise, signal);
   }
 
-  if (catalogRequest) {
-    return catalogRequest;
-  }
+  if (catalogRequest) catalogRequest.controller.abort();
+  const request = {
+    controller: new AbortController(),
+    removedIds: new Set(),
+    promise: null,
+  };
+  catalogRequest = request;
+  const onAbort = () => request.controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const checkActive = () => {
+    if (request.controller.signal.aborted || catalogRequest !== request) {
+      throw catalogAbortError();
+    }
+  };
 
-  catalogRequest = (async () => {
-    const tracks = await apiRequest(
-      "/catalog/tracks",
-      {
+  request.promise = (async () => {
+    const tracksById = new Map();
+    const seenCursors = new Set();
+    let cursor = null;
+    do {
+      checkActive();
+      const params = new URLSearchParams({ page_size: "250" });
+      if (cursor !== null) params.set("cursor", cursor);
+      const page = await apiRequest(`/catalog/tracks?${params}`, {
         method: "GET",
-
         cache: "no-store",
-
+        signal: request.controller.signal,
         headers: {
           "Cache-Control": "no-cache",
           Pragma: "no-cache",
         },
-      },
+      });
+      checkActive();
+      const legacy = Array.isArray(page);
+      if (!legacy && (!Array.isArray(page?.items)
+          || !(page.next_cursor === null || typeof page.next_cursor === "string"))) {
+        throw new Error("Invalid catalog page response.");
+      }
+      for (const track of legacy ? page : page.items) {
+        if (track?.id != null) tracksById.set(String(track.id), track);
+      }
+      cursor = legacy ? null : page.next_cursor;
+      if (cursor !== null) {
+        if (!cursor || seenCursors.has(cursor)) {
+          throw new Error("Catalog pagination returned a repeated cursor.");
+        }
+        seenCursors.add(cursor);
+      }
+    } while (cursor !== null);
+    checkActive();
+    const nextTracks = Array.from(tracksById.values()).filter(
+      (track) => !request.removedIds.has(String(track.id)),
     );
-
-    const nextTracks =
-  Array.isArray(tracks)
-    ? tracks
-    : [];
-
-setCatalogTracks(
-  nextTracks,
-);
-
-
-catalogLoaded = true;
-
+    setCatalogTracks(nextTracks);
+    catalogLoaded = true;
     return catalogTracks;
   })();
 
   try {
-    return await catalogRequest;
+    return await waitForCatalog(request.promise, signal);
   } finally {
-    catalogRequest = null;
+    signal?.removeEventListener("abort", onAbort);
+    if (catalogRequest === request) catalogRequest = null;
   }
 }
 
@@ -98,6 +144,7 @@ export function removeCatalogTrack(trackId) {
   const normalizedTrackId =
     String(trackId);
 
+  catalogRequest?.removedIds.add(normalizedTrackId);
   setCatalogTracks(
     catalogTracks.filter(
       (track) =>
@@ -133,6 +180,8 @@ export function removeCatalogTracks(
   ) {
     return;
   }
+
+  for (const id of normalizedTrackIds) catalogRequest?.removedIds.add(id);
 
   setCatalogTracks(
     catalogTracks.filter(

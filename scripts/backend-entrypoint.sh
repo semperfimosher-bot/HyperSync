@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+case "${MIGRATE_ON_START:-true}" in
+    true)
+        migration_attempt=1
+        until python -m alembic -c /app/alembic.ini upgrade head; do
+            if [ "$migration_attempt" -ge "${MIGRATION_MAX_ATTEMPTS:-12}" ]; then
+                echo "Database migrations failed after $migration_attempt attempts." >&2
+                exit 1
+            fi
+            sleep_seconds=$((migration_attempt * 5))
+            if [ "$sleep_seconds" -gt 30 ]; then sleep_seconds=30; fi
+            echo "Database migration attempt $migration_attempt failed; retrying in ${sleep_seconds}s..." >&2
+            sleep "$sleep_seconds"
+            migration_attempt=$((migration_attempt + 1))
+        done
+        ;;
+    false) ;;
+    *) echo 'MIGRATE_ON_START must be true or false.' >&2; exit 1 ;;
+esac
+exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers --forwarded-allow-ips "${UVICORN_FORWARDED_ALLOW_IPS:-127.0.0.1}" --limit-concurrency "${UVICORN_LIMIT_CONCURRENCY:-32}" --backlog "${UVICORN_BACKLOG:-256}" --timeout-keep-alive "${UVICORN_KEEPALIVE_SECONDS:-10}"

@@ -16,10 +16,12 @@ from .database import (
     check_database,
     close_database,
 )
+from .middleware.memory_admission import MemoryAdmissionMiddleware
 from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
+from .middleware.request_limits import RequestBodyLimitMiddleware
 from .security.rate_limit import (
     cleanup_stale_rate_limits,
 )
@@ -33,14 +35,13 @@ from .services.admin_notifications import (
 from .services.artists import (
     backfill_missing_artist_profiles,
 )
+from .services.maintenance_jobs import run_maintenance_worker
 from .services.media_identity import (
     backfill_missing_media_identities,
 )
 from .services.message_retention import (
     cleanup_expired_messages,
 )
-from .services.playback import handle_playback_event
-from .services.playback_events import run_playback_event_listener
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,6 @@ MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
     "/api/users/me/app-state",
-    "/api/users/me/playback-state",
-    "/api/users/me/playback-devices",
     "/api/messages/push/",
     "/api/messages/admin-notifications/",
     "/api/messages/notifications/",
@@ -348,24 +347,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_rate_limit_cleanup(),
     )
 
+    maintenance_task = (
+        asyncio.create_task(run_maintenance_worker())
+        if settings.maintenance_worker_enabled else None
+    )
+
     media_identity_task = asyncio.create_task(
         run_media_identity_backfill(),
     )
 
-    playback_event_task = None
-    if get_settings().playback_realtime_database_url.strip():
-        playback_event_task = asyncio.create_task(
-            run_playback_event_listener(handle_playback_event),
-            name="playback-event-listener",
-        )
-
     try:
         yield
     finally:
-        if playback_event_task is not None:
-            playback_event_task.cancel()
+        if maintenance_task is not None:
+            maintenance_task.cancel()
             with suppress(asyncio.CancelledError):
-                await playback_event_task
+                await maintenance_task
 
         keepalive_task.cancel()
         retention_task.cancel()
@@ -424,6 +421,18 @@ app.add_middleware(
     admission_timeout_seconds=(
         settings.api_admission_timeout_seconds
     ),
+)
+
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=settings.request_max_body_bytes,
+)
+
+app.add_middleware(
+    MemoryAdmissionMiddleware,
+    upload_limit=settings.media_max_concurrent_uploads,
+    stream_limit=settings.media_max_concurrent_streams,
+    catalog_limit=settings.catalog_max_concurrent_exports,
 )
 
 app.add_middleware(

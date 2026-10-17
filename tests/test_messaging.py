@@ -178,6 +178,13 @@ async def test_admin_activity_notifications_are_admin_only_and_readable() -> Non
             session,
         )
 
+        # Repeated dismissal after the row has gone is still successful.
+        await message_routes.read_admin_notification(
+            notification.id,
+            admin,
+            session,
+        )
+
         assert (
             await session.get(
                 AdminNotification,

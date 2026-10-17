@@ -44,6 +44,12 @@ async def test_catalog_returns_direct_signed_media_urls(
         def all():
             return [track]
 
+        async def partitions(self, size):
+            yield [track]
+
+        async def close(self):
+            pass
+
     class FakeSession:
         async def __aenter__(self):
             return self
@@ -61,6 +67,9 @@ async def test_catalog_returns_direct_signed_media_urls(
             *args,
             **kwargs,
         ):
+            return FakeResult()
+
+        async def stream(self, *args, **kwargs):
             return FakeResult()
 
     monkeypatch.setattr(

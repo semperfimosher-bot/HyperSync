@@ -16,11 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..database import get_session_factory
 from ..models.media import Track
+from .bounded_http import get_json as bounded_get_json
 from .catalog_metadata import (
     resolve_exact_track_metadata,
-)
-from .generated_playlists import (
-    refresh_smart_playlists_for_track,
 )
 
 logger = logging.getLogger(__name__)
@@ -864,7 +862,7 @@ async def lookup_apple_track_metadata(
         if throttle:
             await _apple_throttle()
 
-        response = await client.get(
+        payload = await bounded_get_json(client,
             "/search",
             params={
                 "term":
@@ -882,10 +880,6 @@ async def lookup_apple_track_metadata(
                     "Yes",
             },
         )
-
-        response.raise_for_status()
-
-        payload = response.json()
 
         if not isinstance(
             payload,
@@ -1064,14 +1058,10 @@ async def _get_json(
     if throttle:
         await _throttle()
 
-    response = await client.get(
+    payload = await bounded_get_json(client,
         path,
         params=params,
     )
-
-    response.raise_for_status()
-
-    payload = response.json()
 
     if not isinstance(
         payload,
@@ -1617,7 +1607,7 @@ async def _lastfm_get_json(
     if throttle:
         await _lastfm_throttle()
 
-    response = await client.get(
+    payload = await bounded_get_json(client,
         "/2.0/",
         params={
             "method":
@@ -1627,10 +1617,6 @@ async def _lastfm_get_json(
             **params,
         },
     )
-
-    response.raise_for_status()
-
-    payload = response.json()
 
     if not isinstance(
         payload,
@@ -2182,14 +2168,27 @@ async def enrich_track_metadata(
                 track.release_year,
         }
 
-    metadata = (
-        await lookup_external_track_metadata(
-            title=track.title,
-            artist=track.artist,
-            duration_seconds=(
-                track.duration_seconds
-            ),
-        )
+    # Return the read connection before waiting on external providers.
+    lookup_title = track.title
+    lookup_artist = track.artist
+    lookup_duration = track.duration_seconds
+    await session.commit()
+
+    metadata = await lookup_external_track_metadata(
+        title=lookup_title,
+        artist=lookup_artist,
+        duration_seconds=(lookup_duration),
+    )
+
+    # Reload after the network wait so concurrent edits are never overwritten.
+    await session.refresh(track)
+    missing_genre = not (
+        track.genre
+        or ""
+    ).strip()
+    missing_year = (
+        track.release_year
+        is None
     )
 
     if metadata is None:
@@ -2250,27 +2249,14 @@ async def enrich_track_metadata(
     track_id = track.id
 
     if changed:
-        await session.commit()
+        # Persist follow-up work with the metadata, including when an older
+        # playlist job already completed or is still running on another replica.
+        from .maintenance_jobs import enqueue_track_maintenance
 
-        try:
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            # Playlist refresh is secondary maintenance. Clear
-            # its failed transaction without making the already
-            # committed metadata result depend on an expired
-            # Track instance.
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track metadata update succeeded but "
-                    "generated playlist refresh failed "
-                    "for track %s."
-                ),
-                track_id,
-            )
+        await enqueue_track_maintenance(
+            session, track_id, kinds=("playlists",), refresh_existing=True,
+        )
+        await session.commit()
 
     return {
         "matched":

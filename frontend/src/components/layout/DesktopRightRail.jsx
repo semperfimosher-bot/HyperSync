@@ -79,8 +79,6 @@ function formatQueueDuration(
 function DesktopRightRail({
   currentUser,
   onOpenAuth,
-  accountPlaybackSnapshot = null,
-  currentPlaybackDeviceId = null,
 }) {
   const trackActionMenu =
     useTrackActionMenu();
@@ -310,12 +308,8 @@ function DesktopRightRail({
             }
           >
             <LiveLyrics
-              accountPlaybackSnapshot={
-                accountPlaybackSnapshot
-              }
-              currentPlaybackDeviceId={
-                currentPlaybackDeviceId
-              }
+
+
             />
           </div>
 

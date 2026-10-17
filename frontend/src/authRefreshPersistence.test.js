@@ -167,7 +167,7 @@ test(
       await assert.rejects(
         () =>
           client.apiRequest(
-            "/users/me/playback-state",
+            "/users/me/app-state",
           ),
         /Authentication required/,
       );
@@ -262,7 +262,7 @@ test(
       await assert.rejects(
         () =>
           client.apiRequest(
-            "/users/me/playback-state",
+            "/users/me/app-state",
           ),
         /Too many requests/,
       );

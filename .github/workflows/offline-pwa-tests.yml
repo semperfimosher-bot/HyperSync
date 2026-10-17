@@ -117,6 +117,9 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend scripts
 
+      - name: Run isolated operations tooling tests
+        run: python -m pytest scripts/tests -q
+
       - name: Validate Alembic migration chain
         env:
           MIGRATION_DATABASE_URL: postgresql://verification:disposable-ci-only@localhost:5432/verification
@@ -169,7 +172,8 @@ jobs:
           docker inspect \
             --format '{{json .Config.Cmd}}' \
             hypersynced-backend-ci \
-            | grep -q 'alembic'
+            | grep -q '/app/backend-entrypoint.sh'
+          docker run --rm hypersynced-backend-ci sh -ec 'grep -q alembic /app/backend-entrypoint.sh && grep -q MIGRATE_ON_START /app/backend-entrypoint.sh'
 
   frontend-image:
     runs-on: ubuntu-latest

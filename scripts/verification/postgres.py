@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .models import CheckResult
 
@@ -32,16 +32,14 @@ async def _exercise(database_url: str, run_id: str, log: Path) -> None:
     from alembic import command
     from alembic.config import Config
     from alembic.script import ScriptDirectory
-    from fastapi import HTTPException
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from backend.app.api.dependencies import authenticate_access_token
     from backend.app.config import get_settings
     from backend.app.models import AccountType, User, UserProfile, UserSession
-    from backend.app.models.jam import JamSession
+    from backend.app.models.playlist import Playlist
     from backend.app.security.tokens import create_access_token
-    from backend.app.services.jam_sessions import advance
 
     name = validate_target(database_url, run_id)
     admin = await asyncpg.connect(database_url, timeout=5, ssl=False)
@@ -76,7 +74,7 @@ async def _exercise(database_url: str, run_id: str, log: Path) -> None:
 
         await migrate(revision.down_revision)
         user_id, auth_id = uuid4(), uuid4()
-        # These account tables predate the current Jam migration.
+        # Verify existing accounts survive the final historical migration.
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             session.add(
@@ -126,40 +124,23 @@ async def _exercise(database_url: str, run_id: str, log: Path) -> None:
             saved_user = await session.get(User, user_id)
             assert saved_user is not None
             assert saved_user.username == "after-authentication"
-            jam = JamSession(
-                host_id=user_id,
-                invite_hash=uuid4().hex,
-                invite_expires_at=datetime.now(UTC) + timedelta(hours=1),
-            )
-            session.add(jam)
-            await session.commit()
-            jam_id = jam.id
-        ready = asyncio.Event()
-        count = 0
 
-        async def writer() -> str:
-            nonlocal count
+        async def writer(title: str) -> str:
             async with factory() as session:
-                jam = await session.get(JamSession, jam_id)
-                assert jam is not None
-                revision_number = jam.revision
-                count += 1
-                if count == 2:
-                    ready.set()
-                await asyncio.wait_for(ready.wait(), timeout=5)
-                try:
-                    await advance(session, jam, revision_number)
-                    await session.commit()
-                    return "committed"
-                except HTTPException as exc:
-                    await session.rollback()
-                    assert exc.status_code == 409
-                    return "conflict"
+                playlist = Playlist(owner_id=user_id, title=title, visibility="private")
+                session.add(playlist)
+                await session.commit()
+                return str(playlist.id)
 
-        assert sorted(await asyncio.gather(writer(), writer())) == ["committed", "conflict"]
+        ids = await asyncio.gather(writer("First browser"), writer("Second browser"))
+        assert len(set(ids)) == 2
+        async with factory() as session:
+            for playlist_id in ids:
+                saved = await session.get(Playlist, UUID(playlist_id))
+                assert saved is not None and saved.owner_id == user_id
         with log.open("a") as output:
             output.write("Authentication transaction release and updates: passed\n")
-            output.write("Concurrent Jam revision conflict: passed\n")
+            output.write("Concurrent same-account playlist writes: passed\n")
     finally:
         if engine is not None:
             await engine.dispose()
@@ -185,7 +166,8 @@ async def cleanup_owned_database(database_url: str, run_id: str) -> None:
     try:
         row = await admin.fetchrow(
             "SELECT shobj_description(oid, 'pg_database') AS owner "
-            "FROM pg_database WHERE datname=$1", name,
+            "FROM pg_database WHERE datname=$1",
+            name,
         )
         if row is None:
             return
@@ -225,14 +207,10 @@ def verify_postgres(
         ENVIRONMENT="test",
         DATABASE_URL=database_url,
         MIGRATION_DATABASE_URL=database_url,
-        JWT_SECRET=(
-            "verification-" + run_id + "-only"
-        ).ljust(64, "x"),
+        JWT_SECRET=("verification-" + run_id + "-only").ljust(64, "x"),
         HYPERSYNC_TEST_POSTGRES_URL=database_url,
         HYPERSYNC_VERIFICATION_RUN_ID=run_id,
-        HYPERSYNC_REPORT_DIR=str(
-            report_dir.resolve()
-        ),
+        HYPERSYNC_REPORT_DIR=str(report_dir.resolve()),
     )
 
     probe = run_check(
@@ -245,25 +223,15 @@ def verify_postgres(
         cwd=ROOT,
         env=env,
         timeout_seconds=15,
-        log_path=(
-            report_dir
-            / "postgres-prerequisite.log"
-        ),
+        log_path=(report_dir / "postgres-prerequisite.log"),
         secrets=(
             database_url,
             urlsplit(database_url).password or "",
         ),
     )
     if probe.status != "passed":
-        probe.status = (
-            "blocked"
-            if probe.status != "interrupted"
-            else "interrupted"
-        )
-        probe.detail = (
-            "Disposable PostgreSQL service is "
-            "unavailable or inaccessible"
-        )
+        probe.status = "blocked" if probe.status != "interrupted" else "interrupted"
+        probe.detail = "Disposable PostgreSQL service is unavailable or inaccessible"
         return [probe]
 
     results: list[CheckResult] = []
@@ -278,13 +246,10 @@ def verify_postgres(
                 cwd=ROOT,
                 env=env,
                 timeout_seconds=210,
-                log_path=(
-                    report_dir / "postgres.log"
-                ),
+                log_path=(report_dir / "postgres.log"),
                 secrets=(
                     database_url,
-                    urlsplit(database_url).password
-                    or "",
+                    urlsplit(database_url).password or "",
                 ),
             )
         )
@@ -300,20 +265,15 @@ def verify_postgres(
                 cwd=ROOT,
                 env=env,
                 timeout_seconds=30,
-                log_path=(
-                    report_dir
-                    / "postgres-cleanup.log"
-                ),
+                log_path=(report_dir / "postgres-cleanup.log"),
                 secrets=(
                     database_url,
-                    urlsplit(database_url).password
-                    or "",
+                    urlsplit(database_url).password or "",
                 ),
             )
         )
 
     return results
-
 
 
 if __name__ == "__main__":
@@ -326,11 +286,14 @@ if __name__ == "__main__":
     get_settings.cache_clear()
     try:
         if "--probe" in sys.argv:
+
             async def probe_connection():
                 import asyncpg
 
                 connection = await asyncpg.connect(
-                    os.environ["HYPERSYNC_TEST_POSTGRES_URL"], ssl=False, timeout=5,
+                    os.environ["HYPERSYNC_TEST_POSTGRES_URL"],
+                    ssl=False,
+                    timeout=5,
                 )
                 await connection.close(timeout=5)
 
@@ -338,10 +301,12 @@ if __name__ == "__main__":
             print("Disposable PostgreSQL service is reachable")
             raise SystemExit(0)
         if "--cleanup" in sys.argv:
-            asyncio.run(cleanup_owned_database(
-                os.environ["HYPERSYNC_TEST_POSTGRES_URL"],
-                os.environ["HYPERSYNC_VERIFICATION_RUN_ID"],
-            ))
+            asyncio.run(
+                cleanup_owned_database(
+                    os.environ["HYPERSYNC_TEST_POSTGRES_URL"],
+                    os.environ["HYPERSYNC_VERIFICATION_RUN_ID"],
+                )
+            )
             print("Owned PostgreSQL cleanup verified")
             raise SystemExit(0)
         asyncio.run(
@@ -355,7 +320,7 @@ if __name__ == "__main__":
             )
         )
         print(
-            "PostgreSQL migration, authentication and concurrent Jam checks passed; "
+            "PostgreSQL migration, authentication and concurrent library checks passed; "
             "owned database removed"
         )
     except Exception as error:

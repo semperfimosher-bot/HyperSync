@@ -1,0 +1,9 @@
+# Backend hardening design
+
+Goal: complete the seven findings in the 9fe635e reliability/security audit without changing local playback or using live infrastructure.
+
+Deletion failures must never restore publication after irreversible storage work; hidden catalog rows are retryable deletion tombstones. Concurrent playlist mutations must serialize by playlist, and membership must be unique with a migration that preserves the earliest existing membership and repairs positions. Following lists use the same privacy decision as profile activity. Oversized HTTP bodies must be rejected before full allocation, with an explicit 64 MiB API body ceiling and bounded avatar reads (5 MiB plus one byte); trusted audio files may use the existing direct upload path. Parser dependency moves to the compatible audited version.
+
+Catalog API gains stable opt-in cursor pagination, preserving legacy clients, while this frontend consumes pages. Smart ranking should avoid repeated full-catalog/history work and upload responses should not wait for generated-playlist maintenance. Durable PostgreSQL maintenance jobs are inserted in the same transaction as uploaded tracks; a bounded worker claims jobs using SKIP LOCKED leases, retries failures, and recovers expired leases after restart. Jobs are idempotent and failure never removes committed audio. No new Redis/service dependency.
+
+Migrations use a PostgreSQL advisory lock on the same direct migration connection, and containers support migration-once release operation. Per-process worker/pool budgets must be explicit. Add repeatable isolated load and recovery tooling and operational instructions; results must clearly distinguish simulated/CI evidence from real B2 and deployment capacity. No live database/bucket mutations, deployment, or merging. Publish tested changes to the existing review branch/PR when ready.

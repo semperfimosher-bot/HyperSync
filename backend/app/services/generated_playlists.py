@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import heapq
+from dataclasses import dataclass, field
 from datetime import (
     UTC,
     datetime,
@@ -10,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import (
     delete,
     func,
+    or_,
     select,
 )
 from sqlalchemy.exc import (
@@ -22,13 +26,15 @@ from sqlalchemy.ext.asyncio import (
 from ..models.account import (
     ListeningEvent,
 )
-from ..models.media import Track
+from ..models.media import Track, TrackArtistCredit
 from ..models.playlist import (
     Playlist,
     PlaylistTrack,
+    lock_playlist,
 )
 from .artists import (
-    load_published_artist_tracks,
+    artist_credit_matches,
+    normalize_artist_name,
 )
 from .search import normalize_text
 
@@ -42,6 +48,7 @@ MIN_GENERATED_TRACKS = 2
 MAX_GENERATED_TRACKS = 500
 
 MAX_SMART_GENERATED_TRACKS = 120
+SMART_REFRESH_TARGET_BATCH_SIZE = 64
 
 SMART_FILLER_WORDS = {
     "a",
@@ -597,10 +604,8 @@ async def _find_artist_playlist(
             Playlist,
         )
         .where(
-            Playlist.generated_key
-            == key,
-            Playlist.visibility
-            == "generated",
+            Playlist.generated_key == key,
+            Playlist.visibility == "generated",
             Playlist.owner_id.is_(
                 None,
             ),
@@ -608,12 +613,10 @@ async def _find_artist_playlist(
         .limit(
             1,
         )
+        .execution_options(populate_existing=True)
     )
 
-    return (
-        result.scalars()
-        .first()
-    )
+    return result.scalars().first()
 
 
 async def _find_smart_playlist(
@@ -631,10 +634,8 @@ async def _find_smart_playlist(
             Playlist,
         )
         .where(
-            Playlist.generated_key
-            == key,
-            Playlist.owner_id
-            == user_id,
+            Playlist.generated_key == key,
+            Playlist.owner_id == user_id,
             Playlist.generated_kind.in_(
                 (
                     "smart",
@@ -645,12 +646,10 @@ async def _find_smart_playlist(
         .limit(
             1,
         )
+        .execution_options(populate_existing=True)
     )
 
-    return (
-        result.scalars()
-        .first()
-    )
+    return result.scalars().first()
 
 
 async def get_cached_artist_playlist(
@@ -785,28 +784,26 @@ async def generated_playlist_needs_refresh(
             > generated_utc
         )
 
-    matching_tracks = (
-        await load_published_artist_tracks(
-            session,
-            playlist.generated_query,
-            primary_only=False,
-        )
+    matching_track_count = 0
+    latest_track_update = None
+    result = await session.stream(
+        select(Track.artist, Track.updated_at)
+        .where(*_artist_catalog_conditions(playlist.generated_query))
+        .execution_options(yield_per=256)
     )
-
-    matching_track_count = len(
-        matching_tracks,
-    )
-
-    latest_track_update = max(
-        (
-            track.updated_at
-            for track
-            in matching_tracks
-            if track.updated_at
-            is not None
-        ),
-        default=None,
-    )
+    try:
+        async for rows in result.partitions(256):
+            await asyncio.sleep(0)
+            for artist_credit, updated_at in rows:
+                if not artist_credit_matches(artist_credit, playlist.generated_query):
+                    continue
+                matching_track_count += 1
+                if updated_at is not None and (
+                    latest_track_update is None or updated_at > latest_track_update
+                ):
+                    latest_track_update = updated_at
+    finally:
+        await result.close()
 
     playlist_count_result = (
         await session.execute(
@@ -914,10 +911,40 @@ async def refresh_generated_playlist_if_stale(
     return refreshed or playlist
 
 
-async def _rank_smart_tracks(
+@dataclass
+class SmartRankingBatch:
+    """One maintenance invocation's final IDs, without retaining catalog ORM rows."""
+
+    rankings: dict[str, list[UUID]] = field(default_factory=dict)
+    snapshot_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass
+class _SmartCandidate:
+    sort_key: tuple[int, int, float, str, str, int]
+    track_id: UUID
+
+    def __lt__(self, other: _SmartCandidate) -> bool:
+        # heapq's root is the worst retained candidate, so better rows replace it.
+        return self.sort_key > other.sort_key
+
+
+async def _prepare_smart_rankings(
     session: AsyncSession,
-    query: str,
-) -> list[Track]:
+    queries: list[str],
+) -> SmartRankingBatch:
+    """Stream one catalog/history scan and retain at most 120 IDs per query.
+
+    Cost remains O(history + catalog * distinct queries); worker deadlines bound
+    runtime. Query keys and final IDs scale with the batch's distinct queries.
+    """
+    heaps: dict[str, list[_SmartCandidate]] = {
+        _normalized_query(query): [] for query in queries
+    }
+    batch = SmartRankingBatch()
+    if not heaps:
+        return batch
+
     play_counts = (
         select(
             ListeningEvent.track_id.label(
@@ -935,7 +962,7 @@ async def _rank_smart_tracks(
         .subquery()
     )
 
-    result = await session.execute(
+    result = await session.stream(
         select(
             Track,
             func.coalesce(
@@ -945,77 +972,68 @@ async def _rank_smart_tracks(
         )
         .outerjoin(
             play_counts,
-            play_counts.c.track_id
-            == Track.id,
+            play_counts.c.track_id == Track.id,
         )
         .where(
             Track.is_published.is_(
                 True,
             )
         )
+        .execution_options(yield_per=256)
     )
 
-    ranked: list[
-        tuple[
-            int,
-            int,
-            float,
-            Track,
-        ]
-    ] = []
+    ordinal = 0
+    try:
+        async for rows in result.partitions(256):
+            # Yield between bounded partitions so worker cancellation/deadlines apply.
+            await asyncio.sleep(0)
+            for track, play_count in rows:
+                created = track.created_at.timestamp() if track.created_at is not None else 0.0
+                for query, heap in heaps.items():
+                    score = smart_track_score(track, query)
+                    if score <= 0:
+                        continue
+                    candidate = _SmartCandidate(
+                        (-score, -int(play_count or 0), -created,
+                         track.artist.casefold(), track.title.casefold(), ordinal),
+                        track.id,
+                    )
+                    if len(heap) < MAX_SMART_GENERATED_TRACKS:
+                        heapq.heappush(heap, candidate)
+                    elif candidate.sort_key < heap[0].sort_key:
+                        heapq.heapreplace(heap, candidate)
+                ordinal += 1
+    finally:
+        await result.close()
 
-    for (
-        track,
-        play_count,
-    ) in result.all():
-        score = smart_track_score(
-            track,
-            query,
-        )
+    batch.rankings = {
+        query: [item.track_id for item in sorted(heap, key=lambda item: item.sort_key)]
+        for query, heap in heaps.items()
+    }
+    return batch
 
-        if score <= 0:
-            continue
 
-        created_at = (
-            track.created_at
-        )
-
-        created_timestamp = (
-            created_at.timestamp()
-            if created_at
-            is not None
-            else 0.0
-        )
-
-        ranked.append(
-            (
-                score,
-                int(
-                    play_count
-                    or 0
-                ),
-                created_timestamp,
-                track,
-            )
-        )
-
-    ranked.sort(
-        key=lambda item: (
-            -item[0],
-            -item[1],
-            -item[2],
-            item[3].artist.casefold(),
-            item[3].title.casefold(),
-        )
-    )
-
-    return [
-        item[3]
-        for item
-        in ranked[
-            :MAX_SMART_GENERATED_TRACKS
-        ]
-    ]
+async def _rank_smart_tracks(
+    session: AsyncSession,
+    query: str,
+    *,
+    batch: SmartRankingBatch | None = None,
+) -> list[Track]:
+    normalized = _normalized_query(query)
+    if batch is None or normalized not in batch.rankings:
+        prepared = await _prepare_smart_rankings(session, [query])
+        if batch is None:
+            batch = prepared
+        else:
+            batch.rankings.update(prepared.rankings)
+    track_ids = batch.rankings[normalized]
+    if not track_ids:
+        return []
+    result = await session.execute(select(Track).where(
+        Track.id.in_(track_ids), Track.is_published.is_(True),
+    ))
+    by_id = {track.id: track for track in result.scalars().all()}
+    return [by_id[track_id] for track_id in track_ids if track_id in by_id]
 
 
 async def ensure_smart_playlist(
@@ -1024,24 +1042,24 @@ async def ensure_smart_playlist(
     query: str,
     *,
     force_refresh: bool = False,
+    ranking_batch: SmartRankingBatch | None = None,
 ) -> Playlist | None:
-    query = " ".join(
-        str(
-            query
-            or ""
-        ).split()
-    )
+    query = " ".join(str(query or "").split())
 
     if not query:
         return None
 
-    existing = (
-        await _find_smart_playlist(
-            session,
-            user_id,
-            query,
-        )
+    await lock_playlist(session, smart_cache_key(user_id, query))
+
+    existing = await _find_smart_playlist(
+        session,
+        user_id,
+        query,
     )
+
+    if existing is not None:
+        await lock_playlist(session, existing.id)
+        await session.refresh(existing)
 
     if (
         existing is not None
@@ -1053,13 +1071,23 @@ async def ensure_smart_playlist(
     ):
         return existing
 
+    # An older maintenance snapshot must not overwrite an already current refresh.
+    if (
+        existing is not None
+        and ranking_batch is not None
+        and existing.generated_at is not None
+        and existing.generated_at >= ranking_batch.snapshot_at
+        and not await generated_playlist_needs_refresh(session, existing)
+    ):
+        return existing
+
+    # Freshness records the snapshot start, not when the last playlist was written.
+    # A catalog upload during this scan/batch therefore remains detectably newer.
+    now = ranking_batch.snapshot_at if ranking_batch is not None else datetime.now(UTC)
     tracks = await _rank_smart_tracks(
         session,
         query,
-    )
-
-    now = datetime.now(
-        UTC,
+        batch=ranking_batch,
     )
 
     kind = smart_playlist_kind(
@@ -1084,9 +1112,7 @@ async def ensure_smart_playlist(
             ),
             generated_query=query,
             generated_kind=kind,
-            generator_version=(
-                GENERATOR_VERSION
-            ),
+            generator_version=(GENERATOR_VERSION),
             generated_at=now,
         )
 
@@ -1103,12 +1129,10 @@ async def ensure_smart_playlist(
                 await session.flush()
 
         except IntegrityError:
-            return (
-                await _find_smart_playlist(
-                    session,
-                    user_id,
-                    query,
-                )
+            return await _find_smart_playlist(
+                session,
+                user_id,
+                query,
             )
 
     else:
@@ -1118,42 +1142,27 @@ async def ensure_smart_playlist(
             delete(
                 PlaylistTrack,
             ).where(
-                PlaylistTrack.playlist_id
-                == playlist.id,
+                PlaylistTrack.playlist_id == playlist.id,
             )
         )
 
-        playlist.title = (
-            _smart_playlist_title(
-                query,
-            )
+        playlist.title = _smart_playlist_title(
+            query,
         )
 
         playlist.description = (
-            "Live playlist generated from "
-            f'"{query}". New matching uploads '
-            "are added automatically."
+            f'Live playlist generated from "{query}". New matching uploads are added automatically.'
         )
 
-        playlist.visibility = (
-            "generated"
-        )
+        playlist.visibility = "generated"
 
-        playlist.generated_query = (
-            query
-        )
+        playlist.generated_query = query
 
-        playlist.generated_kind = (
-            kind
-        )
+        playlist.generated_kind = kind
 
-        playlist.generator_version = (
-            GENERATOR_VERSION
-        )
+        playlist.generator_version = GENERATOR_VERSION
 
-        playlist.generated_at = (
-            now
-        )
+        playlist.generated_at = now
 
     for (
         position,
@@ -1163,15 +1172,9 @@ async def ensure_smart_playlist(
     ):
         session.add(
             PlaylistTrack(
-                playlist_id=(
-                    playlist.id
-                ),
-                track_id=(
-                    track.id
-                ),
-                position=(
-                    position
-                ),
+                playlist_id=(playlist.id),
+                track_id=(track.id),
+                position=(position),
             )
         )
 
@@ -1187,199 +1190,167 @@ async def ensure_smart_playlist(
 async def refresh_smart_playlists_for_track(
     session: AsyncSession,
     track: Track,
+    *,
+    only_stale: bool = False,
 ) -> int:
-    result = await session.execute(
-        select(
-            Playlist.owner_id,
-            Playlist.generated_query,
-        ).where(
-            Playlist.owner_id.is_not(
-                None,
-            ),
-            Playlist.visibility
-            == "generated",
-            Playlist.generated_kind.in_(
-                (
-                    "smart",
-                    "genre",
-                )
-            ),
-            Playlist.generated_query.is_not(
-                None,
-            ),
-        )
-    )
-
-    refresh_targets = [
-        (
-            owner_id,
-            str(
-                query,
-            ),
-        )
-        for (
-            owner_id,
-            query,
-        ) in result.all()
-        if (
-            owner_id
-            is not None
-            and query
-            and smart_track_score(
-                track,
-                str(
-                    query,
-                ),
-            )
-            > 0
-        )
-    ]
-
+    # A successful playlist commit records the ranking snapshot start. Workers
+    # can therefore resume after timeout without repeating completed pages for
+    # this track version. Missing timestamps retain the force-refresh behavior.
+    changed_at = track.updated_at if only_stale else None
+    # Materialize only one keyset page: ensure_smart_playlist commits, so an
+    # open server cursor here would be invalidated by the first refresh.
+    cursor: UUID | None = None
     refreshed = 0
-
-    for (
-        owner_id,
-        query,
-    ) in refresh_targets:
-        playlist = await ensure_smart_playlist(
-            session,
-            owner_id,
-            query,
-            force_refresh=True,
-        )
-
-        if playlist is not None:
-            refreshed += 1
-
+    while True:
+        statement = select(
+            Playlist.id, Playlist.owner_id, Playlist.generated_query,
+        ).where(
+            Playlist.owner_id.is_not(None),
+            Playlist.visibility == "generated",
+            Playlist.generated_kind.in_(("smart", "genre")),
+            Playlist.generated_query.is_not(None),
+        ).order_by(Playlist.id).limit(SMART_REFRESH_TARGET_BATCH_SIZE)
+        if changed_at is not None:
+            statement = statement.where(or_(
+                Playlist.generated_at.is_(None),
+                Playlist.generated_at < changed_at,
+                Playlist.generator_version.is_distinct_from(GENERATOR_VERSION),
+            ))
+        if cursor is not None:
+            statement = statement.where(Playlist.id > cursor)
+        rows = (await session.execute(statement)).all()
+        if not rows:
+            break
+        cursor = rows[-1][0]
+        targets = [(owner_id, str(query)) for _, owner_id, query in rows
+                   if query and smart_track_score(track, str(query)) > 0]
+        if targets:
+            ranking_batch = await _prepare_smart_rankings(
+                session, [query for _, query in targets],
+            )
+            for owner_id, query in targets:
+                playlist = await ensure_smart_playlist(
+                    session, owner_id, query, force_refresh=True,
+                    ranking_batch=ranking_batch,
+                )
+                if playlist is not None:
+                    refreshed += 1
+        if len(rows) < SMART_REFRESH_TARGET_BATCH_SIZE:
+            break
+        await asyncio.sleep(0)
     return refreshed
+
+
+def _artist_catalog_conditions(artist_name: str):
+    target = normalize_artist_name(artist_name)
+    # EXISTS avoids duplicate tracks for multiple matching credits. Legacy rows
+    # without sidecars retain the original Python credit-matching semantics.
+    has_credit = select(TrackArtistCredit.track_id).where(
+        TrackArtistCredit.track_id == Track.id,
+    ).exists()
+    matching_credit = select(TrackArtistCredit.track_id).where(
+        TrackArtistCredit.track_id == Track.id,
+        TrackArtistCredit.normalized_name == target,
+    ).exists()
+    return Track.is_published.is_(True), or_(matching_credit, ~has_credit)
 
 
 async def _rank_artist_tracks(
     session: AsyncSession,
     artist_name: str,
 ) -> list[Track]:
-    tracks = (
-        await load_published_artist_tracks(
-            session,
-            artist_name,
-            primary_only=False,
-        )
-    )
-
-    if not tracks:
+    if not normalize_artist_name(artist_name):
         return []
-
-    track_ids = [
-        track.id
-        for track in tracks
-    ]
-
-    result = await session.execute(
-        select(
-            ListeningEvent.track_id,
-            func.count(
-                ListeningEvent.id,
-            ),
-        )
-        .where(
-            ListeningEvent.track_id.in_(
-                track_ids,
-            )
-        )
-        .group_by(
-            ListeningEvent.track_id,
-        )
+    play_counts = select(
+        ListeningEvent.track_id.label("track_id"),
+        func.count(ListeningEvent.id).label("play_count"),
+    ).join(Track, Track.id == ListeningEvent.track_id).where(
+        *_artist_catalog_conditions(artist_name),
+    ).group_by(ListeningEvent.track_id).subquery()
+    result = await session.stream(
+        select(Track, func.coalesce(play_counts.c.play_count, 0))
+        .outerjoin(play_counts, play_counts.c.track_id == Track.id)
+        .where(*_artist_catalog_conditions(artist_name))
+        .execution_options(yield_per=256)
     )
-
-    play_counts = {
-        track_id: int(
-            count
-            or 0
-        )
-        for (
-            track_id,
-            count,
-        ) in result.all()
-    }
-
-    tracks.sort(
-        key=lambda track: (
-            -play_counts.get(
-                track.id,
-                0,
-            ),
-            -(
-                track.created_at.timestamp()
-                if track.created_at
-                is not None
-                else 0.0
-            ),
-            track.title.casefold(),
-            str(
-                track.id,
-            ),
-        )
-    )
-
-    return tracks[
-        :MAX_GENERATED_TRACKS
-    ]
+    heap: list[_SmartCandidate] = []
+    try:
+        async for rows in result.partitions(256):
+            await asyncio.sleep(0)
+            for track, count in rows:
+                if not artist_credit_matches(track.artist, artist_name):
+                    continue
+                created = track.created_at.timestamp() if track.created_at is not None else 0.0
+                candidate = _SmartCandidate(
+                    (-int(count or 0), 0, -created, track.title.casefold(), str(track.id), 0),
+                    track.id,
+                )
+                if len(heap) < MAX_GENERATED_TRACKS:
+                    heapq.heappush(heap, candidate)
+                elif candidate.sort_key < heap[0].sort_key:
+                    heapq.heapreplace(heap, candidate)
+    finally:
+        await result.close()
+    track_ids = [candidate.track_id for candidate in sorted(heap, key=lambda item: item.sort_key)]
+    if not track_ids:
+        return []
+    result = await session.execute(select(Track).where(
+        Track.id.in_(track_ids), Track.is_published.is_(True),
+    ))
+    by_id = {track.id: track for track in result.scalars().all()}
+    return [by_id[track_id] for track_id in track_ids if track_id in by_id]
 
 
 async def ensure_artist_playlist(
     session: AsyncSession,
     artist_name: str,
 ) -> Playlist | None:
-    artist_name = (
-        artist_name.strip()
-    )
+    artist_name = artist_name.strip()
 
     if not artist_name:
         return None
 
-    cached = (
-        await get_cached_artist_playlist(
-            session,
-            artist_name,
-        )
+    await lock_playlist(session, artist_cache_key(artist_name))
+
+    cached = await get_cached_artist_playlist(
+        session,
+        artist_name,
     )
+
+    if cached is not None:
+        await lock_playlist(session, cached.id)
+        await session.refresh(cached)
 
     # Keep the generated playlist fast when
     # the matching catalog has not changed,
     # but regenerate it when newer music for
     # the same artist appears.
-    if (
-        cached is not None
-        and not await generated_playlist_needs_refresh(
-            session,
-            cached,
-        )
+    if cached is not None and not await generated_playlist_needs_refresh(
+        session,
+        cached,
     ):
         return cached
 
-    tracks = (
-        await _rank_artist_tracks(
-            session,
-            artist_name,
-        )
+    tracks = await _rank_artist_tracks(
+        session,
+        artist_name,
     )
 
-    if (
-        len(tracks)
-        < MIN_GENERATED_TRACKS
-    ):
+    if len(tracks) < MIN_GENERATED_TRACKS:
         return None
 
     key = artist_cache_key(
         artist_name,
     )
 
-    existing = (
-        await _find_artist_playlist(
-            session,
-            artist_name,
-        )
+    existing = await _find_artist_playlist(
+        session,
+        artist_name,
     )
+
+    if existing is not None:
+        await lock_playlist(session, existing.id)
+        await session.refresh(existing)
 
     now = datetime.now(
         UTC,
@@ -1388,30 +1359,13 @@ async def ensure_artist_playlist(
     if existing is None:
         playlist = Playlist(
             owner_id=None,
-
             title=artist_name,
-
-            description=(
-                "Automatically generated "
-                "from the catalog."
-            ),
-
+            description=("Automatically generated from the catalog."),
             visibility="generated",
-
             generated_key=key,
-
-            generated_query=(
-                artist_name
-            ),
-
-            generated_kind=(
-                "artist"
-            ),
-
-            generator_version=(
-                GENERATOR_VERSION
-            ),
-
+            generated_query=(artist_name),
+            generated_kind=("artist"),
+            generator_version=(GENERATOR_VERSION),
             generated_at=now,
         )
 
@@ -1429,11 +1383,9 @@ async def ensure_artist_playlist(
                 await session.flush()
 
         except IntegrityError:
-            return (
-                await get_cached_artist_playlist(
-                    session,
-                    artist_name,
-                )
+            return await get_cached_artist_playlist(
+                session,
+                artist_name,
             )
 
     else:
@@ -1443,35 +1395,21 @@ async def ensure_artist_playlist(
             delete(
                 PlaylistTrack,
             ).where(
-                PlaylistTrack.playlist_id
-                == playlist.id,
+                PlaylistTrack.playlist_id == playlist.id,
             )
         )
 
-        playlist.title = (
-            artist_name
-        )
+        playlist.title = artist_name
 
-        playlist.description = (
-            "Automatically generated "
-            "from the HyperSynced catalog."
-        )
+        playlist.description = "Automatically generated from the HyperSynced catalog."
 
-        playlist.generated_query = (
-            artist_name
-        )
+        playlist.generated_query = artist_name
 
-        playlist.generated_kind = (
-            "artist"
-        )
+        playlist.generated_kind = "artist"
 
-        playlist.generator_version = (
-            GENERATOR_VERSION
-        )
+        playlist.generator_version = GENERATOR_VERSION
 
-        playlist.generated_at = (
-            now
-        )
+        playlist.generated_at = now
 
     for (
         position,
@@ -1481,9 +1419,7 @@ async def ensure_artist_playlist(
     ):
         session.add(
             PlaylistTrack(
-                playlist_id=(
-                    playlist.id
-                ),
+                playlist_id=(playlist.id),
                 track_id=track.id,
                 position=position,
             )

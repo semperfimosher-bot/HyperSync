@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -9,9 +8,6 @@ import {
 import * as player from
   "../../audioPlayer.js";
 
-import {
-  accountPlaybackPosition,
-} from "../../playbackClock.js";
 
 import useTrackActionMenu from
   "../../hooks/useTrackActionMenu.js";
@@ -32,7 +28,6 @@ import TrackArtwork from
   "../ui/TrackArtwork.jsx";
 
 
-
 export default function PlayerBar({
   playlistUpdate,
   onDownloadPlaylistUpdate,
@@ -48,12 +43,6 @@ export default function PlayerBar({
   pushEnabled,
   installState,
   onInstallApp,
-  playbackDevices = [],
-  currentPlaybackDeviceId,
-  controlledPlaybackDeviceId,
-  accountPlaybackSnapshot,
-  onSelectPlaybackDevice,
-  onPlaybackDeviceCommand,
   onOpenPlayerDetails,
 }) {
   const trackActionMenu =
@@ -64,21 +53,6 @@ export default function PlayerBar({
     setNotificationsOpen,
   ] = useState(false);
 
-
-  const [
-    remoteClock,
-    setRemoteClock,
-  ] = useState(
-    Date.now(),
-  );
-
-  const [
-    remoteSeekPreview,
-    setRemoteSeekPreview,
-  ] = useState(null);
-
-  const remoteSeekTimerRef =
-    useRef(null);
 
   const playerDetailsPressTimerRef =
     useRef(null);
@@ -111,141 +85,11 @@ export default function PlayerBar({
   }, []);
 
 
-  const controlledDevice =
-    playbackDevices.find(
-      (device) =>
-        device.device_id ===
-        controlledPlaybackDeviceId,
-    ) ??
-    null;
-
-  // Cross-device playback is disabled; controls always target this browser.
-  const controllingRemote = false;
-
-  useEffect(() => {
-    if (
-      !controllingRemote ||
-      accountPlaybackSnapshot
-        ?.paused ||
-      !accountPlaybackSnapshot
-        ?.track?.id
-    ) {
-      return undefined;
+  const toggle = useCallback(async () => {
+    try { await player.togglePlay(); } catch {
+      // Browser autoplay restrictions can prevent playback.
     }
-
-    const intervalId =
-      window.setInterval(
-        () => {
-          setRemoteClock(
-            Date.now(),
-          );
-        },
-        100,
-      );
-
-    return () => {
-      window.clearInterval(
-        intervalId,
-      );
-    };
-  }, [
-    controllingRemote,
-    accountPlaybackSnapshot
-      ?.paused,
-    accountPlaybackSnapshot
-      ?.track?.id,
-    accountPlaybackSnapshot
-      ?.updated_at,
-  ]);
-
-
-  useEffect(() => {
-    return () => {
-      if (
-        remoteSeekTimerRef
-          .current
-      ) {
-        window.clearTimeout(
-          remoteSeekTimerRef
-            .current,
-        );
-      }
-    };
   }, []);
-
-
-  useEffect(() => {
-    setRemoteSeekPreview(
-      null,
-    );
-  }, [
-    controlledPlaybackDeviceId,
-    accountPlaybackSnapshot
-      ?.updated_at,
-  ]);
-
-
-  const remotePosition =
-    useMemo(
-      () => {
-        if (
-          !controllingRemote
-        ) {
-          return 0;
-        }
-
-        /*
-         * remoteClock intentionally causes
-         * this memo to advance while the
-         * selected remote device is playing.
-         */
-        void remoteClock;
-
-        return accountPlaybackPosition(
-          accountPlaybackSnapshot,
-        );
-      },
-      [
-        accountPlaybackSnapshot,
-        controllingRemote,
-        remoteClock,
-      ],
-    );
-
-
-  const toggle =
-    useCallback(
-      async () => {
-        try {
-          if (
-            controllingRemote
-          ) {
-            await onPlaybackDeviceCommand?.(
-              controlledPlaybackDeviceId,
-              accountPlaybackSnapshot
-                ?.paused
-                ? "play"
-                : "pause",
-            );
-
-            return;
-          }
-
-          await player.togglePlay();
-        } catch {
-          // Browser autoplay restrictions
-          // can prevent playback.
-        }
-      },
-      [
-        accountPlaybackSnapshot
-          ?.paused,
-        controlledPlaybackDeviceId,
-        controllingRemote,
-        onPlaybackDeviceCommand,
-      ],
-    );
-
 
   const formatTime = (t) => {
     if (
@@ -273,13 +117,6 @@ export default function PlayerBar({
     return `${mins}:${secs}`;
   };
 
-  const remoteTrack =
-    controllingRemote
-      ? accountPlaybackSnapshot
-          ?.track ??
-        null
-      : null;
-
   const currentQueueTrack =
     Array.isArray(
       state.queue,
@@ -294,33 +131,33 @@ export default function PlayerBar({
       : null;
 
   const displayTrackId =
-    remoteTrack?.id ??
+
     state.trackId ??
     null;
 
   const displayTitle =
-    remoteTrack?.title ??
+
     state.title ??
     currentQueueTrack?.meta
       ?.title ??
     "";
 
   const displayArtist =
-    remoteTrack?.artist ??
+
     state.artist ??
     currentQueueTrack?.meta
       ?.artist ??
     "";
 
   const displayAlbum =
-    remoteTrack?.album ??
+
     state.album ??
     currentQueueTrack?.meta
       ?.album ??
     "";
 
   const displayArtworkUrl =
-    remoteTrack?.artwork_url ??
+
     state.artworkUrl ??
     currentQueueTrack?.meta
       ?.artworkUrl ??
@@ -339,81 +176,19 @@ export default function PlayerBar({
         : "Nothing playing"
     );
 
-  const subtitleText =
-    displayArtist
-      ? [
-          displayArtist,
-          displayAlbum,
-        ]
-          .filter(Boolean)
-          .join(" • ")
-      : displayTrackId
-        ? (
-            controllingRemote &&
-            controlledDevice?.name
-              ? (
-                  "Playing on " +
-                  controlledDevice.name
-                )
-              : "Now playing"
-          )
-        : "Select a track to start listening";
-
-  const effectivePaused =
-    controllingRemote
-      ? Boolean(
-          accountPlaybackSnapshot
-            ?.paused ??
-          true,
-        )
-      : Boolean(
-          state.paused,
-        );
-
-  const canControl =
-    controllingRemote
-      ? Boolean(
-          controlledDevice
-            ?.is_online &&
-          accountPlaybackSnapshot
-            ?.track?.id,
-        )
-      : Boolean(
-          state.src,
-        );
-
-  const effectiveDuration =
-    controllingRemote
-      ? Math.max(
-          Number(
-            remoteTrack
-              ?.duration_seconds ??
-            0,
-          ) || 0,
-          0,
-        )
-      : (
-          state.duration >
-            0
-            ? state.duration
-            : 0
-        );
+  const subtitleText = displayArtist
+    ? [displayArtist, displayAlbum].filter(Boolean).join(" • ")
+    : displayTrackId ? "Now playing" : "Select a track to start listening";
+  const effectivePaused = Boolean(state.paused);
+  const canControl = Boolean(state.src);
+  const effectiveDuration = state.duration > 0 ? state.duration : 0;
 
   const progressMax =
     effectiveDuration > 0
       ? effectiveDuration
       : 1;
 
-  const effectiveCurrentTime =
-    controllingRemote
-      ? (
-          remoteSeekPreview ??
-          remotePosition
-        )
-      : (
-          state.currentTime ||
-          0
-        );
+  const effectiveCurrentTime = state.currentTime || 0;
 
   const progressValue =
     Math.min(
@@ -424,81 +199,9 @@ export default function PlayerBar({
       progressMax,
     );
 
-  const handlePrevious =
-    () => {
-      if (
-        controllingRemote
-      ) {
-        void onPlaybackDeviceCommand?.(
-          controlledPlaybackDeviceId,
-          "previous",
-        );
-
-        return;
-      }
-
-      player.seekTo(
-        0,
-      );
-    };
-
-  const handleNext =
-    () => {
-      if (
-        controllingRemote
-      ) {
-        void onPlaybackDeviceCommand?.(
-          controlledPlaybackDeviceId,
-          "next",
-        );
-
-        return;
-      }
-
-      void player.skipToNext();
-    };
-
-  const handleSeek =
-    (value) => {
-      if (
-        !controllingRemote
-      ) {
-        player.seekTo(
-          value,
-        );
-
-        return;
-      }
-
-      setRemoteSeekPreview(
-        value,
-      );
-
-      if (
-        remoteSeekTimerRef
-          .current
-      ) {
-        window.clearTimeout(
-          remoteSeekTimerRef
-            .current,
-        );
-      }
-
-      remoteSeekTimerRef.current =
-        window.setTimeout(
-          () => {
-            remoteSeekTimerRef.current =
-              null;
-
-            void onPlaybackDeviceCommand?.(
-              controlledPlaybackDeviceId,
-              "seek",
-              value,
-            );
-          },
-          40,
-        );
-    };
+  const handlePrevious = () => { void player.skipToPrevious(); };
+  const handleNext = () => { void player.skipToNext(); };
+  const handleSeek = (value) => { player.seekTo(value); };
 
   const clearPlayerDetailsPress =
     useCallback(
@@ -660,38 +363,38 @@ export default function PlayerBar({
           album:
             displayAlbum,
           audio_url:
-            remoteTrack?.audio_url ??
+
             currentQueueTrack?.meta
               ?.audioUrl ??
             null,
           artwork_url:
             displayArtworkUrl,
           mime_type:
-            remoteTrack?.mime_type ??
+
             state.mimeType ??
             currentQueueTrack?.meta
               ?.mimeType ??
             null,
           file_size:
-            remoteTrack?.file_size ??
+
             state.fileSize ??
             currentQueueTrack?.meta
               ?.fileSize ??
             null,
           media_version:
-            remoteTrack?.media_version ??
+
             state.mediaVersion ??
             currentQueueTrack?.meta
               ?.mediaVersion ??
             null,
           artwork_version:
-            remoteTrack?.artwork_version ??
+
             state.artworkVersion ??
             currentQueueTrack?.meta
               ?.artworkVersion ??
             null,
           duration_seconds:
-            remoteTrack?.duration_seconds ??
+
             state.durationSeconds ??
             currentQueueTrack?.meta
               ?.durationSeconds ??
@@ -1028,8 +731,6 @@ export default function PlayerBar({
         </button>
 
       </div>
-
-
 
 
       <TrackActionMenu

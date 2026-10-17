@@ -8,11 +8,13 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from starlette.types import Receive, Scope, Send
 
 from ...config import get_settings
 from ...database import get_session_factory
 from ...models.media import Track
 from ...services.b2 import get_b2_bucket
+from ...services.thread_work import run_blocking, run_blocking_resource
 
 router = APIRouter(
     prefix="/audio",
@@ -21,6 +23,29 @@ router = APIRouter(
 
 
 STREAM_CHUNK_SIZE = 1024 * 1024
+
+
+def close_b2_download(downloaded) -> None:
+    close = getattr(getattr(downloaded, "response", None), "close", None)
+    if callable(close):
+        close()
+
+
+class B2StreamingResponse(StreamingResponse):
+    def __init__(self, downloaded, **kwargs):
+        self.downloaded = downloaded
+        self.stream = stream_b2_file(downloaded)
+        super().__init__(self.stream, **kwargs)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            try:
+                await self.stream.aclose()
+            finally:
+                # The iterator may never start when response headers fail.
+                await run_blocking(close_b2_download, self.downloaded)
 
 
 def range_error(
@@ -209,11 +234,6 @@ async def stream_b2_file(
         except BaseException as exc:
             error.append(exc)
 
-            try:
-                os.close(write_fd)
-            except OSError:
-                pass
-
     thread = threading.Thread(
         target=download,
         daemon=True,
@@ -246,6 +266,13 @@ async def stream_b2_file(
             os.close(read_fd)
         except OSError:
             pass
+        # Closing the pipe interrupts a producer blocked on a slow consumer.
+        # Close upstream too, then settle the producer before its memory permit
+        # can be reused. SDK network timeouts bound an unresponsive provider.
+        try:
+            await run_blocking(close_b2_download, downloaded)
+        finally:
+            await run_blocking(thread.join)
 
 
 def resolve_local_audio_fallback(
@@ -349,9 +376,10 @@ async def stream_audio(
             detail="Track not found.",
         )
 
+    downloaded = None
     try:
-        bucket = get_b2_bucket()
-        file_info = await asyncio.to_thread(
+        bucket = await run_blocking(get_b2_bucket)
+        file_info = await run_blocking(
             bucket.get_file_info_by_name,
             track.b2_object_key,
         )
@@ -360,12 +388,12 @@ async def stream_audio(
             range,
             file_size,
         )
-        downloaded = await asyncio.to_thread(
+        downloaded = await run_blocking_resource(
             bucket.download_file_by_name,
+            close_b2_download,
             track.b2_object_key,
             range_=(start, end),
         )
-        body = stream_b2_file(downloaded)
 
     except Exception as storage_error:
         fallback_file = (
@@ -418,8 +446,9 @@ async def stream_audio(
 
     status_code = 206 if range else 200
 
-    return StreamingResponse(
-        body,
+    response_type = B2StreamingResponse if downloaded is not None else StreamingResponse
+    return response_type(
+        downloaded if downloaded is not None else body,
         status_code=status_code,
         headers=response_headers,
         media_type=track.mime_type,

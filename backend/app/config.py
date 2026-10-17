@@ -56,7 +56,6 @@ class Settings(BaseSettings):
 
     database_url: str = ""
     migration_database_url: str = ""
-    playback_realtime_database_url: str = ""
     # Keep the default database connection footprint modest for small containers.
     # Increase only after measuring memory and concurrent database demand.
     db_pool_size: int = 3
@@ -68,6 +67,11 @@ class Settings(BaseSettings):
     db_idle_transaction_timeout_ms: int = 30000
     api_max_concurrent_requests: int = 3
     api_admission_timeout_seconds: float = 5.0
+    maintenance_worker_enabled: bool = True
+    request_max_body_bytes: int = 64 * 1024 * 1024
+    media_max_concurrent_uploads: int = 1
+    media_max_concurrent_streams: int = 4
+    catalog_max_concurrent_exports: int = 1
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -219,12 +223,6 @@ class Settings(BaseSettings):
                 "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
             )
 
-        realtime_url = self.playback_realtime_database_url.strip()
-        if realtime_url and urlsplit(realtime_url).scheme.lower() not in allowed_schemes:
-            raise ValueError(
-                "PLAYBACK_REALTIME_DATABASE_URL must be a PostgreSQL connection string."
-            )
-
         return self.validate_database_capacity()
 
     def validate_database_capacity(self) -> "Settings":
@@ -242,6 +240,11 @@ class Settings(BaseSettings):
             raise ValueError("DB_LOCK_TIMEOUT_MS must be at least 1.")
         if self.db_idle_transaction_timeout_ms < 1:
             raise ValueError("DB_IDLE_TRANSACTION_TIMEOUT_MS must be at least 1.")
+        if self.request_max_body_bytes < 1:
+            raise ValueError("REQUEST_MAX_BODY_BYTES must be at least 1.")
+        if min(self.media_max_concurrent_uploads, self.media_max_concurrent_streams,
+               self.catalog_max_concurrent_exports) < 1:
+            raise ValueError("Media and catalog concurrency limits must be at least 1.")
         if self.api_max_concurrent_requests < 1:
             raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
         if self.api_admission_timeout_seconds < 0:
@@ -314,15 +317,6 @@ class Settings(BaseSettings):
         source = self.migration_database_url or self.database_url
         return _prepare_asyncpg_url(source)
 
-    @property
-    def asyncpg_playback_realtime_url(self) -> str:
-        source = self.playback_realtime_database_url.strip()
-        if not source:
-            return ""
-        normalized = _prepare_asyncpg_url(source)
-        if normalized.startswith("postgresql+asyncpg://"):
-            return normalized.replace("postgresql+asyncpg://", "postgresql://", 1)
-        return normalized
 
 
 @lru_cache
