@@ -22,6 +22,7 @@ VALID_SETTINGS = {
         "https://s3.us-west-004.backblazeb2.com/#fragment",
         "https://s3.us-west-004.backblazeb2.com:8443",
         "https://storage.attacker.example",
+        "https://s3.us-west-004.attacker.backblazeb2.com",
     ],
 )
 def test_s3_client_rejects_unsafe_or_malformed_endpoint_origins(
