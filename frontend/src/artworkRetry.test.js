@@ -83,3 +83,64 @@ test(
     );
   },
 );
+
+
+
+test(
+  "does not let a pending retry overwrite artwork after the track changes",
+  () => {
+    const scheduled = [];
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+      setTimeout(callback, delay) {
+        scheduled.push({ callback, delay });
+        return scheduled.length;
+      },
+    };
+
+    try {
+      const originalSource =
+        "https://api.example.test/api/catalog/tracks/track-old/artwork";
+      const nextSource =
+        "https://api.example.test/api/catalog/tracks/track-new/artwork";
+
+      const image = {
+        dataset: {},
+        src: originalSource,
+        currentSrc: originalSource,
+        isConnected: true,
+        getAttribute(name) {
+          return name === "src" ? this.src : null;
+        },
+      };
+
+      assert.equal(
+        retryTransientArtwork({ currentTarget: image }, originalSource),
+        true,
+      );
+
+      // React reuses the <img> for a different track before the first timer fires.
+      image.src = nextSource;
+      image.currentSrc = nextSource;
+
+      assert.equal(
+        retryTransientArtwork({ currentTarget: image }, nextSource),
+        true,
+      );
+      assert.equal(image.dataset.artworkRetryCount, "1");
+      assert.equal(image.dataset.artworkRetrySource, nextSource);
+
+      scheduled[0].callback();
+      assert.equal(image.src, nextSource);
+
+      scheduled[1].callback();
+      assert.equal(image.src, nextSource);
+    } finally {
+      if (previousWindow === undefined) {
+        delete globalThis.window;
+      } else {
+        globalThis.window = previousWindow;
+      }
+    }
+  },
+);

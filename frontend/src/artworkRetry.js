@@ -10,14 +10,34 @@ const API_ARTWORK_PATH =
  * retry with bounded exponential backoff and jitter rather than dropping art
  * immediately. Direct B2/external URLs are not retried by this helper.
  */
+function currentImageSource(image) {
+  if (typeof image?.getAttribute === "function") {
+    return image.getAttribute("src");
+  }
+
+  return image?.src ?? image?.currentSrc ?? "";
+}
+
+
 export function retryTransientArtwork(event, source) {
   const image = event?.currentTarget;
+  if (!image) return false;
 
-  if (
-    !image ||
-    !API_ARTWORK_PATH.test(String(source ?? image.currentSrc ?? image.src))
-  ) {
+  const requestedSource = String(
+    source ?? image.currentSrc ?? image.src ?? "",
+  );
+
+  if (!API_ARTWORK_PATH.test(requestedSource)) {
     return false;
+  }
+
+  // An image element can be reused for a new track while a previous retry is
+  // waiting. Reset retry accounting whenever the requested artwork changes.
+  if (
+    image.dataset.artworkRetrySource &&
+    image.dataset.artworkRetrySource !== requestedSource
+  ) {
+    resetArtworkRetry(image);
   }
 
   const attempts = Number(image.dataset.artworkRetryCount ?? 0);
@@ -28,12 +48,7 @@ export function retryTransientArtwork(event, source) {
 
   const nextAttempt = attempts + 1;
   image.dataset.artworkRetryCount = String(nextAttempt);
-
-  const retrySource =
-    image.dataset.artworkRetrySource ||
-    String(source ?? image.currentSrc ?? image.src);
-
-  image.dataset.artworkRetrySource = retrySource;
+  image.dataset.artworkRetrySource = requestedSource;
 
   const baseDelay = Math.min(4_000, 750 * (2 ** attempts));
   const jitter = Math.floor(Math.random() * 350);
@@ -43,7 +58,12 @@ export function retryTransientArtwork(event, source) {
       return;
     }
 
-    image.src = retrySource;
+    // Never let a pending retry for an old track overwrite a newer src prop.
+    if (String(currentImageSource(image) ?? "") !== requestedSource) {
+      return;
+    }
+
+    image.src = requestedSource;
   }, baseDelay + jitter);
 
   return true;
