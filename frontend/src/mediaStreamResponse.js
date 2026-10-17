@@ -307,17 +307,52 @@ export function createMediaRangeStreamResponse({
       );
     }
 
-    if (!response.body) {
-      throw new Error(
-        "Media network response has no readable body.",
-      );
-    }
-
     const expectedByteLength =
       networkByteEnd -
       chunkByteStart +
       1;
 
+    const contentRange =
+      response.headers.get("Content-Range");
+
+    const contentRangeMatch =
+      /^bytes (\d+)-(\d+)\/(\d+)$/.exec(
+        contentRange ?? "",
+      );
+
+    if (
+      !contentRangeMatch ||
+      Number(contentRangeMatch[1]) !== chunkByteStart ||
+      Number(contentRangeMatch[2]) !== networkByteEnd ||
+      Number(contentRangeMatch[3]) !== fileSize
+    ) {
+      throw new RangeError(
+        "Media network response Content-Range does not match the requested window.",
+      );
+    }
+
+    const rawContentLength =
+      response.headers.get("Content-Length");
+
+    if (rawContentLength !== null) {
+      const contentLength =
+        Number(rawContentLength);
+
+      if (
+        !Number.isSafeInteger(contentLength) ||
+        contentLength !== expectedByteLength
+      ) {
+        throw new RangeError(
+          "Media network response Content-Length does not match the requested window.",
+        );
+      }
+    }
+
+    if (!response.body) {
+      throw new Error(
+        "Media network response has no readable body.",
+      );
+    }
     activeNetworkWindow = {
       byteStart:
         chunkByteStart,
