@@ -2,7 +2,7 @@
 param(
     [int]$FrontendPort = 4153,
     [int]$BackendPort = 8000,
-    [string]$Branch = "main",
+    [string]$Branch = "",
     [switch]$NoBrowser,
     [switch]$SkipDependencies,
     [switch]$SkipMigrations,
@@ -14,11 +14,6 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 
-if ([string]::IsNullOrWhiteSpace($Branch)) {
-    throw "A Git branch name is required."
-}
-
-$Branch = $Branch.Trim()
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $VenvRoot = Join-Path $RepoRoot ".venv"
 $PythonPath = Join-Path $VenvRoot "Scripts\python.exe"
@@ -150,22 +145,12 @@ function Update-FrontendDependencies {
     Push-Location $FrontendRoot
 
     try {
-        $nodeModules = Join-Path $FrontendRoot "node_modules"
-
-        if (Test-Path -LiteralPath $nodeModules) {
-            Invoke-CheckedCommand -FilePath $npmCommand.Source -Arguments @(
-                "install",
-                "--no-audit",
-                "--no-fund"
-            ) -FailureMessage "npm install failed."
-        }
-        else {
-            Invoke-CheckedCommand -FilePath $npmCommand.Source -Arguments @(
-                "ci",
-                "--no-audit",
-                "--no-fund"
-            ) -FailureMessage "npm ci failed."
-        }
+        # Install the committed lockfile without rewriting tracked dependency files.
+        Invoke-CheckedCommand -FilePath $npmCommand.Source -Arguments @(
+            "ci",
+            "--no-audit",
+            "--no-fund"
+        ) -FailureMessage "npm ci failed."
     }
     finally {
         Pop-Location
@@ -245,131 +230,27 @@ if ($null -eq $gitCommand) {
 $script:GitPath = $gitCommand.Source
 
 if (-not $AfterGitUpdate) {
-    Push-Location $RepoRoot
+    # Direct callers use the same branch policy and safety checks as plain go.
+    $goParameters = @{
+        FrontendPort = $FrontendPort
+        BackendPort = $BackendPort
+        Branch = $Branch
+        NoBrowser = $NoBrowser
+        SkipDependencies = $SkipDependencies
+        SkipMigrations = $SkipMigrations
+        RepositoryRoot = $RepoRoot
+    }
+    & (Join-Path $RepoRoot "go.ps1") @goParameters
+    return
+}
 
+Push-Location $RepoRoot
 try {
-    $unmergedFiles = @(
-        & $script:GitPath diff --name-only --diff-filter=U
-    )
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect the Git working tree."
-    }
-
-    if ($unmergedFiles.Count -gt 0) {
-        Write-Host ""
-        Write-Host "Git has unresolved merge conflicts:" -ForegroundColor Red
-
-        foreach ($file in $unmergedFiles) {
-            Write-Host ("  " + $file) -ForegroundColor Red
-        }
-
-        throw "Resolve the merge conflict before running go."
-    }
-
-    $beforeCommit = Get-GitOutput -Arguments @(
-        "rev-parse",
-        "HEAD"
-    )
-
-    Write-Host ""
-    Write-Host ("Fetching latest " + $Branch + "...") -ForegroundColor Yellow
-
-    Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
-        "fetch",
-        "--prune",
-        "origin",
-        $Branch
-    ) -FailureMessage "Git fetch failed."
-
-    & $script:GitPath show-ref --verify --quiet ("refs/heads/" + $Branch)
-    $localBranchExists = ($LASTEXITCODE -eq 0)
-
-    if ($localBranchExists) {
-        Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
-            "switch",
-            $Branch
-        ) -FailureMessage ("Could not switch to " + $Branch + ".")
-    }
-    else {
-        Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
-            "switch",
-            "--track",
-            "-c",
-            $Branch,
-            ("origin/" + $Branch)
-        ) -FailureMessage ("Could not create local tracking branch " + $Branch + ".")
-    }
-
-    Invoke-CheckedCommand -FilePath $script:GitPath -Arguments @(
-        "pull",
-        "--ff-only",
-        "origin",
-        $Branch
-    ) -FailureMessage (
-        "Git update failed. Your local changes were not discarded. " +
-        "Resolve any reported Git issue, then run go again."
-    )
-
-    $afterCommit = Get-GitOutput -Arguments @(
-        "rev-parse",
-        "HEAD"
-    )
-
-    $commitLabel = Get-GitOutput -Arguments @(
-        "log",
-        "-1",
-        "--oneline"
-    )
-
-    Write-Host ""
-    Write-Host ("Current commit: " + $commitLabel) -ForegroundColor Cyan
-
-    if ($beforeCommit -eq $afterCommit) {
-        Write-Host "Already on the latest branch commit." -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host "Local checkout updated successfully." -ForegroundColor Green
-    }
+    $commitLabel = Get-GitOutput -Arguments @("log", "-1", "--oneline")
+    Write-Host ("Starting fetched branch " + $Branch + ": " + $commitLabel) -ForegroundColor Cyan
 }
-    finally {
-        Pop-Location
-    }
-
-    if ($beforeCommit -ne $afterCommit) {
-        Write-Host ""
-        Write-Host "Reloading the freshly updated local helper..." -ForegroundColor Yellow
-
-        $nextParameters = @{
-            FrontendPort = $FrontendPort
-            BackendPort = $BackendPort
-            Branch = $Branch
-            NoBrowser = $NoBrowser
-            SkipDependencies = $SkipDependencies
-            SkipMigrations = $SkipMigrations
-            AfterGitUpdate = $true
-        }
-
-        & $PSCommandPath @nextParameters
-        return
-    }
-}
-else {
-    Push-Location $RepoRoot
-
-    try {
-        $commitLabel = Get-GitOutput -Arguments @(
-            "log",
-            "-1",
-            "--oneline"
-        )
-
-        Write-Host ""
-        Write-Host ("Using freshly updated commit: " + $commitLabel) -ForegroundColor Cyan
-    }
-    finally {
-        Pop-Location
-    }
+finally {
+    Pop-Location
 }
 
 if (-not (Test-Path -LiteralPath $RebootScript)) {

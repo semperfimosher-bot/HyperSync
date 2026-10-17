@@ -2,6 +2,38 @@
 
 > **PERFECT baseline:** playback and queues are local to each browser; Jam and live device control are removed. Account sessions and shared libraries remain. See [baseline scope](docs/PERFECT-BASELINE-PLAN.md) and [reliability review](docs/PERFECT-RELIABILITY-REVIEW.md) for current behavior and verification status; later architecture sections also include future goals.
 
+## Local launch and updates
+
+Plain `go` fetches all `origin` branches, selects the tip with the most recent
+Git committer date, and updates to that exact fetched commit before starting
+HyperSync. This includes unmerged review branches. Equal dates keep the current
+branch when possible, then use branch-name order. The selected branch and full
+commit are printed at startup. Use `go -Branch PERFECT` (or another branch name)
+to explicitly select one branch instead.
+
+The launcher refuses startup when there are uncommitted files, when the selected
+local branch has commits absent from the remote, or when fetching fails. It never
+resets, stashes, or discards local work. Ignored local configuration such as
+`backend/.env` stays untouched. Existing dependency/migration/startup flags remain
+available; frontend dependencies are installed from the committed lockfile.
+
+Install this updater once from the review branch before relying on plain `go`:
+
+```powershell
+git fetch origin
+git switch codex/perfect-local-playback-reliability
+git pull --ff-only origin codex/perfect-local-playback-reliability
+.\install-go.ps1
+go
+```
+
+The installed launcher lives outside the Git checkout, so selecting a branch
+with older launcher files does not restore the former PERFECT-only behavior.
+`update-local.ps1` uses the same update policy when invoked directly from this
+version of the checkout. Git access and Python 3 must be available; an offline
+fetch failure stops startup rather than silently running an outdated checkout.
+
+
 HyperSync is a mobile-first, full-stack music streaming platform designed to provide fast playback, synchronized lyrics, personal libraries, public playlists, listening statistics, administrative tools, background media processing.
 
 This repository is intended to become a production-quality application rather than a visual demo. Every feature described in this document should eventually be backed by real database records, real authentication, real storage, real APIs, permission checks, tests, and deployment configuration.

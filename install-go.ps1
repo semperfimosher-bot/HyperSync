@@ -1,17 +1,44 @@
 [CmdletBinding()]
 param(
-    [switch]$Quiet
+    [switch]$Quiet,
+    [string]$RepositoryRoot = $PSScriptRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
-$GoScript = Join-Path $RepoRoot "go.ps1"
-
-if (-not (Test-Path -LiteralPath $GoScript)) {
-    throw "go.ps1 was not found in the HyperSync repository."
+$RepoRoot = (Resolve-Path -LiteralPath $RepositoryRoot).Path
+$localAppData = [string]$env:LOCALAPPDATA
+if ([string]::IsNullOrWhiteSpace($localAppData)) {
+    $localAppData = Join-Path $HOME ".hypersync"
 }
+$binRoot = Join-Path $localAppData "HyperSync/bin"
+New-Item -ItemType Directory -Path (Join-Path $binRoot "scripts") -Force | Out-Null
+
+# Keep the launcher outside Git so checking out an older branch cannot pin
+# future go invocations back to PERFECT/main. Retain the installed copies when
+# the selected branch predates this updater.
+$bootstrapFiles = @("go.ps1", "install-go.ps1", "scripts/update_checkout.py")
+$sourceComplete = $true
+foreach ($relativePath in $bootstrapFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $relativePath))) {
+        $sourceComplete = $false
+    }
+}
+foreach ($relativePath in $bootstrapFiles) {
+    $destination = Join-Path $binRoot $relativePath
+    if ($sourceComplete) {
+        $source = Join-Path $RepoRoot $relativePath
+        if (-not [string]::Equals($source, $destination, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+        }
+    }
+    if (-not (Test-Path -LiteralPath $destination)) {
+        throw "The go bootstrap is incomplete. Install from a checkout containing the latest launcher."
+    }
+}
+$GoScript = Join-Path $binRoot "go.ps1"
+$escapedRepoRoot = $RepoRoot.Replace("'", "''")
 
 $escapedGoScript = $GoScript.Replace("'", "''")
 
@@ -33,7 +60,7 @@ $endMarker = "# <<< HyperSync go command <<<"
 $profileBlock = @"
 $beginMarker
 function global:go {
-    & '$escapedGoScript' @args
+    & '$escapedGoScript' -RepositoryRoot '$escapedRepoRoot' @args
 }
 $endMarker
 "@
@@ -88,29 +115,19 @@ if ($nextContent -ne $existingContent) {
 }
 
 $global:HyperSyncGoScript = $GoScript
+$global:HyperSyncRepositoryRoot = $RepoRoot
 
 function global:go {
-    & $global:HyperSyncGoScript @args
-}
-
-$localAppData = [string]$env:LOCALAPPDATA
-
-if ([string]::IsNullOrWhiteSpace($localAppData)) {
-    $localAppData = Join-Path $HOME ".hypersync"
-}
-
-$binRoot = Join-Path $localAppData "HyperSync\bin"
-
-if (-not (Test-Path -LiteralPath $binRoot)) {
-    New-Item -ItemType Directory -Path $binRoot -Force | Out-Null
+    & $global:HyperSyncGoScript -RepositoryRoot $global:HyperSyncRepositoryRoot @args
 }
 
 $goCmdPath = Join-Path $binRoot "go.cmd"
 $escapedForCmd = $GoScript.Replace('"', '""')
+$escapedRepoForCmd = $RepoRoot.Replace('"', '""')
 
 $goCmd = @"
 @echo off
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$escapedForCmd" %*
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$escapedForCmd" -RepositoryRoot "$escapedRepoForCmd" %*
 exit /b %ERRORLEVEL%
 "@
 
