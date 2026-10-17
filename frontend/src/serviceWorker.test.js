@@ -423,6 +423,116 @@ test(
 );
 
 test(
+  "service worker reuses safe same-origin precached module assets with Vary Origin while offline",
+  async () => {
+    const listeners = new Map();
+    const hadSelf = Object.prototype.hasOwnProperty.call(globalThis, "self");
+    const oldSelf = globalThis.self;
+    const hadCaches = Object.prototype.hasOwnProperty.call(globalThis, "caches");
+    const oldCaches = globalThis.caches;
+    const oldFetch = globalThis.fetch;
+    const hadFetch = Object.prototype.hasOwnProperty.call(globalThis, "fetch");
+    let networkCalls = 0;
+    const matchCalls = [];
+    const cachedResponse = new Response(
+      "cached dynamic page module",
+      {
+        headers: {
+          "Content-Type": "text/javascript",
+          "Vary": "Origin",
+        },
+      },
+    );
+
+    const cache = {
+      async match(request, options) {
+        matchCalls.push({
+          url: typeof request === "string" ? request : request.url,
+          ignoreVary: options?.ignoreVary === true,
+        });
+        if (options?.ignoreVary) {
+          return cachedResponse.clone();
+        }
+        return undefined;
+      },
+      async put() {},
+    };
+
+    globalThis.self = {
+      location: {
+        origin: "https://example.test",
+      },
+      addEventListener(type, listener) {
+        const existing = listeners.get(type) ?? [];
+        existing.push(listener);
+        listeners.set(type, existing);
+      },
+    };
+    globalThis.caches = {
+      async open(name) {
+        assert.equal(name, "hypersync-app-shell-v4");
+        return cache;
+      },
+    };
+    globalThis.fetch = async () => {
+      networkCalls += 1;
+      throw new Error("Network should not be needed for precached assets.");
+    };
+
+    try {
+      await loadServiceWorkerModule();
+      const fetchListeners = listeners.get("fetch") ?? [];
+      assert.ok(fetchListeners.length >= 2);
+
+      let responsePromise = null;
+      const event = {
+        request: new Request(
+          "https://example.test/assets/SearchPage-abc123.js",
+          {
+            mode: "cors",
+            headers: {
+              Origin: "https://example.test",
+            },
+          },
+        ),
+        respondWith(response) {
+          responsePromise = Promise.resolve(response);
+        },
+      };
+
+      for (const listener of fetchListeners) {
+        listener(event);
+      }
+
+      assert.ok(responsePromise instanceof Promise);
+      const response = await responsePromise;
+      assert.equal(await response.text(), "cached dynamic page module");
+      assert.equal(networkCalls, 0);
+      assert.deepEqual(
+        matchCalls.map((entry) => entry.ignoreVary),
+        [false, true],
+      );
+    } finally {
+      if (hadSelf) {
+        globalThis.self = oldSelf;
+      } else {
+        delete globalThis.self;
+      }
+      if (hadCaches) {
+        globalThis.caches = oldCaches;
+      } else {
+        delete globalThis.caches;
+      }
+      if (hadFetch) {
+        globalThis.fetch = oldFetch;
+      } else {
+        delete globalThis.fetch;
+      }
+    }
+  },
+);
+
+test(
   "service worker media handler uses the configured API base URL for cache misses",
   async () => {
     const serviceWorker =

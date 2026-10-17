@@ -12,6 +12,10 @@ import {
 } from "./mediaCacheResponse.js";
 
 import {
+  matchAppShell,
+} from "./appShellCache.js";
+
+import {
   cacheNetworkMediaResponse,
 } from "./mediaNetworkCache.js";
 
@@ -1228,8 +1232,10 @@ globalThis.self?.addEventListener?.(
               );
 
             const cached =
-              await cache.match(
+              await matchAppShell(
+                cache,
                 request,
+                self.location.origin,
               );
 
             if (cached) {
