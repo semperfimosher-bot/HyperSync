@@ -23,6 +23,12 @@ import {
 } from "../messageNotifications.js";
 
 import {
+  getOwnedNotificationSnapshot,
+  getOwnedValue,
+  updateOwnedNotificationSnapshot,
+} from "../ownedNotificationState.js";
+
+import {
   createOwnerScopedRequestCoordinator,
 } from "../notificationRefreshCoordinator.js";
 
@@ -32,18 +38,38 @@ export default function useMessageNotifications({
   onRequireSignIn,
   onStatusMessage,
 }) {
+  const currentNotificationOwnerId =
+    currentUser?.account_type === "registered" &&
+    currentUser?.id != null
+      ? String(currentUser.id)
+      : null;
+
   const [
-    messageNotifications,
-    setMessageNotifications,
+    ownedNotificationState,
+    setOwnedNotificationState,
   ] = useState(
-    () =>
-      emptyNotificationSnapshot(),
+    () => ({
+      ownerId: null,
+      snapshot: emptyNotificationSnapshot(),
+    }),
+  );
+
+  // Derive visible data during render so an account switch never flashes
+  // the previous account's notification snapshot while the new fetch is pending.
+  const messageNotifications = getOwnedNotificationSnapshot(
+    ownedNotificationState,
+    currentNotificationOwnerId,
   );
 
   const [
-    notificationDetail,
-    setNotificationDetail,
+    notificationDetailState,
+    setNotificationDetailState,
   ] = useState(null);
+
+  const notificationDetail = getOwnedValue(
+    notificationDetailState,
+    currentNotificationOwnerId,
+  );
 
   const [
     pushBusy,
@@ -57,11 +83,7 @@ export default function useMessageNotifications({
 
   // The ref identifies the current render's owner even inside older async callbacks.
   const activeNotificationOwnerRef = useRef(null);
-  activeNotificationOwnerRef.current =
-    currentUser?.account_type === "registered" &&
-    currentUser?.id != null
-      ? String(currentUser.id)
-      : null;
+  activeNotificationOwnerRef.current = currentNotificationOwnerId;
 
   // Share refreshes only within one account and discard results from prior sessions.
   const notificationRefreshCoordinatorRef = useRef(null);
@@ -75,13 +97,12 @@ export default function useMessageNotifications({
     useCallback(
       () => {
         notificationRefreshCoordinatorRef.current.setOwner(null);
-        setMessageNotifications(
-          emptyNotificationSnapshot(),
-        );
+        setOwnedNotificationState({
+          ownerId: null,
+          snapshot: emptyNotificationSnapshot(),
+        });
 
-        setNotificationDetail(
-          null,
-        );
+        setNotificationDetailState(null);
 
         setPushEnabled(
           false,
@@ -106,7 +127,10 @@ export default function useMessageNotifications({
         ) {
           if (ownerId === null) {
             notificationRefreshCoordinatorRef.current.setOwner(null);
-            setMessageNotifications(emptyNotificationSnapshot());
+            setOwnedNotificationState({
+              ownerId: null,
+              snapshot: emptyNotificationSnapshot(),
+            });
           }
 
           return;
@@ -126,13 +150,16 @@ export default function useMessageNotifications({
         }
 
         const result = outcome.value;
-        setMessageNotifications({
-          unread_count:
-            Number(result?.unread_count ?? 0) || 0,
-          notifications:
-            Array.isArray(result?.notifications)
-              ? result.notifications
-              : [],
+        setOwnedNotificationState({
+          ownerId,
+          snapshot: {
+            unread_count:
+              Number(result?.unread_count ?? 0) || 0,
+            notifications:
+              Array.isArray(result?.notifications)
+                ? result.notifications
+                : [],
+          },
         });
       },
       [
@@ -146,16 +173,21 @@ export default function useMessageNotifications({
       async (
         notification,
       ) => {
-        if (!notification) {
+        const ownerId = currentNotificationOwnerId;
+        if (!notification || ownerId === null) {
           return;
         }
 
-        setMessageNotifications(
-          (current) =>
-            removeNotificationFromSnapshot(
-              current,
-              notification,
-            ),
+        setOwnedNotificationState((current) =>
+          updateOwnedNotificationSnapshot(
+            current,
+            ownerId,
+            (snapshot) =>
+              removeNotificationFromSnapshot(
+                snapshot,
+                notification,
+              ),
+          ),
         );
 
         try {
@@ -189,6 +221,7 @@ export default function useMessageNotifications({
         }
       },
       [
+        currentNotificationOwnerId,
         refreshMessageNotifications,
       ],
     );
@@ -199,19 +232,22 @@ export default function useMessageNotifications({
       (
         notification,
       ) => {
-        if (!notification) {
+        const ownerId = currentNotificationOwnerId;
+        if (!notification || ownerId === null) {
           return;
         }
 
-        setNotificationDetail(
-          notification,
-        );
+        setNotificationDetailState({
+          ownerId,
+          value: notification,
+        });
 
         void consumeNotification(
           notification,
         );
       },
       [
+        currentNotificationOwnerId,
         consumeNotification,
       ],
     );
@@ -220,9 +256,7 @@ export default function useMessageNotifications({
   const closeNotificationDetail =
     useCallback(
       () => {
-        setNotificationDetail(
-          null,
-        );
+        setNotificationDetailState(null);
       },
       [],
     );
@@ -265,6 +299,13 @@ export default function useMessageNotifications({
         try {
           const result =
             await enablePushNotifications();
+
+          if (
+            activeNotificationOwnerRef.current !==
+              currentNotificationOwnerId
+          ) {
+            return;
+          }
 
           if (
             !result?.supported
@@ -336,8 +377,8 @@ export default function useMessageNotifications({
         }
       },
       [
-        currentUser
-          ?.account_type,
+        currentNotificationOwnerId,
+        currentUser?.account_type,
         onRequireSignIn,
         onStatusMessage,
       ],
@@ -358,6 +399,13 @@ export default function useMessageNotifications({
     void syncExistingPushSubscription()
       .then(
         (result) => {
+          if (
+            activeNotificationOwnerRef.current !==
+              currentNotificationOwnerId
+          ) {
+            return;
+          }
+
           setPushEnabled(
             Boolean(
               result?.enabled,
@@ -367,9 +415,12 @@ export default function useMessageNotifications({
       )
       .catch(
         () => {
-          setPushEnabled(
-            false,
-          );
+          if (
+            activeNotificationOwnerRef.current ===
+              currentNotificationOwnerId
+          ) {
+            setPushEnabled(false);
+          }
         },
       );
 
