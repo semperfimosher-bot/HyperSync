@@ -1665,7 +1665,7 @@ async def subscribe_push(
                 status.HTTP_400_BAD_REQUEST
             ),
             detail="Invalid push subscription endpoint.",
-        )
+        ) from None
 
     result = await session.execute(
         select(PushSubscription).where(

@@ -1,5 +1,6 @@
-import pytest
 from pydantic import ValidationError
+
+import pytest
 
 from backend.app.config import Settings
 

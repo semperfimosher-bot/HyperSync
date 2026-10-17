@@ -914,7 +914,7 @@ async def delete_all_database_data(
                 "Unable to remove all storage objects. "
                 "Database data was not wiped; inspect server logs before retrying."
             ),
-        )
+        ) from None
 
     try:
         (
@@ -936,7 +936,7 @@ async def delete_all_database_data(
                 "Storage objects were deleted, but the database reset failed. "
                 "Inspect server logs before retrying."
             ),
-        )
+        ) from None
 
     response.delete_cookie(
         key="hypersync_refresh",
@@ -1416,7 +1416,7 @@ async def finalize_direct_track_upload(
                 "Unable to finalize direct upload. "
                 "Please retry or contact support."
             ),
-        )
+        ) from None
 
     finally:
         if cleanup_audio:
@@ -1784,7 +1784,7 @@ async def upload_track(
                 "Upload failed while processing the audio file. "
                 "Please retry or contact support."
             ),
-        )
+        ) from None
 
     finally:
         temporary.cleanup()
