@@ -1610,35 +1610,16 @@ async def read_admin_notification(
             ),
         )
 
-    result = await session.execute(
-        select(
-            AdminNotification,
-        ).where(
-            AdminNotification.id
-            == notification_id,
-            AdminNotification.recipient_id
-            == user.id,
-            AdminNotification.kind
-            != DIRECT_MESSAGE_NOTIFICATION_KIND,
+    # Dismissal can race with another tab or a repeated click. A scoped DELETE
+    # makes an already-dismissed row a successful no-op without revealing IDs
+    # belonging to another account or deleting direct-message notifications.
+    await session.execute(
+        delete(AdminNotification).where(
+            AdminNotification.id == notification_id,
+            AdminNotification.recipient_id == user.id,
+            AdminNotification.kind != DIRECT_MESSAGE_NOTIFICATION_KIND,
         )
     )
-
-    notification = (
-        result.scalar_one_or_none()
-    )
-
-    if notification is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                "Admin notification not found."
-            ),
-        )
-
-    await session.delete(
-        notification,
-    )
-
     await session.commit()
 
 

@@ -1598,6 +1598,16 @@ Provider order:
 
 Uploads do not wait for these providers. The track is committed first, then missing metadata is enriched in a background task. Provider errors leave the uploaded track intact.
 
+If direct uploads from `http://localhost:4153` report a B2 CORS preflight error, preview the bucket policy from the repository root, then apply it after reviewing the exact origins:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.set_b2_cors
+.\.venv\Scripts\python.exe -m scripts.set_b2_cors --apply
+```
+
+The script preserves unrelated CORS rules and requires permission to read and update the bucket policy. Its defaults include the production origin and localhost/127.0.0.1 on port 4153. Repeat `--origin` to supply a different origin list. Without `--apply`, it only previews. Browser transport failures temporarily route subsequent files through the backend for two minutes before retrying direct uploads.
+
+
 For local development, put the provider variables in `backend/.env`. For production on Northflank, add the same variables to the backend service environment/secret configuration. Keep `LASTFM_API_KEY` server-side and never expose it as a `VITE_*` variable.
 
 The complete placeholders and defaults are documented in `.env.example`.

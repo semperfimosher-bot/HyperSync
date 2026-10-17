@@ -639,6 +639,7 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
     async def fake_lookup(
         **_kwargs,
     ):
+        assert not session.in_transaction(), "external lookup must release the read connection"
         return {
             "source":
                 "test-provider",
@@ -690,6 +691,9 @@ async def test_metadata_enrichment_survives_playlist_refresh_failure(
         await session.commit()
 
         track_id = track.id
+
+        # Start a real read transaction, as both API and background callers do.
+        await session.refresh(track)
 
         result = await music_metadata.enrich_track_metadata(
             session,

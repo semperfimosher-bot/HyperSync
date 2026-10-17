@@ -2182,14 +2182,27 @@ async def enrich_track_metadata(
                 track.release_year,
         }
 
-    metadata = (
-        await lookup_external_track_metadata(
-            title=track.title,
-            artist=track.artist,
-            duration_seconds=(
-                track.duration_seconds
-            ),
-        )
+    # Return the read connection before waiting on external providers.
+    lookup_title = track.title
+    lookup_artist = track.artist
+    lookup_duration = track.duration_seconds
+    await session.commit()
+
+    metadata = await lookup_external_track_metadata(
+        title=lookup_title,
+        artist=lookup_artist,
+        duration_seconds=(lookup_duration),
+    )
+
+    # Reload after the network wait so concurrent edits are never overwritten.
+    await session.refresh(track)
+    missing_genre = not (
+        track.genre
+        or ""
+    ).strip()
+    missing_year = (
+        track.release_year
+        is None
     )
 
     if metadata is None:

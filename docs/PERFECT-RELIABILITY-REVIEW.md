@@ -6,6 +6,13 @@
 
 Reviewed from PERFECT commit `8b057f09c8ee88c7f091604bc1d45c3bc0a4cf6e`, plus this cleanup. Scope: app shell, local playback/queues/lyrics, authentication/session boundaries, catalog/search, uploads/B2, playlists/library, messaging, offline/PWA storage, schema history, verification tooling, and container/proxy configuration. This is an architecture-wide source review with automated checks, not a production load test or exhaustive security certification.
 
+**2026-10-17 upload incident update:** The supplied server log confirms database-pool exhaustion (`size 3`, `overflow 2`, `timeout 2 seconds`) while uploads succeeded and some preparation, enrichment, and activity logging requests failed. It does not establish that PostgreSQL's idle-transaction timeout fired. The accompanying browser log also confirms a rejected B2 CORS preflight, forcing backend fallback.
+
+The follow-up patch releases the initial upload read transaction before compression/storage, takes the identity advisory lock only for the final duplicate check and catalog write, and compensates for objects created by failed backend uploads. Direct-upload artwork is stored before taking the lock. Metadata enrichment releases its read connection before external lookup and reloads current fields afterward to preserve concurrent edits. The browser avoids duplicate enrichment jobs and temporarily stops repeating a failed direct transport. Repeated admin-notification dismissal is idempotent. A preview-first CORS repair script preserves unrelated bucket rules; the actual bucket policy still needs an authorized operator to apply it.
+
+The P1 upload finding below describes the original baseline. Its transaction ownership and common exception cleanup are addressed by this patch. Whole-file memory usage, crash-safe reconciliation, upload limits, real B2 interruption tests, and load testing remain open; the branch should still be treated as a development beta. Earlier baseline and updater commits passed full GitHub CI, including PostgreSQL and Windows. Follow-up checks must be evaluated against the new commit.
+
+
 ## Cleanup delivered
 
 - Removed device selection/control props, account playback synchronization, polling, reconnect timers, remote command dispatch, live WebSocket handling, and PostgreSQL playback event listener/bridge.

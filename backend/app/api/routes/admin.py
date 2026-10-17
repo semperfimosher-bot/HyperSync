@@ -1010,6 +1010,8 @@ async def prepare_direct_track_upload(
             ),
         )
 
+    await session.commit()
+
     if not _direct_upload_is_safe(
         payload,
     ):
@@ -1175,7 +1177,7 @@ async def finalize_direct_track_upload(
             ),
         )
 
-    bucket = get_b2_bucket()
+    bucket = await asyncio.to_thread(get_b2_bucket)
 
     cleanup_audio = True
     artwork_object_key = None
@@ -1252,33 +1254,6 @@ async def finalize_direct_track_upload(
                 ),
             )
 
-        await lock_track_identity(
-            session,
-            title=clean_title,
-            artist=clean_artist,
-        )
-
-        duplicate = (
-            await _find_duplicate_track(
-                session,
-                title=clean_title,
-                artist=clean_artist,
-            )
-        )
-
-        if duplicate is not None:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_409_CONFLICT
-                ),
-                detail=(
-                    "Duplicate track prevented: "
-                    f'\"{duplicate.title}\" by '
-                    f"{duplicate.artist} already "
-                    "exists in the catalog."
-                ),
-            )
-
         if artwork is not None:
             artwork_data = (
                 await artwork.read()
@@ -1326,6 +1301,33 @@ async def finalize_direct_track_upload(
                     ),
                 )
 
+        await lock_track_identity(
+            session,
+            title=clean_title,
+            artist=clean_artist,
+        )
+
+        duplicate = (
+            await _find_duplicate_track(
+                session,
+                title=clean_title,
+                artist=clean_artist,
+            )
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "Duplicate track prevented: "
+                    f'\"{duplicate.title}\" by '
+                    f"{duplicate.artist} already "
+                    "exists in the catalog."
+                ),
+            )
+
         track = Track(
             id=uuid4(),
             title=clean_title,
@@ -1365,9 +1367,7 @@ async def finalize_direct_track_upload(
             is_published=True,
         )
 
-        session.add(
-            track,
-        )
+        session.add(track)
 
         await ensure_artist_profiles_for_credit(
             session,
@@ -1391,46 +1391,29 @@ async def finalize_direct_track_upload(
 
         response_payload = {
             "success": True,
-            "track_id":
-                str(
-                    track.id,
-                ),
-            "title":
-                track.title,
-            "artist":
-                track.artist,
-            "album":
-                track.album,
-            "genre":
-                track.genre,
-            "release_year":
-                track.release_year,
-            "b2_object_key":
-                object_key,
-            "artwork_object_key":
-                artwork_object_key,
-            "file_size":
-                stored_size,
-            "original_file_size":
-                original_file_size,
-            "direct_upload":
-                True,
+            "metadata_enrichment_scheduled": True,
+            "track_id": str(
+                track.id,
+            ),
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "genre": track.genre,
+            "release_year": track.release_year,
+            "b2_object_key": object_key,
+            "artwork_object_key": artwork_object_key,
+            "file_size": stored_size,
+            "original_file_size": original_file_size,
+            "direct_upload": True,
             "compression": {
-                "applied":
-                    False,
-                "saved_bytes":
-                    0,
-                "saved_percent":
-                    0.0,
-                "source_codec":
-                    None,
-                "source_bitrate_kbps":
-                    None,
-                "stored_mime_type":
-                    stored_mime_type,
+                "applied": False,
+                "saved_bytes": 0,
+                "saved_percent": 0.0,
+                "source_codec": None,
+                "source_bitrate_kbps": None,
+                "stored_mime_type": stored_mime_type,
             },
-            "duration_seconds":
-                track.duration_seconds,
+            "duration_seconds": track.duration_seconds,
         }
 
         try:
@@ -1547,6 +1530,10 @@ async def upload_track(
 
     settings = get_settings()
 
+    bucket = None
+    pending_object_keys: list[str] = []
+    track_committed = False
+
     try:
         file_content = await file.read()
         original_file_size = len(
@@ -1567,20 +1554,6 @@ async def upload_track(
             album_edited=album_edited,
             duration_edited=(duration_edited),
             embedded=embedded_metadata,
-        )
-
-        await lock_track_identity(
-            session,
-            title=(
-                resolved_metadata[
-                    "title"
-                ]
-            ),
-            artist=(
-                resolved_metadata[
-                    "artist"
-                ]
-            ),
         )
 
         duplicate = (
@@ -1611,6 +1584,9 @@ async def upload_track(
                     "exists in the catalog."
                 ),
             )
+
+        # No database connection is needed during compression or B2 I/O.
+        await session.commit()
 
         artwork_data = None
         artwork_mime_type = None
@@ -1741,7 +1717,10 @@ async def upload_track(
             f"{uuid4()}.{file_ext}"
         )
 
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(
+            get_b2_bucket,
+        )
+        pending_object_keys.append(object_key)
 
         await asyncio.to_thread(
             bucket.upload_bytes,
@@ -1759,11 +1738,56 @@ async def upload_track(
 
             artwork_object_key = f"{settings.b2_artwork_prefix}/{uuid4()}.{artwork_ext}"
 
+            pending_object_keys.append(artwork_object_key)
             await asyncio.to_thread(
                 bucket.upload_bytes,
                 artwork_data,
                 artwork_object_key,
                 content_type=(artwork_mime_type),
+            )
+
+        # Serialize only the final catalog write, then recheck concurrent uploads.
+        await lock_track_identity(
+            session,
+            title=(
+                resolved_metadata[
+                    "title"
+                ]
+            ),
+            artist=(
+                resolved_metadata[
+                    "artist"
+                ]
+            ),
+        )
+
+        duplicate = (
+            await _find_duplicate_track(
+                session,
+                title=(
+                    resolved_metadata[
+                        "title"
+                    ]
+                ),
+                artist=(
+                    resolved_metadata[
+                        "artist"
+                    ]
+                ),
+            )
+        )
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                ),
+                detail=(
+                    "Duplicate track prevented: "
+                    f'\"{duplicate.title}\" by '
+                    f"{duplicate.artist} already "
+                    "exists in the catalog."
+                ),
             )
 
         track = Track(
@@ -1807,6 +1831,7 @@ async def upload_track(
         )
 
         await session.commit()
+        track_committed = True
 
         background_tasks.add_task(
             enrich_track_metadata_by_id,
@@ -1815,6 +1840,7 @@ async def upload_track(
 
         response_payload = {
             "success": True,
+            "metadata_enrichment_scheduled": True,
             "track_id": str(
                 track.id,
             ),
@@ -1822,43 +1848,30 @@ async def upload_track(
             "artist": track.artist,
             "album": track.album,
             "genre": track.genre,
-            "release_year":
-                track.release_year,
+            "release_year": track.release_year,
             "b2_object_key": (object_key),
             "artwork_object_key": (artwork_object_key),
-            "file_size":
-                file_size,
-            "original_file_size":
-                original_file_size,
+            "file_size": file_size,
+            "original_file_size": original_file_size,
             "compression": {
-                "applied":
-                    compression.compressed,
-                "saved_bytes":
-                    compression.savings_bytes,
-                "saved_percent":
+                "applied": compression.compressed,
+                "saved_bytes": compression.savings_bytes,
+                "saved_percent": round(
+                    compression.savings_percent,
+                    1,
+                ),
+                "source_codec": compression.source_codec,
+                "source_bitrate_kbps": (
                     round(
-                        compression.savings_percent,
+                        compression.source_bitrate_kbps,
                         1,
-                    ),
-                "source_codec":
-                    compression.source_codec,
-                "source_bitrate_kbps":
-                    (
-                        round(
-                            compression
-                            .source_bitrate_kbps,
-                            1,
-                        )
-                        if compression
-                        .source_bitrate_kbps
-                        is not None
-                        else None
-                    ),
-                "stored_mime_type":
-                    upload_mime_type,
+                    )
+                    if compression.source_bitrate_kbps is not None
+                    else None
+                ),
+                "stored_mime_type": upload_mime_type,
             },
-            "duration_seconds":
-                track.duration_seconds,
+            "duration_seconds": track.duration_seconds,
         }
 
         # Generated artist playlists are shared
@@ -1908,6 +1921,14 @@ async def upload_track(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail=(f"Upload failed: {exc}"),
         ) from exc
+
+    finally:
+        if bucket is not None and not track_committed:
+            for pending_key in pending_object_keys:
+                try:
+                    await delete_all_object_versions(bucket, pending_key)
+                except Exception:
+                    logger.exception("Unable to clean failed upload object %s.", pending_key)
 
 
 async def _delete_track_object_versions(

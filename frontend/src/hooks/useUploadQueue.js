@@ -230,6 +230,7 @@ export default function useUploadQueue({
 
         if (
           response?.track_id
+          && response?.metadata_enrichment_scheduled !== true
           && (
             !response?.genre
             || !response?.release_year

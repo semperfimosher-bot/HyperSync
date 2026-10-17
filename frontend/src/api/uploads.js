@@ -7,6 +7,11 @@ import {
 
 import { getAccessToken } from "./storage.js";
 
+// Browser CORS rejection is exposed as an XHR network error. Cool down the
+// optional direct path so a whole album does not repeat the same failed PUT.
+const DIRECT_UPLOAD_RETRY_DELAY_MS = 2 * 60 * 1000;
+let directUploadRetryAt = 0;
+
 function buildPreparationPayload(
   item,
 ) {
@@ -144,14 +149,11 @@ function sendDirectB2Upload({
           );
         };
 
-      xhr.onerror =
-        () => {
-          reject(
-            new Error(
-              "Direct B2 upload was unavailable.",
-            ),
-          );
-        };
+      xhr.onerror = () => {
+        const error = new Error("Direct B2 upload was unavailable.");
+        error.directTransportUnavailable = true;
+        reject(error);
+      };
 
       xhr.onabort =
         () => {
@@ -554,10 +556,9 @@ export async function uploadTrack(
     null;
 
   try {
-    preparation =
-      await prepareDirectUpload(
-        item,
-      );
+    if (Date.now() >= directUploadRetryAt) {
+      preparation = await prepareDirectUpload(item);
+    }
   } catch (error) {
     if (
       error?.status ===
@@ -595,6 +596,10 @@ export async function uploadTrack(
         "AbortError"
       ) {
         throw error;
+      }
+
+      if (error?.directTransportUnavailable) {
+        directUploadRetryAt = Date.now() + DIRECT_UPLOAD_RETRY_DELAY_MS;
       }
 
       /*
