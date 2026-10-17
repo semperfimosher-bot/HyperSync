@@ -35,7 +35,7 @@ const DEFAULT_API_BASE_URL =
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v4";
+  "hypersync-app-shell-v5";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -48,6 +48,59 @@ const MEDIA_CLEANUP_INTERVAL_MS =
 
 const PRECACHE_ASSET_PATTERN =
   /\.(?:m?js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|ico)$/i;
+
+const CRITICAL_PRECACHE_ASSET_PATTERN =
+  /\.(?:m?js|css|woff2?|ttf|otf)$/i;
+
+function isCriticalPrecacheAsset(url) {
+  try {
+    return CRITICAL_PRECACHE_ASSET_PATTERN.test(
+      new URL(url).pathname,
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function cacheAssetUrls(
+  cache,
+  urls,
+  {
+    requireCriticalAssets = true,
+  } = {},
+) {
+  await Promise.all(
+    urls.map(async (url) => {
+      const required =
+        requireCriticalAssets &&
+        isCriticalPrecacheAsset(url);
+
+      try {
+        const response = await fetch(
+          url,
+          {
+            cache: "no-cache",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Unable to precache app asset (HTTP ${response.status}): ${url}`,
+          );
+        }
+
+        await cache.put(
+          url,
+          response,
+        );
+      } catch (error) {
+        if (required) {
+          throw error;
+        }
+      }
+    }),
+  );
+}
 
 
 export async function fetchNavigationWithFallback({
@@ -187,154 +240,152 @@ let lastMediaCleanupAt =
 
 
 async function precacheAppShell() {
-  const cache =
-    await caches.open(
-      APP_SHELL_CACHE,
-    );
+  const cache = await caches.open(
+    APP_SHELL_CACHE,
+  );
 
-  const response =
-    await fetch(
-      "/",
-      {
-        cache:
-          "no-cache",
-      },
-    );
+  const response = await fetch(
+    "/",
+    {
+      cache: "no-cache",
+    },
+  );
 
   if (!response.ok) {
-    return;
+    throw new Error(
+      `Unable to precache the application shell (HTTP ${response.status}).`,
+    );
   }
 
   /*
-   * Save index.html.
+   * The cache name is build-versioned. A new installing worker must never
+   * overwrite the shell used by the still-active worker before activation.
    */
   await cache.put(
     "/",
     response.clone(),
   );
 
-  /*
-   * Find the hashed Vite JS/CSS files
-   * referenced by index.html and cache
-   * those too.
-   */
-  const html =
-    await response.text();
-
-  const matches =
-    [
-      ...html.matchAll(
-        /(?:src|href)=["']([^"']+)["']/g,
-      ),
-    ];
-
-  const assetUrls =
-    [
-      ...new Set(
-        [
-          ...matches.map(
-            (match) =>
-              match[1],
-          ),
-          "/site.webmanifest",
-          "/favicon.svg",
-          "/apple-touch-icon.png",
-          "/icon-192.png",
-          "/icon-512.png",
-          "/hypersync-home-hero.png",
-        ]
-          .filter(
-            (value) =>
-              value &&
-              !value.startsWith(
-                "data:",
-              ),
-          )
-          .map(
-            (value) =>
-              new URL(
-                value,
-                self.location.origin,
-              ),
-          )
-          .filter(
-            (url) =>
-              url.origin ===
-              self.location.origin,
-          )
-          .map(
-            (url) =>
-              url.href,
-          ),
-      ),
-    ];
-
-  await Promise.allSettled(
-    assetUrls.map(
-      async (url) => {
-        const assetResponse =
-          await fetch(
-            url,
-            {
-              cache:
-                "no-cache",
-            },
-          );
-
-        if (
-          assetResponse.ok
-        ) {
-          await cache.put(
-            url,
-            assetResponse,
-          );
-        }
-      },
+  const html = await response.text();
+  const matches = [
+    ...html.matchAll(
+      /(?:src|href)=["']([^"']+)["']/g,
     ),
+  ];
+
+  const assetUrls = [
+    ...new Set(
+      [
+        ...matches.map(
+          (match) => match[1],
+        ),
+        "/site.webmanifest",
+        "/favicon.svg",
+        "/apple-touch-icon.png",
+        "/icon-192.png",
+        "/icon-512.png",
+        "/hypersync-home-hero.png",
+      ]
+        .filter(
+          (value) =>
+            value &&
+            !value.startsWith("data:"),
+        )
+        .map(
+          (value) =>
+            new URL(
+              value,
+              self.location.origin,
+            ),
+        )
+        .filter(
+          (url) =>
+            url.origin === self.location.origin,
+        )
+        .map(
+          (url) => url.href,
+        ),
+    ),
+  ];
+
+  /*
+   * JS/CSS/font URLs referenced directly by the shell are required. Small
+   * decorative images and install icons remain best-effort.
+   */
+  await cacheAssetUrls(
+    cache,
+    assetUrls,
   );
 
   /*
-   * Dynamic page chunks are not referenced directly by index.html.
-   * Load the Vite manifest so pages remain available after an offline
-   * launch even if the user has not visited every page yet.
+   * Dynamic page chunks are not referenced directly by index.html. In
+   * production, the Vite manifest is required to safely support offline
+   * navigation to pages that have not previously been opened. A failed or
+   * partial critical-asset precache rejects installation, leaving the active
+   * worker and its cache intact.
    */
+  let manifestResponse = null;
   try {
-    const manifestResponse = await fetch(
+    manifestResponse = await fetch(
       "/manifest.json",
       {
         cache: "no-cache",
       },
     );
+  } catch (error) {
+    if (!import.meta.env?.DEV) {
+      throw error;
+    }
+  }
 
-    if (manifestResponse.ok) {
-      const manifest = await manifestResponse.json();
-      const buildAssetUrls = collectBuildAssetUrls(
-        manifest,
-        self.location.origin,
-      );
-
-      await Promise.allSettled(
-        buildAssetUrls.map(async (url) => {
-          if (await cache.match(url)) {
-            return;
-          }
-
-          const assetResponse = await fetch(
-            url,
-            {
-              cache: "no-cache",
-            },
-          );
-
-          if (assetResponse.ok) {
-            await cache.put(url, assetResponse);
-          }
-        }),
+  if (!manifestResponse?.ok) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "Unable to load the Vite asset manifest for offline installation.",
       );
     }
-  } catch {
-    // Keep app-shell installation resilient if manifest fetching fails.
+    return;
   }
+
+  let manifest;
+  try {
+    manifest = await manifestResponse.json();
+  } catch (error) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "The Vite asset manifest could not be parsed.",
+        { cause: error },
+      );
+    }
+    return;
+  }
+
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    Array.isArray(manifest) ||
+    Object.keys(manifest).length === 0
+  ) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "The Vite asset manifest is empty or invalid.",
+      );
+    }
+    return;
+  }
+
+  const buildAssetUrls = collectBuildAssetUrls(
+    manifest,
+    self.location.origin,
+  );
+
+  await cacheAssetUrls(
+    cache,
+    buildAssetUrls,
+    {
+      requireCriticalAssets: !import.meta.env?.DEV,
+    },
+  );
 }
 
 

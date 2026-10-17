@@ -117,11 +117,11 @@ test(
     };
     globalThis.caches = {
       async open(name) {
-        assert.equal(name, "hypersync-app-shell-v4");
+        assert.equal(name, "hypersync-app-shell-v5");
         return cache;
       },
       async keys() {
-        return ["hypersync-app-shell-v4"];
+        return ["hypersync-app-shell-v5"];
       },
     };
     globalThis.fetch = async (request) => {
@@ -181,6 +181,139 @@ test(
       assert.ok(entries.has("https://example.test/assets/app-current.css"));
       assert.ok(entries.has("https://example.test/assets/LibraryPage-current.js"));
       assert.ok(entries.has("https://example.test/assets/shared-current.js"));
+    } finally {
+      if (hadSelf) globalThis.self = oldSelf;
+      else delete globalThis.self;
+      if (hadCaches) globalThis.caches = oldCaches;
+      else delete globalThis.caches;
+      if (hadFetch) globalThis.fetch = oldFetch;
+      else delete globalThis.fetch;
+    }
+  },
+);
+
+
+test(
+  "service worker keeps the previous app-shell cache isolated and rejects incomplete critical precache",
+  async () => {
+    const listeners = new Map();
+    const entriesByCache = new Map();
+    const origin = "https://example.test";
+    const hadSelf = Object.prototype.hasOwnProperty.call(globalThis, "self");
+    const oldSelf = globalThis.self;
+    const hadCaches = Object.prototype.hasOwnProperty.call(globalThis, "caches");
+    const oldCaches = globalThis.caches;
+    const hadFetch = Object.prototype.hasOwnProperty.call(globalThis, "fetch");
+    const oldFetch = globalThis.fetch;
+    let openedCacheName = null;
+    const requested = [];
+
+    const cacheKey = (request) => {
+      const value = typeof request === "string" ? request : request.url;
+      return new URL(value, origin).href;
+    };
+    const makeCache = (name) => {
+      if (!entriesByCache.has(name)) {
+        entriesByCache.set(name, new Map());
+      }
+      const entries = entriesByCache.get(name);
+      return {
+        async put(request, response) {
+          entries.set(cacheKey(request), response.clone());
+        },
+        async match(request) {
+          return entries.get(cacheKey(request))?.clone();
+        },
+      };
+    };
+
+    const previousCache = makeCache("hypersync-app-shell-v4");
+    await previousCache.put(
+      "/",
+      new Response("previous worker shell"),
+    );
+
+    globalThis.self = {
+      location: { origin },
+      addEventListener(type, listener) {
+        const current = listeners.get(type) ?? [];
+        current.push(listener);
+        listeners.set(type, current);
+      },
+    };
+    globalThis.caches = {
+      async open(name) {
+        openedCacheName = name;
+        return makeCache(name);
+      },
+      async keys() {
+        return [...entriesByCache.keys()];
+      },
+    };
+    globalThis.fetch = async (request) => {
+      const url = new URL(
+        typeof request === "string" ? request : request.url,
+        origin,
+      );
+      requested.push(url.pathname);
+
+      if (url.pathname === "/") {
+        return new Response(
+          '<html><script type="module" src="/assets/app-current.js"></script>' +
+            '<link rel="stylesheet" href="/assets/app-current.css"></html>',
+          { headers: { "Content-Type": "text/html" } },
+        );
+      }
+      if (url.pathname === "/manifest.json") {
+        return new Response(
+          JSON.stringify({
+            "index.html": {
+              file: "assets/app-current.js",
+              isEntry: true,
+              css: ["assets/app-current.css"],
+            },
+            "src/components/pages/LibraryPage.jsx": {
+              file: "assets/LibraryPage-current.js",
+              isDynamicEntry: true,
+            },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.pathname === "/assets/LibraryPage-current.js") {
+        return new Response("temporarily unavailable", { status: 503 });
+      }
+      return new Response(
+        "asset " + url.pathname,
+        {
+          status: 200,
+          headers: {
+            "Content-Type": url.pathname.endsWith(".css")
+              ? "text/css"
+              : "text/javascript",
+          },
+        },
+      );
+    };
+
+    try {
+      await loadServiceWorkerModule();
+      const installListener = (listeners.get("install") ?? [])[0];
+      assert.equal(typeof installListener, "function");
+
+      let installPromise = null;
+      installListener({
+        waitUntil(promise) {
+          installPromise = Promise.resolve(promise);
+        },
+      });
+      assert.ok(installPromise instanceof Promise);
+      await assert.rejects(installPromise, /HTTP 503/);
+
+      assert.equal(openedCacheName, "hypersync-app-shell-v5");
+      const priorShell = await previousCache.match("/");
+      assert.equal(await priorShell.text(), "previous worker shell");
+      assert.ok(requested.includes("/assets/LibraryPage-current.js"));
     } finally {
       if (hadSelf) globalThis.self = oldSelf;
       else delete globalThis.self;
@@ -653,7 +786,7 @@ test(
     };
     globalThis.caches = {
       async open(name) {
-        assert.equal(name, "hypersync-app-shell-v4");
+        assert.equal(name, "hypersync-app-shell-v5");
         return cache;
       },
     };
