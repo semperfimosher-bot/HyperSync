@@ -490,8 +490,9 @@ useEffect(() => {
           preferenceReady &&
           normalizedQuery,
         ),
+      // Search results can stay fresh without polling every 30 seconds.
       intervalMs:
-        30_000,
+        60_000,
     },
   );
 
