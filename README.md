@@ -1605,7 +1605,7 @@ If direct uploads from `http://localhost:4153` report a B2 CORS preflight error,
 .\.venv\Scripts\python.exe -m scripts.set_b2_cors --apply
 ```
 
-The script preserves unrelated CORS rules and requires permission to read and update the bucket policy. Its defaults include the production origin and localhost/127.0.0.1 on port 4153. Repeat `--origin` to supply a different origin list. Without `--apply`, it only previews. Browser transport failures temporarily route subsequent files through the backend for two minutes before retrying direct uploads.
+The script uses the B2 Native API so it can read and preserve both Native and S3 CORS rules. Applying requires a key with `writeBuckets` capability and uses the bucket revision to reject concurrent edits. Its defaults include the production origin and localhost/127.0.0.1 on port 4153. Repeat `--origin` to supply a different origin list. Without `--apply`, it only previews. Browser transport failures temporarily route subsequent files through the backend for two minutes before retrying direct uploads.
 
 
 For local development, put the provider variables in `backend/.env`. For production on Northflank, add the same variables to the backend service environment/secret configuration. Keep `LASTFM_API_KEY` server-side and never expose it as a `VITE_*` variable.

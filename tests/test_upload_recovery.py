@@ -15,19 +15,20 @@ def test_cors_plan_preserves_existing_rules_and_adds_local_put():
 
     existing = [
         {
-            "AllowedOrigins": ["https://hypersynced.app"],
-            "AllowedMethods": ["GET", "HEAD"],
-            "AllowedHeaders": ["*"],
+            "corsRuleName": "nativeDownloads",
+            "allowedOrigins": ["https://hypersynced.app"],
+            "allowedOperations": ["b2_download_file_by_name"],
+            "allowedHeaders": ["*"],
         }
     ]
     before = deepcopy(existing)
     rules = build_cors_rules(existing, ["http://localhost:4153", "https://hypersynced.app"])
     assert existing == before
     assert rules[0] == before[0]
-    assert rules[-1]["AllowedOrigins"] == ["http://localhost:4153", "https://hypersynced.app"]
-    assert "PUT" in rules[-1]["AllowedMethods"]
-    assert "content-type" in [value.lower() for value in rules[-1]["AllowedHeaders"]]
-    assert build_cors_rules(rules, rules[-1]["AllowedOrigins"]) == rules
+    assert rules[-1]["allowedOrigins"] == ["http://localhost:4153", "https://hypersynced.app"]
+    assert "s3_put" in rules[-1]["allowedOperations"]
+    assert "content-type" in [value.lower() for value in rules[-1]["allowedHeaders"]]
+    assert build_cors_rules(rules, rules[-1]["allowedOrigins"]) == rules
 
 
 @pytest.mark.parametrize(
@@ -50,13 +51,29 @@ def test_cors_rejects_non_origin_values(origin):
 def test_cors_preview_never_writes_and_apply_preserves_existing_rules():
     from scripts.set_b2_cors import configure_cors
 
-    client = MagicMock()
-    existing = {"AllowedOrigins": ["https://another-app.test"], "AllowedMethods": ["GET"]}
-    client.get_bucket_cors.return_value = {"CORSRules": [existing]}
-    configure_cors(client, "test-bucket", ["http://localhost:4153"], apply=False)
-    client.put_bucket_cors.assert_not_called()
-    configure_cors(client, "test-bucket", ["http://localhost:4153"], apply=True)
-    assert client.put_bucket_cors.call_args.kwargs["CORSConfiguration"]["CORSRules"][0] == existing
+    existing = [
+        {
+            "corsRuleName": "nativeDownloads",
+            "allowedOrigins": ["https://another-app.test"],
+            "allowedOperations": ["b2_download_file_by_name"],
+        },
+        {
+            "corsRuleName": "existingS3",
+            "allowedOrigins": ["https://hypersynced.app"],
+            "allowedOperations": ["s3_get", "s3_head"],
+        },
+    ]
+    fresh = SimpleNamespace(cors_rules=deepcopy(existing), revision=42, update=MagicMock())
+    bucket = MagicMock()
+    bucket.get_fresh_state.return_value = fresh
+    configure_cors(bucket, ["http://localhost:4153"], apply=False)
+    fresh.update.assert_not_called()
+    configure_cors(bucket, ["http://localhost:4153"], apply=True)
+    kwargs = fresh.update.call_args.kwargs
+    assert set(kwargs) == {"cors_rules", "if_revision_is"}
+    assert kwargs["if_revision_is"] == 42
+    assert kwargs["cors_rules"][:2] == existing
+    assert fresh.cors_rules == existing
 
 
 @pytest.mark.asyncio
@@ -83,33 +100,49 @@ async def test_notification_dismissal_keeps_admin_authorization():
 
 
 def test_unreadable_cors_policy_is_never_overwritten():
-    from botocore.exceptions import ClientError
-
     from scripts.set_b2_cors import configure_cors
 
-    client = MagicMock()
-    client.get_bucket_cors.side_effect = ClientError(
-        {"Error": {"Code": "AccessDenied"}},
-        "GetBucketCors",
-    )
-    with pytest.raises(ClientError):
-        configure_cors(client, "test-bucket", ["http://localhost:4153"], apply=True)
-    client.put_bucket_cors.assert_not_called()
+    bucket = MagicMock()
+    bucket.get_fresh_state.side_effect = PermissionError("read denied")
+    with pytest.raises(PermissionError):
+        configure_cors(bucket, ["http://localhost:4153"], apply=True)
+    bucket.update.assert_not_called()
 
 
 def test_cors_can_initialize_bucket_without_a_policy():
-    from botocore.exceptions import ClientError
-
     from scripts.set_b2_cors import configure_cors
 
-    client = MagicMock()
-    client.get_bucket_cors.side_effect = ClientError(
-        {"Error": {"Code": "NoSuchCORSConfiguration"}},
-        "GetBucketCors",
-    )
-    rules = configure_cors(client, "test-bucket", ["http://localhost:4153"], apply=True)
+    fresh = SimpleNamespace(cors_rules=[], revision=0, update=MagicMock())
+    bucket = MagicMock()
+    bucket.get_fresh_state.return_value = fresh
+    rules = configure_cors(bucket, ["http://localhost:4153"], apply=True)
     assert len(rules) == 1
-    client.put_bucket_cors.assert_called_once()
+    fresh.update.assert_called_once_with(cors_rules=rules, if_revision_is=0)
+
+
+@pytest.mark.parametrize("rules,revision", [(None, 1), ([], None)])
+def test_cors_refuses_unknown_policy_or_revision(rules, revision):
+    from scripts.set_b2_cors import configure_cors
+
+    fresh = SimpleNamespace(cors_rules=rules, revision=revision, update=MagicMock())
+    bucket = MagicMock()
+    bucket.get_fresh_state.return_value = fresh
+    with pytest.raises(RuntimeError):
+        configure_cors(bucket, ["http://localhost:4153"], apply=True)
+    fresh.update.assert_not_called()
+
+
+def test_cors_conflicting_revision_is_not_retried():
+    from scripts.set_b2_cors import configure_cors
+
+    fresh = SimpleNamespace(
+        cors_rules=[], revision=42, update=MagicMock(side_effect=RuntimeError("conflict"))
+    )
+    bucket = MagicMock()
+    bucket.get_fresh_state.return_value = fresh
+    with pytest.raises(RuntimeError, match="conflict"):
+        configure_cors(bucket, ["http://localhost:4153"], apply=True)
+    fresh.update.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -225,3 +258,27 @@ async def test_upload_releases_connection_during_io_and_cleans_concurrent_duplic
     cleanup.assert_awaited_once()
     assert cleanup.call_args.args[0] is bucket
     assert cleanup.call_args.args[1].startswith("audio/")
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_cors_cli_uses_native_api(monkeypatch, capsys, apply):
+    from backend.app import config
+    from backend.app.services import b2
+    from scripts import set_b2_cors
+
+    fresh = SimpleNamespace(cors_rules=[], revision=3, update=MagicMock())
+    bucket = MagicMock()
+    bucket.get_fresh_state.return_value = fresh
+    monkeypatch.setattr(
+        config, "get_settings", lambda: SimpleNamespace(b2_bucket_name="test-bucket")
+    )
+    monkeypatch.setattr(b2, "get_b2_bucket", lambda: bucket)
+    s3 = MagicMock(side_effect=AssertionError("S3 cannot manage a Native CORS policy"))
+    monkeypatch.setattr(b2, "get_b2_s3_client", s3)
+    monkeypatch.setattr("sys.argv", ["set_b2_cors"] + (["--apply"] if apply else []))
+    set_b2_cors.main()
+    output = capsys.readouterr().out
+    assert '"api": "B2 Native"' in output
+    assert '"s3_put"' in output
+    assert fresh.update.call_count == int(apply)
+    s3.assert_not_called()

@@ -1,4 +1,4 @@
-"""Preview or explicitly apply browser upload CORS rules without replacing other rules.
+"""Preview or apply browser upload CORS using the B2 Native API, preserving other rules.
 
 From the repository root: python -m scripts.set_b2_cors [--apply]
 The default exact origins cover production and the two local port-4153 origins.
@@ -12,8 +12,6 @@ import json
 from copy import deepcopy
 from typing import Any
 from urllib.parse import urlsplit
-
-from botocore.exceptions import ClientError
 
 RULE_ID = "HyperSyncBrowserUploads"
 DEFAULT_ORIGINS = (
@@ -43,36 +41,38 @@ def build_cors_rules(existing: list[dict[str, Any]], origins: list[str]) -> list
             normalized.append(value)
     if not normalized:
         raise ValueError("At least one browser origin is required.")
-    rules = [deepcopy(rule) for rule in existing if rule.get("ID") != RULE_ID]
+    rules = [deepcopy(rule) for rule in existing if rule.get("corsRuleName") != RULE_ID]
     rules.append(
         {
-            "ID": RULE_ID,
-            "AllowedOrigins": normalized,
-            "AllowedMethods": ["GET", "HEAD", "PUT"],
-            "AllowedHeaders": ["Content-Type", "Range"],
-            "ExposeHeaders": [
+            "corsRuleName": RULE_ID,
+            "allowedOrigins": normalized,
+            "allowedOperations": ["s3_get", "s3_head", "s3_put"],
+            "allowedHeaders": ["Content-Type", "Range"],
+            "exposeHeaders": [
                 "Accept-Ranges",
                 "Content-Length",
                 "Content-Range",
                 "Content-Type",
                 "ETag",
             ],
-            "MaxAgeSeconds": 300,
+            "maxAgeSeconds": 300,
         }
     )
     return rules
 
 
-def configure_cors(client: Any, bucket: str, origins: list[str], *, apply: bool = False):
-    try:
-        existing = client.get_bucket_cors(Bucket=bucket).get("CORSRules", [])
-    except ClientError as error:
-        if error.response.get("Error", {}).get("Code") != "NoSuchCORSConfiguration":
-            raise  # Refuse to overwrite a policy that could not be read.
-        existing = []
-    rules = build_cors_rules(existing, origins)
+def configure_cors(bucket: Any, origins: list[str], *, apply: bool = False):
+    # S3 GetBucketCors hides Native rules, and PutBucketCors rejects buckets
+    # containing them. Native reads/updates can preserve both kinds of rule.
+    fresh = bucket.get_fresh_state()
+    if not isinstance(fresh.cors_rules, list):
+        raise RuntimeError("Unable to read the complete bucket CORS policy; no changes made.")
+    rules = build_cors_rules(fresh.cors_rules, origins)
     if apply:
-        client.put_bucket_cors(Bucket=bucket, CORSConfiguration={"CORSRules": rules})
+        if not isinstance(fresh.revision, int):
+            raise RuntimeError("Unable to read the bucket revision; no changes made.")
+        # Reject concurrent changes instead of overwriting another operator's edit.
+        fresh.update(cors_rules=rules, if_revision_is=fresh.revision)
     return rules
 
 
@@ -84,18 +84,21 @@ def main() -> None:
     )
     args = parser.parse_args()
     from backend.app.config import get_settings
-    from backend.app.services.b2 import get_b2_s3_client
+    from backend.app.services.b2 import get_b2_bucket
 
     settings = get_settings()
     if not settings.b2_bucket_name:
         raise RuntimeError("B2_BUCKET_NAME is not configured.")
     rules = configure_cors(
-        get_b2_s3_client(),
-        settings.b2_bucket_name,
+        get_b2_bucket(),
         args.origin if args.origin is not None else list(DEFAULT_ORIGINS),
         apply=args.apply,
     )
-    print(json.dumps({"bucket": settings.b2_bucket_name, "CORSRules": rules}, indent=2))
+    print(
+        json.dumps(
+            {"bucket": settings.b2_bucket_name, "api": "B2 Native", "corsRules": rules}, indent=2
+        )
+    )
     print("CORS applied." if args.apply else "Preview only; use --apply to update this bucket.")
 
 
