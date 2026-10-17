@@ -114,23 +114,16 @@ def test_production_frontend_uses_same_origin_api_proxy() -> None:
 
 
 def test_backend_retries_startup_migrations() -> None:
-    dockerfile = (
-        Path(__file__).resolve().parents[1]
-        / "Dockerfile.backend"
-    ).read_text(
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile.backend").read_text(
         encoding="utf-8",
     )
 
-    assert (
-        "until python -m alembic "
-        "-c /app/alembic.ini upgrade head"
-        in dockerfile
+    assert "COPY scripts/backend-entrypoint.sh /app/backend-entrypoint.sh" in dockerfile
+    assert 'CMD ["sh", "/app/backend-entrypoint.sh"]' in dockerfile
+    entrypoint = (Path(__file__).resolve().parents[1] / "scripts/backend-entrypoint.sh").read_text(
+        encoding="utf-8"
     )
-    assert (
-        "MIGRATION_MAX_ATTEMPTS:-12"
-        in dockerfile
-    )
-    assert (
-        "exec python -m uvicorn"
-        in dockerfile
-    )
+
+    assert "until python -m alembic -c /app/alembic.ini upgrade head" in entrypoint
+    assert "MIGRATION_MAX_ATTEMPTS:-12" in entrypoint
+    assert "exec python -m uvicorn" in entrypoint

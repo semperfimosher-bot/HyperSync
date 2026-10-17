@@ -26,8 +26,8 @@ async def seed():
         uid = uuid4()
         user = User(
             id=uid,
-            username=f"race-{uid.hex}",
-            username_normalized=f"race-{uid.hex}",
+            username=f"race-{uid.hex[:20]}",
+            username_normalized=f"race-{uid.hex[:20]}",
             email=f"{uid}@example.com",
             password_hash="unused",
             account_type="registered",
@@ -269,8 +269,8 @@ async def test_maintenance_batch_reuses_one_stream_for_same_query_across_owners(
     async with factory() as session:
         second_id = uuid4()
         session.add(User(
-            id=second_id, username=f"batch-{second_id.hex}",
-            username_normalized=f"batch-{second_id.hex}", email=f"{second_id}@example.com",
+            id=second_id, username=f"batch-{second_id.hex[:20]}",
+            username_normalized=f"batch-{second_id.hex[:20]}", email=f"{second_id}@example.com",
             password_hash="unused", account_type="registered",
         ))
         await session.commit()
@@ -291,3 +291,32 @@ async def test_maintenance_batch_reuses_one_stream_for_same_query_across_owners(
         refreshed = await generated.refresh_smart_playlists_for_track(session, track)
         assert refreshed == 2
         assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_string_values_fit_declared_column_limits(monkeypatch):
+    """Validate the fixture before PostgreSQL rejects an oversized seed value."""
+    from sqlalchemy import String
+
+    inserted = []
+
+    class SeedSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def add_all(self, rows):
+            inserted.extend(rows)
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setitem(seed.__globals__, "get_session_factory", lambda: SeedSession)
+    await seed()
+    for row in inserted:
+        for column in row.__table__.columns:
+            value = getattr(row, column.name)
+            if isinstance(column.type, String) and column.type.length and value is not None:
+                assert len(value) <= column.type.length, f"{row.__tablename__}.{column.name}"
