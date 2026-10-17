@@ -10,7 +10,7 @@
     "test:offline": "node scripts/run-tests.mjs"
   },
   "dependencies": {
-    "music-metadata": "11.15.0",
+    "music-metadata": "11.16.1",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

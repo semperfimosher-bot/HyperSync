@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     db_idle_transaction_timeout_ms: int = 30000
     api_max_concurrent_requests: int = 3
     api_admission_timeout_seconds: float = 5.0
+    maintenance_worker_enabled: bool = True
+    request_max_body_bytes: int = 64 * 1024 * 1024
 
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
@@ -235,6 +237,8 @@ class Settings(BaseSettings):
             raise ValueError("DB_LOCK_TIMEOUT_MS must be at least 1.")
         if self.db_idle_transaction_timeout_ms < 1:
             raise ValueError("DB_IDLE_TRANSACTION_TIMEOUT_MS must be at least 1.")
+        if self.request_max_body_bytes < 1:
+            raise ValueError("REQUEST_MAX_BODY_BYTES must be at least 1.")
         if self.api_max_concurrent_requests < 1:
             raise ValueError("API_MAX_CONCURRENT_REQUESTS must be at least 1.")
         if self.api_admission_timeout_seconds < 0:

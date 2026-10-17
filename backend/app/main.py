@@ -20,6 +20,7 @@ from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
+from .middleware.request_limits import RequestBodyLimitMiddleware
 from .security.rate_limit import (
     cleanup_stale_rate_limits,
 )
@@ -33,6 +34,7 @@ from .services.admin_notifications import (
 from .services.artists import (
     backfill_missing_artist_profiles,
 )
+from .services.maintenance_jobs import run_maintenance_worker
 from .services.media_identity import (
     backfill_missing_media_identities,
 )
@@ -344,6 +346,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         run_rate_limit_cleanup(),
     )
 
+    maintenance_task = (
+        asyncio.create_task(run_maintenance_worker())
+        if settings.maintenance_worker_enabled else None
+    )
+
     media_identity_task = asyncio.create_task(
         run_media_identity_backfill(),
     )
@@ -351,6 +358,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if maintenance_task is not None:
+            maintenance_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await maintenance_task
+
         keepalive_task.cancel()
         retention_task.cancel()
         rate_limit_cleanup_task.cancel()
@@ -408,6 +420,11 @@ app.add_middleware(
     admission_timeout_seconds=(
         settings.api_admission_timeout_seconds
     ),
+)
+
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=settings.request_max_body_bytes,
 )
 
 app.add_middleware(

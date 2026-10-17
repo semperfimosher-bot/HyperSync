@@ -26,6 +26,7 @@ from ...models.playlist import (
     Playlist,
     PlaylistTrack,
     SavedPlaylist,
+    lock_playlist,
 )
 from ...services.admin_notifications import (
     record_admin_activity,
@@ -283,10 +284,12 @@ async def require_playlist_owner(
     playlist_id: UUID,
     user: User,
 ) -> Playlist:
+    await lock_playlist(session, playlist_id)
     playlist = await get_playlist_or_404(
         session,
         playlist_id,
     )
+    await session.refresh(playlist)
 
     if playlist.owner_id != user.id:
         raise HTTPException(
@@ -992,6 +995,8 @@ async def get_liked_playlist(
         f"liked:{user.id}"
     )
 
+    await lock_playlist(session, liked_key)
+
     result = await session.execute(
         select(
             Playlist,
@@ -1007,6 +1012,10 @@ async def get_liked_playlist(
         result.scalars()
         .first()
     )
+
+    if playlist is not None:
+        await lock_playlist(session, playlist.id)
+        await session.refresh(playlist)
 
     if (
         playlist is None
@@ -1027,6 +1036,7 @@ async def get_liked_playlist(
         )
 
         await session.flush()
+        await lock_playlist(session, playlist.id)
 
     return playlist
 
@@ -1523,6 +1533,16 @@ async def add_track_to_playlist(
             status_code=(status.HTTP_404_NOT_FOUND),
             detail="Track not found.",
         )
+
+    existing_result = await session.execute(
+        select(PlaylistTrack).where(
+            PlaylistTrack.playlist_id == playlist_id,
+            PlaylistTrack.track_id == track.id,
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+    if existing is not None:
+        return serialize_playlist_track(existing, track)
 
     position_result = await session.execute(
         select(

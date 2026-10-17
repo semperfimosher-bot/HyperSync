@@ -1,8 +1,12 @@
 import asyncio
+import base64
+import binascii
 import hashlib
+import json
 import logging
 import mimetypes
 import time
+from collections.abc import Sequence
 from datetime import (
     UTC,
     datetime,
@@ -164,9 +168,52 @@ def _track_artwork_version(
     ).hexdigest()
 
 
+class CatalogPageResponse(BaseModel):
+    items: list[TrackResponse]
+    next_cursor: str | None = None
+
+
+def _catalog_cursor(last_id: UUID, highwater: UUID, query: str) -> str:
+    payload = json.dumps(
+        [
+            1,
+            str(last_id),
+            str(highwater),
+            hashlib.sha256(query.encode("utf-8")).hexdigest(),
+        ]
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_catalog_cursor(cursor: str, query: str) -> tuple[UUID, UUID]:
+    try:
+        payload = json.loads(
+            base64.b64decode(
+                cursor + "=" * (-len(cursor) % 4),
+                altchars=b"-_",
+                validate=True,
+            )
+        )
+        if not isinstance(payload, list) or len(payload) != 4:
+            raise ValueError("Invalid cursor payload")
+        version, last, highwater, query_hash = payload
+        if not isinstance(last, str) or not isinstance(highwater, str):
+            raise ValueError("Invalid cursor IDs")
+        last_id, highwater_id = UUID(last), UUID(highwater)
+        if (
+            version != 1
+            or last_id > highwater_id
+            or query_hash != hashlib.sha256(query.encode("utf-8")).hexdigest()
+        ):
+            raise ValueError("Cursor does not match query")
+        return last_id, highwater_id
+    except (ValueError, TypeError, binascii.Error, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid catalog cursor.") from exc
+
+
 @router.get(
     "/tracks",
-    response_model=list[TrackResponse],
+    response_model=list[TrackResponse] | CatalogPageResponse,
 )
 async def list_tracks(
     response: Response,
@@ -174,7 +221,9 @@ async def list_tracks(
         default=None,
         description="Search by title, artist, album, or genre",
     ),
-) -> list[TrackResponse]:
+    page_size: int | None = Query(default=None, ge=1, le=500),
+    cursor: str | None = Query(default=None, max_length=1024),
+) -> list[TrackResponse] | CatalogPageResponse:
 
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
 
@@ -182,6 +231,10 @@ async def list_tracks(
 
     response.headers["Expires"] = "0"
 
+    query = (q or "").strip()
+    paged = page_size is not None or cursor is not None
+    limit = page_size or 250
+    bounds = _decode_catalog_cursor(cursor, query) if cursor is not None else None
     session_factory = get_session_factory()
 
     async with session_factory() as session:
@@ -198,53 +251,63 @@ async def list_tracks(
                 )
             )
 
-        stmt = stmt.order_by(Track.artist, Track.title)
+        highwater = None
+        if paged:
+            if bounds is None:
+                # A UUID upper bound keeps new high-ID inserts from extending the
+                # walk indefinitely. This is keyset traversal, not an MVCC snapshot;
+                # uploads behind the cursor become visible on the next refresh.
+                highwater = await session.scalar(
+                    stmt.with_only_columns(Track.id).order_by(Track.id.desc()).limit(1)
+                )
+                if highwater is None:
+                    return CatalogPageResponse(items=[])
+            else:
+                last_id, highwater = bounds
+                stmt = stmt.where(Track.id > last_id)
+            if highwater is not None:
+                stmt = stmt.where(Track.id <= highwater)
+            stmt = stmt.order_by(Track.id).limit(limit + 1)
+        else:
+            stmt = stmt.order_by(Track.artist, Track.title, Track.id)
         result = await session.execute(stmt)
-
         tracks = result.scalars().all()
+        has_more = paged and len(tracks) > limit
+        if paged:
+            tracks = tracks[:limit]
 
-        return [
-            TrackResponse(
-                id=track.id,
-                title=track.title,
-                artist=track.artist,
-                album=track.album,
-                genre=getattr(
-            track,
-            "genre",
-            None,
-        ),
-                release_year=getattr(
-            track,
-            "release_year",
-            None,
-        ),
-                duration_seconds=(track.duration_seconds),
-                mime_type=(track.mime_type),
-                file_size=(track.file_size),
-                media_version=(
-                    _track_media_version(
-                        track,
-                    )
-                ),
-                artwork_version=(
-                    _track_artwork_version(
-                        track,
-                    )
-                ),
-                audio_url=(
-                    _track_audio_url(
-                        track,
-                    )
-                ),
-                artwork_url=(
-                    _track_artwork_url(
-                        track,
-                    )
-                ),
-            )
-            for track in tracks
-        ]
+    # Presigning may initialize the synchronous B2 SDK. Keep this bounded
+    # page's URL work off the event loop (legacy clients still get all rows).
+    items = await asyncio.to_thread(_catalog_track_responses, tracks)
+    if not paged:
+        return items
+    next_cursor = (
+        _catalog_cursor(tracks[-1].id, highwater, query)
+        if has_more and highwater is not None
+        else None
+    )
+    return CatalogPageResponse(items=items, next_cursor=next_cursor)
+
+
+def _catalog_track_responses(tracks: Sequence[Track]) -> list[TrackResponse]:
+    return [
+        TrackResponse(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            genre=getattr(track, "genre", None),
+            release_year=getattr(track, "release_year", None),
+            duration_seconds=track.duration_seconds,
+            mime_type=track.mime_type,
+            file_size=track.file_size,
+            media_version=_track_media_version(track),
+            artwork_version=_track_artwork_version(track),
+            audio_url=_track_audio_url(track),
+            artwork_url=_track_artwork_url(track),
+        )
+        for track in tracks
+    ]
 
 
 @router.get(

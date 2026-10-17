@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from uuid import UUID
 
@@ -10,7 +11,10 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
@@ -101,6 +105,10 @@ class PlaylistTrack(
 ):
     __tablename__ = "playlist_tracks"
 
+    __table_args__ = (
+        UniqueConstraint("playlist_id", "track_id", name="uq_playlist_tracks_playlist_track"),
+    )
+
     playlist_id: Mapped[UUID] = mapped_column(
         ForeignKey(
             "playlists.id",
@@ -146,3 +154,15 @@ class SavedPlaylist(
         ),
         primary_key=True,
     )
+
+
+async def lock_playlist(session: AsyncSession, identity: str | UUID) -> None:
+    """Serialize writes until transaction end, including identities without a row yet.
+
+    Key locks must precede lookup/creation; existing rows also take their UUID
+    lock so owner edits and generated/liked mutations share the same guard.
+    A stable signed bigint avoids Python hash randomization across replicas.
+    """
+    digest = hashlib.sha256(f"hypersync:playlist:{identity}".encode()).digest()
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})

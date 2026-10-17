@@ -400,6 +400,16 @@ async def follow_status_for(
     return "accepted"
 
 
+def can_view_music_activity(
+    target: User,
+    relationship_status: str,
+) -> bool:
+    return bool(
+        (target.profile and target.profile.music_activity_public)
+        or relationship_status in {"self", "accepted"}
+    )
+
+
 async def build_dashboard(
     session: DatabaseSession,
     user: User,
@@ -933,7 +943,8 @@ async def upload_my_avatar(
             detail=("Profile picture must be a JPG, PNG, or WebP image."),
         )
 
-    image_data = await file.read()
+    avatar_limit = 5 * 1024 * 1024
+    image_data = await file.read(avatar_limit + 1)
 
     if not image_data:
         raise HTTPException(
@@ -941,7 +952,7 @@ async def upload_my_avatar(
             detail=("Profile picture is empty."),
         )
 
-    if len(image_data) > 5 * 1024 * 1024:
+    if len(image_data) > avatar_limit:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=("Profile picture must be 5 MB or smaller."),
@@ -970,7 +981,7 @@ async def upload_my_avatar(
 
     object_key = f"{settings.b2_profile_prefix}/{user.id}/{uuid4()}.{extension}"
 
-    bucket = get_b2_bucket()
+    bucket = await asyncio.to_thread(get_b2_bucket)
 
     try:
         await asyncio.to_thread(
@@ -1041,7 +1052,7 @@ async def remove_my_avatar(
     await session.commit()
 
     try:
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(get_b2_bucket)
 
         await delete_all_object_versions(
             bucket,
@@ -1387,7 +1398,7 @@ async def get_user_avatar(
     object_key = target.profile.avatar_object_key
 
     try:
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(get_b2_bucket)
 
         downloaded = await asyncio.to_thread(
             bucket.download_file_by_name,
@@ -1479,6 +1490,7 @@ async def get_followers(
 async def get_following(
     username: str,
     session: DatabaseSession,
+    viewer: OptionalCurrentUser,
 ):
     target = await get_user_by_username(
         session,
@@ -1489,6 +1501,13 @@ async def get_following(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
+        )
+
+    relationship_status = await follow_status_for(session, viewer, target)
+    if not can_view_music_activity(target, relationship_status):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Music activity is private.",
         )
 
     result = await session.execute(
@@ -1561,14 +1580,7 @@ async def get_public_profile(
 
     activity_public = bool(profile and profile.music_activity_public)
 
-    can_view_activity = (
-        relationship_status
-        in {
-            "self",
-            "accepted",
-        }
-        or activity_public
-    )
+    can_view_activity = can_view_music_activity(target, relationship_status)
 
     return PublicProfileResponse(
         id=target.id,

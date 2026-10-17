@@ -350,7 +350,7 @@ async def stream_audio(
         )
 
     try:
-        bucket = get_b2_bucket()
+        bucket = await asyncio.to_thread(get_b2_bucket)
         file_info = await asyncio.to_thread(
             bucket.get_file_info_by_name,
             track.b2_object_key,

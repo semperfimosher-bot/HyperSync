@@ -36,7 +36,6 @@ from ...models.account import (
 )
 from ...models.media import Track
 from ...services.artists import (
-    artist_names_for_credit,
     ensure_artist_profiles_for_credit,
 )
 from ...services.audio_compression import (
@@ -58,9 +57,10 @@ from ...services.b2 import (
 from ...services.catalog_ingestion import (
     lock_track_identity,
 )
-from ...services.generated_playlists import (
-    ensure_artist_playlist,
-    refresh_smart_playlists_for_track,
+from ...services.maintenance_jobs import (
+    enqueue_track_maintenance,
+    maintenance_status,
+    retry_failed_job,
 )
 from ...services.media_identity import (
     catalog_identity_diagnostics,
@@ -73,7 +73,6 @@ from ...services.media_identity import (
 )
 from ...services.music_metadata import (
     enrich_track_metadata,
-    enrich_track_metadata_by_id,
 )
 from ...services.storage_integrity import (
     audit_track_storage,
@@ -1374,14 +1373,11 @@ async def finalize_direct_track_upload(
             track,
         )
 
-        await session.commit()
-
-        background_tasks.add_task(
-            enrich_track_metadata_by_id,
-            track.id,
-        )
-
+        await enqueue_track_maintenance(session, track.id)
+        # Once COMMIT is sent, a lost acknowledgement cannot prove rollback.
+        # Retain objects for reconciliation instead of deleting committed audio.
         cleanup_audio = False
+        await session.commit()
 
         response_payload = {
             "success": True,
@@ -1409,30 +1405,6 @@ async def finalize_direct_track_upload(
             },
             "duration_seconds": track.duration_seconds,
         }
-
-        try:
-            for artist_name in artist_names_for_credit(
-                track.artist,
-                include_combined=False,
-            ):
-                await ensure_artist_playlist(
-                    session,
-                    artist_name,
-                )
-
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track upload succeeded but generated "
-                    "playlist refresh failed for %s."
-                ),
-                track.id,
-            )
 
         return response_payload
 
@@ -1526,7 +1498,7 @@ async def upload_track(
 
     bucket = None
     pending_object_keys: list[str] = []
-    track_committed = False
+    commit_attempted = False
 
     try:
         file_content = await file.read()
@@ -1824,13 +1796,11 @@ async def upload_track(
             track,
         )
 
+        await enqueue_track_maintenance(session, track.id)
+        # Ambiguous commit failures must not delete audio belonging to a
+        # potentially committed row. Storage auditing can reconcile an orphan.
+        commit_attempted = True
         await session.commit()
-        track_committed = True
-
-        background_tasks.add_task(
-            enrich_track_metadata_by_id,
-            track.id,
-        )
 
         response_payload = {
             "success": True,
@@ -1868,39 +1838,6 @@ async def upload_track(
             "duration_seconds": track.duration_seconds,
         }
 
-        # Generated artist playlists are shared
-        # objects. Refresh the matching playlist as
-        # soon as new published music lands so every
-        # saved copy sees the same membership.
-        #
-        # The playlist read path also performs this
-        # freshness check, so an unexpected refresh
-        # failure must not turn a successfully
-        # committed upload into a false upload error.
-        try:
-            for artist_name in artist_names_for_credit(
-                track.artist,
-                include_combined=False,
-            ):
-                await ensure_artist_playlist(
-                    session,
-                    artist_name,
-                )
-
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track upload succeeded but generated "
-                    "playlist refresh failed for %s."
-                ),
-                track.id,
-            )
-
         return response_payload
 
     except HTTPException:
@@ -1917,7 +1854,7 @@ async def upload_track(
         ) from exc
 
     finally:
-        if bucket is not None and not track_committed:
+        if bucket is not None and not commit_attempted:
             for pending_key in pending_object_keys:
                 try:
                     await delete_all_object_versions(bucket, pending_key)
@@ -1945,12 +1882,19 @@ async def _delete_track_object_versions(
                 object_key,
             )
             for object_key in object_keys
-        )
+        ),
+        return_exceptions=True,
     )
 
-    return sum(
-        deleted_versions,
-    )
+    # A failed delete can still have removed versions, and sibling
+    # operations may also succeed. Settle all outcomes before reporting
+    # failure; callers must retain the durable unpublished staging row.
+    total = 0
+    for result in deleted_versions:
+        if isinstance(result, BaseException):
+            raise result
+        total += result
+    return total
 
 
 @router.post(
@@ -2293,35 +2237,6 @@ async def _stage_tracks_for_storage_delete(
     return original
 
 
-async def _restore_staged_tracks(
-    session: DatabaseSession,
-    original: dict[UUID, bool],
-    track_ids: set[UUID],
-) -> None:
-    if not track_ids:
-        return
-
-    result = await session.execute(
-        select(
-            Track,
-        ).where(
-            Track.id.in_(
-                track_ids,
-            )
-        )
-    )
-
-    for track in result.scalars().all():
-        track.is_published = (
-            original.get(
-                track.id,
-                True,
-            )
-        )
-
-    await session.commit()
-
-
 @router.post(
     "/tracks/delete-bulk",
 )
@@ -2376,11 +2291,9 @@ async def delete_tracks_bulk(
     }
 
     try:
-        original_publication = (
-            await _stage_tracks_for_storage_delete(
-                session,
-                tracks,
-            )
+        await _stage_tracks_for_storage_delete(
+            session,
+            tracks,
         )
     except Exception as exc:
         raise HTTPException(
@@ -2393,7 +2306,16 @@ async def delete_tracks_bulk(
             ),
         ) from exc
 
-    bucket = get_b2_bucket()
+    try:
+        bucket = get_b2_bucket()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Unable to access storage for deletion. Tracks remain hidden; "
+                "retry deletion to finish cleanup."
+            ),
+        ) from exc
 
     storage_limit = (
         asyncio.Semaphore(
@@ -2487,18 +2409,12 @@ async def delete_tracks_bulk(
     failed: list[dict[str, str]] = []
     deleted_b2_versions = 0
 
-    failed_storage_ids: set[UUID] = set()
-
     for (
         track,
         deleted_versions,
         error_message,
     ) in storage_results:
         if error_message is not None:
-            failed_storage_ids.add(
-                track.id,
-            )
-
             failed.append(
                 {
                     "track_id":
@@ -2509,16 +2425,10 @@ async def delete_tracks_bulk(
                         (
                             "Failed to permanently "
                             "remove track files from "
-                            f"B2: {error_message}"
+                            f"B2: {error_message}. Track remains hidden; "
+                            "retry deletion to finish cleanup."
                         ),
                 }
-            )
-
-            track.is_published = (
-                original_publication.get(
-                    track.id,
-                    True,
-                )
             )
 
             continue
@@ -2558,24 +2468,8 @@ async def delete_tracks_bulk(
     except Exception as exc:
         await session.rollback()
 
-        # The initial staging commit remains durable. Any
-        # track whose B2 files were already removed therefore
-        # stays unpublished instead of becoming a broken
-        # public catalog row. Restore only storage failures in
-        # a fresh transaction when possible.
-        try:
-            await _restore_staged_tracks(
-                session,
-                original_publication,
-                failed_storage_ids,
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                "Unable to restore publication state after "
-                "bulk-delete database failure.",
-            )
-
+        # Staging remains durable for every target, including storage
+        # failures that may already have removed some object versions.
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -2632,13 +2526,6 @@ async def delete_track(
     deleted_artwork_object_key = (
         track.artwork_object_key
     )
-    original_publication = {
-        track.id:
-            bool(
-                track.is_published,
-            )
-    }
-
     try:
         await _stage_tracks_for_storage_delete(
             session,
@@ -2657,9 +2544,8 @@ async def delete_track(
             ),
         ) from exc
 
-    bucket = get_b2_bucket()
-
     try:
+        bucket = get_b2_bucket()
         deleted_versions = (
             await _delete_track_object_versions(
                 bucket,
@@ -2670,27 +2556,12 @@ async def delete_track(
     except Exception as exc:
         await session.rollback()
 
-        try:
-            await _restore_staged_tracks(
-                session,
-                original_publication,
-                {
-                    track_id,
-                },
-            )
-        except Exception:
-            await session.rollback()
-            logger.exception(
-                "Unable to restore track publication after "
-                "B2 deletion failure for %s.",
-                track_id,
-            )
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "Failed to permanently remove track files "
-                "from B2. The catalog track was restored."
+                "from B2. The track remains hidden; retry deletion "
+                "to finish cleanup."
             ),
         ) from exc
 
@@ -2728,3 +2599,15 @@ async def delete_track(
         "deleted_artwork_object_key": deleted_artwork_object_key,
         "deleted_b2_versions": deleted_versions,
     }
+
+
+@router.get("/maintenance/jobs")
+async def get_maintenance_jobs(user: AdminUser, session: DatabaseSession):
+    return await maintenance_status(session)
+
+
+@router.post("/maintenance/jobs/{job_id}/retry")
+async def retry_maintenance_job(job_id: UUID, user: AdminUser, session: DatabaseSession):
+    if not await retry_failed_job(session, job_id):
+        raise HTTPException(status_code=404, detail="Exhausted maintenance job not found.")
+    return {"success": True}

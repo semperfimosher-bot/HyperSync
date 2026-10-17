@@ -16,6 +16,7 @@ from .artist import (
     ArtistProfile,
 )
 from .base import Base
+from .maintenance import MaintenanceJob
 from .media import (
     Track,
     TrackArtistCredit,
@@ -40,6 +41,7 @@ from .system import (
 __all__ = [
     "AccountType",
     "Base",
+    "MaintenanceJob",
     "ArtistFollow",
     "ArtistProfile",
     "Track",

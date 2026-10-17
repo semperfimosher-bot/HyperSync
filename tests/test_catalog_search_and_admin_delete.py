@@ -247,7 +247,7 @@ async def test_admin_delete_removes_b2_versions_and_database_rows(
 
 
 @pytest.mark.asyncio
-async def test_admin_delete_restores_published_track_when_b2_fails(
+async def test_admin_delete_keeps_track_hidden_when_b2_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_id = uuid4().hex[:8]
@@ -309,4 +309,80 @@ async def test_admin_delete_restores_published_track_when_b2_fails(
         )
 
         assert preserved is not None
-        assert preserved.is_published is True
+        assert preserved.is_published is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_partial_storage_failure_is_hidden_and_retryable_in_database(
+    monkeypatch: pytest.MonkeyPatch,
+    bulk: bool,
+) -> None:
+    track_id, unrelated_id = uuid4(), uuid4()
+    audio_key = f"audio/recovery-{track_id}.mp3"
+    artwork_key = f"artwork/recovery-{track_id}.jpg"
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        session.add_all([
+            Track(
+                id=track_id,
+                title="Partial deletion",
+                artist="Recovery test",
+                b2_object_key=audio_key,
+                artwork_object_key=artwork_key,
+                is_published=True,
+            ),
+            Track(
+                id=unrelated_id,
+                title="Unrelated",
+                artist="Recovery test",
+                b2_object_key=f"audio/unrelated-{unrelated_id}.mp3",
+                is_published=True,
+            ),
+        ])
+        await session.commit()
+
+    remaining = {audio_key, artwork_key}
+    fail_artwork = True
+
+    async def remove_versions(bucket, key: str) -> int:
+        if key == artwork_key and fail_artwork:
+            raise RuntimeError("artwork unavailable after audio deletion")
+        count = int(key in remaining)
+        remaining.discard(key)
+        return count
+
+    monkeypatch.setattr(admin_routes, "get_b2_bucket", lambda: object())
+    monkeypatch.setattr(admin_routes, "delete_all_object_versions", remove_versions)
+
+    async def delete(session):
+        if bulk:
+            return await admin_routes.delete_tracks_bulk(
+                admin_routes.BulkTrackDeleteRequest(track_ids=[track_id]),
+                User(),
+                session,
+            )
+        return await admin_routes.delete_track(track_id, User(), session)
+
+    async with session_factory() as session:
+        if bulk:
+            assert (await delete(session))["success"] is False
+        else:
+            with pytest.raises(HTTPException):
+                await delete(session)
+
+    assert remaining == {artwork_key}
+    async with session_factory() as session:
+        preserved = await session.get(Track, track_id)
+        unrelated = await session.get(Track, unrelated_id)
+        assert preserved is not None and preserved.is_published is False
+        assert unrelated is not None and unrelated.is_published is True
+
+    fail_artwork = False
+    async with session_factory() as session:
+        assert (await delete(session))["success"] is True
+    async with session_factory() as session:
+        assert await session.get(Track, track_id) is None
+        unrelated = await session.get(Track, unrelated_id)
+        assert unrelated is not None and unrelated.is_published is True
+    assert remaining == set()

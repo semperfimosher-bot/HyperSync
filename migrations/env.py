@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.app.config import get_settings
 from backend.app.models import Base
+from migrations.coordination import migration_lock
 
 config = context.config
 
@@ -48,8 +49,9 @@ def run_migrations(connection: Connection) -> None:
         compare_server_default=True,
     )
 
-    with context.begin_transaction():
-        context.run_migrations()
+    with migration_lock(connection):
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 async def run_async_migrations() -> None:

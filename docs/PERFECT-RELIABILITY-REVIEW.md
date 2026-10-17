@@ -13,6 +13,23 @@ The follow-up patch releases the initial upload read transaction before compress
 The P1 upload finding below describes the original baseline. Its transaction ownership and common exception cleanup are addressed by this patch. Whole-file memory usage, crash-safe reconciliation, upload limits, real B2 interruption tests, and load testing remain open; the branch should still be treated as a development beta. Earlier baseline and updater commits passed full GitHub CI, including PostgreSQL and Windows. Follow-up checks must be evaluated against the new commit.
 
 
+## Backend hardening follow-up — 2026-10-17
+
+The seven findings from the 9fe635e audit now have implementation and regression coverage in this follow-up:
+
+- Partial storage deletion settles all object outcomes and keeps the catalog row hidden for retry. Upload commit acknowledgement loss conservatively retains objects for reconciliation instead of deleting potentially committed media.
+- Playlist mutations serialize before reading shared state. A migration preserves earliest duplicate memberships, resequences positions, and enforces uniqueness. Existing generated-playlist refreshes share the same lock discipline.
+- Following lists enforce the same public/self/accepted-follower privacy policy as profile activity. Avatars read at most 5 MiB plus one byte.
+- API and production proxy explicitly cap request bodies at 64 MiB, including chunked/multipart bodies. Cold storage setup is offloaded in affected routes.
+- The frontend parser is patched to music-metadata 11.16.1. The current production npm audit reports zero known vulnerabilities.
+- This frontend consumes bounded catalog pages; legacy array clients remain compatible. Generated ranking streams 256-row partitions and keeps bounded top candidates, sharing one history/catalog scan per batch. The frontend still retains its complete assembled catalog and scoring still scales with catalog size and distinct queries.
+- Uploaded tracks atomically enqueue durable PostgreSQL metadata/playlist jobs. Expiring leases, ownership tokens, finite retries and generation fencing prevent lost work on restart or overlapping refresh. Upload responses no longer wait for generated playlist maintenance. Metadata results re-request playlist work in the same commit.
+- Migrations coordinate through PostgreSQL advisory locks; release-managed migration mode is available. Isolated pressure/recovery tooling and restore/rollout procedures are documented in docs/backend-operations-rehearsal.md.
+
+Local targeted tests, frontend suite/build, lint, types and independent scoped reviews are being checked before publication. Full disposable PostgreSQL CI must pass this follow-up, including concurrent writes, migration preservation/serialization, durable job recovery and API burst/failure recovery. Prior commit9fe635e passed332 backend tests (2 skipped),245 frontend tests and both complete workflows; the user confirmed real B2 uploads work after CORS repair. These historical baseline limitations below are retained as the original review record and are not the current check results.
+
+No production load/soak test, real provider outage exercise or actual backup restore was performed. Whole-file fallback audio is now bounded by the request ceiling but can still consume that memory per admitted request. An ambiguous commit or failed storage cleanup can retain orphan objects for auditing. Deployment capacity and backup recoverability remain operational gates, not properties certified by green unit tests.
+
 ## Cleanup delivered
 
 - Removed device selection/control props, account playback synchronization, polling, reconnect timers, remote command dispatch, live WebSocket handling, and PostgreSQL playback event listener/bridge.

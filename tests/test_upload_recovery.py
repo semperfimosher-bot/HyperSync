@@ -157,7 +157,13 @@ async def test_metadata_lookup_releases_transaction_and_preserves_concurrent_edi
         genre=None,
         release_year=None,
     )
-    session = MagicMock(commit=AsyncMock(), refresh=AsyncMock(), rollback=AsyncMock())
+    session = MagicMock(
+        commit=AsyncMock(),
+        refresh=AsyncMock(),
+        rollback=AsyncMock(),
+        flush=AsyncMock(),
+        execute=AsyncMock(),
+    )
 
     async def lookup(**_kwargs):
         session.commit.assert_awaited_once()
@@ -175,7 +181,6 @@ async def test_metadata_lookup_releases_transaction_and_preserves_concurrent_edi
 
     session.refresh.side_effect = refresh
     monkeypatch.setattr(music_metadata, "lookup_external_track_metadata", lookup)
-    monkeypatch.setattr(music_metadata, "refresh_smart_playlists_for_track", AsyncMock())
     result = await music_metadata.enrich_track_metadata(session, track)
     assert result["genre"] == "Jazz"
     assert result["release_year"] == 2020
@@ -289,8 +294,9 @@ def test_cors_cli_uses_native_api(monkeypatch, capsys, apply):
     "metadata", [{}, {"album": "", "genre": ""}, {"album": "Album", "genre": "Rock"}]
 )
 @pytest.mark.parametrize("direct", [True, False])
+@pytest.mark.parametrize("commit_lost", [False, True])
 async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
-    monkeypatch, metadata, direct
+    monkeypatch, metadata, direct, commit_lost
 ):
     import httpx
     from fastapi import FastAPI
@@ -302,6 +308,14 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
     endpoint = admin.finalize_direct_track_upload if direct else admin.upload_track
     app.add_api_route("/upload", endpoint, methods=["POST"])
     session = MagicMock(commit=AsyncMock(), rollback=AsyncMock())
+
+    async def commit():
+        if commit_lost and session.add.called:
+            raise ConnectionError("commit acknowledgement lost after durable write")
+
+    session.commit.side_effect = commit
+    cleanup = AsyncMock()
+    monkeypatch.setattr(admin, "delete_all_object_versions", cleanup)
     app.dependency_overrides[dependencies.require_admin] = lambda: User(
         id=uuid4(), role=UserRole.ADMIN
     )
@@ -315,12 +329,14 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
         "lock_track_identity",
         "ensure_artist_profiles_for_credit",
         "sync_track_media_identity",
-        "ensure_artist_playlist",
-        "refresh_smart_playlists_for_track",
     ]:
         monkeypatch.setattr(admin, helper, AsyncMock())
-    enrichment = AsyncMock()
-    monkeypatch.setattr(admin, "enrich_track_metadata_by_id", enrichment)
+    queued = []
+
+    async def enqueue(_session, track_id):
+        queued.append(track_id)
+
+    monkeypatch.setattr(admin, "enqueue_track_maintenance", enqueue, raising=False)
     monkeypatch.setattr(
         admin,
         "extract_embedded_audio_metadata",
@@ -357,9 +373,14 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post("/upload", data=data, files=files)
+    if commit_lost:
+        assert response.status_code == 500
+        assert queued, "the commit included maintenance work"
+        cleanup.assert_not_awaited()
+        return
     assert response.status_code == 200, response.text
     assert response.json()["metadata_enrichment_scheduled"] is True
     stored = session.add.call_args.args[0]
     assert stored.genre == (metadata.get("genre") or None)
     assert stored.album == (metadata.get("album") or None)
-    enrichment.assert_awaited_once_with(stored.id)
+    assert queued == [stored.id], "maintenance must be durable before returning success"

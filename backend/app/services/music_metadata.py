@@ -19,9 +19,6 @@ from ..models.media import Track
 from .catalog_metadata import (
     resolve_exact_track_metadata,
 )
-from .generated_playlists import (
-    refresh_smart_playlists_for_track,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -2263,27 +2260,14 @@ async def enrich_track_metadata(
     track_id = track.id
 
     if changed:
-        await session.commit()
+        # Persist follow-up work with the metadata, including when an older
+        # playlist job already completed or is still running on another replica.
+        from .maintenance_jobs import enqueue_track_maintenance
 
-        try:
-            await refresh_smart_playlists_for_track(
-                session,
-                track,
-            )
-        except Exception:
-            # Playlist refresh is secondary maintenance. Clear
-            # its failed transaction without making the already
-            # committed metadata result depend on an expired
-            # Track instance.
-            await session.rollback()
-            logger.exception(
-                (
-                    "Track metadata update succeeded but "
-                    "generated playlist refresh failed "
-                    "for track %s."
-                ),
-                track_id,
-            )
+        await enqueue_track_maintenance(
+            session, track_id, kinds=("playlists",), refresh_existing=True,
+        )
+        await session.commit()
 
     return {
         "matched":
