@@ -148,3 +148,48 @@ async def test_admin_diagnostics_does_not_return_storage_exception_details(monke
         "Storage check failed; inspect server logs."
     )
     assert "storage-private-credential-detail" not in repr(result)
+
+@pytest.mark.asyncio
+async def test_metadata_backfill_does_not_return_raw_parser_or_storage_errors(
+    monkeypatch,
+) -> None:
+    private_detail = "storage-private-credential-detail"
+    track = SimpleNamespace(
+        id=uuid4(),
+        title="Fixture Track",
+        genre=None,
+        release_year=None,
+        b2_object_key="private/internal/object-key.mp3",
+    )
+    query_result = SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: [track]),
+    )
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=query_result),
+        commit=AsyncMock(),
+    )
+    bucket = SimpleNamespace(
+        download_file_by_name=MagicMock(
+            side_effect=RuntimeError(private_detail),
+        ),
+    )
+
+    async def run_blocking_inline(callback, *args, **kwargs):
+        return callback(*args, **kwargs)
+
+    monkeypatch.setattr(admin, "get_b2_bucket", lambda: bucket)
+    monkeypatch.setattr(admin, "run_blocking", run_blocking_inline)
+
+    result = await admin.backfill_track_metadata(
+        user=_admin_user(),
+        session=cast(Any, session),
+        limit=1,
+        external_limit=0,
+    )
+
+    assert result["failed"][0]["error"] == (
+        "Embedded metadata could not be read."
+    )
+    assert private_detail not in repr(result)
+    assert "private/internal/object-key.mp3" not in repr(result)
+    session.commit.assert_awaited_once()
