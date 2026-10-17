@@ -3,7 +3,6 @@ from pydantic import ValidationError
 
 from backend.app.config import Settings
 
-
 DATABASE_URL = "postgresql://verification:verification@localhost/hypersync"
 VALID_SECRET = "kB7aD9mQ3pX8vN2hL5rT1wZ6cF4sY0jR9uE7xC3pV8nM2"
 
