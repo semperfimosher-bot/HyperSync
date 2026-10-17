@@ -19,7 +19,7 @@ This pass removes known whole-audio and whole-catalog Python allocations. It doe
 | B2 SDK | 1upload,1copy,2download workers;1stream/file;256KiB save buffer |
 | Lyrics cooldown cache | 1024 entries; expired entries evicted |
 
-`MEDIA_MAX_CONCURRENT_UPLOADS`, `MEDIA_MAX_CONCURRENT_STREAMS`, and `CATALOG_MAX_CONCURRENT_EXPORTS` must be positive. Raise after measuring, not to hide503s. Multiply process-local budgets by Uvicorn workers and replicas. Database admission and connection budgets remain separate. The client already retries transient upload overloads.
+`MEDIA_MAX_CONCURRENT_UPLOADS`, `MEDIA_MAX_CONCURRENT_STREAMS`, and `CATALOG_MAX_CONCURRENT_EXPORTS` must be positive. Raise after measuring, not to hide503s. Multiply process-local budgets by Uvicorn workers and replicas. Database admission and connection budgets remain separate. The browser serializes server upload/finalize work within each tab while direct-to-B2 network transfers may overlap. Other clients can receive503 and retry; ambiguous POST failures are not automatically replayed.
 
 Temporary storage must be a real disk volume with free space: configure `TMPDIR` on Unix or `TEMP`/`TMP` on Windows before starting the server. A tmpfs `/tmp` charges file spools to container RAM. Uploads may temporarily occupy the parsed upload, source copy and converted result; large legacy exports occupy their JSON size. Disk exhaustion fails setup instead of sending partial success. Slow clients retain their export/media slot until close; request or SDK timeouts, process shutdown and disconnect cleanup bound resource lifetimes.
 
@@ -40,4 +40,4 @@ Initial local result:
 
 At10,000 tracks the traced allocation peak is about97% lower. RSS includes imports and varies by machine; it is not deployment total memory. Database-backed and FFmpeg/B2 workloads require separate deployment measurements.
 
-The CI operational rehearsal uses real pg_dump/pg_restore and a killed worker against disposable PostgreSQL17. See isolated-recovery-evidence.md. Live B2 interruptions, realistic soak tests and production backup restoration remain deployment rehearsals, never inferred from mock tests or small fixture timing.
+The CI operational rehearsal passed on commit2a52d5f using real pg_dump/pg_restore and a killed worker against disposable PostgreSQL17. See isolated-recovery-evidence.md. Live B2 interruptions, realistic soak tests and production backup restoration remain deployment rehearsals, never inferred from mock tests or small fixture timing.

@@ -58,3 +58,7 @@ process failure. It does not restore an actual deployment backup, contact B2,
 exercise provider network partitions, establish production capacity, or
 guarantee recovery times for a larger dataset. Restore duration measures local
 replay and validation; restart duration includes child startup and lease expiry.
+
+## First successful CI rehearsal
+
+Commit `2a52d5f` passed both workflows on2026-10-17. [Project verification run39054232667](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39054232667) ran the real dump/restore, killed-worker reclaim and active-token fencing handshake successfully. Its verification artifact includes `operations.json` and `memory.json`. [Backend run39054232665](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39054232665) passed484backend tests (2skipped),37tooling tests, lint, types and dependency/security checks. This is isolated PostgreSQL17 and copied fixture media evidence; it does not certify a production restore or live B2 outage.

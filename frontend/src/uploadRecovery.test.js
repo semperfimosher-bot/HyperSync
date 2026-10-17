@@ -105,3 +105,131 @@ for (const failure of ["abort", "http"]) {
     assert.equal(puts, 2);
   });
 }
+
+test("a browser batch sends fallback uploads to the server one at a time", async (t) => {
+  const { uploadTrack } = await import("./api/uploads.js?recovery-batch-fallback");
+  saveAuthSession("upload-test-token");
+  t.after(clearAuthSession);
+  t.mock.method(globalThis, "fetch", async () => Response.json({ direct_upload: false }));
+  const pending = [];
+  const previousXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    open() {}
+    setRequestHeader() {}
+    send() { pending.push(this); }
+  };
+  t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+  const results = [uploadTrack(item()), uploadTrack(item()), uploadTrack(item())];
+  for (let index = 0; index < 3; index++) {
+    await new Promise(setImmediate);
+    assert.equal(pending.length, index + 1, "only the next server upload starts");
+    const xhr = pending[index];
+    xhr.status = 200;
+    xhr.responseText = JSON.stringify({ success: true });
+    xhr.onload();
+  }
+  assert.equal((await Promise.all(results)).length, 3);
+});
+
+test("direct B2 transfers stay parallel while their server finalizations serialize", async (t) => {
+  const { uploadTrack } = await import("./api/uploads.js?recovery-batch-direct");
+  saveAuthSession("upload-test-token");
+  t.after(clearAuthSession);
+  const finalizations = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (String(url).endsWith("/prepare")) {
+      return Response.json({ direct_upload: true, object_key: "audio/test.mp3",
+        upload_url: "https://storage.example.test/test.mp3", content_type: "audio/mpeg" });
+    }
+    assert.ok(String(url).endsWith("/finalize"));
+    return new Promise((resolve) => { finalizations.push(resolve); });
+  });
+  let puts = 0;
+  const previousXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    open(method) { assert.equal(method, "PUT"); puts++; }
+    setRequestHeader() {}
+    send() { queueMicrotask(() => { this.status = 200; this.onload(); }); }
+  };
+  t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+  const results = [uploadTrack(item()), uploadTrack(item()), uploadTrack(item())];
+  for (let index = 0; index < 3; index++) {
+    await new Promise(setImmediate);
+    assert.equal(puts, 3, "B2 transfers are not serialized by the server gate");
+    assert.equal(finalizations.length, index + 1);
+    finalizations[index](Response.json({ success: true }));
+  }
+  assert.equal((await Promise.all(results)).length, 3);
+});
+
+for (const failure of ["network", "abort"]) {
+  test(`finalize ${failure} failure preserves audio that may already be committed`, async (t) => {
+    const { uploadTrack } = await import(`./api/uploads.js?finalize-ownership-${failure}`);
+    saveAuthSession("upload-test-token");
+    t.after(clearAuthSession);
+    const calls = [];
+    t.mock.method(globalThis, "fetch", async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/prepare")) {
+        return Response.json({ direct_upload: true, object_key: "audio/test.mp3",
+          upload_url: "https://storage.example.test/test.mp3", content_type: "audio/mpeg" });
+      }
+      if (String(url).endsWith("/finalize")) {
+        throw failure === "abort" ? new DOMException("cancelled", "AbortError") : new TypeError("lost response");
+      }
+      return Response.json({ success: true });
+    });
+    const previousXHR = globalThis.XMLHttpRequest;
+    globalThis.XMLHttpRequest = class {
+      upload = {};
+      open() {}
+      setRequestHeader() {}
+      send() { queueMicrotask(() => { this.status = 200; this.onload(); }); }
+    };
+    t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+    await assert.rejects(uploadTrack(item()));
+    assert.equal(calls.filter((url) => url.endsWith("/finalize")).length, 1);
+    assert.equal(calls.filter((url) => url.endsWith("/cancel")).length, 0);
+  });
+}
+
+test("cancelling a queued finalization cleans its unsubmitted prepared audio", async (t) => {
+  const { uploadTrack } = await import("./api/uploads.js?finalize-ownership-queued");
+  saveAuthSession("upload-test-token");
+  t.after(clearAuthSession);
+  const calls = [];
+  let finishActive;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/prepare")) {
+      return Response.json({ direct_upload: true, object_key: "audio/test.mp3",
+        upload_url: "https://storage.example.test/test.mp3", content_type: "audio/mpeg" });
+    }
+    if (String(url).endsWith("/finalize")) {
+      return new Promise((resolve) => { finishActive = resolve; });
+    }
+    return Response.json({ success: true });
+  });
+  const previousXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    open() {}
+    setRequestHeader() {}
+    send() { queueMicrotask(() => { this.status = 200; this.onload(); }); }
+    abort() { this.onabort(); }
+  };
+  t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+  const first = uploadTrack(item());
+  const controller = new AbortController();
+  const second = uploadTrack(item(), { signal: controller.signal });
+  const rejected = assert.rejects(second, { name: "AbortError" });
+  await new Promise(setImmediate);
+  assert.equal(calls.filter((url) => url.endsWith("/finalize")).length, 1);
+  controller.abort();
+  await rejected;
+  assert.equal(calls.filter((url) => url.endsWith("/cancel")).length, 1);
+  finishActive(Response.json({ success: true }));
+  await first;
+});

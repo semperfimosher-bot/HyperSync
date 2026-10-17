@@ -1,3 +1,4 @@
+import { runServerUpload } from "../serverUploadGate.js";
 import {
   API_BASE,
   apiRequest,
@@ -174,8 +175,7 @@ function sendDirectB2Upload({
         if (
           signal.aborted
         ) {
-          xhr.abort();
-
+          reject(new DOMException("Upload cancelled.", "AbortError"));
           return;
         }
 
@@ -231,6 +231,7 @@ function artworkFilename(
 async function finalizeDirectUpload(
   item,
   preparation,
+  signal,
 ) {
   const formData =
     new FormData();
@@ -313,15 +314,21 @@ async function finalizeDirectUpload(
     );
   }
 
-  return apiRequest(
-    "/admin/tracks/upload/finalize",
-    {
-      method:
-        "POST",
-      body:
-        formData,
-    },
-  );
+  let started = false;
+  try {
+    return await runServerUpload(() => {
+      started = true;
+      return apiRequest(
+        "/admin/tracks/upload/finalize",
+        { method: "POST", body: formData, signal },
+      );
+    }, { signal });
+  } catch (error) {
+    // Once submitted, the server owns cleanup. A lost response or abort can
+    // follow a durable commit, so deleting prepared audio would corrupt it.
+    if (!started) await cancelPreparedUpload(preparation);
+    throw error;
+  }
 }
 
 
@@ -511,7 +518,7 @@ formData.append(
 
     if (signal) {
       if (signal.aborted) {
-        xhr.abort();
+        reject(new DOMException("Upload cancelled.", "AbortError"));
         return;
       }
 
@@ -618,64 +625,22 @@ export async function uploadTrack(
     }
   }
 
-  if (
-    preparation
-      ?.direct_upload
-  ) {
+  if (preparation?.direct_upload) {
+    onProgress(96);
+    const response = await finalizeDirectUpload(item, preparation, signal);
+    onProgress(100);
+    return response;
+  }
+
+  return runServerUpload(async () => {
+    let token = getAccessToken();
     try {
-      onProgress(
-        96,
-      );
-
-      const response =
-        await finalizeDirectUpload(
-          item,
-          preparation,
-        );
-
-      onProgress(
-        100,
-      );
-
-      return response;
+      return await sendUpload({ item, token, signal, onProgress });
     } catch (error) {
-      await cancelPreparedUpload(
-        preparation,
-      );
-
-      throw error;
+      if (error?.status !== 401) throw error;
+      const auth = await refreshAccessToken();
+      token = auth.access_token;
+      return sendUpload({ item, token, signal, onProgress });
     }
-  }
-
-  let token =
-    getAccessToken();
-
-  try {
-    return await sendUpload({
-      item,
-      token,
-      signal,
-      onProgress,
-    });
-  } catch (error) {
-    if (
-      error?.status !==
-      401
-    ) {
-      throw error;
-    }
-
-    const auth =
-      await refreshAccessToken();
-
-    token =
-      auth.access_token;
-
-    return sendUpload({
-      item,
-      token,
-      signal,
-      onProgress,
-    });
-  }
+  }, { signal });
 }

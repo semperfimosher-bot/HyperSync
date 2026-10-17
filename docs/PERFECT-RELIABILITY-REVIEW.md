@@ -36,7 +36,7 @@ Known bulk allocations are replaced with disk-backed upload/compression/backfill
 
 Fresh-process local fixtures produce byte-identical catalog JSON with peak traced Python allocations about32.13MiB→0.83MiB at10,000tracks; the new peak stays approximately flat at1,000/10,000tracks. Disk audio copy/compression-disabled allocations stay about2.01MiB at8/64MiB. These figures exclude database/FFmpeg/live B2 workloads and are not a total RSS budget. See docs/operations/server-memory.md.
 
-Independent review found and resolved nested metadata allocation and pre-response stream cancellation issues. Disposable CI now runs actual pg_dump/pg_restore and killed-worker restart/fencing rehearsals with preserved membership/order, pending jobs and fixture media hashes. Final CI evidence is reported on the PR; fixture restore/restart results do not establish production backup recoverability or live provider outage behavior.
+Independent review found and resolved nested metadata allocation and pre-response stream cancellation issues. Disposable CI now runs actual pg_dump/pg_restore and killed-worker restart/fencing rehearsals with preserved membership/order, pending jobs and fixture media hashes. Both complete CI workflows passed commit2a52d5f:484backend tests (2skipped),37tooling tests,252frontend tests, Windows/browser journeys, builds and security checks. Actual fixture backup/restore, killed-worker reclaim and active-token fencing passed. Final browser upload scheduling follows up on that revision; current CI is reported on the PR. Fixture restore/restart results do not establish production backup recoverability or live provider outage behavior.
 
 ## Cleanup delivered
 
