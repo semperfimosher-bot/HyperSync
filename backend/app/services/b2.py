@@ -94,9 +94,10 @@ def get_b2_s3_client():
 
     if (
         not is_https_origin
-        or len(hostname_parts) < 4
+        or len(hostname_parts) != 4
         or hostname_parts[0] != "s3"
-        or not hostname.endswith(".backblazeb2.com")
+        or not hostname_parts[1]
+        or hostname_parts[2:] != ["backblazeb2", "com"]
     ):
         raise RuntimeError(
             "B2_ENDPOINT must be an HTTPS Backblaze S3 endpoint origin, "
