@@ -91,11 +91,13 @@ def test_staging_and_production_reject_weak_optional_secrets(
     value: str,
 ) -> None:
     with pytest.raises(ValidationError, match=field.upper()):
-        Settings(
-            environment=environment,
-            database_url=DATABASE_URL,
-            jwt_secret=VALID_SECRET,
-            **{field: value},
+        Settings.model_validate(
+            {
+                "environment": environment,
+                "database_url": DATABASE_URL,
+                "jwt_secret": VALID_SECRET,
+                field: value,
+            }
         )
 
 
@@ -111,11 +113,13 @@ def test_strong_optional_secrets_are_accepted_in_production(
     field: str,
     value: str,
 ) -> None:
-    settings = Settings(
-        environment="production",
-        database_url=DATABASE_URL,
-        jwt_secret=VALID_SECRET,
-        **{field: value},
+    settings = Settings.model_validate(
+        {
+            "environment": "production",
+            "database_url": DATABASE_URL,
+            "jwt_secret": VALID_SECRET,
+            field: value,
+        }
     )
     assert getattr(settings, field) == value
 
