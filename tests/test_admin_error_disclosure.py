@@ -1,6 +1,6 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
