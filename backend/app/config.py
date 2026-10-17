@@ -223,7 +223,49 @@ class Settings(BaseSettings):
                 "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
             )
 
+        self.validate_security_configuration()
         return self.validate_database_capacity()
+
+    def validate_security_configuration(self) -> "Settings":
+        allowed_jwt_algorithms = {"HS256", "HS384", "HS512"}
+        if self.jwt_algorithm not in allowed_jwt_algorithms:
+            raise ValueError(
+                "JWT_ALGORITHM must be one of HS256, HS384, or HS512."
+            )
+
+        if not self.jwt_issuer.strip():
+            raise ValueError("JWT_ISSUER must not be empty.")
+        if not self.jwt_audience.strip():
+            raise ValueError("JWT_AUDIENCE must not be empty.")
+
+        if self.environment in {"staging", "production"}:
+            secret = self.jwt_secret.strip()
+            lowered_secret = secret.casefold()
+            placeholder_values = {
+                "replace-with-a-long-random-secret",
+                "change-me",
+                "changeme",
+                "your-secret-here",
+                "your-jwt-secret",
+                "example-secret",
+                "development-secret",
+                "test-secret",
+            }
+            is_placeholder = (
+                lowered_secret in placeholder_values
+                or lowered_secret.startswith("replace-with-")
+                or lowered_secret.startswith("your-")
+                or lowered_secret.startswith("example-")
+                or lowered_secret.startswith("development-")
+                or lowered_secret.startswith("test-secret")
+            )
+            if len(secret) < 32 or is_placeholder:
+                raise ValueError(
+                    "JWT_SECRET must be a unique, randomly generated secret "
+                    "of at least 32 characters in staging and production."
+                )
+
+        return self
 
     def validate_database_capacity(self) -> "Settings":
         if self.db_pool_size < 1:

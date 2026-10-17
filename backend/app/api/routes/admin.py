@@ -904,7 +904,8 @@ async def delete_all_database_data(
             )
         )
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Unable to delete every B2 object version during admin reset.")
         await session.rollback()
 
         raise HTTPException(
@@ -912,11 +913,10 @@ async def delete_all_database_data(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Failed to delete every "
-                f"B2 file version: {exc}. "
-                "Database data was not wiped."
+                "Unable to remove all storage objects. "
+                "Database data was not wiped; inspect server logs before retrying."
             ),
-        ) from exc
+        )
 
     try:
         (
@@ -928,17 +928,17 @@ async def delete_all_database_data(
             )
         )
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Storage objects were deleted but the admin database reset failed.")
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "B2 files were deleted, but "
-                "the database wipe failed: "
-                f"{exc}"
+                "Storage objects were deleted, but the database reset failed. "
+                "Inspect server logs before retrying."
             ),
-        ) from exc
+        )
 
     response.delete_cookie(
         key="hypersync_refresh",
@@ -1406,7 +1406,8 @@ async def finalize_direct_track_upload(
         await session.rollback()
         raise
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Direct B2 upload finalization failed.")
         await session.rollback()
 
         raise HTTPException(
@@ -1414,10 +1415,10 @@ async def finalize_direct_track_upload(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Unable to finalize direct "
-                f"upload: {exc}"
+                "Unable to finalize direct upload. "
+                "Please retry or contact support."
             ),
-        ) from exc
+        )
 
     finally:
         if cleanup_audio:
@@ -1775,13 +1776,17 @@ async def upload_track(
 
         raise
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Backend audio upload failed.")
         await session.rollback()
 
         raise HTTPException(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=(f"Upload failed: {exc}"),
-        ) from exc
+            detail=(
+                "Upload failed while processing the audio file. "
+                "Please retry or contact support."
+            ),
+        )
 
     finally:
         temporary.cleanup()

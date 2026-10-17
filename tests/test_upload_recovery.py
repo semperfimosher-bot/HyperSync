@@ -378,6 +378,12 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
         response = await client.post("/upload", data=data, files=files)
     if commit_lost:
         assert response.status_code == 500
+        assert "commit acknowledgement lost after durable write" not in response.text
+        assert (
+            "Unable to finalize direct upload." in response.text
+            if direct
+            else "Upload failed while processing the audio file." in response.text
+        )
         assert queued, "the commit included maintenance work"
         cleanup.assert_not_awaited()
         return
