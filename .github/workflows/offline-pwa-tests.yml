@@ -31,32 +31,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Diagnose full frontend dependency audit
-        shell: bash
-        run: |
-          set +e
-          npm audit --json > /tmp/hypersync-npm-audit.json
-          audit_status=$?
-          set -e
-          node --input-type=commonjs -e '
-            const fs = require("node:fs");
-            const report = JSON.parse(fs.readFileSync("/tmp/hypersync-npm-audit.json", "utf8"));
-            for (const [name, item] of Object.entries(report.vulnerabilities ?? {})) {
-              console.log(JSON.stringify({
-                package: name,
-                severity: item.severity,
-                direct: item.isDirect,
-                range: item.range,
-                via: item.via,
-                fixAvailable: item.fixAvailable,
-                effects: item.effects
-              }));
-            }
-            console.log("Audit totals:", JSON.stringify(report.metadata?.vulnerabilities ?? {}));
-          '
-          echo "Full dependency audit exit status: $audit_status"
-        continue-on-error: true
-
       - name: Run offline regression tests
         run: npm run test:offline
 
@@ -161,10 +135,6 @@ jobs:
 
       - name: Run full backend regression suite
         run: python -m pytest -q
-
-      - name: Preview Ruff auto-fixes for diagnostics
-        run: python -m ruff check --diff backend scripts tests
-        continue-on-error: true
 
       - name: Lint backend, scripts, and tests
         run: python -m ruff check backend scripts tests
