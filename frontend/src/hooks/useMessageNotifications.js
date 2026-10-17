@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -50,6 +51,9 @@ export default function useMessageNotifications({
     setPushEnabled,
   ] = useState(false);
 
+  // Share one in-flight refresh across interval, focus, and visibility events.
+  const refreshInFlightRef = useRef(null);
+
 
   const resetMessageNotifications =
     useCallback(
@@ -72,7 +76,7 @@ export default function useMessageNotifications({
 
   const refreshMessageNotifications =
     useCallback(
-      async () => {
+      () => {
         if (
           currentUser?.account_type !==
             "registered" ||
@@ -80,36 +84,59 @@ export default function useMessageNotifications({
             ?.onLine ===
             false
         ) {
-          setMessageNotifications(
-            emptyNotificationSnapshot(),
-          );
+          if (
+            currentUser?.account_type !==
+              "registered"
+          ) {
+            setMessageNotifications(
+              emptyNotificationSnapshot(),
+            );
+          }
 
-          return;
+          return Promise.resolve();
         }
 
-        try {
-          const result =
-            await getMessageNotifications();
-
-          setMessageNotifications({
-            unread_count:
-              Number(
-                result
-                  ?.unread_count ??
-                  0,
-              ) || 0,
-            notifications:
-              Array.isArray(
-                result
-                  ?.notifications,
-              )
-                ? result.notifications
-                : [],
-          });
-        } catch {
-          // Keep the current snapshot during a
-          // temporary network or API failure.
+        // A timer tick and a focus/visibility event can happen together.
+        // Reuse the same request instead of stacking duplicate API calls.
+        if (refreshInFlightRef.current) {
+          return refreshInFlightRef.current;
         }
+
+        const request = (async () => {
+          try {
+            const result =
+              await getMessageNotifications();
+
+            setMessageNotifications({
+              unread_count:
+                Number(
+                  result
+                    ?.unread_count ??
+                    0,
+                ) || 0,
+              notifications:
+                Array.isArray(
+                  result
+                    ?.notifications,
+                )
+                  ? result.notifications
+                  : [],
+            });
+          } catch {
+            // Keep the current snapshot during a
+            // temporary network or API failure.
+          } finally {
+            if (
+              refreshInFlightRef.current ===
+                request
+            ) {
+              refreshInFlightRef.current = null;
+            }
+          }
+        })();
+
+        refreshInFlightRef.current = request;
+        return request;
       },
       [
         currentUser
@@ -351,12 +378,19 @@ export default function useMessageNotifications({
         },
       );
 
+    // Poll only while this tab is visible. Focus/visibility events below
+    // refresh immediately when the user returns, without background churn.
     const interval =
       window.setInterval(
         () => {
-          void refreshMessageNotifications();
+          if (
+            document.visibilityState ===
+              "visible"
+          ) {
+            void refreshMessageNotifications();
+          }
         },
-        30_000,
+        60_000,
       );
 
     const handleFocus =
