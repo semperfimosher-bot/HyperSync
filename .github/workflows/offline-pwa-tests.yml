@@ -136,6 +136,10 @@ jobs:
       - name: Run full backend regression suite
         run: python -m pytest -q
 
+      - name: Preview Ruff auto-fixes for diagnostics
+        run: python -m ruff check --diff backend scripts tests
+        continue-on-error: true
+
       - name: Lint backend, scripts, and tests
         run: python -m ruff check backend scripts tests
 
