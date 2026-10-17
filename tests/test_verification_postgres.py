@@ -35,6 +35,9 @@ def test_postgres_database_name_is_owned_and_injection_safe():
 def test_online_migrations_can_use_an_owned_existing_connection(monkeypatch):
     config = Config()
     connection = MagicMock()
+    connection.engine.url.host = "127.0.0.1"
+    connection.in_transaction.return_value = True
+    connection.execute.return_value.scalar_one.return_value = True
     config.attributes["connection"] = connection
     configure = MagicMock()
     migrate = MagicMock()
@@ -46,6 +49,7 @@ def test_online_migrations_can_use_an_owned_existing_connection(monkeypatch):
     runpy.run_path("migrations/env.py")
     assert configure.call_args.kwargs["connection"] is connection
     migrate.assert_called_once()
+    connection.invalidate.assert_not_called()
 
 
 @pytest.mark.asyncio
