@@ -72,3 +72,61 @@ def test_development_may_omit_jwt_secret_for_local_setup() -> None:
         jwt_secret="",
     )
     assert settings.jwt_secret == ""
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("admin_database_delete_password", "replace-with-admin-reset-password"),
+        ("admin_database_delete_password", "short"),
+        ("admin_account_creation_password", "replace-with-admin-account-creation-password"),
+        ("admin_account_creation_password", "short"),
+        ("password_recovery_secret", "replace-with-a-long-random-secret"),
+        ("password_recovery_secret", "short"),
+    ],
+)
+def test_staging_and_production_reject_weak_optional_secrets(
+    environment: str,
+    field: str,
+    value: str,
+) -> None:
+    with pytest.raises(ValidationError, match=field.upper()):
+        Settings(
+            environment=environment,
+            database_url=DATABASE_URL,
+            jwt_secret=VALID_SECRET,
+            **{field: value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("admin_database_delete_password", "admin-reset-4vN8qX2dM9pR6tK3wB7sL1zF"),
+        ("admin_account_creation_password", "admin-create-7cT3mQ8xN2vR5pL9wD6sH1zB"),
+        ("password_recovery_secret", "password-recovery-5rK9xD2mV8qT4nL7wC1sB6zP"),
+    ],
+)
+def test_strong_optional_secrets_are_accepted_in_production(
+    field: str,
+    value: str,
+) -> None:
+    settings = Settings(
+        environment="production",
+        database_url=DATABASE_URL,
+        jwt_secret=VALID_SECRET,
+        **{field: value},
+    )
+    assert getattr(settings, field) == value
+
+
+def test_unset_optional_secrets_remain_disabled_or_use_jwt_fallback() -> None:
+    settings = Settings(
+        environment="production",
+        database_url=DATABASE_URL,
+        jwt_secret=VALID_SECRET,
+    )
+    assert settings.admin_database_delete_password == ""
+    assert settings.admin_account_creation_password == ""
+    assert settings.password_recovery_secret == ""

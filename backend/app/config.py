@@ -238,9 +238,8 @@ class Settings(BaseSettings):
         if not self.jwt_audience.strip():
             raise ValueError("JWT_AUDIENCE must not be empty.")
 
-        if self.environment in {"staging", "production"}:
-            secret = self.jwt_secret.strip()
-            lowered_secret = secret.casefold()
+        def is_placeholder_secret(value: str) -> bool:
+            normalized = value.strip().casefold()
             placeholder_values = {
                 "replace-with-a-long-random-secret",
                 "change-me",
@@ -251,19 +250,53 @@ class Settings(BaseSettings):
                 "development-secret",
                 "test-secret",
             }
-            is_placeholder = (
-                lowered_secret in placeholder_values
-                or lowered_secret.startswith("replace-with-")
-                or lowered_secret.startswith("your-")
-                or lowered_secret.startswith("example-")
-                or lowered_secret.startswith("development-")
-                or lowered_secret.startswith("test-secret")
+            return (
+                normalized in placeholder_values
+                or normalized.startswith("replace-with-")
+                or normalized.startswith("your-")
+                or normalized.startswith("example-")
+                or normalized.startswith("development-")
+                or normalized.startswith("test-secret")
             )
-            if len(secret) < 32 or is_placeholder:
+
+        if self.environment in {"staging", "production"}:
+            secret = self.jwt_secret.strip()
+            if len(secret) < 32 or is_placeholder_secret(secret):
                 raise ValueError(
                     "JWT_SECRET must be a unique, randomly generated secret "
                     "of at least 32 characters in staging and production."
                 )
+
+            # These secrets are optional features, but if configured they must
+            # not silently run with values copied from a sample env file.
+            optional_secrets = (
+                (
+                    "ADMIN_DATABASE_DELETE_PASSWORD",
+                    self.admin_database_delete_password,
+                    24,
+                ),
+                (
+                    "ADMIN_ACCOUNT_CREATION_PASSWORD",
+                    self.admin_account_creation_password,
+                    24,
+                ),
+                (
+                    "PASSWORD_RECOVERY_SECRET",
+                    self.password_recovery_secret,
+                    32,
+                ),
+            )
+            for name, configured_value, minimum_length in optional_secrets:
+                value = configured_value.strip()
+                if value and (
+                    len(value) < minimum_length
+                    or is_placeholder_secret(value)
+                ):
+                    raise ValueError(
+                        f"{name} must be a unique non-placeholder secret "
+                        f"of at least {minimum_length} characters when set "
+                        "in staging or production."
+                    )
 
         return self
 
