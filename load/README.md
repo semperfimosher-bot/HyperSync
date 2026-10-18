@@ -38,20 +38,26 @@ the 100-user / large-catalog test:
 
 ```powershell
 $env:TARGET_BASE_URL = "https://YOUR-STAGING-API"
+$env:EXPECTED_STAGING_HOST = "YOUR-STAGING-API-HOSTNAME"
+$env:CONFIRM_STAGING_ONLY = "YES" # only after verifying isolated staging
 # Optional: use only a dedicated staging user's token.
 $env:TEST_AUTH_TOKEN = "YOUR-DEDICATED-STAGING-USER-ACCESS-TOKEN"
 k6 run load/k6-100-users.js
 Remove-Item Env:TEST_AUTH_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:TARGET_BASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:EXPECTED_STAGING_HOST -ErrorAction SilentlyContinue
+Remove-Item Env:CONFIRM_STAGING_ONLY -ErrorAction SilentlyContinue
 ```
 
 Use the actual staging API origin, for example
 `https://staging-api.example.com`. Do not use a production URL. Both scripts
 reject the known production hosts `hypersynced.app`, `www.hypersynced.app`, and
-`api.hypersynced.app`, and reject origins with credentials, paths, query strings,
-or fragments. This guard is not a substitute for checking the target hostname
-before each run: other aliases or hosting-provider URLs can still point to
-production. The scripts request `/api/...` paths from the supplied origin.
+`api.hypersynced.app`, reject origins with credentials, paths, query strings,
+or fragments, require `CONFIRM_STAGING_ONLY=YES`, and require the exact hostname
+to match `EXPECTED_STAGING_HOST`. Set those confirmation variables only after
+independently verifying the target's resolved service, database, and storage are
+staging-only. These guards cannot prove that a custom hostname or DNS alias is
+not routed to production; the operator must verify the destination before every run. The scripts request `/api/...` paths from the supplied origin.
 
 ## What the tests cover
 
