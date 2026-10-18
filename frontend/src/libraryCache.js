@@ -368,11 +368,113 @@ async function deleteIndexedDbLibrary(userKey) {
     db = await openLibraryCacheDb();
     if (!db) return;
     const transaction = db.transaction(LIBRARY_STORE_NAME, "readwrite");
-    await idbRequest(
-      transaction.objectStore(LIBRARY_STORE_NAME).delete(getScopeKey(userKey)),
-    );
+    const store = transaction.objectStore(LIBRARY_STORE_NAME);
+    const scopeKey = getScopeKey(userKey);
+    const keys = await idbRequest(store.getAllKeys());
+    for (const key of keys) {
+      if (
+        key === scopeKey ||
+        (typeof key === "string" &&
+          key.startsWith(`playlist:${scopeKey}:`))
+      ) {
+        store.delete(key);
+      }
+    }
     db.close();
   } catch {
     try { db?.close(); } catch { /* best-effort cleanup */ }
   }
+}
+
+function getPlaylistRecordKey(userKey, playlistId) {
+  return `playlist:${getScopeKey(userKey)}:${String(playlistId)}`;
+}
+
+export async function getCachedPlaylistAsync(userKey, playlistId) {
+  if (!playlistId) return null;
+  let db;
+  try {
+    db = await openLibraryCacheDb();
+    if (db) {
+      const transaction = db.transaction(LIBRARY_STORE_NAME, "readonly");
+      const record = await idbRequest(
+        transaction.objectStore(LIBRARY_STORE_NAME).get(
+          getPlaylistRecordKey(userKey, playlistId),
+        ),
+      );
+      db.close();
+      if (record?.playlist) return record.playlist;
+    }
+  } catch {
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+  }
+
+  const legacy = getCachedPlaylist(userKey, playlistId);
+  if (
+    legacy &&
+    Array.isArray(legacy.tracks) &&
+    legacy.tracksStoredInIndexedDB !== true
+  ) {
+    // Migrate older localStorage snapshots the next time they are read.
+    await setCachedPlaylistAsync(userKey, legacy);
+    return legacy;
+  }
+  return null;
+}
+
+export async function setCachedPlaylistAsync(userKey, playlist) {
+  if (!playlist?.id) return;
+  const snapshot = {
+    ...playlist,
+    tracks: Array.isArray(playlist.tracks) ? playlist.tracks : [],
+    cachedAt: Date.now(),
+  };
+  let db;
+  try {
+    db = await openLibraryCacheDb();
+    if (db) {
+      const transaction = db.transaction(LIBRARY_STORE_NAME, "readwrite");
+      await idbRequest(
+        transaction.objectStore(LIBRARY_STORE_NAME).put({
+          key: getPlaylistRecordKey(userKey, snapshot.id),
+          playlist: snapshot,
+        }),
+      );
+      db.close();
+
+      // Keep only metadata in localStorage; full track arrays stay in IndexedDB.
+      setCachedPlaylist(userKey, {
+        ...snapshot,
+        trackCount: snapshot.tracks.length,
+        tracks: [],
+        tracksStoredInIndexedDB: true,
+      });
+      return;
+    }
+  } catch {
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+  }
+
+  // Best-effort compatibility for browsers without usable IndexedDB.
+  setCachedPlaylist(userKey, snapshot);
+}
+
+export async function removeCachedPlaylistAsync(userKey, playlistId) {
+  if (!playlistId) return;
+  let db;
+  try {
+    db = await openLibraryCacheDb();
+    if (db) {
+      const transaction = db.transaction(LIBRARY_STORE_NAME, "readwrite");
+      await idbRequest(
+        transaction.objectStore(LIBRARY_STORE_NAME).delete(
+          getPlaylistRecordKey(userKey, playlistId),
+        ),
+      );
+      db.close();
+    }
+  } catch {
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+  }
+  removeCachedPlaylist(userKey, playlistId);
 }
