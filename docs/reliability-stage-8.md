@@ -11,6 +11,7 @@ Validate the system against realistic workload, resource limits, network failure
 - All load and fault tests require an isolated staging frontend, API, database, and test-only media bucket.
 - Verify staging origins, credentials, test accounts, and storage targets before starting a test.
 - Start with 40 concurrent virtual users. Run 100 only after the 40-user run passes and the environment recovers.
+- The existing 500-user script is a legacy scenario, not part of Stage 8 acceptance; it must not be run without a separate capacity plan and explicit approval.
 - Do not introduce SSE/WebSockets solely as a guess. Use request/event measurements from staging to identify polling hotspots first.
 - Preserve same-device playback restore; do not add cross-device playback or controls.
 
@@ -21,10 +22,11 @@ Validate the system against realistic workload, resource limits, network failure
 - Review existing staging-load-test tooling before creating duplicate scripts.
 - Define reproducible scenarios for sign-in/session refresh, library page navigation/search, playlist snapshots, artwork fetch/fallback, audio range requests, uploads/retries (test media only), offline launch, and same-device playback restore.
 - Keep credentials out of logs and test artifacts. Do not emit signed URLs, authorization headers, cookies, or user-specific response bodies.
-- Require an explicit staging base URL and a safety guard that rejects production hostnames/configuration.
+- Require an explicit staging base URL and a safety guard that rejects known production hostnames/configuration.
 - Record test version, environment resource limits, dataset size, run duration, concurrency, and scenario mix.
+- Ensure all existing k6 scenarios (40, 100, and legacy 500 users) enforce the same staging-only host/URL confirmation checks.
 
-**Acceptance:** script/unit checks pass; the test refuses to run without explicit staging configuration and refuses known production targets.
+**Acceptance:** script syntax checks pass; each k6 scenario refuses to run without explicit staging configuration and refuses known production targets. Host checks do not prove a custom DNS alias is staging, so operators must independently verify routing, database, and storage.
 
 ### 8.2 — Baseline at 40 concurrent users
 
@@ -76,23 +78,13 @@ Capture recovery time and confirm no corrupted/duplicated uploads, stuck tasks, 
 
 **Acceptance:** all required checks pass, staging evidence is attached, and unresolved risks are explicitly documented. If staging is unavailable, mark Stage 8 blocked rather than claiming success.
 
-## Initial plan / status
+## Status
 
-- Stage 8 branch created from Stage 7 head `26eaf3e8293719018eb573fd8c303d2efa375801`.
-- No load tests have been run in this work session because an isolated staging environment has not been confirmed.
-- First task is to inspect and reuse existing staging load-test tooling, then add safe guards/coverage without duplicating or weakening current safeguards.
-- This document alone does not mean Stage 8 is complete.
-
-
-## Existing load-test assets reviewed
-
-The repository already contains both guarded k6 scenarios and operator guidance; Stage 8 should extend and use these rather than create duplicate scripts:
-
-- `load/k6-40-users.js`: ramps to 40 virtual users and holds five minutes; catalog/search plus optional dedicated staging-account library/playlists.
-- `load/k6-100-users.js`: ramps to 100 and holds five minutes; bounded catalog/library offsets spanning up to 100,000 tracks plus search/playlists.
-- `load/README.md`: PowerShell invocation, initial thresholds, safety notes, and known gaps.
-- `docs/operations/northflank-staging.md`: staging service setup and pre-load-test isolation checks.
-
-Both scripts require `TARGET_BASE_URL`, reject known production hostnames, reject non-origin URLs, and optionally accept a dedicated staging token through `TEST_AUTH_TOKEN`. These safeguards do not detect every possible alias to production; a human must verify the resolved staging destination before running them.
-
-The existing tests currently exercise API endpoints only, not browser flows, uploads, audio streaming, offline startup, or fault injection. Those remain distinct Stage 8 work packages. Existing thresholds are HTTP failure rate below 1%, overall p95 below 750 ms, p99 below 1,500 ms, and catalog/search p95 below 750 ms; confirm these are suitable for the measured staging hardware before treating them as release gates.
+- Stage 8 branch is based on Stage 7 head `26eaf3e8293719018eb573fd8c303d2efa375801`.
+- Reused existing 40-user and 100-user k6 scripts and operator guidance rather than duplicating them.
+- Found and fixed a safety gap in the legacy 500-user script: it now requires explicit staging confirmation and exact expected-host matching, rejects known production hosts and non-origin URLs, and has a bounded request timeout.
+- CI now syntax-checks all three k6 scripts.
+- No load tests have been run because an isolated staging destination has not been confirmed.
+- The scripts currently exercise API catalog/search and optional library/playlist requests only; browser flows, uploads, audio streaming, offline startup, and fault injection remain separate work packages.
+- Initial thresholds are HTTP failure rate below 1%, overall p95 below 750 ms, p99 below 1,500 ms, and catalog/search p95 below 750 ms. Confirm these are suitable for the measured staging hardware before treating them as release gates.
+- This document and passing CI do not establish 100-user capacity or production readiness.
