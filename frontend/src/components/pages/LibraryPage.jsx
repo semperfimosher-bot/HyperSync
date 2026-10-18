@@ -96,8 +96,10 @@ import {
 import {
   getCachedLibrary,
   getCachedLibraryAsync,
+  getCachedLibraryPageAsync,
   getCachedPlaylistAsync,
   setCachedLibraryAsync,
+  setCachedLibraryPageAsync,
   setCachedPlaylistAsync,
 } from "../../libraryCache.js";
 
@@ -321,9 +323,15 @@ const [
     Array.isArray(
       cachedLibrary?.tracks,
     )
-      ? cachedLibrary.tracks
+      ? cachedLibrary.tracks.slice(0, 1000)
       : [],
 );
+
+const [libraryHasMore, setLibraryHasMore] = useState(
+  Array.isArray(cachedLibrary?.tracks) &&
+    cachedLibrary.tracks.length >= 1000,
+);
+const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
 
 const [
   selectedLibraryEntity,
@@ -878,13 +886,11 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              cached.tracks,
-            )
-              ? cached.tracks
-              : [],
-          );
+          const cachedTracks = Array.isArray(cached.tracks)
+            ? cached.tracks.slice(0, 1000)
+            : [];
+          setLibraryTracks(cachedTracks);
+          setLibraryHasMore(cachedTracks.length >= 1000);
 
           setError("");
         } else {
@@ -923,9 +929,9 @@ const [
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
-            quiet && Array.isArray(cached?.tracks)
-              ? Promise.resolve(cached.tracks)
-              : getLibraryTracks(),
+            quiet
+              ? Promise.resolve(libraryTracks)
+              : getLibraryTracks({ limit: 1000, offset: 0 }),
           ]);
 
         const nextOwned =
@@ -952,8 +958,12 @@ const [
         );
 
         setLibraryTracks(
-          nextTracks,
+          quiet ? nextTracks : nextTracks.slice(0, 1000),
         );
+
+        if (!quiet) {
+          setLibraryHasMore(nextTracks.length >= 1000);
+        }
 
         await setCachedLibraryAsync(
           libraryCacheKey,
@@ -996,13 +1006,11 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              fallback.tracks,
-            )
-              ? fallback.tracks
-              : [],
-          );
+          const fallbackTracks = Array.isArray(fallback.tracks)
+            ? fallback.tracks.slice(0, 1000)
+            : [];
+          setLibraryTracks(fallbackTracks);
+          setLibraryHasMore(fallbackTracks.length >= 1000);
 
           setError("");
         } else if (!quiet) {
@@ -1021,8 +1029,49 @@ const [
     [
       isRegistered,
       libraryCacheKey,
+      libraryTracks,
     ],
   );
+
+  const loadMoreLibraryTracks = useCallback(async () => {
+    if (libraryLoadingMore || !libraryHasMore) return;
+    setLibraryLoadingMore(true);
+    const offset = libraryTracks.length;
+    try {
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const page = offline
+        ? await getCachedLibraryPageAsync(libraryCacheKey, offset)
+        : await getLibraryTracks({ limit: 1000, offset });
+      const nextPage = Array.isArray(page) ? page : [];
+      if (nextPage.length === 0) {
+        setLibraryHasMore(false);
+        return;
+      }
+      if (!offline) {
+        await setCachedLibraryPageAsync(libraryCacheKey, offset, nextPage);
+      }
+      setLibraryTracks((current) => {
+        const seen = new Set(current.map((track) => String(track.id)));
+        return current.concat(
+          nextPage.filter((track) => !seen.has(String(track.id))),
+        );
+      });
+      setLibraryHasMore(nextPage.length >= 1000);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load more library tracks.",
+      );
+    } finally {
+      setLibraryLoadingMore(false);
+    }
+  }, [
+    libraryCacheKey,
+    libraryHasMore,
+    libraryLoadingMore,
+    libraryTracks,
+  ]);
 
   useEffect(() => {
     void loadLibrary();
