@@ -36,24 +36,21 @@ export async function getLibraryTrack(
     return null;
   }
 
-  const tracks =
-    await getLibraryTracks();
-
-  return (
-    (
-      Array.isArray(tracks)
-        ? tracks
-        : []
-    ).find(
-      (track) =>
-        String(
-          track?.id ??
-          "",
-        ) ===
-          normalizedTrackId,
-    ) ??
-    null
-  );
+  /*
+   * Resolve a single track directly instead of downloading and scanning
+   * the user's entire library for every track action. This is important
+   * for large libraries and avoids multiplying a full-library response
+   * by each offline-download or liked-song action.
+   */
+  try {
+    return await apiRequest(
+      `/catalog/tracks/${encodeURIComponent(
+        normalizedTrackId,
+      )}`,
+    );
+  } catch {
+    return null;
+  }
 }
 
 
