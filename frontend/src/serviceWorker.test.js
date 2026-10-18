@@ -490,6 +490,12 @@ test(
       record,
     );
 
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
+    );
+
     const bytes =
       new Uint8Array(
         chunkSize,
@@ -644,6 +650,12 @@ test(
 
     await mediaStore.saveMediaRecord(
       record,
+    );
+
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
     );
 
     const bytes =
@@ -803,7 +815,7 @@ test(
 );
 
 test(
-  "open-ended cold media request coalesces cache chunks into bounded network windows",
+  "open-ended active-playback media request coalesces cache chunks into bounded network windows",
   async () => {
     const mediaStore =
       await import(
@@ -855,6 +867,11 @@ test(
         state:
           "NONE",
       }),
+    );
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
     );
 
     const requestedRanges =
