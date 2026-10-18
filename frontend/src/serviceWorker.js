@@ -1,3 +1,5 @@
+import { matchAppShell } from "./appShellCache.js";
+import { readBoundedResponse } from "./boundedResponse.js";
 import {
   clearAllMediaDatabases,
   cleanupExpiredMedia,
@@ -10,10 +12,6 @@ import {
 import {
   createCachedMediaRangeResponse,
 } from "./mediaCacheResponse.js";
-
-import {
-  matchAppShell,
-} from "./appShellCache.js";
 
 import {
   cacheNetworkMediaResponse,
@@ -34,8 +32,10 @@ const DEFAULT_API_BASE_URL =
   import.meta.env
     ?.VITE_API_BASE_URL ??
   "/api";
-const APP_SHELL_CACHE =
-  "hypersync-app-shell-v5";
+const BUILD_MANIFEST = globalThis.__HYPERSYNC_BUILD_MANIFEST__ ?? null;
+const APP_SHELL_CACHE = BUILD_MANIFEST
+  ? `hypersync-app-shell-${BUILD_MANIFEST.revision}`
+  : "hypersync-app-shell-v3";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -46,348 +46,111 @@ const NAVIGATION_NETWORK_TIMEOUT_MS =
 const MEDIA_CLEANUP_INTERVAL_MS =
   6 * 60 * 60 * 1000;
 
-const PRECACHE_ASSET_PATTERN =
-  /\.(?:m?js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|ico)$/i;
-
-const CRITICAL_PRECACHE_ASSET_PATTERN =
-  /\.(?:m?js|css|woff2?|ttf|otf)$/i;
-
-function isCriticalPrecacheAsset(url) {
-  try {
-    return CRITICAL_PRECACHE_ASSET_PATTERN.test(
-      new URL(url).pathname,
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function cacheAssetUrls(
-  cache,
-  urls,
-  {
-    requireCriticalAssets = true,
-  } = {},
-) {
-  await Promise.all(
-    urls.map(async (url) => {
-      const required =
-        requireCriticalAssets &&
-        isCriticalPrecacheAsset(url);
-
-      try {
-        const response = await fetch(
-          url,
-          {
-            cache: "no-cache",
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Unable to precache app asset (HTTP ${response.status}): ${url}`,
-          );
-        }
-
-        await cache.put(
-          url,
-          response,
-        );
-      } catch (error) {
-        if (required) {
-          throw error;
-        }
-      }
-    }),
-  );
-}
-
-
-export async function fetchNavigationWithFallback({
-  request,
-  preloadResponse,
-  cache,
-  fetchLike = globalThis.fetch,
-  timeoutMs = NAVIGATION_NETWORK_TIMEOUT_MS,
-}) {
-  const controller = new AbortController();
-  let timeoutId;
-
-  const networkResponse = Promise.resolve(preloadResponse).then(
-    (preloaded) =>
-      preloaded ??
-      fetchLike(
-        new Request(
-          request,
-          {
-            signal: controller.signal,
-          },
-        ),
-      ),
-  );
-
-  const timeoutResponse = new Promise((_, reject) => {
-    timeoutId = globalThis.setTimeout(
-      () => {
-        controller.abort();
-        reject(new Error("Navigation request timed out."));
-      },
-      timeoutMs,
-    );
-  });
-
-  try {
-    const response = await Promise.race([
-      networkResponse,
-      timeoutResponse,
-    ]);
-
-    if (!response.ok) {
-      const cached = await cache.match("/");
-      return cached ?? response;
-    }
-
-    /*
-     * A cache write is best effort. Storage/quota failures must not
-     * turn a successful online navigation into an offline error page.
-     */
-    await cache.put(
-      "/",
-      response.clone(),
-    ).catch(() => {});
-
-    return response;
-  } catch {
-    try {
-      const cached = await cache.match("/");
-      if (cached) {
-        return cached;
-      }
-    } catch {
-      // Fall through to a minimal offline response when cache access fails.
-    }
-
-    return new Response(
-      "HyperSynced is offline.",
-      {
-        status: 503,
-        headers: {
-          "Content-Type": "text/plain",
-        },
-      },
-    );
-  } finally {
-    if (timeoutId !== undefined) {
-      globalThis.clearTimeout(timeoutId);
-    }
-  }
-}
-
-
-export function collectBuildAssetUrls(
-  manifest,
-  origin,
-) {
-  if (
-    !manifest ||
-    typeof manifest !== "object" ||
-    typeof origin !== "string" ||
-    !origin
-  ) {
-    return [];
-  }
-
-  const urls = new Set();
-
-  for (const entry of Object.values(manifest)) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-
-    const candidates = [
-      entry.file,
-      ...(Array.isArray(entry.css) ? entry.css : []),
-      ...(Array.isArray(entry.assets) ? entry.assets : []),
-    ];
-
-    for (const candidate of candidates) {
-      if (
-        typeof candidate !== "string" ||
-        !PRECACHE_ASSET_PATTERN.test(candidate)
-      ) {
-        continue;
-      }
-
-      try {
-        const url = new URL(candidate, origin);
-        if (
-          url.origin === origin &&
-          (url.protocol === "https:" || url.protocol === "http:")
-        ) {
-          urls.add(url.href);
-        }
-      } catch {
-        // Ignore malformed or unsupported manifest assets.
-      }
-    }
-  }
-
-  return [...urls];
-}
-
 let lastMediaCleanupAt =
   0;
 
 
-async function precacheAppShell() {
-  const cache = await caches.open(
-    APP_SHELL_CACHE,
-  );
-
-  const response = await fetch(
-    "/",
-    {
-      cache: "no-cache",
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Unable to precache the application shell (HTTP ${response.status}).`,
-    );
-  }
-
-  /*
-   * The cache name is build-versioned. A new installing worker must never
-   * overwrite the shell used by the still-active worker before activation.
-   */
-  await cache.put(
-    "/",
-    response.clone(),
-  );
-
-  const html = await response.text();
-  const matches = [
-    ...html.matchAll(
-      /(?:src|href)=["']([^"']+)["']/g,
-    ),
-  ];
-
-  const assetUrls = [
-    ...new Set(
-      [
-        ...matches.map(
-          (match) => match[1],
-        ),
-        "/site.webmanifest",
-        "/favicon.svg",
-        "/apple-touch-icon.png",
-        "/icon-192.png",
-        "/icon-512.png",
-        "/hypersync-home-hero.png",
-      ]
-        .filter(
-          (value) =>
-            value &&
-            !value.startsWith("data:"),
-        )
-        .map(
-          (value) =>
-            new URL(
-              value,
-              self.location.origin,
-            ),
-        )
-        .filter(
-          (url) =>
-            url.origin === self.location.origin,
-        )
-        .map(
-          (url) => url.href,
-        ),
-    ),
-  ];
-
-  /*
-   * JS/CSS/font URLs referenced directly by the shell are required. Small
-   * decorative images and install icons remain best-effort.
-   */
-  await cacheAssetUrls(
-    cache,
-    assetUrls,
-  );
-
-  /*
-   * Dynamic page chunks are not referenced directly by index.html. In
-   * production, the Vite manifest is required to safely support offline
-   * navigation to pages that have not previously been opened. A failed or
-   * partial critical-asset precache rejects installation, leaving the active
-   * worker and its cache intact.
-   */
-  let manifestResponse = null;
+async function fetchShellResource(url, consume) {
+  const controller = new AbortController();
+  let timeout;
+  let resource;
   try {
-    manifestResponse = await fetch(
-      "/manifest.json",
-      {
-        cache: "no-cache",
-      },
-    );
-  } catch (error) {
-    if (!import.meta.env?.DEV) {
-      throw error;
-    }
-  }
-
-  if (!manifestResponse?.ok) {
-    if (!import.meta.env?.DEV) {
-      throw new Error(
-        "Unable to load the Vite asset manifest for offline installation.",
-      );
-    }
-    return;
-  }
-
-  let manifest;
-  try {
-    manifest = await manifestResponse.json();
-  } catch (error) {
-    if (!import.meta.env?.DEV) {
-      throw new Error(
-        "The Vite asset manifest could not be parsed.",
-        { cause: error },
-      );
-    }
-    return;
-  }
-
-  if (
-    !manifest ||
-    typeof manifest !== "object" ||
-    Array.isArray(manifest) ||
-    Object.keys(manifest).length === 0
-  ) {
-    if (!import.meta.env?.DEV) {
-      throw new Error(
-        "The Vite asset manifest is empty or invalid.",
-      );
-    }
-    return;
-  }
-
-  const buildAssetUrls = collectBuildAssetUrls(
-    manifest,
-    self.location.origin,
-  );
-
-  await cacheAssetUrls(
-    cache,
-    buildAssetUrls,
-    {
-      requireCriticalAssets: !import.meta.env?.DEV,
-    },
-  );
+    return await Promise.race([
+      (async () => {
+        const asset = await fetch(url, { cache: "no-cache", signal: controller.signal });
+        resource = asset;
+        if (!asset.ok) throw new Error(`App shell asset unavailable: ${url}`);
+        return consume(asset, controller.signal);
+      })(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          void resource?.body?.cancel().catch(() => {});
+          reject(new Error("App shell asset timed out."));
+        }, 10000);
+      }),
+    ]);
+  } finally { clearTimeout(timeout); }
 }
 
+function cacheShellAsset(cache, url) {
+  return fetchShellResource(url, (asset) => cache.put(url, asset));
+}
+
+async function matchRetainedShellAsset(cache, request) {
+  const current = cache
+    ? await matchAppShell(cache, request, self.location.origin).catch(() => undefined)
+    : undefined;
+  if (current) return current;
+  if (!/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(request.url).pathname)) return undefined;
+  const keys = await caches.keys().catch(() => []);
+  for (const key of keys.reverse()) {
+    if (key === APP_SHELL_CACHE || !key.startsWith("hypersync-app-shell-")) continue;
+    const retained = await caches.open(key).catch(() => null);
+    const match = retained
+      ? await matchAppShell(retained, request, self.location.origin).catch(() => undefined)
+      : undefined;
+    if (match) return match;
+  }
+  return undefined;
+}
+
+async function precacheAppShell(navigationResponse = null) {
+  const cache = await caches.open(APP_SHELL_CACHE);
+  const readDocument = async (response, signal) => {
+    if (!response.ok) throw new Error("App shell is unavailable.");
+    return { response, html: new TextDecoder().decode(await readBoundedResponse(response.clone(), 1024 * 1024, { signal })) };
+  };
+  const { response, html } = navigationResponse
+    ? await readDocument(navigationResponse)
+    : await fetchShellResource("/", readDocument);
+  if (BUILD_MANIFEST && !html.includes(`content="${BUILD_MANIFEST.revision}"`)) {
+    throw new Error("Navigation belongs to a different application build.");
+  }
+  const referencedUrls = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
+    .map((match) => match[1]);
+  const assetUrls = [...new Set([
+    ...(BUILD_MANIFEST?.assets ?? []),
+    ...referencedUrls,
+    "/site.webmanifest",
+    "/favicon.svg",
+    "/apple-touch-icon.png",
+    "/icon-192.png",
+    "/icon-512.png",
+    "/hypersync-home-hero.png",
+  ].filter((value) => value && !value.startsWith("data:"))
+    .map((value) => new URL(value, self.location.origin))
+    .filter((url) => url.origin === self.location.origin)
+    .map((url) => url.href))];
+
+  // Scripts/styles are required for a usable shell. Optional artwork must not
+  // prevent installation, but a failed bundle must never replace working HTML.
+  const results = [];
+  let nextAsset = 0;
+  await Promise.all(Array.from({ length: Math.min(4, assetUrls.length) }, async () => {
+    while (nextAsset < assetUrls.length) {
+      const index = nextAsset++;
+      const url = assetUrls[index];
+      try {
+        if (!(/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(url).pathname)
+            && await matchAppShell(cache, new Request(url), self.location.origin).catch(() => undefined))) {
+          await cacheShellAsset(cache, url);
+        }
+        results[index] = { status: "fulfilled" };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }));
+  for (let index = 0; index < results.length; index += 1) {
+    if (/\.(?:m?js|css)$/.test(new URL(assetUrls[index]).pathname)
+        && results[index].status === "rejected") {
+      throw results[index].reason;
+    }
+  }
+  // Publish the entry point only after its required assets are safely stored.
+  await cache.put("/", response);
+}
 
 globalThis.self?.addEventListener?.(
   "install",
@@ -395,13 +158,16 @@ globalThis.self?.addEventListener?.(
     event.waitUntil(
       (
         async () => {
-          /*
-           * Keep the browser's default waiting lifecycle. Immediately activating
-           * a new worker can strand already-open React clients on hashed lazy
-           * chunks from the previous build, especially when cache cleanup runs.
-           * Let existing controlled clients close before switching worker versions.
-           */
-          await precacheAppShell();
+          try {
+            await precacheAppShell();
+            await self.skipWaiting();
+          } catch (error) {
+            try {
+              const cache = await caches.open(APP_SHELL_CACHE);
+              if (!await cache.match("/")) await caches.delete?.(APP_SHELL_CACHE);
+            } catch { /* Preserve the original install failure. */ }
+            throw error;
+          }
         }
       )(),
     );
@@ -508,22 +274,46 @@ globalThis.self?.addEventListener?.(
           const keys =
             await caches.keys();
 
+          // Keep one complete prior generation for tabs still executing its
+          // modules. Failed installs without an entry point do not consume it.
+          const activationKey = "/__hypersync/shell-activation";
+          const existingShells = keys.filter((key) => key.startsWith("hypersync-app-shell-"));
+          let maxOrder = 0;
+          for (const [index, key] of existingShells.entries()) {
+            const cache = await caches.open(key);
+            if (!await cache.match("/")) continue;
+            const stamp = await cache.match(activationKey);
+            const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
+            maxOrder = Math.max(maxOrder, order);
+          }
+
+          // Stamp the active complete shell before choosing its predecessor.
+          // Re-read CacheStorage after stamping so cleanup also sees caches
+          // created during installation and does not retain an intermediate build.
+          await (await caches.open(APP_SHELL_CACHE)).put(
+            activationKey,
+            Response.json({ order: Math.max(Date.now(), maxOrder + 1) }),
+          );
+
+          const refreshedShells = [...new Set((await caches.keys()).filter((key) => key.startsWith("hypersync-app-shell-")))];
+          let previous = null;
+          let previousOrder = -1;
+          for (const [index, key] of refreshedShells.entries()) {
+            if (key === APP_SHELL_CACHE) continue;
+            const cache = await caches.open(key);
+            if (!await cache.match("/")) continue;
+            const stamp = await cache.match(activationKey);
+            const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
+            if (order > previousOrder) {
+              previous = key;
+              previousOrder = order;
+            }
+          }
+
           await Promise.all(
-            keys
-              .filter(
-                (key) =>
-                  key.startsWith(
-                    "hypersync-app-shell-",
-                  ) &&
-                  key !==
-                    APP_SHELL_CACHE,
-              )
-              .map(
-                (key) =>
-                  caches.delete(
-                    key,
-                  ),
-              ),
+            refreshedShells
+              .filter((key) => key !== APP_SHELL_CACHE && key !== previous)
+              .map((key) => caches.delete(key)),
           );
 
           await cleanupExpiredMedia()
@@ -764,9 +554,7 @@ export async function handleArtworkRequest(
         MAX_CACHED_ARTWORK_BYTES
     ) {
       const task =
-        response
-          .clone()
-          .arrayBuffer()
+        readBoundedResponse(response.clone(), MAX_CACHED_ARTWORK_BYTES)
           .then(
             (data) => {
               if (
@@ -1268,17 +1056,55 @@ globalThis.self?.addEventListener?.(
       event.respondWith(
         (
           async () => {
-            const cache =
-              await caches.open(
-                APP_SHELL_CACHE,
-              );
-
-            return fetchNavigationWithFallback({
-              request,
-              preloadResponse:
-                event.preloadResponse,
-              cache,
+            // Cache storage is optional; a storage failure must not break online use.
+            const cache = await caches.open(APP_SHELL_CACHE).catch(() => null);
+            const controller = new AbortController();
+            let timeoutId;
+            const deadline = new Promise((_, reject) => {
+              timeoutId = setTimeout(() => {
+                controller.abort();
+                reject(new Error("Navigation timed out."));
+              }, NAVIGATION_NETWORK_TIMEOUT_MS);
             });
+            const cachedShell = () => cache
+              ? cache.match("/").catch(() => undefined)
+              : Promise.resolve(undefined);
+
+            try {
+              // Aborting fetch alone does not settle a stalled preload promise.
+              const response = await Promise.race([
+                (async () => {
+                  const preloaded = await Promise.resolve(event.preloadResponse)
+                    .catch(() => undefined);
+                  const document = preloaded ?? await fetch(new Request(request, {
+                    signal: controller.signal,
+                  }));
+                  if (!document.ok) return document;
+                  const body = await readBoundedResponse(document, 1024 * 1024, { signal: controller.signal });
+                  const headers = new Headers(document.headers);
+                  headers.delete("Content-Encoding");
+                  headers.set("Content-Length", String(body.byteLength));
+                  return new Response(body, { status: document.status, statusText: document.statusText, headers });
+                })(),
+                deadline,
+              ]);
+              if (!response.ok) {
+                return (await cachedShell()) ?? response;
+              }
+              if (cache) {
+                // Keep the previous offline entry point until the new bundles
+                // are stored. Cache work must not delay a working online page.
+                event.waitUntil(precacheAppShell(response.clone()).catch(() => {}));
+              }
+              return response;
+            } catch {
+              return (await cachedShell()) ?? new Response(
+                "HyperSynced is offline.",
+                { status: 503, headers: { "Content-Type": "text/plain" } },
+              );
+            } finally {
+              clearTimeout(timeoutId);
+            }
           }
         )(),
       );
@@ -1304,34 +1130,13 @@ globalThis.self?.addEventListener?.(
       event.respondWith(
         (
           async () => {
-            const cache =
-              await caches.open(
-                APP_SHELL_CACHE,
-              );
+            const cache = await caches.open(APP_SHELL_CACHE).catch(() => null);
+            const cached = await matchRetainedShellAsset(cache, request);
+            if (cached) return cached;
 
-            const cached =
-              await matchAppShell(
-                cache,
-                request,
-                self.location.origin,
-              );
-
-            if (cached) {
-              return cached;
-            }
-
-            const response =
-              await fetch(
-                request,
-              );
-
-            if (
-              response.ok
-            ) {
-              await cache.put(
-                request,
-                response.clone(),
-              );
+            const response = await fetch(request);
+            if (response.ok && cache) {
+              await cache.put(request, response.clone()).catch(() => {});
             }
 
             return response;
