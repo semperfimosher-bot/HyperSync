@@ -31,6 +31,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate staging load-test script syntax
+        run: |
+          node --check ../load/k6-40-users.js
+          node --check ../load/k6-100-users.js
+
       - name: Run offline regression tests
         run: npm run test:offline
 

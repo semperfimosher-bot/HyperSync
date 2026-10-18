@@ -579,8 +579,11 @@ def serialize_playlist_track(
 async def load_playlist_tracks(
     session: DatabaseSession,
     playlist_id: UUID,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[PlaylistTrackResponse]:
-    result = await session.execute(
+    stmt = (
         select(
             PlaylistTrack,
             Track,
@@ -598,8 +601,13 @@ async def load_playlist_tracks(
         .order_by(
             PlaylistTrack.position.asc(),
             PlaylistTrack.created_at.asc(),
+            PlaylistTrack.id.asc(),
         )
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
 
     return [
         serialize_playlist_track(
@@ -617,6 +625,9 @@ async def serialize_playlist_detail(
     session: DatabaseSession,
     playlist: Playlist,
     viewer: User | None,
+    *,
+    track_limit: int | None = None,
+    track_offset: int = 0,
 ) -> PlaylistDetailResponse:
     summary = await serialize_playlist_summary(
         session,
@@ -627,6 +638,8 @@ async def serialize_playlist_detail(
     tracks = await load_playlist_tracks(
         session,
         playlist.id,
+        limit=track_limit,
+        offset=track_offset,
     )
 
     return PlaylistDetailResponse(
@@ -775,6 +788,8 @@ async def get_saved_playlists(
 async def get_library_tracks(
     user: CurrentUser,
     session: DatabaseSession,
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> list[LibraryTrackResponse]:
     require_registered_user(
         user,
@@ -810,7 +825,7 @@ async def get_library_tracks(
         )
     )
 
-    result = await session.execute(
+    stmt = (
         select(
             Track,
         )
@@ -842,7 +857,12 @@ async def get_library_tracks(
             ).asc(),
             Track.id.asc(),
         )
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    result = await session.execute(stmt)
 
     tracks = list(
         result.scalars().all()
@@ -1382,6 +1402,8 @@ async def get_playlist(
     playlist_id: UUID,
     session: DatabaseSession,
     viewer: OptionalCurrentUser,
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> PlaylistDetailResponse:
     playlist = await get_playlist_or_404(
         session,
@@ -1408,6 +1430,8 @@ async def get_playlist(
         session,
         playlist,
         viewer,
+        track_limit=limit,
+        track_offset=offset,
     )
 
 

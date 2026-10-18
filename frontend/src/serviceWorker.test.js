@@ -59,6 +59,12 @@ test(
       record,
     );
 
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
+    );
+
     await mediaStore.saveMediaChunk({
       trackId,
       mediaVersion,
@@ -484,6 +490,12 @@ test(
       record,
     );
 
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
+    );
+
     const bytes =
       new Uint8Array(
         chunkSize,
@@ -638,6 +650,12 @@ test(
 
     await mediaStore.saveMediaRecord(
       record,
+    );
+
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
     );
 
     const bytes =
@@ -797,7 +815,7 @@ test(
 );
 
 test(
-  "open-ended cold media request coalesces cache chunks into bounded network windows",
+  "open-ended active-playback media request coalesces cache chunks into bounded network windows",
   async () => {
     const mediaStore =
       await import(
@@ -849,6 +867,11 @@ test(
         state:
           "NONE",
       }),
+    );
+    await mediaStore.markMediaPlayed(
+      trackId,
+      mediaVersion,
+      Date.now(),
     );
 
     const requestedRanges =
@@ -1226,3 +1249,47 @@ test(
     );
   },
 );
+
+test(
+  "service worker does not persist media before confirmed playback",
+  async () => {
+    const mediaStore = await import("./mediaStore.js");
+    const serviceWorker = await loadServiceWorkerModule();
+    const trackId = "not-played-track";
+    const mediaVersion = "not-played-version";
+    const record = mediaStore.createMediaRecord({
+      trackId,
+      mediaVersion,
+      mimeType: "audio/mpeg",
+      fileSize: mediaStore.MEDIA_CHUNK_SIZE,
+      state: "NONE",
+    });
+    await mediaStore.saveMediaRecord(record);
+
+    const request = new Request(
+      `https://example.test/__hypersync/media/${trackId}/${mediaVersion}`,
+      { headers: { Range: `bytes=0-${mediaStore.MEDIA_CHUNK_SIZE - 1}` } },
+    );
+    let networkCalls = 0;
+    const response = await serviceWorker.handleMediaRequest(
+      request,
+      async () => {
+        networkCalls += 1;
+        return new Response(new Uint8Array(mediaStore.MEDIA_CHUNK_SIZE), {
+          status: 206,
+          headers: {
+            "Content-Range": `bytes 0-${mediaStore.MEDIA_CHUNK_SIZE - 1}/${mediaStore.MEDIA_CHUNK_SIZE}`,
+          },
+        });
+      },
+    );
+
+    assert.equal(response.status, 206);
+    assert.equal(networkCalls, 1);
+    assert.equal(
+      await mediaStore.getMediaChunk(trackId, mediaVersion, 0),
+      null,
+    );
+  },
+);
+

@@ -1,0 +1,138 @@
+import "fake-indexeddb/auto";
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+function createStorage() {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    clear() {
+      values.clear();
+    },
+  };
+}
+
+if (typeof globalThis.localStorage === "undefined") {
+  globalThis.localStorage = createStorage();
+}
+
+test("100,000-track libraries are stored and restored as bounded IndexedDB pages", async () => {
+  const cache = await import(`./libraryCache.js?large-snapshot=${Date.now()}`);
+  const userKey = `large-library-${Date.now()}`;
+  const tracks = Array.from({ length: 100_000 }, (_, index) => ({
+    id: `track-${index}`,
+    title: `Track ${index}`,
+    artist: `Artist ${index % 250}`,
+  }));
+  const snapshot = {
+    owned: [{ id: "owned-1", title: "Owned" }],
+    saved: [{ id: "saved-1", title: "Saved" }],
+    tracks,
+  };
+
+  await cache.setCachedLibraryAsync(userKey, snapshot);
+
+  const localSnapshot = cache.getCachedLibrary(userKey);
+  assert.deepEqual(localSnapshot.tracks, []);
+  assert.equal(localSnapshot.tracksStoredInIndexedDB, true);
+
+  const restored = await cache.getCachedLibraryAsync(userKey);
+  assert.equal(restored.tracks.length, 1000);
+  assert.equal(restored.tracks[0].id, "track-0");
+  assert.equal(restored.tracks[999].id, "track-999");
+  assert.equal(restored.owned[0].id, "owned-1");
+
+  await cache.setCachedLibraryPageAsync(userKey, 99_000, tracks.slice(99_000));
+  const lastPage = await cache.getCachedLibraryPageAsync(userKey, 99_000);
+  assert.equal(lastPage.length, 1000);
+  assert.equal(lastPage[999].id, "track-99999");
+
+  await cache.clearCachedLibraryScopeAsync(userKey);
+  assert.equal(await cache.getCachedLibraryAsync(userKey), null);
+});
+
+test("clearing one library scope does not clear another user's IndexedDB snapshot", async () => {
+  const cache = await import(`./libraryCache.js?scope-isolation=${Date.now()}`);
+  const suffix = Date.now();
+  const ownerA = `owner-a-${suffix}`;
+  const ownerB = `owner-b-${suffix}`;
+
+  await cache.setCachedLibraryAsync(ownerA, {
+    owned: [],
+    saved: [],
+    tracks: [{ id: "private-a" }],
+  });
+  await cache.setCachedLibraryAsync(ownerB, {
+    owned: [],
+    saved: [],
+    tracks: [{ id: "private-b" }],
+  });
+
+  await cache.clearCachedLibraryScopeAsync(ownerA);
+
+  assert.equal(await cache.getCachedLibraryAsync(ownerA), null);
+  assert.equal(
+    (await cache.getCachedLibraryAsync(ownerB)).tracks[0].id,
+    "private-b",
+  );
+
+  await cache.clearCachedLibraryScopeAsync(ownerB);
+});
+ 
+test("large playlist snapshots stay out of localStorage and round-trip through IndexedDB", async () => {
+  const cache = await import(`./libraryCache.js?large-playlist=${Date.now()}`);
+  const userKey = `playlist-owner-${Date.now()}`;
+  const tracks = Array.from({ length: 20_000 }, (_, index) => ({
+    id: `playlist-track-${index}`,
+    title: `Playlist Track ${index}`,
+  }));
+  const playlist = { id: "large-playlist", title: "Large Playlist", tracks };
+
+  await cache.setCachedPlaylistAsync(userKey, playlist);
+
+  const lightweight = cache.getCachedPlaylist(userKey, playlist.id);
+  assert.deepEqual(lightweight.tracks, []);
+  assert.equal(lightweight.tracksStoredInIndexedDB, true);
+  assert.equal(lightweight.trackCount, 20_000);
+
+  const restored = await cache.getCachedPlaylistAsync(userKey, playlist.id);
+  assert.equal(restored.tracks.length, 20_000);
+  assert.equal(restored.tracks[19_999].id, "playlist-track-19999");
+
+  await cache.clearCachedLibraryScopeAsync(userKey);
+  assert.equal(await cache.getCachedPlaylistAsync(userKey, playlist.id), null);
+});
+
+test("large playlist snapshots remain isolated by user scope", async () => {
+  const cache = await import(`./libraryCache.js?playlist-scope=${Date.now()}`);
+  const suffix = Date.now();
+  const ownerA = `playlist-owner-a-${suffix}`;
+  const ownerB = `playlist-owner-b-${suffix}`;
+
+  await cache.setCachedPlaylistAsync(ownerA, {
+    id: "same-playlist-id",
+    title: "Owner A",
+    tracks: [{ id: "private-a" }],
+  });
+  await cache.setCachedPlaylistAsync(ownerB, {
+    id: "same-playlist-id",
+    title: "Owner B",
+    tracks: [{ id: "private-b" }],
+  });
+
+  await cache.clearCachedLibraryScopeAsync(ownerA);
+  assert.equal(
+    (await cache.getCachedPlaylistAsync(ownerB, "same-playlist-id")).tracks[0].id,
+    "private-b",
+  );
+  await cache.clearCachedLibraryScopeAsync(ownerB);
+});

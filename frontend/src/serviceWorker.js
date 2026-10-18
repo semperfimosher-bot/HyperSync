@@ -734,6 +734,23 @@ export async function handleMediaRequest(
     );
   }
 
+  const now = Date.now();
+  const isPinned =
+    mediaRecord.state === "PINNED";
+  const hasFreshPlayback =
+    Number.isSafeInteger(mediaRecord.lastPlayedAt) &&
+    Number.isSafeInteger(mediaRecord.expiresAt) &&
+    mediaRecord.expiresAt > now;
+
+  // The automatic cache is strictly playback-driven. Do not read from or
+  // write to it for tracks that have never actually played or have expired.
+  // Explicitly pinned offline downloads remain available by user choice.
+  if (!isPinned && !hasFreshPlayback) {
+    return networkFallback(
+      networkRequest,
+    );
+  }
+
   const rangeHeader =
     request.headers.get(
       "Range",

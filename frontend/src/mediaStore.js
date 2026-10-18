@@ -1478,24 +1478,29 @@ export async function cleanupExpiredMedia(
             const record
             of records
           ) {
-            const isExpired =
-              Number.isSafeInteger(
-                record.expiresAt,
-              ) &&
-              record.expiresAt <=
-                now;
-
             const isPinned =
               record.state ===
               "PINNED";
 
             const isWarm =
-              Number.isSafeInteger(
-                record.warmUntil,
-              ) &&
-              record.warmUntil >
-                now;
+              Number.isSafeInteger(record.warmUntil) &&
+              record.warmUntil > now;
 
+            const hasPlayed =
+              Number.isSafeInteger(
+                record.lastPlayedAt,
+              );
+
+            const isExpired =
+              hasPlayed
+                ? (
+                    !Number.isSafeInteger(record.expiresAt) ||
+                    record.expiresAt <= now
+                  )
+                : true;
+
+            // Automatically cached audio is retained only after actual
+            // playback. Remove abandoned pre-play records/chunks as well.
             if (
               !isExpired ||
               isPinned ||

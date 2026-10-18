@@ -95,9 +95,13 @@ import {
 
 import {
   getCachedLibrary,
-  getCachedPlaylist,
-  setCachedLibrary,
-  setCachedPlaylist,
+  getCachedLibraryAsync,
+  getCachedLibraryPageAsync,
+  getCachedPlaylistAsync,
+  setCachedLibraryAsync,
+  setCachedLibraryMetadataAsync,
+  setCachedLibraryPageAsync,
+  setCachedPlaylistAsync,
 } from "../../libraryCache.js";
 
 import {
@@ -320,9 +324,15 @@ const [
     Array.isArray(
       cachedLibrary?.tracks,
     )
-      ? cachedLibrary.tracks
+      ? cachedLibrary.tracks.slice(0, 1000)
       : [],
 );
+
+const [libraryHasMore, setLibraryHasMore] = useState(
+  Array.isArray(cachedLibrary?.tracks) &&
+    cachedLibrary.tracks.length >= 1000,
+);
+const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
 
 const [
   selectedLibraryEntity,
@@ -345,6 +355,11 @@ const [
     playlistSearchQuery,
     setPlaylistSearchQuery,
   ] = useState("");
+
+  const [
+    visibleItemLimit,
+    setVisibleItemLimit,
+  ] = useState(100);
 
   const [
     likedGenreFilter,
@@ -784,7 +799,7 @@ const [
                 playlistId,
               );
 
-            setCachedPlaylist(
+            await setCachedPlaylistAsync(
               libraryCacheKey,
               refreshed,
             );
@@ -831,12 +846,13 @@ const [
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
         setLibraryTracks([]);
+        setLibraryHasMore(false);
 
         return;
       }
 
       const cached =
-        getCachedLibrary(
+        await getCachedLibraryAsync(
           libraryCacheKey,
         );
 
@@ -872,19 +888,18 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              cached.tracks,
-            )
-              ? cached.tracks
-              : [],
-          );
+          const cachedTracks = Array.isArray(cached.tracks)
+            ? cached.tracks.slice(0, 1000)
+            : [];
+          setLibraryTracks(cachedTracks);
+          setLibraryHasMore(cachedTracks.length >= 1000);
 
           setError("");
         } else {
           setOwnedPlaylists([]);
           setSavedPlaylists([]);
           setLibraryTracks([]);
+          setLibraryHasMore(false);
 
           setError(
             "This Library has not been cached on this device yet.",
@@ -917,7 +932,9 @@ const [
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
-            getLibraryTracks(),
+            quiet && Array.isArray(cached?.tracks)
+              ? Promise.resolve(cached.tracks)
+              : getLibraryTracks({ limit: 1000, offset: 0 }),
           ]);
 
         const nextOwned =
@@ -943,23 +960,21 @@ const [
           nextSaved,
         );
 
-        setLibraryTracks(
-          nextTracks,
-        );
+        if (!quiet) {
+          setLibraryTracks(nextTracks.slice(0, 1000));
+          setLibraryHasMore(nextTracks.length >= 1000);
+        }
 
-        setCachedLibrary(
-          libraryCacheKey,
-          {
-            owned:
-              nextOwned,
-
-            saved:
-              nextSaved,
-
-            tracks:
-              nextTracks,
-          },
-        );
+        const librarySnapshot = {
+          owned: nextOwned,
+          saved: nextSaved,
+          tracks: nextTracks,
+        };
+        if (quiet) {
+          await setCachedLibraryMetadataAsync(libraryCacheKey, librarySnapshot);
+        } else {
+          await setCachedLibraryAsync(libraryCacheKey, librarySnapshot);
+        }
       } catch (requestError) {
         /*
          * If the connection disappeared
@@ -967,7 +982,7 @@ const [
          * to the persisted snapshot.
          */
         const fallback =
-          getCachedLibrary(
+          await getCachedLibraryAsync(
             libraryCacheKey,
           );
 
@@ -988,13 +1003,11 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              fallback.tracks,
-            )
-              ? fallback.tracks
-              : [],
-          );
+          const fallbackTracks = Array.isArray(fallback.tracks)
+            ? fallback.tracks.slice(0, 1000)
+            : [];
+          setLibraryTracks(fallbackTracks);
+          setLibraryHasMore(fallbackTracks.length >= 1000);
 
           setError("");
         } else if (!quiet) {
@@ -1015,6 +1028,46 @@ const [
       libraryCacheKey,
     ],
   );
+
+  const loadMoreLibraryTracks = useCallback(async () => {
+    if (libraryLoadingMore || !libraryHasMore) return;
+    setLibraryLoadingMore(true);
+    const offset = libraryTracks.length;
+    try {
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const page = offline
+        ? await getCachedLibraryPageAsync(libraryCacheKey, offset)
+        : await getLibraryTracks({ limit: 1000, offset });
+      const nextPage = Array.isArray(page) ? page : [];
+      if (nextPage.length === 0) {
+        setLibraryHasMore(false);
+        return;
+      }
+      if (!offline) {
+        await setCachedLibraryPageAsync(libraryCacheKey, offset, nextPage);
+      }
+      setLibraryTracks((current) => {
+        const seen = new Set(current.map((track) => String(track.id)));
+        return current.concat(
+          nextPage.filter((track) => !seen.has(String(track.id))),
+        );
+      });
+      setLibraryHasMore(nextPage.length >= 1000);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load more library tracks.",
+      );
+    } finally {
+      setLibraryLoadingMore(false);
+    }
+  }, [
+    libraryCacheKey,
+    libraryHasMore,
+    libraryLoadingMore,
+    libraryTracks,
+  ]);
 
   useEffect(() => {
     void loadLibrary();
@@ -1051,21 +1104,28 @@ const [
         const refreshed =
           await getPlaylist(
             playlistId,
+            {
+              limit: 1,
+              offset: 0,
+            },
           );
 
-        await reconcileDownloadedPlaylistMembership(
-          refreshed,
-          offlineOwnerKey,
-        );
+        // Quiet refreshes update playlist metadata without replacing the
+        // complete in-memory track list with a partial page.
+        const refreshedWithTracks = {
+          ...refreshed,
+          tracks:
+            selectedPlaylist?.tracks ??
+            refreshed.tracks ??
+            [],
+        };
 
         setSelectedPlaylist(
-          refreshed,
+          refreshedWithTracks,
         );
 
-        setCachedPlaylist(
-          libraryCacheKey,
-          refreshed,
-        );
+        // Avoid rewriting a potentially huge playlist snapshot on every
+        // quiet metadata poll. The full snapshot is saved on explicit open/update.
       } catch (requestError) {
         if (
           requestError?.status ===
@@ -1212,7 +1272,7 @@ const [
 
     const cached =
       downloaded ??
-      getCachedPlaylist(
+      await getCachedPlaylistAsync(
         libraryCacheKey,
         initialPlaylistId,
       );
@@ -1291,7 +1351,7 @@ const [
         return;
       }
 
-      setCachedPlaylist(
+      await setCachedPlaylistAsync(
         libraryCacheKey,
         playlist,
       );
@@ -1438,7 +1498,7 @@ useEffect(() => {
 
   const cached =
     downloaded ??
-    getCachedPlaylist(
+    await getCachedPlaylistAsync(
       libraryCacheKey,
       playlistId,
     );
@@ -1600,7 +1660,7 @@ if (offline) {
       offlineOwnerKey,
     );
 
-    setCachedPlaylist(
+    await setCachedPlaylistAsync(
   libraryCacheKey,
   playlist,
 );
@@ -2476,7 +2536,7 @@ if (offline) {
 
     return (
       <div className="hs-search-track-list">
-        {tracks.map(
+        {tracks.slice(0, visibleItemLimit).map(
           (
             track,
             index,
@@ -2846,6 +2906,34 @@ if (offline) {
         playlistSearchQuery,
       ],
     );
+
+  useEffect(() => {
+    setVisibleItemLimit(100);
+  }, [
+    activeTab,
+    selectedPlaylist?.id,
+    playlistSearchQuery,
+    likedGenreFilter,
+    selectedLibraryEntity?.key,
+    focusedLibraryTrack?.id,
+    sortMode,
+  ]);
+
+  const visibleItemTotal =
+    selectedPlaylist
+      ? filteredSelectedPlaylistTracks.length
+      : selectedLibraryEntity && activeLibraryEntity
+        ? (
+            Array.isArray(activeLibraryEntity.tracks)
+              ? activeLibraryEntity.tracks.length
+              : 0
+          )
+        : activeTab === "Artists" ||
+            activeTab === "Albums"
+          ? sortedActiveLibraryCollection.length
+          : activeTab === "Songs"
+            ? visibleSongTracks.length
+            : sortedVisiblePlaylists.length;
 
   useEffect(() => {
     setPlaylistSearchQuery(
@@ -3444,7 +3532,7 @@ if (offline) {
 
             <div className="hs-search-track-list">
 
-              {filteredSelectedPlaylistTracks.map(
+              {filteredSelectedPlaylistTracks.slice(0, visibleItemLimit).map(
                 (
                   track,
                   trackIndex,
@@ -3780,6 +3868,25 @@ if (offline) {
         }
       />
 
+      {visibleItemTotal > visibleItemLimit ? (
+        <div className="hs-library-load-more">
+          <button
+            type="button"
+            className="hs-search-playlist-action"
+            onClick={() => {
+              setVisibleItemLimit((current) =>
+                Math.min(
+                  current + 100,
+                  visibleItemTotal,
+                ),
+              );
+            }}
+          >
+            Load more ({Math.min(visibleItemLimit, visibleItemTotal)} of {visibleItemTotal})
+          </button>
+        </div>
+      ) : null}
+
       <TrackActionMenu
         menu={
           trackActionMenu.menu
@@ -4062,7 +4169,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {visibleSongTracks.map(
+            {visibleSongTracks.slice(0, visibleItemLimit).map(
               (
                 track,
                 index,
@@ -4421,7 +4528,7 @@ if (offline) {
 
           <div className="hs-search-entity-grid hs-library-entity-grid">
 
-            {sortedActiveLibraryCollection.map(
+            {sortedActiveLibraryCollection.slice(0, visibleItemLimit).map(
               (entity) => {
                 const artwork =
                   resolveArtworkUrl(
@@ -4654,7 +4761,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {sortedVisiblePlaylists.map(
+            {sortedVisiblePlaylists.slice(0, visibleItemLimit).map(
               (
                 playlist,
                 index,
@@ -5100,6 +5207,21 @@ if (offline) {
           setSortMode
         }
       />
+
+      {(activeTab === "Artists" || activeTab === "Albums") && libraryHasMore ? (
+        <div className="hs-library-load-more">
+          <button
+            type="button"
+            className="hs-search-playlist-action"
+            disabled={libraryLoadingMore}
+            onClick={() => void loadMoreLibraryTracks()}
+          >
+            {libraryLoadingMore
+              ? "Loading more library tracks..."
+              : `Load more library tracks (${libraryTracks.length.toLocaleString()} loaded)`}
+          </button>
+        </div>
+      ) : null}
 
       <TrackActionMenu
         menu={
