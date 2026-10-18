@@ -82,6 +82,6 @@ No isolated staging environment credentials/configuration or staging-only media 
 ### 7.4 — Current gate
 
 - Latest pre-fix workflow runs passed on commit `e835aebfea5f19f0164dfc30d92a8688bf7bb6ed`.
-- Final-head Offline PWA checks passed on `26eaf3e8293719018eb573fd8c303d2efa375801` (run `39117707426`), including frontend tests/build/audit, backend regression/lint/type/security checks, and frontend/backend image builds.
-- Final-head Project verification passed on the same commit (run `39117707404`), including the isolated application journey and Windows verification tests.
-- **Stage 7 remains blocked for release sign-off** because isolated staging load/recovery drills and real-browser/device offline/playback checks are not yet complete. CI is green, but these external checks cannot be inferred from CI. No merge or deployment is authorized by this report.
+- Implementation commit `26eaf3e8293719018eb573fd8c303d2efa375801` passed Offline PWA checks (run `39117707426`) and Project verification (run `39117707404`). These runs include frontend tests/build/audit, backend regression/lint/type/security checks, both image builds, the isolated application journey, and Windows verification tests.
+- This document was subsequently updated to correct the verification record; CI for the resulting documentation commit must be checked independently before declaring the current branch head green.
+- **Stage 7 remains blocked for release sign-off** because isolated staging load/recovery drills and real-browser/device offline/playback checks are not yet complete. CI is green on the implementation commit, but these external checks cannot be inferred from CI. No merge or deployment is authorized by this report.
