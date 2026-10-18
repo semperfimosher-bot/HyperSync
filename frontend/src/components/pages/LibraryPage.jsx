@@ -845,6 +845,7 @@ const [
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
         setLibraryTracks([]);
+        setLibraryHasMore(false);
 
         return;
       }
@@ -897,6 +898,7 @@ const [
           setOwnedPlaylists([]);
           setSavedPlaylists([]);
           setLibraryTracks([]);
+          setLibraryHasMore(false);
 
           setError(
             "This Library has not been cached on this device yet.",
@@ -1124,10 +1126,8 @@ const [
           refreshedWithTracks,
         );
 
-        await setCachedPlaylistAsync(
-          libraryCacheKey,
-          refreshedWithTracks,
-        );
+        // Avoid rewriting a potentially huge playlist snapshot on every
+        // quiet metadata poll. The full snapshot is saved on explicit open/update.
       } catch (requestError) {
         if (
           requestError?.status ===
