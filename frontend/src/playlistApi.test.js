@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 const {
   getLibraryTrack,
+  getLibraryTracks,
+  getPlaylist,
 } = await import("./playlistApi.js");
 
 
@@ -96,6 +98,47 @@ test(
         null,
       );
       assert.equal(requested, false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
+
+test(
+  "library and playlist APIs support opt-in pagination without changing defaults",
+  async () => {
+    const originalFetch = globalThis.fetch;
+    const requested = [];
+
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return new Response("[]", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    };
+
+    try {
+      await getLibraryTracks({
+        limit: 25,
+        offset: 50,
+      });
+      await getPlaylist("playlist-1", {
+        limit: 25,
+        offset: 50,
+      });
+      await getLibraryTracks();
+      await getPlaylist("playlist-1");
+
+      assert.deepEqual(requested, [
+        "/api/playlists/library/tracks?limit=25&offset=50",
+        "/api/playlists/playlist-1?limit=25&offset=50",
+        "/api/playlists/library/tracks",
+        "/api/playlists/playlist-1",
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
     }
