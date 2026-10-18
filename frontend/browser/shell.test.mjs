@@ -259,6 +259,11 @@ test("worker updates retain one complete prior build for old tabs and prune olde
   assert.equal(await page.evaluate(() => window.__legacyFixture), true);
   await update("base");
   await update("c");
+  // controllerchange can fire before the worker's activate waitUntil cleanup settles.
+  await page.waitForFunction(async (expected) => {
+    const names = (await caches.keys()).filter((name) => name.startsWith("hypersync-app-shell-")).sort();
+    return JSON.stringify(names) === JSON.stringify([...expected].sort());
+  }, [baseCache, `${baseCache}-c`], { timeout: 10000 });
   const names = (await page.evaluate(() => caches.keys())).filter((name) => name.startsWith("hypersync-app-shell-"));
   assert.deepEqual(names.sort(), [baseCache, `${baseCache}-c`].sort());
 });
@@ -328,6 +333,10 @@ test("IndexedDB media survives reload and supports offline range, decoding, play
   await context.setOffline(true);
   await page.reload();
   await page.locator("main").waitFor({ state: "visible" });
+  // Reloading can show the first-visit overlay again in this isolated browser context.
+  const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
+  if (await guestButton.count()) await guestButton.click();
+  await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
   const range = await page.evaluate(async () => {
     const response = await fetch("/__hypersync/media/browser-audio/v1", { headers: { Range: "bytes=10-19" } });
     return { status: response.status, range: response.headers.get("Content-Range"), bytes: (await response.arrayBuffer()).byteLength };
