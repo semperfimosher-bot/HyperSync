@@ -1394,6 +1394,8 @@ async def get_playlist(
     playlist_id: UUID,
     session: DatabaseSession,
     viewer: OptionalCurrentUser,
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> PlaylistDetailResponse:
     playlist = await get_playlist_or_404(
         session,
@@ -1420,6 +1422,8 @@ async def get_playlist(
         session,
         playlist,
         viewer,
+        track_limit=limit,
+        track_offset=offset,
     )
 
 
