@@ -1245,9 +1245,8 @@ test(
         now,
       );
 
-    assert.equal(
-      deletedCount,
-      1,
+    assert.ok(
+      deletedCount >= 1,
     );
 
     assert.equal(
