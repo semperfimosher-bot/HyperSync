@@ -20,14 +20,12 @@ try {
   throw new Error("TARGET_BASE_URL must be a valid staging API origin.");
 }
 
-const blockedProductionHosts = new Set([
-  "hypersynced.app",
-  "www.hypersynced.app",
-  "api.hypersynced.app",
-]);
-
-if (blockedProductionHosts.has(targetUrl.hostname.toLowerCase())) {
-  throw new Error("Refusing to load-test a known HyperSynced production host.");
+const targetHost = targetUrl.hostname.toLowerCase();
+if (
+  targetHost === "hypersynced.app" ||
+  targetHost.endsWith(".hypersynced.app")
+) {
+  throw new Error("Refusing to load-test a HyperSynced production host or subdomain.");
 }
 if (CONFIRM_STAGING_ONLY !== "YES") {
   throw new Error(
