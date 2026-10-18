@@ -4,6 +4,7 @@ export const PAGE_WARM_TTL_MS =
 export const PAGE_WARM_SWEEP_MS =
   60 * 1000;
 
+const MAX_WARM_PUBLIC_PROFILES = 8;
 
 export function warmPageKey(
   page,
@@ -57,7 +58,7 @@ export function pruneWarmPages(
       ? pages
       : [];
 
-  return entries.filter(
+  const eligible = entries.filter(
     (entry) => {
       if (
         entry?.ownerKey !==
@@ -87,6 +88,18 @@ export function pruneWarmPages(
       );
     },
   );
+
+  // Unlike app tabs, profile routes have unbounded cardinality. Retain only
+  // recent profile instances, without evicting the active page or upload state.
+  const profiles = eligible.filter((entry) => entry.page === "public-profile");
+  if (profiles.length <= MAX_WARM_PUBLIC_PROFILES) return eligible;
+  // Touch appends the newest instance; reverse breaks equal-timestamp ties
+  // by visit order while the stable sort still prefers the active profile.
+  profiles.reverse().sort((left, right) =>
+    Number(right.key === activeKey) - Number(left.key === activeKey)
+      || Number(right.lastVisitedAt) - Number(left.lastVisitedAt));
+  const kept = new Set(profiles.slice(0, MAX_WARM_PUBLIC_PROFILES));
+  return eligible.filter((entry) => entry.page !== "public-profile" || kept.has(entry));
 }
 
 
@@ -157,7 +170,7 @@ export function touchWarmPage(
         entry.key !== key,
     );
 
-  return [
+  return pruneWarmPages([
     ...retained,
     {
       key,
@@ -190,5 +203,5 @@ export function touchWarmPage(
       lastVisitedAt:
         now,
     },
-  ];
+  ], { activeKey: key, ownerKey, now, ttlMs });
 }

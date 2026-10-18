@@ -1,5 +1,7 @@
 import {
   Activity,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -87,23 +89,23 @@ import DesktopTopbar from "./components/layout/DesktopTopbar.jsx";
 
 import DesktopRightRail from "./components/layout/DesktopRightRail.jsx";
 
-import HomePage from "./components/pages/HomePage.jsx";
+const HomePage = lazy(() => import("./components/pages/HomePage.jsx"));
 
-import LibraryPage from "./components/pages/LibraryPage.jsx";
+const LibraryPage = lazy(() => import("./components/pages/LibraryPage.jsx"));
 
-import SearchPage from "./components/pages/SearchPage.jsx";
+const SearchPage = lazy(() => import("./components/pages/SearchPage.jsx"));
 
-import MessagesPage from "./components/pages/MessagesPage.jsx";
+const MessagesPage = lazy(() => import("./components/pages/MessagesPage.jsx"));
 
-import ProfilePage from "./components/pages/ProfilePage.jsx";
+const ProfilePage = lazy(() => import("./components/pages/ProfilePage.jsx"));
 
-import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
+const PublicProfilePage = lazy(() => import("./components/pages/PublicProfilePage.jsx"));
 
 import SectionHeading from "./components/ui/SectionHeading.jsx";
 
-import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
-import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
-import AdminDashboardPage from "./components/pages/AdminDashboardPage.jsx";
+const AdminUploadsPage = lazy(() => import("./components/pages/AdminUploadsPage.jsx"));
+const AdminCatalogPage = lazy(() => import("./components/pages/AdminCatalogPage.jsx"));
+const AdminDashboardPage = lazy(() => import("./components/pages/AdminDashboardPage.jsx"));
 
 import {
   getOfflineOwnerKey,
@@ -235,7 +237,8 @@ function MainPage({
 
 
   /*
-   * Keep visited pages alive for twelve hours.
+   * Keep app tabs alive for twelve hours; public profile instances also have
+   * a recent-page count limit so profile browsing cannot retain unlimited UI.
    *
    * React Activity preserves their UI and
    * component state while hidden, but cleans
@@ -667,10 +670,9 @@ function MainPage({
               }
             >
               <PageErrorBoundary>
-                {renderPage(
-                  entry.page,
-                  entry.profileUsername,
-                )}
+                <Suspense fallback={<div role="status" className="page-stack">Loading page...</div>}>
+                  {renderPage(entry.page, entry.profileUsername)}
+                </Suspense>
               </PageErrorBoundary>
             </Activity>
           ),

@@ -23,6 +23,56 @@ function deferred() {
   return { promise, resolve };
 }
 
+test("unused catalog releases its rows and reloads, but live subscribers retain shared data", async () => {
+  let calls = 0;
+  const store = await loadStore(async () => { calls += 1; return [{ id: `track-${calls}` }]; });
+  const unsubscribe = store.subscribeToCatalog(() => {});
+  await store.loadCatalog();
+  assert.equal(store.releaseUnusedCatalog(), false);
+  assert.deepEqual(await store.loadCatalog(), [{ id: "track-1" }]);
+  unsubscribe();
+  assert.equal(store.releaseUnusedCatalog(), true);
+  const seen = [];
+  const stop = store.subscribeToCatalog((rows) => seen.push(rows));
+  assert.deepEqual(seen, [[]]);
+  assert.deepEqual(await store.loadCatalog(), [{ id: "track-2" }]);
+  stop();
+});
+
+test("unused catalog cancels in-flight assembly and cannot publish stale rows", async () => {
+  const pending = deferred();
+  const store = await loadStore(async () => pending.promise);
+  const load = store.loadCatalog();
+  const aborted = assert.rejects(load, { name: "AbortError" });
+  store.releaseUnusedCatalog();
+  pending.resolve([{ id: "stale" }]);
+  await aborted;
+  const seen = [];
+  store.subscribeToCatalog((rows) => seen.push(rows));
+  assert.deepEqual(seen, [[]]);
+});
+
+test("a failed deletion after the final viewer leaves cannot retain or reload the catalog", async () => {
+  let rejectDelete;
+  let reads = 0;
+  const store = await loadStore(async (_path, options) => {
+    if (options.method === "DELETE") return new Promise((_, reject) => { rejectDelete = reject; });
+    reads += 1;
+    return [{ id: "saved" }];
+  });
+  const unsubscribe = store.subscribeToCatalog(() => {});
+  await store.loadCatalog();
+  const rejected = assert.rejects(store.deleteCatalogTrack("saved"), /delete failed/);
+  unsubscribe();
+  store.releaseUnusedCatalog();
+  rejectDelete(new Error("delete failed"));
+  await rejected;
+  const updates = [];
+  store.subscribeToCatalog((rows) => updates.push(rows));
+  assert.deepEqual(updates, [[]]);
+  assert.equal(reads, 1);
+});
+
 test("catalog walks all pages, deduplicates IDs, publishes only the completed array", async () => {
   const calls = [];
   const store = await loadStore(async (path) => {

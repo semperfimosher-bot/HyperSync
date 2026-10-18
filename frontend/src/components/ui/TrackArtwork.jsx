@@ -103,6 +103,7 @@ function TrackArtwork({
         src={artworkUrl}
         alt={alt || "Track artwork"}
         loading="lazy"
+        decoding="async"
         onError={(event) => {
           event.currentTarget.style.display = "none";
 

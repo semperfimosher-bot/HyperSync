@@ -415,6 +415,7 @@ function openMediaDatabase() {
     })
       .then(
         (database) => {
+          database.onclose = () => { databasePromise = null; };
           database.onversionchange =
             () => {
               database.close();
@@ -511,6 +512,7 @@ function openOfflineDatabase() {
     })
       .then(
         (database) => {
+          database.onclose = () => { offlineDatabasePromise = null; };
           database.onversionchange =
             () => {
               database.close();
