@@ -95,7 +95,8 @@ import {
 
 import {
   getCachedLibrary,
-  getCachedPlaylist,
+  getCachedLibraryAsync,
+  getCachedPlaylistAsync,
   setCachedLibrary,
   setCachedPlaylist,
 } from "../../libraryCache.js";
@@ -784,7 +785,7 @@ const [
                 playlistId,
               );
 
-            setCachedPlaylist(
+            await setCachedPlaylist(
               libraryCacheKey,
               refreshed,
             );
@@ -835,16 +836,20 @@ const [
         return;
       }
 
-      const cached =
-        getCachedLibrary(
-          libraryCacheKey,
-        );
-
       const offline =
         typeof navigator !==
           "undefined" &&
         navigator.onLine ===
           false;
+
+      const cached =
+        offline
+          ? await getCachedLibraryAsync(
+              libraryCacheKey,
+            )
+          : getCachedLibrary(
+              libraryCacheKey,
+            );
 
 
       /*
@@ -947,7 +952,7 @@ const [
           nextTracks,
         );
 
-        setCachedLibrary(
+        await setCachedLibrary(
           libraryCacheKey,
           {
             owned:
@@ -967,7 +972,7 @@ const [
          * to the persisted snapshot.
          */
         const fallback =
-          getCachedLibrary(
+          await getCachedLibraryAsync(
             libraryCacheKey,
           );
 
@@ -1062,7 +1067,7 @@ const [
           refreshed,
         );
 
-        setCachedPlaylist(
+        await setCachedPlaylist(
           libraryCacheKey,
           refreshed,
         );
@@ -1212,7 +1217,7 @@ const [
 
     const cached =
       downloaded ??
-      getCachedPlaylist(
+      await getCachedPlaylistAsync(
         libraryCacheKey,
         initialPlaylistId,
       );
@@ -1291,7 +1296,7 @@ const [
         return;
       }
 
-      setCachedPlaylist(
+      await setCachedPlaylist(
         libraryCacheKey,
         playlist,
       );
@@ -1438,7 +1443,7 @@ useEffect(() => {
 
   const cached =
     downloaded ??
-    getCachedPlaylist(
+    await getCachedPlaylistAsync(
       libraryCacheKey,
       playlistId,
     );
@@ -1600,7 +1605,7 @@ if (offline) {
       offlineOwnerKey,
     );
 
-    setCachedPlaylist(
+    await setCachedPlaylist(
   libraryCacheKey,
   playlist,
 );

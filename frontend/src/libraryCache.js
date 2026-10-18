@@ -1,41 +1,131 @@
+import {
+  deleteLibrarySnapshot,
+  deleteLibrarySnapshotsByPrefix,
+  getLibrarySnapshot,
+  saveLibrarySnapshot,
+} from "./mediaStore.js";
+
 const CACHE_PREFIX =
   "hypersync-library-v1:";
+
+/*
+ * Keep only a small fast-start mirror in localStorage. Large libraries and
+ * playlists can exceed the browser's localStorage quota; their complete
+ * account-scoped snapshots are stored in IndexedDB instead.
+ */
+const LOCAL_STORAGE_CACHE_LIMIT =
+  256_000;
+
+
+function normalizeOwnerKey(
+  userKey,
+) {
+  return (
+    String(
+      userKey ?? "",
+    ).trim() ||
+    "anonymous"
+  );
+}
 
 
 function getScopeKey(
   userKey,
 ) {
-  const normalized =
-    String(
-      userKey ?? "",
-    ).trim();
-
   return (
     CACHE_PREFIX +
-    (
-      normalized ||
-      "anonymous"
+    normalizeOwnerKey(
+      userKey,
     )
   );
+}
+
+
+function getSnapshotPrefix(
+  userKey,
+) {
+  return (
+    encodeURIComponent(
+      normalizeOwnerKey(
+        userKey,
+      ),
+    ) +
+    "|"
+  );
+}
+
+
+function getLibrarySnapshotKey(
+  userKey,
+) {
+  return (
+    getSnapshotPrefix(
+      userKey,
+    ) +
+    "library"
+  );
+}
+
+
+function getPlaylistSnapshotKey(
+  userKey,
+  playlistId,
+) {
+  const normalizedPlaylistId =
+    String(
+      playlistId ?? "",
+    ).trim();
+
+  if (!normalizedPlaylistId) {
+    return null;
+  }
+
+  return (
+    getSnapshotPrefix(
+      userKey,
+    ) +
+    "playlist|" +
+    encodeURIComponent(
+      normalizedPlaylistId,
+    )
+  );
+}
+
+
+function getStorage() {
+  try {
+    return globalThis.localStorage ??
+      null;
+  } catch {
+    return null;
+  }
+}
+
+
+function emptyCache() {
+  return {
+    library: null,
+    playlists: {},
+  };
 }
 
 
 function readCache(
   userKey,
 ) {
+  const storage =
+    getStorage();
+
   try {
     const raw =
-      localStorage.getItem(
+      storage?.getItem(
         getScopeKey(
           userKey,
         ),
       );
 
     if (!raw) {
-      return {
-        library: null,
-        playlists: {},
-      };
+      return emptyCache();
     }
 
     const parsed =
@@ -43,23 +133,42 @@ function readCache(
         raw,
       );
 
+    const library =
+      parsed?.library &&
+      parsed.library._indexedDbOnly !==
+        true
+        ? parsed.library
+        : null;
+
     return {
-      library:
-        parsed?.library ??
-        null,
+      library,
 
       playlists:
         parsed?.playlists &&
         typeof parsed.playlists ===
-          "object"
+          "object" &&
+        !Array.isArray(
+          parsed.playlists,
+        )
           ? parsed.playlists
           : {},
     };
   } catch {
-    return {
-      library: null,
-      playlists: {},
-    };
+    return emptyCache();
+  }
+}
+
+
+function exceedsLocalStorageLimit(
+  value,
+) {
+  try {
+    return JSON.stringify(
+      value,
+    ).length >
+      LOCAL_STORAGE_CACHE_LIMIT;
+  } catch {
+    return true;
   }
 }
 
@@ -68,21 +177,129 @@ function writeCache(
   userKey,
   value,
 ) {
+  const storage =
+    getStorage();
+
+  if (!storage?.setItem) {
+    return false;
+  }
+
+  let serialized;
+
   try {
-    localStorage.setItem(
-      getScopeKey(
-        userKey,
-      ),
+    serialized =
       JSON.stringify(
         value,
-      ),
-    );
+      );
+  } catch {
+    return false;
+  }
+
+  try {
+    if (
+      serialized.length <=
+      LOCAL_STORAGE_CACHE_LIMIT
+    ) {
+      storage.setItem(
+        getScopeKey(
+          userKey,
+        ),
+        serialized,
+      );
+    } else {
+      /*
+       * Full values are saved in IndexedDB by the caller. This small marker
+       * avoids repeated quota errors and prevents a partial mirror looking like
+       * a complete offline snapshot.
+       */
+      storage.setItem(
+        getScopeKey(
+          userKey,
+        ),
+        JSON.stringify({
+          library:
+            value.library
+              ? {
+                  _indexedDbOnly: true,
+                  cachedAt:
+                    value.library.cachedAt ??
+                    Date.now(),
+                }
+              : null,
+          playlists: {},
+        }),
+      );
+    }
+
+    return true;
   } catch {
     /*
-     * Cache failure must never
-     * break the Library.
+     * Browser storage may be blocked or full. Cache failure must not break UI.
      */
+    return false;
   }
+}
+
+
+function persistSnapshot(
+  key,
+  value,
+) {
+  if (!key) {
+    return Promise.resolve(false);
+  }
+
+  return saveLibrarySnapshot(
+    key,
+    value,
+  ).catch(
+    () => false,
+  );
+}
+
+
+function persistCacheSnapshots(
+  userKey,
+  cache,
+) {
+  const tasks = [];
+
+  if (cache.library) {
+    tasks.push(
+      persistSnapshot(
+        getLibrarySnapshotKey(
+          userKey,
+        ),
+        cache.library,
+      ),
+    );
+  }
+
+  for (
+    const [
+      playlistId,
+      playlist,
+    ]
+    of Object.entries(
+      cache.playlists ?? {},
+    )
+  ) {
+    tasks.push(
+      persistSnapshot(
+        getPlaylistSnapshotKey(
+          userKey,
+          playlistId,
+        ),
+        playlist,
+      ),
+    );
+  }
+
+  return Promise.all(
+    tasks,
+  ).then(
+    () => true,
+  );
 }
 
 
@@ -95,6 +312,45 @@ export function getCachedLibrary(
 }
 
 
+export async function getCachedLibraryAsync(
+  userKey,
+) {
+  try {
+    const snapshot =
+      await getLibrarySnapshot(
+        getLibrarySnapshotKey(
+          userKey,
+        ),
+      );
+
+    if (
+      snapshot &&
+      typeof snapshot === "object"
+    ) {
+      return snapshot;
+    }
+  } catch {
+    // Fall back to the small/legacy localStorage snapshot.
+  }
+
+  const legacy =
+    getCachedLibrary(
+      userKey,
+    );
+
+  if (legacy) {
+    void persistSnapshot(
+      getLibrarySnapshotKey(
+        userKey,
+      ),
+      legacy,
+    );
+  }
+
+  return legacy;
+}
+
+
 export function setCachedLibrary(
   userKey,
   library,
@@ -104,18 +360,39 @@ export function setCachedLibrary(
       userKey,
     );
 
+  const nextLibrary = {
+    ...library,
+    cachedAt:
+      Date.now(),
+  };
+
+  const nextCache = {
+    ...cache,
+    library:
+      nextLibrary,
+  };
+
   writeCache(
     userKey,
-    {
-      ...cache,
+    nextCache,
+  );
 
-      library: {
-        ...library,
+  if (
+    exceedsLocalStorageLimit(
+      nextCache,
+    )
+  ) {
+    return persistCacheSnapshots(
+      userKey,
+      nextCache,
+    );
+  }
 
-        cachedAt:
-          Date.now(),
-      },
-    },
+  return persistSnapshot(
+    getLibrarySnapshotKey(
+      userKey,
+    ),
+    nextLibrary,
   );
 }
 
@@ -123,18 +400,26 @@ export function setCachedLibrary(
 export function clearCachedLibraryScope(
   userKey,
 ) {
+  const storage =
+    getStorage();
+
   try {
-    localStorage.removeItem(
+    storage?.removeItem(
       getScopeKey(
         userKey,
       ),
     );
   } catch {
-    /*
-     * Cache cleanup must never
-     * break account logout.
-     */
+    // Cache cleanup must never break logout.
   }
+
+  return deleteLibrarySnapshotsByPrefix(
+    getSnapshotPrefix(
+      userKey,
+    ),
+  ).catch(
+    () => 0,
+  );
 }
 
 
@@ -146,12 +431,38 @@ export function clearCachedLibrary(
       userKey,
     );
 
+  const nextCache = {
+    ...cache,
+    library: null,
+  };
+
   writeCache(
     userKey,
-    {
-      ...cache,
-      library: null,
-    },
+    nextCache,
+  );
+
+  const persistRemaining =
+    exceedsLocalStorageLimit(
+      nextCache,
+    )
+      ? persistCacheSnapshots(
+          userKey,
+          nextCache,
+        )
+      : Promise.resolve(true);
+
+  return Promise.all([
+    persistRemaining,
+    deleteLibrarySnapshot(
+      getLibrarySnapshotKey(
+        userKey,
+      ),
+    ).catch(
+      () => false,
+    ),
+  ]).then(
+    (values) =>
+      values.every(Boolean),
   );
 }
 
@@ -180,37 +491,110 @@ export function getCachedPlaylist(
 }
 
 
+export async function getCachedPlaylistAsync(
+  userKey,
+  playlistId,
+) {
+  const key =
+    getPlaylistSnapshotKey(
+      userKey,
+      playlistId,
+    );
+
+  if (!key) {
+    return null;
+  }
+
+  try {
+    const snapshot =
+      await getLibrarySnapshot(
+        key,
+      );
+
+    if (
+      snapshot &&
+      typeof snapshot === "object"
+    ) {
+      return snapshot;
+    }
+  } catch {
+    // Fall back to the localStorage mirror.
+  }
+
+  const legacy =
+    getCachedPlaylist(
+      userKey,
+      playlistId,
+    );
+
+  if (legacy) {
+    void persistSnapshot(
+      key,
+      legacy,
+    );
+  }
+
+  return legacy;
+}
+
+
 export function setCachedPlaylist(
   userKey,
   playlist,
 ) {
   if (!playlist?.id) {
-    return;
+    return Promise.resolve(false);
   }
+
+  const id =
+    String(
+      playlist.id,
+    );
+
+  const nextPlaylist = {
+    ...playlist,
+    cachedAt:
+      Date.now(),
+  };
 
   const cache =
     readCache(
       userKey,
     );
 
+  const nextCache = {
+    ...cache,
+
+    playlists: {
+      ...cache.playlists,
+
+      [id]:
+        nextPlaylist,
+    },
+  };
+
   writeCache(
     userKey,
-    {
-      ...cache,
+    nextCache,
+  );
 
-      playlists: {
-        ...cache.playlists,
+  if (
+    exceedsLocalStorageLimit(
+      nextCache,
+    )
+  ) {
+    return persistCacheSnapshots(
+      userKey,
+      nextCache,
+    );
+  }
 
-        [String(
-          playlist.id,
-        )]: {
-          ...playlist,
-
-          cachedAt:
-            Date.now(),
-        },
-      },
-    },
+  return persistSnapshot(
+    getPlaylistSnapshotKey(
+      userKey,
+      id,
+    ),
+    nextPlaylist,
   );
 }
 
@@ -220,7 +604,7 @@ export function removeCachedPlaylist(
   playlistId,
 ) {
   if (!playlistId) {
-    return;
+    return Promise.resolve(false);
   }
 
   const cache =
@@ -238,13 +622,40 @@ export function removeCachedPlaylist(
     )
   ];
 
+  const nextCache = {
+    ...cache,
+
+    playlists:
+      nextPlaylists,
+  };
+
   writeCache(
     userKey,
-    {
-      ...cache,
+    nextCache,
+  );
 
-      playlists:
-        nextPlaylists,
-    },
+  const persistRemaining =
+    exceedsLocalStorageLimit(
+      nextCache,
+    )
+      ? persistCacheSnapshots(
+          userKey,
+          nextCache,
+        )
+      : Promise.resolve(true);
+
+  return Promise.all([
+    persistRemaining,
+    deleteLibrarySnapshot(
+      getPlaylistSnapshotKey(
+        userKey,
+        playlistId,
+      ),
+    ).catch(
+      () => false,
+    ),
+  ]).then(
+    (values) =>
+      values.every(Boolean),
   );
 }

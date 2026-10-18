@@ -31,11 +31,14 @@ const MEDIA_DOWNLOAD_JOB_STORE =
 const MEDIA_LYRICS_STORE =
   "lyrics";
 
+const LIBRARY_SNAPSHOT_STORE =
+  "library_snapshots";
+
 const OFFLINE_DATABASE_NAME =
   "hypersynced-offline-v1";
 
 const OFFLINE_DATABASE_VERSION =
-  1;
+  2;
 
 
 let databasePromise = null;
@@ -507,6 +510,20 @@ function openOfflineDatabase() {
             },
           );
         }
+
+        if (
+          !database.objectStoreNames
+            .contains(
+              LIBRARY_SNAPSHOT_STORE,
+            )
+        ) {
+          database.createObjectStore(
+            LIBRARY_SNAPSHOT_STORE,
+            {
+              keyPath: "key",
+            },
+          );
+        }
       },
     })
       .then(
@@ -532,6 +549,286 @@ function openOfflineDatabase() {
       );
 
   return offlineDatabasePromise;
+}
+
+
+
+/*
+ * Large account Library/playlist snapshots belong in IndexedDB, not
+ * localStorage. IndexedDB supports substantially larger structured records and
+ * keeps private snapshots keyed by account scope.
+ */
+export async function getLibrarySnapshot(
+  key,
+) {
+  const normalizedKey =
+    String(
+      key ?? "",
+    ).trim();
+
+  if (!normalizedKey) {
+    return null;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          LIBRARY_SNAPSHOT_STORE,
+          "readonly",
+        );
+
+      const request =
+        transaction
+          .objectStore(
+            LIBRARY_SNAPSHOT_STORE,
+          )
+          .get(
+            normalizedKey,
+          );
+
+      request.onsuccess =
+        () => {
+          resolve(
+            request.result?.value ??
+              null,
+          );
+        };
+
+      request.onerror =
+        () => {
+          reject(
+            request.error ??
+              new Error(
+                "Unable to read the cached Library snapshot.",
+              ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function saveLibrarySnapshot(
+  key,
+  value,
+) {
+  const normalizedKey =
+    String(
+      key ?? "",
+    ).trim();
+
+  if (!normalizedKey) {
+    return false;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          LIBRARY_SNAPSHOT_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          LIBRARY_SNAPSHOT_STORE,
+        )
+        .put({
+          key: normalizedKey,
+          value,
+          savedAt: Date.now(),
+        });
+
+      transaction.oncomplete =
+        () => {
+          resolve(true);
+        };
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to save the cached Library snapshot.",
+              ),
+          );
+        };
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Saving the cached Library snapshot was aborted.",
+              ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function deleteLibrarySnapshot(
+  key,
+) {
+  const normalizedKey =
+    String(
+      key ?? "",
+    ).trim();
+
+  if (!normalizedKey) {
+    return false;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          LIBRARY_SNAPSHOT_STORE,
+          "readwrite",
+        );
+
+      transaction
+        .objectStore(
+          LIBRARY_SNAPSHOT_STORE,
+        )
+        .delete(
+          normalizedKey,
+        );
+
+      transaction.oncomplete =
+        () => {
+          resolve(true);
+        };
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to remove the cached Library snapshot.",
+              ),
+          );
+        };
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Removing the cached Library snapshot was aborted.",
+              ),
+          );
+        };
+    },
+  );
+}
+
+
+export async function deleteLibrarySnapshotsByPrefix(
+  prefix,
+) {
+  const normalizedPrefix =
+    String(
+      prefix ?? "",
+    );
+
+  if (!normalizedPrefix) {
+    return 0;
+  }
+
+  const database =
+    await openOfflineDatabase();
+
+  return new Promise(
+    (
+      resolve,
+      reject,
+    ) => {
+      const transaction =
+        database.transaction(
+          LIBRARY_SNAPSHOT_STORE,
+          "readwrite",
+        );
+
+      const store =
+        transaction.objectStore(
+          LIBRARY_SNAPSHOT_STORE,
+        );
+
+      let deleted = 0;
+
+      const request =
+        store.openCursor();
+
+      request.onsuccess =
+        () => {
+          const cursor =
+            request.result;
+
+          if (!cursor) {
+            return;
+          }
+
+          if (
+            String(
+              cursor.key,
+            ).startsWith(
+              normalizedPrefix,
+            )
+          ) {
+            cursor.delete();
+            deleted += 1;
+          }
+
+          cursor.continue();
+        };
+
+      transaction.oncomplete =
+        () => {
+          resolve(deleted);
+        };
+
+      transaction.onerror =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Unable to clear account Library snapshots.",
+              ),
+          );
+        };
+
+      transaction.onabort =
+        () => {
+          reject(
+            transaction.error ??
+              new Error(
+                "Clearing account Library snapshots was aborted.",
+              ),
+          );
+        };
+    },
+  );
 }
 
 

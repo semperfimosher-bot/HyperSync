@@ -1418,7 +1418,7 @@ test(
     const owner =
       "library-logout-owner";
 
-    cache.setCachedLibrary(
+    await cache.setCachedLibrary(
       owner,
       {
         tracks: [
@@ -1430,7 +1430,7 @@ test(
       },
     );
 
-    cache.setCachedPlaylist(
+    await cache.setCachedPlaylist(
       owner,
       {
         id:
@@ -1440,7 +1440,7 @@ test(
       },
     );
 
-    cache.clearCachedLibraryScope(
+    await cache.clearCachedLibraryScope(
       owner,
     );
 
