@@ -51,10 +51,9 @@ Remove-Item Env:CONFIRM_STAGING_ONLY -ErrorAction SilentlyContinue
 
 Use the actual staging API origin, for example
 `https://staging-api.example.com`. Do not use a production URL. All three
-scripts reject the known production hosts `hypersynced.app`,
-`www.hypersynced.app`, and `api.hypersynced.app`; reject origins with
+scripts reject `hypersynced.app` and every subdomain of it; reject origins with
 credentials, paths, query strings, or fragments; require
-`CONFIRM_STAGING_ONLY=YES); and require the exact hostname to match
+`CONFIRM_STAGING_ONLY=YES`; and require the exact hostname to match
 `EXPECTED_STAGING_HOST`. Set those confirmation variables only after
 independently verifying the target's resolved service, database, and storage are
 staging-only. These guards cannot prove that a custom hostname or DNS alias is
