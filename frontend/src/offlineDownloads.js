@@ -2030,40 +2030,96 @@ export async function removePlaylistFromOffline(
 }
 
 
+function normalizeOfflineSearchValue(value) {
+  return String(
+    value ?? "",
+  )
+    .normalize("NFKD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
+}
+
+
+/*
+ * Local fallback must stay local. Revalidating every downloaded track's
+ * metadata/artwork before filtering can fan out into many requests when the
+ * catalog endpoint is the thing that just failed. Match the owning account's
+ * cached metadata first, then resolve artwork only for actual results.
+ */
 export async function searchDownloadedTracks(
   query,
   ownerKey,
 ) {
-  const normalizedQuery =
-    String(query ?? "")
-      .trim()
-      .toLocaleLowerCase();
-
-  if (!normalizedQuery) {
-    return [];
-  }
-
-  const tracks =
-    await getDownloadedTracks(
+  const normalizedOwnerKey =
+    normalizeOwnerKey(
       ownerKey,
     );
 
-  return tracks.filter(
-    (track) => {
-      const haystack =
-        [
-          track.title,
-          track.artist,
-          track.album,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase();
+  const normalizedQuery =
+    normalizeOfflineSearchValue(
+      query,
+    );
 
-      return haystack.includes(
-        normalizedQuery,
-      );
-    },
+  if (
+    !normalizedOwnerKey ||
+    !normalizedQuery
+  ) {
+    return [];
+  }
+
+  const records =
+    (
+      await getPinnedMediaRecords()
+    ).filter(
+      (record) =>
+        recordBelongsToOwner(
+          record,
+          normalizedOwnerKey,
+        ),
+    );
+
+  const matchingRecords =
+    records.filter(
+      (record) => {
+        const haystack =
+          [
+            record.title,
+            record.artist,
+            record.album,
+          ]
+            .filter(Boolean)
+            .map(
+              normalizeOfflineSearchValue,
+            )
+            .join(" ");
+
+        return haystack.includes(
+          normalizedQuery,
+        );
+      },
+    );
+
+  const online =
+    globalThis.navigator
+      ?.onLine !== false;
+
+  const serviceWorkerControlled =
+    Boolean(
+      globalThis.navigator
+        ?.serviceWorker
+        ?.controller,
+    );
+
+  return Promise.all(
+    matchingRecords.map(
+      (record) =>
+        downloadedTrackFromRecord(
+          record,
+          serviceWorkerControlled,
+          online,
+        ),
+    ),
   );
 }
 
