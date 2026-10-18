@@ -929,8 +929,8 @@ const [
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
-            quiet
-              ? Promise.resolve(libraryTracks)
+            quiet && Array.isArray(cached?.tracks)
+              ? Promise.resolve(cached.tracks)
               : getLibraryTracks({ limit: 1000, offset: 0 }),
           ]);
 
@@ -957,11 +957,8 @@ const [
           nextSaved,
         );
 
-        setLibraryTracks(
-          quiet ? nextTracks : nextTracks.slice(0, 1000),
-        );
-
         if (!quiet) {
+          setLibraryTracks(nextTracks.slice(0, 1000));
           setLibraryHasMore(nextTracks.length >= 1000);
         }
 
@@ -1029,7 +1026,6 @@ const [
     [
       isRegistered,
       libraryCacheKey,
-      libraryTracks,
     ],
   );
 
