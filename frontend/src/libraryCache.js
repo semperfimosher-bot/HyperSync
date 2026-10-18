@@ -120,6 +120,15 @@ export function setCachedLibrary(
 }
 
 
+export async function clearCachedLibraryScopeAsync(userKey) {
+  try {
+    localStorage.removeItem(getScopeKey(userKey));
+  } catch {
+    // Storage cleanup must not prevent account logout.
+  }
+  await deleteIndexedDbLibrary(userKey);
+}
+
 export function clearCachedLibraryScope(
   userKey,
 ) {
