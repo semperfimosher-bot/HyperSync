@@ -3,6 +3,7 @@ import re
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
 
 from backend.app.middleware.request_diagnostics import (
@@ -18,9 +19,7 @@ def make_app(status_code: int = 200) -> FastAPI:
     )
 
     @app.get("/items/{item_id}")
-    async def item(item_id: str) -> dict[str, str]:
-        from fastapi.responses import JSONResponse
-
+    async def item(item_id: str) -> JSONResponse:
         return JSONResponse(
             status_code=status_code,
             content={"item": item_id},
@@ -34,7 +33,10 @@ async def test_request_id_header_and_privacy_safe_slow_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     app = make_app()
-    caplog.set_level(logging.INFO, logger="backend.app.middleware.request_diagnostics")
+    caplog.set_level(
+        logging.INFO,
+        logger="backend.app.middleware.request_diagnostics",
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -64,7 +66,10 @@ async def test_server_error_is_logged_without_query_or_body(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     app = make_app(status_code=503)
-    caplog.set_level(logging.WARNING, logger="backend.app.middleware.request_diagnostics")
+    caplog.set_level(
+        logging.WARNING,
+        logger="backend.app.middleware.request_diagnostics",
+    )
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
