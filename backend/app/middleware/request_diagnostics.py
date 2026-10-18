@@ -64,7 +64,30 @@ class RequestDiagnosticsMiddleware:
                 type(exc).__name__,
                 duration_ms,
             )
-            raise
+            if not response_started:
+                # Starlette's outer ServerErrorMiddleware normally creates
+                # unhandled 500 responses outside user middleware. Emit a
+                # minimal response here so the same request ID reaches the
+                # client and can be matched to this privacy-safe log entry.
+                await diagnostic_send(
+                    {
+                        "type": "http.response.start",
+                        "status": 500,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"cache-control", b"no-store"),
+                        ],
+                    }
+                )
+                await diagnostic_send(
+                    {
+                        "type": "http.response.body",
+                        "body": b'{"detail":"Internal Server Error"}',
+                    }
+                )
+            else:
+                # A response has already started; it cannot safely be replaced.
+                raise
         finally:
             if response_started and status_code is not None:
                 duration_ms = (time.perf_counter() - started_at) * 1000
