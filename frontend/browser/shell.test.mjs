@@ -85,6 +85,10 @@ async function fixture(t, { admin = false } = {}) {
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto(origin);
   await page.locator("main").waitFor({ state: "visible" });
+  // The normal first-visit account overlay intentionally blocks navigation.
+  // Continue as a guest so these tests exercise the underlying offline shell.
+  const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
+  if (await guestButton.count()) await guestButton.click();
   await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
