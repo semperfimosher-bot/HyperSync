@@ -5210,6 +5210,21 @@ if (offline) {
         }
       />
 
+      {(activeTab === "Artists" || activeTab === "Albums") && libraryHasMore ? (
+        <div className="hs-library-load-more">
+          <button
+            type="button"
+            className="hs-search-playlist-action"
+            disabled={libraryLoadingMore}
+            onClick={() => void loadMoreLibraryTracks()}
+          >
+            {libraryLoadingMore
+              ? "Loading more library tracks..."
+              : `Load more library tracks (${libraryTracks.length.toLocaleString()} loaded)`}
+          </button>
+        </div>
+      ) : null}
+
       <TrackActionMenu
         menu={
           trackActionMenu.menu
