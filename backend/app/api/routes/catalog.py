@@ -209,7 +209,8 @@ async def list_tracks(
                 )
             )
 
-        stmt = stmt.order_by(Track.artist, Track.title)
+        # Include the primary key as a deterministic tie-breaker for offset pages.
+        stmt = stmt.order_by(Track.artist, Track.title, Track.id)
         if limit is not None:
             stmt = stmt.offset(offset).limit(limit)
         result = await session.execute(stmt)
