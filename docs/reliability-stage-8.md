@@ -82,3 +82,17 @@ Capture recovery time and confirm no corrupted/duplicated uploads, stuck tasks, 
 - No load tests have been run in this work session because an isolated staging environment has not been confirmed.
 - First task is to inspect and reuse existing staging load-test tooling, then add safe guards/coverage without duplicating or weakening current safeguards.
 - This document alone does not mean Stage 8 is complete.
+
+
+## Existing load-test assets reviewed
+
+The repository already contains both guarded k6 scenarios and operator guidance; Stage 8 should extend and use these rather than create duplicate scripts:
+
+- `load/k6-40-users.js`: ramps to 40 virtual users and holds five minutes; catalog/search plus optional dedicated staging-account library/playlists.
+- `load/k6-100-users.js`: ramps to 100 and holds five minutes; bounded catalog/library offsets spanning up to 100,000 tracks plus search/playlists.
+- `load/README.md`: PowerShell invocation, initial thresholds, safety notes, and known gaps.
+- `docs/operations/northflank-staging.md`: staging service setup and pre-load-test isolation checks.
+
+Both scripts require `TARGET_BASE_URL`, reject known production hostnames, reject non-origin URLs, and optionally accept a dedicated staging token through `TEST_AUTH_TOKEN`. These safeguards do not detect every possible alias to production; a human must verify the resolved staging destination before running them.
+
+The existing tests currently exercise API endpoints only, not browser flows, uploads, audio streaming, offline startup, or fault injection. Those remain distinct Stage 8 work packages. Existing thresholds are HTTP failure rate below 1%, overall p95 below 750 ms, p99 below 1,500 ms, and catalog/search p95 below 750 ms; confirm these are suitable for the measured staging hardware before treating them as release gates.
