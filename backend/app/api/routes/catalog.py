@@ -178,7 +178,10 @@ async def list_tracks(
         default=None,
         ge=1,
         le=1000,
-        description="Optional page size (maximum 1000). Omit to preserve the legacy full-list response.",
+        description=(
+            "Optional page size (maximum 1000). Omit to preserve "
+            "the legacy full-list response."
+        ),
     ),
     offset: int = Query(
         default=0,
