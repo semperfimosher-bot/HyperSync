@@ -86,6 +86,7 @@ async def test_playlist_track_query_can_keep_legacy_unbounded_mode():
         uuid4(),
     )
 
-    sql = str(session.statement).lower()
-    assert " limit " not in sql
-    assert " offset " in sql
+    # SQLAlchemy compiles offset-only selects to LIMIT -1 for PostgreSQL;
+    # assert the statement itself has no explicit limit clause.
+    assert session.statement._limit_clause is None
+    assert session.statement._offset_clause is not None
