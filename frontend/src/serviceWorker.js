@@ -301,10 +301,7 @@ globalThis.self?.addEventListener?.(
           for (const [index, key] of refreshedShells.entries()) {
             if (key === APP_SHELL_CACHE) continue;
             const cache = await caches.open(key);
-            if (!await cache.match("/")) {
-              await caches.delete(key);
-              continue;
-            }
+            if (!await cache.match("/")) continue;
             const stamp = await cache.match(activationKey);
             const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
             if (order > previousOrder) {
