@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -24,7 +25,7 @@ class FakeRows:
 
 class FakeSession:
     def __init__(self):
-        self.statement = None
+        self.statement: Any = None
 
     async def execute(self, statement, *args, **kwargs):
         self.statement = statement
@@ -66,7 +67,7 @@ async def test_playlist_track_pagination_applies_limit_and_offset():
     session = FakeSession()
 
     await playlists_route.load_playlist_tracks(
-        session,
+        session,  # type: ignore[arg-type]
         uuid4(),
         limit=25,
         offset=50,
@@ -82,7 +83,7 @@ async def test_playlist_track_query_can_keep_legacy_unbounded_mode():
     session = FakeSession()
 
     await playlists_route.load_playlist_tracks(
-        session,
+        session,  # type: ignore[arg-type]
         uuid4(),
     )
 
