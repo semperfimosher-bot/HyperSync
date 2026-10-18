@@ -1,5 +1,7 @@
 import {
   Activity,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -89,21 +91,21 @@ import DesktopRightRail from "./components/layout/DesktopRightRail.jsx";
 
 import HomePage from "./components/pages/HomePage.jsx";
 
-import LibraryPage from "./components/pages/LibraryPage.jsx";
 
-import SearchPage from "./components/pages/SearchPage.jsx";
 
-import MessagesPage from "./components/pages/MessagesPage.jsx";
 
-import ProfilePage from "./components/pages/ProfilePage.jsx";
 
-import PublicProfilePage from "./components/pages/PublicProfilePage.jsx";
+
+
+
+
+
 
 import SectionHeading from "./components/ui/SectionHeading.jsx";
 
-import AdminUploadsPage from "./components/pages/AdminUploadsPage.jsx";
-import AdminCatalogPage from "./components/pages/AdminCatalogPage.jsx";
-import AdminDashboardPage from "./components/pages/AdminDashboardPage.jsx";
+
+
+
 
 import {
   getOfflineOwnerKey,
@@ -142,6 +144,15 @@ import useDownloadedPlaylistUpdates from
 
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
+
+const LibraryPage = lazy(() => import("./components/pages/LibraryPage.jsx"));
+const SearchPage = lazy(() => import("./components/pages/SearchPage.jsx"));
+const MessagesPage = lazy(() => import("./components/pages/MessagesPage.jsx"));
+const ProfilePage = lazy(() => import("./components/pages/ProfilePage.jsx"));
+const PublicProfilePage = lazy(() => import("./components/pages/PublicProfilePage.jsx"));
+const AdminUploadsPage = lazy(() => import("./components/pages/AdminUploadsPage.jsx"));
+const AdminCatalogPage = lazy(() => import("./components/pages/AdminCatalogPage.jsx"));
+const AdminDashboardPage = lazy(() => import("./components/pages/AdminDashboardPage.jsx"));
 // -----------------------------------------------------------------------------
 // Pages
 // -----------------------------------------------------------------------------
@@ -667,10 +678,23 @@ function MainPage({
               }
             >
               <PageErrorBoundary>
-                {renderPage(
-                  entry.page,
-                  entry.profileUsername,
-                )}
+                <Suspense
+                  fallback={
+                    <div
+                      className="page-stack"
+                      role="status"
+                      aria-live="polite"
+                      aria-busy="true"
+                    >
+                      Loading page…
+                    </div>
+                  }
+                >
+                  {renderPage(
+                    entry.page,
+                    entry.profileUsername,
+                  )}
+                </Suspense>
               </PageErrorBoundary>
             </Activity>
           ),

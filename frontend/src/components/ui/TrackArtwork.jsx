@@ -2,6 +2,11 @@ import {
   resolveArtworkUrl,
 } from "../../artworkUrl.js";
 
+import {
+  resetArtworkRetry,
+  retryTransientArtwork,
+} from "../../artworkRetry.js";
+
 function CoverPlaceholder({
   variant = 1,
   label = "Awaiting catalog",
@@ -103,7 +108,20 @@ function TrackArtwork({
         src={artworkUrl}
         alt={alt || "Track artwork"}
         loading="lazy"
+        decoding="async"
+        onLoad={(event) => {
+          resetArtworkRetry(event.currentTarget);
+        }}
         onError={(event) => {
+          if (
+            retryTransientArtwork(
+              event,
+              artworkUrl,
+            )
+          ) {
+            return;
+          }
+
           event.currentTarget.style.display = "none";
 
           const fallback =

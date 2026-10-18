@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -21,24 +22,54 @@ import {
   removeNotificationFromSnapshot,
 } from "../messageNotifications.js";
 
+import {
+  getOwnedNotificationSnapshot,
+  getOwnedValue,
+  updateOwnedNotificationSnapshot,
+} from "../ownedNotificationState.js";
+
+import {
+  createOwnerScopedRequestCoordinator,
+} from "../notificationRefreshCoordinator.js";
+
 
 export default function useMessageNotifications({
   currentUser,
   onRequireSignIn,
   onStatusMessage,
 }) {
+  const currentNotificationOwnerId =
+    currentUser?.account_type === "registered" &&
+    currentUser?.id != null
+      ? String(currentUser.id)
+      : null;
+
   const [
-    messageNotifications,
-    setMessageNotifications,
+    ownedNotificationState,
+    setOwnedNotificationState,
   ] = useState(
-    () =>
-      emptyNotificationSnapshot(),
+    () => ({
+      ownerId: null,
+      snapshot: emptyNotificationSnapshot(),
+    }),
+  );
+
+  // Derive visible data during render so an account switch never flashes
+  // the previous account's notification snapshot while the new fetch is pending.
+  const messageNotifications = getOwnedNotificationSnapshot(
+    ownedNotificationState,
+    currentNotificationOwnerId,
   );
 
   const [
-    notificationDetail,
-    setNotificationDetail,
+    notificationDetailState,
+    setNotificationDetailState,
   ] = useState(null);
+
+  const notificationDetail = getOwnedValue(
+    notificationDetailState,
+    currentNotificationOwnerId,
+  );
 
   const [
     pushBusy,
@@ -50,17 +81,28 @@ export default function useMessageNotifications({
     setPushEnabled,
   ] = useState(false);
 
+  // The ref identifies the current render's owner even inside older async callbacks.
+  const activeNotificationOwnerRef = useRef(null);
+  activeNotificationOwnerRef.current = currentNotificationOwnerId;
+
+  // Share refreshes only within one account and discard results from prior sessions.
+  const notificationRefreshCoordinatorRef = useRef(null);
+  if (!notificationRefreshCoordinatorRef.current) {
+    notificationRefreshCoordinatorRef.current =
+      createOwnerScopedRequestCoordinator();
+  }
+
 
   const resetMessageNotifications =
     useCallback(
       () => {
-        setMessageNotifications(
-          emptyNotificationSnapshot(),
-        );
+        notificationRefreshCoordinatorRef.current.setOwner(null);
+        setOwnedNotificationState({
+          ownerId: null,
+          snapshot: emptyNotificationSnapshot(),
+        });
 
-        setNotificationDetail(
-          null,
-        );
+        setNotificationDetailState(null);
 
         setPushEnabled(
           false,
@@ -73,67 +115,79 @@ export default function useMessageNotifications({
   const refreshMessageNotifications =
     useCallback(
       async () => {
+        const ownerId =
+          currentUser?.account_type === "registered" &&
+          currentUser?.id != null
+            ? String(currentUser.id)
+            : null;
+
         if (
-          currentUser?.account_type !==
-            "registered" ||
-          globalThis.navigator
-            ?.onLine ===
-            false
+          ownerId === null ||
+          globalThis.navigator?.onLine === false
         ) {
-          setMessageNotifications(
-            emptyNotificationSnapshot(),
-          );
+          if (ownerId === null) {
+            notificationRefreshCoordinatorRef.current.setOwner(null);
+            setOwnedNotificationState({
+              ownerId: null,
+              snapshot: emptyNotificationSnapshot(),
+            });
+          }
 
           return;
         }
 
-        try {
-          const result =
-            await getMessageNotifications();
+        const outcome =
+          await notificationRefreshCoordinatorRef.current.run(
+            ownerId,
+            getMessageNotifications,
+            () => activeNotificationOwnerRef.current === ownerId,
+          );
 
-          setMessageNotifications({
+        // A request that finishes after logout/account switch must not mutate
+        // the notification state belonging to the new session.
+        if (!outcome?.current || outcome.error) {
+          return;
+        }
+
+        const result = outcome.value;
+        setOwnedNotificationState({
+          ownerId,
+          snapshot: {
             unread_count:
-              Number(
-                result
-                  ?.unread_count ??
-                  0,
-              ) || 0,
+              Number(result?.unread_count ?? 0) || 0,
             notifications:
-              Array.isArray(
-                result
-                  ?.notifications,
-              )
+              Array.isArray(result?.notifications)
                 ? result.notifications
                 : [],
-          });
-        } catch {
-          // Keep the current snapshot during a
-          // temporary network or API failure.
-        }
+          },
+        });
       },
       [
-        currentUser
-          ?.account_type,
+        currentUser?.account_type,
         currentUser?.id,
       ],
     );
-
 
   const consumeNotification =
     useCallback(
       async (
         notification,
       ) => {
-        if (!notification) {
+        const ownerId = currentNotificationOwnerId;
+        if (!notification || ownerId === null) {
           return;
         }
 
-        setMessageNotifications(
-          (current) =>
-            removeNotificationFromSnapshot(
-              current,
-              notification,
-            ),
+        setOwnedNotificationState((current) =>
+          updateOwnedNotificationSnapshot(
+            current,
+            ownerId,
+            (snapshot) =>
+              removeNotificationFromSnapshot(
+                snapshot,
+                notification,
+              ),
+          ),
         );
 
         try {
@@ -167,6 +221,7 @@ export default function useMessageNotifications({
         }
       },
       [
+        currentNotificationOwnerId,
         refreshMessageNotifications,
       ],
     );
@@ -177,19 +232,22 @@ export default function useMessageNotifications({
       (
         notification,
       ) => {
-        if (!notification) {
+        const ownerId = currentNotificationOwnerId;
+        if (!notification || ownerId === null) {
           return;
         }
 
-        setNotificationDetail(
-          notification,
-        );
+        setNotificationDetailState({
+          ownerId,
+          value: notification,
+        });
 
         void consumeNotification(
           notification,
         );
       },
       [
+        currentNotificationOwnerId,
         consumeNotification,
       ],
     );
@@ -198,9 +256,7 @@ export default function useMessageNotifications({
   const closeNotificationDetail =
     useCallback(
       () => {
-        setNotificationDetail(
-          null,
-        );
+        setNotificationDetailState(null);
       },
       [],
     );
@@ -243,6 +299,13 @@ export default function useMessageNotifications({
         try {
           const result =
             await enablePushNotifications();
+
+          if (
+            activeNotificationOwnerRef.current !==
+              currentNotificationOwnerId
+          ) {
+            return;
+          }
 
           if (
             !result?.supported
@@ -314,8 +377,8 @@ export default function useMessageNotifications({
         }
       },
       [
-        currentUser
-          ?.account_type,
+        currentNotificationOwnerId,
+        currentUser?.account_type,
         onRequireSignIn,
         onStatusMessage,
       ],
@@ -336,6 +399,13 @@ export default function useMessageNotifications({
     void syncExistingPushSubscription()
       .then(
         (result) => {
+          if (
+            activeNotificationOwnerRef.current !==
+              currentNotificationOwnerId
+          ) {
+            return;
+          }
+
           setPushEnabled(
             Boolean(
               result?.enabled,
@@ -345,18 +415,28 @@ export default function useMessageNotifications({
       )
       .catch(
         () => {
-          setPushEnabled(
-            false,
-          );
+          if (
+            activeNotificationOwnerRef.current ===
+              currentNotificationOwnerId
+          ) {
+            setPushEnabled(false);
+          }
         },
       );
 
+    // Poll only while this tab is visible. Focus/visibility events below
+    // refresh immediately when the user returns, without background churn.
     const interval =
       window.setInterval(
         () => {
-          void refreshMessageNotifications();
+          if (
+            document.visibilityState ===
+              "visible"
+          ) {
+            void refreshMessageNotifications();
+          }
         },
-        30_000,
+        60_000,
       );
 
     const handleFocus =
@@ -398,6 +478,8 @@ export default function useMessageNotifications({
         "visibilitychange",
         handleVisibility,
       );
+
+      notificationRefreshCoordinatorRef.current.setOwner(null);
     };
   }, [
     currentUser

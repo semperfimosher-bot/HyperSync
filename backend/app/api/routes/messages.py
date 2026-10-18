@@ -1659,13 +1659,13 @@ async def subscribe_push(
         endpoint = validate_push_endpoint(
             payload.endpoint,
         )
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=(
                 status.HTTP_400_BAD_REQUEST
             ),
-            detail=str(exc),
-        ) from exc
+            detail="Invalid push subscription endpoint.",
+        ) from None
 
     result = await session.execute(
         select(PushSubscription).where(

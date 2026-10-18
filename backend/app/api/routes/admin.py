@@ -691,13 +691,12 @@ async def admin_diagnostics(
             **catalog_counts,
         }
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Admin diagnostics database check failed.")
         await session.rollback()
 
-        database_status[
-            "message"
-        ] = str(
-            exc,
+        database_status["message"] = (
+            "Database check failed; inspect server logs."
         )
 
     try:
@@ -714,11 +713,10 @@ async def admin_diagnostics(
                 ),
         }
 
-    except Exception as exc:
-        storage_status[
-            "message"
-        ] = str(
-            exc,
+    except Exception:
+        logger.exception("Admin diagnostics storage check failed.")
+        storage_status["message"] = (
+            "Storage check failed; inspect server logs."
         )
 
     return {
@@ -904,7 +902,8 @@ async def delete_all_database_data(
             )
         )
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Unable to delete every B2 object version during admin reset.")
         await session.rollback()
 
         raise HTTPException(
@@ -912,11 +911,10 @@ async def delete_all_database_data(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Failed to delete every "
-                f"B2 file version: {exc}. "
-                "Database data was not wiped."
+                "Unable to remove all storage objects. "
+                "Database data was not wiped; inspect server logs before retrying."
             ),
-        ) from exc
+        ) from None
 
     try:
         (
@@ -928,17 +926,17 @@ async def delete_all_database_data(
             )
         )
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Storage objects were deleted but the admin database reset failed.")
         raise HTTPException(
             status_code=(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "B2 files were deleted, but "
-                "the database wipe failed: "
-                f"{exc}"
+                "Storage objects were deleted, but the database reset failed. "
+                "Inspect server logs before retrying."
             ),
-        ) from exc
+        ) from None
 
     response.delete_cookie(
         key="hypersync_refresh",
@@ -1406,7 +1404,8 @@ async def finalize_direct_track_upload(
         await session.rollback()
         raise
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Direct B2 upload finalization failed.")
         await session.rollback()
 
         raise HTTPException(
@@ -1414,10 +1413,10 @@ async def finalize_direct_track_upload(
                 status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "Unable to finalize direct "
-                f"upload: {exc}"
+                "Unable to finalize direct upload. "
+                "Please retry or contact support."
             ),
-        ) from exc
+        ) from None
 
     finally:
         if cleanup_audio:
@@ -1775,13 +1774,17 @@ async def upload_track(
 
         raise
 
-    except Exception as exc:
+    except Exception:
+        logger.exception("Backend audio upload failed.")
         await session.rollback()
 
         raise HTTPException(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
-            detail=(f"Upload failed: {exc}"),
-        ) from exc
+            detail=(
+                "Upload failed while processing the audio file. "
+                "Please retry or contact support."
+            ),
+        ) from None
 
     finally:
         temporary.cleanup()
@@ -1993,10 +1996,12 @@ async def backfill_track_metadata(
                     )
                 )
 
-        except Exception as exc:
-            embedded_error = str(
-                exc,
+        except Exception:
+            logger.exception(
+                "Unable to read embedded metadata for track %s.",
+                track.id,
             )
+            embedded_error = "Embedded metadata could not be read."
 
         still_missing = (
             not (
@@ -2253,13 +2258,15 @@ async def delete_tracks_bulk(
                     None,
                 )
 
-            except Exception as exc:
+            except Exception:
+                logger.exception(
+                    "Bulk storage deletion failed for track %s.",
+                    track.id,
+                )
                 return (
                     track,
                     0,
-                    str(
-                        exc,
-                    ),
+                    "Storage deletion failed.",
                 )
 
     storage_queue: asyncio.Queue[
@@ -2335,10 +2342,9 @@ async def delete_tracks_bulk(
                         ),
                     "message":
                         (
-                            "Failed to permanently "
-                            "remove track files from "
-                            f"B2: {error_message}. Track remains hidden; "
-                            "retry deletion to finish cleanup."
+                            "Failed to permanently remove track files from B2. "
+                            "Track remains hidden; retry deletion to finish cleanup. "
+                            "Inspect server logs for diagnostic details."
                         ),
                 }
             )

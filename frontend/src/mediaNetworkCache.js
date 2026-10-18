@@ -3,6 +3,72 @@ import {
   saveMediaChunk,
 } from "./mediaStore.js";
 
+function validateNetworkRangeResponse({
+  response,
+  byteStart,
+  byteEnd,
+  fileSize,
+}) {
+  if (
+    !Number.isSafeInteger(byteStart) ||
+    !Number.isSafeInteger(byteEnd) ||
+    !Number.isSafeInteger(fileSize) ||
+    byteStart < 0 ||
+    byteEnd < byteStart ||
+    fileSize <= 0 ||
+    byteEnd >= fileSize
+  ) {
+    throw new RangeError(
+      "Network media cache range is outside the known file size.",
+    );
+  }
+
+  if (response.status !== 206) {
+    throw new RangeError(
+      "Network media cache response must be HTTP 206 Partial Content.",
+    );
+  }
+
+  const expectedByteLength =
+    byteEnd - byteStart + 1;
+
+  const contentRange =
+    response.headers.get("Content-Range");
+
+  const match =
+    /^bytes (\d+)-(\d+)\/(\d+)$/.exec(
+      contentRange ?? "",
+    );
+
+  if (
+    !match ||
+    Number(match[1]) !== byteStart ||
+    Number(match[2]) !== byteEnd ||
+    Number(match[3]) !== fileSize
+  ) {
+    throw new RangeError(
+      "Network media response Content-Range does not match the requested byte range.",
+    );
+  }
+
+  const rawContentLength =
+    response.headers.get("Content-Length");
+
+  if (rawContentLength !== null) {
+    const contentLength =
+      Number(rawContentLength);
+
+    if (
+      !Number.isSafeInteger(contentLength) ||
+      contentLength !== expectedByteLength
+    ) {
+      throw new RangeError(
+        "Network media response Content-Length does not match the requested byte range.",
+      );
+    }
+  }
+}
+
 export async function cacheNetworkMediaResponse({
   response,
   trackId,
@@ -20,6 +86,13 @@ export async function cacheNetworkMediaResponse({
       "Network media cache response must start on a cache chunk boundary.",
     );
   }
+
+  validateNetworkRangeResponse({
+    response,
+    byteStart,
+    byteEnd,
+    fileSize,
+  });
 
   const expectedByteLength =
     byteEnd -

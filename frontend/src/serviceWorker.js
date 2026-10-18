@@ -12,6 +12,10 @@ import {
 } from "./mediaCacheResponse.js";
 
 import {
+  matchAppShell,
+} from "./appShellCache.js";
+
+import {
   cacheNetworkMediaResponse,
 } from "./mediaNetworkCache.js";
 
@@ -31,7 +35,7 @@ const DEFAULT_API_BASE_URL =
     ?.VITE_API_BASE_URL ??
   "/api";
 const APP_SHELL_CACHE =
-  "hypersync-app-shell-v3";
+  "hypersync-app-shell-v5";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -42,115 +46,345 @@ const NAVIGATION_NETWORK_TIMEOUT_MS =
 const MEDIA_CLEANUP_INTERVAL_MS =
   6 * 60 * 60 * 1000;
 
+const PRECACHE_ASSET_PATTERN =
+  /\.(?:m?js|css|woff2?|ttf|otf|svg|png|jpe?g|webp|ico)$/i;
+
+const CRITICAL_PRECACHE_ASSET_PATTERN =
+  /\.(?:m?js|css|woff2?|ttf|otf)$/i;
+
+function isCriticalPrecacheAsset(url) {
+  try {
+    return CRITICAL_PRECACHE_ASSET_PATTERN.test(
+      new URL(url).pathname,
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function cacheAssetUrls(
+  cache,
+  urls,
+  {
+    requireCriticalAssets = true,
+  } = {},
+) {
+  await Promise.all(
+    urls.map(async (url) => {
+      const required =
+        requireCriticalAssets &&
+        isCriticalPrecacheAsset(url);
+
+      try {
+        const response = await fetch(
+          url,
+          {
+            cache: "no-cache",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Unable to precache app asset (HTTP ${response.status}): ${url}`,
+          );
+        }
+
+        await cache.put(
+          url,
+          response,
+        );
+      } catch (error) {
+        if (required) {
+          throw error;
+        }
+      }
+    }),
+  );
+}
+
+
+export async function fetchNavigationWithFallback({
+  request,
+  preloadResponse,
+  cache,
+  fetchLike = globalThis.fetch,
+  timeoutMs = NAVIGATION_NETWORK_TIMEOUT_MS,
+}) {
+  const controller = new AbortController();
+  let timeoutId;
+
+  const networkResponse = Promise.resolve(preloadResponse).then(
+    (preloaded) =>
+      preloaded ??
+      fetchLike(
+        new Request(
+          request,
+          {
+            signal: controller.signal,
+          },
+        ),
+      ),
+  );
+
+  const timeoutResponse = new Promise((_, reject) => {
+    timeoutId = globalThis.setTimeout(
+      () => {
+        controller.abort();
+        reject(new Error("Navigation request timed out."));
+      },
+      timeoutMs,
+    );
+  });
+
+  try {
+    const response = await Promise.race([
+      networkResponse,
+      timeoutResponse,
+    ]);
+
+    if (!response.ok) {
+      const cached = await cache.match("/");
+      return cached ?? response;
+    }
+
+    /*
+     * A cache write is best effort. Storage/quota failures must not
+     * turn a successful online navigation into an offline error page.
+     */
+    await cache.put(
+      "/",
+      response.clone(),
+    ).catch(() => {});
+
+    return response;
+  } catch {
+    try {
+      const cached = await cache.match("/");
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // Fall through to a minimal offline response when cache access fails.
+    }
+
+    return new Response(
+      "HyperSynced is offline.",
+      {
+        status: 503,
+        headers: {
+          "Content-Type": "text/plain",
+        },
+      },
+    );
+  } finally {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+}
+
+
+export function collectBuildAssetUrls(
+  manifest,
+  origin,
+) {
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    typeof origin !== "string" ||
+    !origin
+  ) {
+    return [];
+  }
+
+  const urls = new Set();
+
+  for (const entry of Object.values(manifest)) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const candidates = [
+      entry.file,
+      ...(Array.isArray(entry.css) ? entry.css : []),
+      ...(Array.isArray(entry.assets) ? entry.assets : []),
+    ];
+
+    for (const candidate of candidates) {
+      if (
+        typeof candidate !== "string" ||
+        !PRECACHE_ASSET_PATTERN.test(candidate)
+      ) {
+        continue;
+      }
+
+      try {
+        const url = new URL(candidate, origin);
+        if (
+          url.origin === origin &&
+          (url.protocol === "https:" || url.protocol === "http:")
+        ) {
+          urls.add(url.href);
+        }
+      } catch {
+        // Ignore malformed or unsupported manifest assets.
+      }
+    }
+  }
+
+  return [...urls];
+}
+
 let lastMediaCleanupAt =
   0;
 
 
 async function precacheAppShell() {
-  const cache =
-    await caches.open(
-      APP_SHELL_CACHE,
-    );
+  const cache = await caches.open(
+    APP_SHELL_CACHE,
+  );
 
-  const response =
-    await fetch(
-      "/",
-      {
-        cache:
-          "no-cache",
-      },
-    );
+  const response = await fetch(
+    "/",
+    {
+      cache: "no-cache",
+    },
+  );
 
   if (!response.ok) {
-    return;
+    throw new Error(
+      `Unable to precache the application shell (HTTP ${response.status}).`,
+    );
   }
 
   /*
-   * Save index.html.
+   * The cache name is build-versioned. A new installing worker must never
+   * overwrite the shell used by the still-active worker before activation.
    */
   await cache.put(
     "/",
     response.clone(),
   );
 
-  /*
-   * Find the hashed Vite JS/CSS files
-   * referenced by index.html and cache
-   * those too.
-   */
-  const html =
-    await response.text();
-
-  const matches =
-    [
-      ...html.matchAll(
-        /(?:src|href)=["']([^"']+)["']/g,
-      ),
-    ];
-
-  const assetUrls =
-    [
-      ...new Set(
-        [
-          ...matches.map(
-            (match) =>
-              match[1],
-          ),
-          "/site.webmanifest",
-          "/favicon.svg",
-          "/apple-touch-icon.png",
-          "/icon-192.png",
-          "/icon-512.png",
-          "/hypersync-home-hero.png",
-        ]
-          .filter(
-            (value) =>
-              value &&
-              !value.startsWith(
-                "data:",
-              ),
-          )
-          .map(
-            (value) =>
-              new URL(
-                value,
-                self.location.origin,
-              ),
-          )
-          .filter(
-            (url) =>
-              url.origin ===
-              self.location.origin,
-          )
-          .map(
-            (url) =>
-              url.href,
-          ),
-      ),
-    ];
-
-  await Promise.allSettled(
-    assetUrls.map(
-      async (url) => {
-        const assetResponse =
-          await fetch(
-            url,
-            {
-              cache:
-                "no-cache",
-            },
-          );
-
-        if (
-          assetResponse.ok
-        ) {
-          await cache.put(
-            url,
-            assetResponse,
-          );
-        }
-      },
+  const html = await response.text();
+  const matches = [
+    ...html.matchAll(
+      /(?:src|href)=["']([^"']+)["']/g,
     ),
+  ];
+
+  const assetUrls = [
+    ...new Set(
+      [
+        ...matches.map(
+          (match) => match[1],
+        ),
+        "/site.webmanifest",
+        "/favicon.svg",
+        "/apple-touch-icon.png",
+        "/icon-192.png",
+        "/icon-512.png",
+        "/hypersync-home-hero.png",
+      ]
+        .filter(
+          (value) =>
+            value &&
+            !value.startsWith("data:"),
+        )
+        .map(
+          (value) =>
+            new URL(
+              value,
+              self.location.origin,
+            ),
+        )
+        .filter(
+          (url) =>
+            url.origin === self.location.origin,
+        )
+        .map(
+          (url) => url.href,
+        ),
+    ),
+  ];
+
+  /*
+   * JS/CSS/font URLs referenced directly by the shell are required. Small
+   * decorative images and install icons remain best-effort.
+   */
+  await cacheAssetUrls(
+    cache,
+    assetUrls,
+  );
+
+  /*
+   * Dynamic page chunks are not referenced directly by index.html. In
+   * production, the Vite manifest is required to safely support offline
+   * navigation to pages that have not previously been opened. A failed or
+   * partial critical-asset precache rejects installation, leaving the active
+   * worker and its cache intact.
+   */
+  let manifestResponse = null;
+  try {
+    manifestResponse = await fetch(
+      "/manifest.json",
+      {
+        cache: "no-cache",
+      },
+    );
+  } catch (error) {
+    if (!import.meta.env?.DEV) {
+      throw error;
+    }
+  }
+
+  if (!manifestResponse?.ok) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "Unable to load the Vite asset manifest for offline installation.",
+      );
+    }
+    return;
+  }
+
+  let manifest;
+  try {
+    manifest = await manifestResponse.json();
+  } catch (error) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "The Vite asset manifest could not be parsed.",
+        { cause: error },
+      );
+    }
+    return;
+  }
+
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    Array.isArray(manifest) ||
+    Object.keys(manifest).length === 0
+  ) {
+    if (!import.meta.env?.DEV) {
+      throw new Error(
+        "The Vite asset manifest is empty or invalid.",
+      );
+    }
+    return;
+  }
+
+  const buildAssetUrls = collectBuildAssetUrls(
+    manifest,
+    self.location.origin,
+  );
+
+  await cacheAssetUrls(
+    cache,
+    buildAssetUrls,
+    {
+      requireCriticalAssets: !import.meta.env?.DEV,
+    },
   );
 }
 
@@ -161,9 +395,13 @@ globalThis.self?.addEventListener?.(
     event.waitUntil(
       (
         async () => {
+          /*
+           * Keep the browser's default waiting lifecycle. Immediately activating
+           * a new worker can strand already-open React clients on hashed lazy
+           * chunks from the previous build, especially when cache cleanup runs.
+           * Let existing controlled clients close before switching worker versions.
+           */
           await precacheAppShell();
-
-          await self.skipWaiting();
         }
       )(),
     );
@@ -1035,70 +1273,12 @@ globalThis.self?.addEventListener?.(
                 APP_SHELL_CACHE,
               );
 
-            const controller =
-              new AbortController();
-
-            const timeoutId =
-              setTimeout(
-                () => {
-                  controller.abort();
-                },
-                NAVIGATION_NETWORK_TIMEOUT_MS,
-              );
-
-            try {
-              const preloaded =
-                await event
-                  .preloadResponse;
-
-              const response =
-                preloaded ??
-                await fetch(
-                  new Request(
-                    request,
-                    {
-                      signal:
-                        controller.signal,
-                    },
-                  ),
-                );
-
-              if (
-                response.ok
-              ) {
-                await cache.put(
-                  "/",
-                  response.clone(),
-                );
-              }
-
-              return response;
-            } catch {
-              const cached =
-                await cache.match(
-                  "/",
-                );
-
-              if (cached) {
-                return cached;
-              }
-
-              return new Response(
-                "HyperSynced is offline.",
-                {
-                  status: 503,
-
-                  headers: {
-                    "Content-Type":
-                      "text/plain",
-                  },
-                },
-              );
-            } finally {
-              clearTimeout(
-                timeoutId,
-              );
-            }
+            return fetchNavigationWithFallback({
+              request,
+              preloadResponse:
+                event.preloadResponse,
+              cache,
+            });
           }
         )(),
       );
@@ -1130,8 +1310,10 @@ globalThis.self?.addEventListener?.(
               );
 
             const cached =
-              await cache.match(
+              await matchAppShell(
+                cache,
                 request,
+                self.location.origin,
               );
 
             if (cached) {

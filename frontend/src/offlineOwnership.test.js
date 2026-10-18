@@ -1418,7 +1418,7 @@ test(
     const owner =
       "library-logout-owner";
 
-    cache.setCachedLibrary(
+    await cache.setCachedLibrary(
       owner,
       {
         tracks: [
@@ -1430,7 +1430,7 @@ test(
       },
     );
 
-    cache.setCachedPlaylist(
+    await cache.setCachedPlaylist(
       owner,
       {
         id:
@@ -1440,7 +1440,7 @@ test(
       },
     );
 
-    cache.clearCachedLibraryScope(
+    await cache.clearCachedLibraryScope(
       owner,
     );
 
@@ -1460,3 +1460,119 @@ test(
     );
   },
 );
+test(
+  "offline fallback search is accent-insensitive, owner-scoped, and does not revalidate unrelated downloads",
+  async (t) => {
+    const mediaStore =
+      await import("./mediaStore.js");
+
+    const offline =
+      await loadOfflineDownloads();
+
+    const suffix =
+      Date.now().toString();
+
+    const ownerA =
+      "local-search-owner-a-" + suffix;
+    const ownerB =
+      "local-search-owner-b-" + suffix;
+
+    const rows = [
+      {
+        owner: ownerA,
+        trackId: "local-search-cafe-a-" + suffix,
+        title: "Café del Mar",
+        artist: "José González",
+        album: "Costa Azul",
+      },
+      {
+        owner: ownerB,
+        trackId: "local-search-cafe-b-" + suffix,
+        title: "Café Noir",
+        artist: "Zoë Keating",
+        album: "Été",
+      },
+      {
+        owner: ownerA,
+        trackId: "local-search-unrelated-" + suffix,
+        title: "Midnight Signal",
+        artist: "Unknown Artist",
+        album: "Other Side",
+      },
+    ];
+
+    for (const row of rows) {
+      const record =
+        mediaStore.createMediaRecord({
+          trackId: row.trackId,
+          mediaVersion: "v1",
+          mimeType: "audio/mpeg",
+          fileSize: 1,
+          state: "PINNED",
+        });
+
+      record.cachedBytes = 1;
+      record.title = row.title;
+      record.artist = row.artist;
+      record.album = row.album;
+      record.artworkValidatedAt = 0;
+      record.pinRefs = [
+        offline.getManualDownloadPinRef(row.owner),
+      ];
+
+      await mediaStore.saveMediaRecord(record);
+    }
+
+    const networkCalls = [];
+    t.mock.method(globalThis, "fetch", async (input) => {
+      networkCalls.push(String(input));
+      throw new Error("Network should not be required for local fallback search.");
+    });
+
+    const cafeMatches =
+      await offline.searchDownloadedTracks(
+        "cafe",
+        ownerA,
+      );
+
+    assert.deepEqual(
+      cafeMatches.map((track) => track.id),
+      [rows[0].trackId],
+    );
+
+    const combinedMatches =
+      await offline.searchDownloadedTracks(
+        "cafe jose",
+        ownerA,
+      );
+
+    assert.deepEqual(
+      combinedMatches.map((track) => track.id),
+      [rows[0].trackId],
+    );
+
+    const artistMatches =
+      await offline.searchDownloadedTracks(
+        "jose",
+        ownerA,
+      );
+
+    assert.deepEqual(
+      artistMatches.map((track) => track.id),
+      [rows[0].trackId],
+    );
+
+    assert.deepEqual(
+      (
+        await offline.searchDownloadedTracks(
+          "cafe",
+          ownerB,
+        )
+      ).map((track) => track.id),
+      [rows[1].trackId],
+    );
+
+    assert.equal(networkCalls.length, 0);
+  },
+);
+

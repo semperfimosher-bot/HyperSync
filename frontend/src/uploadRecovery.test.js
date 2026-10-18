@@ -233,3 +233,128 @@ test("cancelling a queued finalization cleans its unsubmitted prepared audio", a
   finishActive(Response.json({ success: true }));
   await first;
 });
+
+
+test("a stalled direct B2 upload times out, cools down, and falls back to the backend", async (t) => {
+  const { uploadTrack } = await import("./api/uploads.js?recovery-stall-direct");
+  saveAuthSession("upload-test-token");
+  t.after(clearAuthSession);
+
+  const scheduled = [];
+  const previousSetTimeout = globalThis.setTimeout;
+  const previousClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    const timer = { callback, delay, args, cleared: false };
+    scheduled.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer && typeof timer === "object" && "cleared" in timer) {
+      timer.cleared = true;
+      return;
+    }
+    return previousClearTimeout(timer);
+  };
+  t.after(() => {
+    globalThis.setTimeout = previousSetTimeout;
+    globalThis.clearTimeout = previousClearTimeout;
+  });
+
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (String(url).endsWith("/prepare")) {
+      return Response.json({
+        direct_upload: true,
+        object_key: "audio/stalled.mp3",
+        upload_url: "https://storage.example.test/stalled.mp3",
+        content_type: "audio/mpeg",
+      });
+    }
+    return Response.json({ success: true, track_id: "stored" });
+  });
+
+  const methods = [];
+  const progress = [];
+  const previousXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    open(method) { this.method = method; methods.push(method); }
+    setRequestHeader() {}
+    abort() { this.onabort?.(); }
+    send() {
+      if (this.method === "PUT") return; // Never makes progress or completes.
+      queueMicrotask(() => {
+        this.status = 200;
+        this.responseText = JSON.stringify({ success: true, track_id: "stored" });
+        this.onload();
+      });
+    }
+  };
+  t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+
+  const resultPromise = uploadTrack(item(), {
+    onProgress: (value) => progress.push(value),
+  });
+  await new Promise(setImmediate);
+
+  const stallTimer = scheduled.find(
+    (timer) => timer.delay === 90_000 && !timer.cleared,
+  );
+  assert.ok(stallTimer, "a bounded stall timer should be armed for the direct PUT");
+  stallTimer.callback();
+
+  assert.equal((await resultPromise).success, true);
+  assert.deepEqual(methods, ["PUT", "POST"]);
+  assert.ok(progress.includes(0), "the fallback resets progress rather than leaving it stuck");
+});
+
+
+test("a stalled backend fallback upload fails visibly instead of remaining pending", async (t) => {
+  const { uploadTrack } = await import("./api/uploads.js?recovery-stall-server");
+  saveAuthSession("upload-test-token");
+  t.after(clearAuthSession);
+
+  const scheduled = [];
+  const previousSetTimeout = globalThis.setTimeout;
+  const previousClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    const timer = { callback, delay, args, cleared: false };
+    scheduled.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer && typeof timer === "object" && "cleared" in timer) {
+      timer.cleared = true;
+      return;
+    }
+    return previousClearTimeout(timer);
+  };
+  t.after(() => {
+    globalThis.setTimeout = previousSetTimeout;
+    globalThis.clearTimeout = previousClearTimeout;
+  });
+
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ direct_upload: false }),
+  );
+
+  const previousXHR = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    open() {}
+    setRequestHeader() {}
+    abort() { this.onabort?.(); }
+    send() {} // Simulate a connection that hangs without a response.
+  };
+  t.after(() => { globalThis.XMLHttpRequest = previousXHR; });
+
+  const uploadPromise = uploadTrack(item());
+  await new Promise(setImmediate);
+
+  const stallTimer = scheduled.find(
+    (timer) => timer.delay === 90_000 && !timer.cleared,
+  );
+  assert.ok(stallTimer, "a bounded stall timer should be armed for the backend upload");
+  stallTimer.callback();
+
+  await assert.rejects(uploadPromise, /Upload stalled with no progress for 90 seconds/);
+});

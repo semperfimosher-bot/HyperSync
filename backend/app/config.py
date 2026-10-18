@@ -223,7 +223,82 @@ class Settings(BaseSettings):
                 "MIGRATION_DATABASE_URL must be a PostgreSQL connection string."
             )
 
+        self.validate_security_configuration()
         return self.validate_database_capacity()
+
+    def validate_security_configuration(self) -> "Settings":
+        allowed_jwt_algorithms = {"HS256", "HS384", "HS512"}
+        if self.jwt_algorithm not in allowed_jwt_algorithms:
+            raise ValueError(
+                "JWT_ALGORITHM must be one of HS256, HS384, or HS512."
+            )
+
+        if not self.jwt_issuer.strip():
+            raise ValueError("JWT_ISSUER must not be empty.")
+        if not self.jwt_audience.strip():
+            raise ValueError("JWT_AUDIENCE must not be empty.")
+
+        def is_placeholder_secret(value: str) -> bool:
+            normalized = value.strip().casefold()
+            placeholder_values = {
+                "replace-with-a-long-random-secret",
+                "change-me",
+                "changeme",
+                "your-secret-here",
+                "your-jwt-secret",
+                "example-secret",
+                "development-secret",
+                "test-secret",
+            }
+            return (
+                normalized in placeholder_values
+                or normalized.startswith("replace-with-")
+                or normalized.startswith("your-")
+                or normalized.startswith("example-")
+                or normalized.startswith("development-")
+                or normalized.startswith("test-secret")
+            )
+
+        if self.environment in {"staging", "production"}:
+            secret = self.jwt_secret.strip()
+            if len(secret) < 32 or is_placeholder_secret(secret):
+                raise ValueError(
+                    "JWT_SECRET must be a unique, randomly generated secret "
+                    "of at least 32 characters in staging and production."
+                )
+
+            # These secrets are optional features, but if configured they must
+            # not silently run with values copied from a sample env file.
+            optional_secrets = (
+                (
+                    "ADMIN_DATABASE_DELETE_PASSWORD",
+                    self.admin_database_delete_password,
+                    24,
+                ),
+                (
+                    "ADMIN_ACCOUNT_CREATION_PASSWORD",
+                    self.admin_account_creation_password,
+                    24,
+                ),
+                (
+                    "PASSWORD_RECOVERY_SECRET",
+                    self.password_recovery_secret,
+                    32,
+                ),
+            )
+            for name, configured_value, minimum_length in optional_secrets:
+                value = configured_value.strip()
+                if value and (
+                    len(value) < minimum_length
+                    or is_placeholder_secret(value)
+                ):
+                    raise ValueError(
+                        f"{name} must be a unique non-placeholder secret "
+                        f"of at least {minimum_length} characters when set "
+                        "in staging or production."
+                    )
+
+        return self
 
     def validate_database_capacity(self) -> "Settings":
         if self.db_pool_size < 1:

@@ -490,8 +490,9 @@ useEffect(() => {
           preferenceReady &&
           normalizedQuery,
         ),
+      // Search results can stay fresh without polling every 30 seconds.
       intervalMs:
-        30_000,
+        60_000,
     },
   );
 
@@ -532,8 +533,10 @@ useEffect(() => {
           openedPlaylist?.id &&
           !openedPlaylist?.transient,
         ),
+      // Playlist details do not need a 20-second refresh loop.
+      // Keep the view fresh without repeatedly refetching the same playlist.
       intervalMs:
-        20_000,
+        60_000,
     },
   );
 

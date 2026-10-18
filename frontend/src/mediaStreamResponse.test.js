@@ -639,3 +639,66 @@ test(
     );
   },
 );
+test(
+  "media stream rejects a mismatched Content-Range before saving offline chunks",
+  async () => {
+    const mediaStore =
+      await import("./mediaStore.js");
+
+    const mediaStreamResponse =
+      await loadMediaStreamResponseModule();
+
+    const trackId =
+      "mismatched-stream-range-track";
+    const mediaVersion =
+      "mismatched-stream-range-version";
+    const fileSize = 4;
+
+    await mediaStore.saveMediaRecord(
+      mediaStore.createMediaRecord({
+        trackId,
+        mediaVersion,
+        mimeType: "audio/mpeg",
+        fileSize,
+        state: "NONE",
+      }),
+    );
+
+    const response =
+      mediaStreamResponse.createMediaRangeStreamResponse({
+        trackId,
+        mediaVersion,
+        byteStart: 0,
+        byteEnd: fileSize - 1,
+        fileSize,
+        mimeType: "audio/mpeg",
+        fetchChunk: async () =>
+          new Response(
+            new Uint8Array([1, 2, 3, 4]),
+            {
+              status: 206,
+              headers: {
+                "Content-Length": "4",
+                "Content-Range": "bytes 1-4/4",
+                "Content-Type": "audio/mpeg",
+              },
+            },
+          ),
+      });
+
+    await assert.rejects(
+      () => response.arrayBuffer(),
+      /Content-Range does not match/,
+    );
+
+    assert.equal(
+      await mediaStore.getMediaChunk(
+        trackId,
+        mediaVersion,
+        0,
+      ),
+      null,
+    );
+  },
+);
+

@@ -11,7 +11,68 @@ import { getAccessToken } from "./storage.js";
 // Browser CORS rejection is exposed as an XHR network error. Cool down the
 // optional direct path so a whole album does not repeat the same failed PUT.
 const DIRECT_UPLOAD_RETRY_DELAY_MS = 2 * 60 * 1000;
+const UPLOAD_STALL_TIMEOUT_MS = 90_000;
 let directUploadRetryAt = 0;
+
+
+/**
+ * Ensure an XHR upload cannot remain pending forever when a network, proxy or
+ * storage endpoint stops making progress. Progress events restart the timer;
+ * continuous slow transfers are allowed, while a true stall is aborted.
+ */
+function createUploadStallWatchdog(xhr, signal, { direct = false } = {}) {
+  let timer = null;
+  let finished = false;
+  let stalled = false;
+
+  const clearTimer = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const reset = () => {
+    if (finished) return;
+    clearTimer();
+    timer = setTimeout(() => {
+      if (finished) return;
+      stalled = true;
+      xhr.abort();
+    }, UPLOAD_STALL_TIMEOUT_MS);
+  };
+
+  const abortFromSignal = () => {
+    if (!finished) xhr.abort();
+  };
+
+  signal?.addEventListener("abort", abortFromSignal, { once: true });
+  reset();
+
+  return {
+    reset,
+    finish() {
+      if (finished) return false;
+      finished = true;
+      clearTimer();
+      signal?.removeEventListener("abort", abortFromSignal);
+      return true;
+    },
+    abortError() {
+      if (stalled) {
+        const error = new Error(
+          `Upload stalled with no progress for ${UPLOAD_STALL_TIMEOUT_MS / 1000} seconds.`,
+        );
+        if (direct) error.directTransportUnavailable = true;
+        return error;
+      }
+
+      const error = new Error("Upload cancelled.");
+      error.name = "AbortError";
+      return error;
+    },
+  };
+}
 
 function buildPreparationPayload(
   item,
@@ -88,6 +149,11 @@ function sendDirectB2Upload({
       resolve,
       reject,
     ) => {
+      if (signal?.aborted) {
+        reject(new DOMException("Upload cancelled.", "AbortError"));
+        return;
+      }
+
       const xhr =
         new XMLHttpRequest();
 
@@ -101,8 +167,12 @@ function sendDirectB2Upload({
         preparation.content_type,
       );
 
+      let watchdog = null;
+
       xhr.upload.onprogress =
         (event) => {
+          watchdog?.reset();
+
           if (
             !event.lengthComputable
           ) {
@@ -128,6 +198,8 @@ function sendDirectB2Upload({
 
       xhr.onload =
         () => {
+          if (!watchdog?.finish()) return;
+
           if (
             xhr.status >= 200 &&
             xhr.status < 300
@@ -151,6 +223,7 @@ function sendDirectB2Upload({
         };
 
       xhr.onerror = () => {
+        if (!watchdog?.finish()) return;
         const error = new Error("Direct B2 upload was unavailable.");
         error.directTransportUnavailable = true;
         reject(error);
@@ -158,38 +231,13 @@ function sendDirectB2Upload({
 
       xhr.onabort =
         () => {
-          const error =
-            new Error(
-              "Upload cancelled.",
-            );
-
-          error.name =
-            "AbortError";
-
-          reject(
-            error,
-          );
+          const error = watchdog?.abortError()
+            ?? new DOMException("Upload cancelled.", "AbortError");
+          if (!watchdog?.finish()) return;
+          reject(error);
         };
 
-      if (signal) {
-        if (
-          signal.aborted
-        ) {
-          reject(new DOMException("Upload cancelled.", "AbortError"));
-          return;
-        }
-
-        signal.addEventListener(
-          "abort",
-          () => {
-            xhr.abort();
-          },
-          {
-            once:
-              true,
-          },
-        );
-      }
+      watchdog = createUploadStallWatchdog(xhr, signal, { direct: true });
 
       xhr.send(
         item.file,
@@ -369,6 +417,11 @@ function sendUpload({
   onProgress,
 }) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+      return;
+    }
+
     const formData = new FormData();
 
     formData.append("file", item.file);
@@ -443,6 +496,7 @@ formData.append(
 );
 
     const xhr = new XMLHttpRequest();
+    let watchdog = null;
 
     xhr.open(
       "POST",
@@ -459,6 +513,8 @@ formData.append(
     }
 
     xhr.upload.onprogress = (event) => {
+      watchdog?.reset();
+
       if (!event.lengthComputable) {
         return;
       }
@@ -471,6 +527,8 @@ formData.append(
     };
 
     xhr.onload = () => {
+      if (!watchdog?.finish()) return;
+
       let data = null;
 
       try {
@@ -499,6 +557,7 @@ formData.append(
     };
 
     xhr.onerror = () => {
+      if (!watchdog?.finish()) return;
       reject(
         new Error(
           "Network error while uploading track.",
@@ -507,27 +566,13 @@ formData.append(
     };
 
     xhr.onabort = () => {
-      const error = new Error(
-        "Upload cancelled.",
-      );
-
-      error.name = "AbortError";
-
+      const error = watchdog?.abortError()
+        ?? new DOMException("Upload cancelled.", "AbortError");
+      if (!watchdog?.finish()) return;
       reject(error);
     };
 
-    if (signal) {
-      if (signal.aborted) {
-        reject(new DOMException("Upload cancelled.", "AbortError"));
-        return;
-      }
-
-      signal.addEventListener(
-        "abort",
-        () => xhr.abort(),
-        { once: true },
-      );
-    }
+    watchdog = createUploadStallWatchdog(xhr, signal);
 
     xhr.send(formData);
   });
