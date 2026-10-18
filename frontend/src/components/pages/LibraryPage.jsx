@@ -917,7 +917,9 @@ const [
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
-            getLibraryTracks(),
+            quiet && Array.isArray(cached?.tracks)
+              ? Promise.resolve(cached.tracks)
+              : getLibraryTracks(),
           ]);
 
         const nextOwned =
@@ -1051,20 +1053,29 @@ const [
         const refreshed =
           await getPlaylist(
             playlistId,
+            {
+              limit: 1,
+              offset: 0,
+            },
           );
 
-        await reconcileDownloadedPlaylistMembership(
-          refreshed,
-          offlineOwnerKey,
-        );
+        // Quiet refreshes update playlist metadata without replacing the
+        // complete in-memory track list with a partial page.
+        const refreshedWithTracks = {
+          ...refreshed,
+          tracks:
+            selectedPlaylist?.tracks ??
+            refreshed.tracks ??
+            [],
+        };
 
         setSelectedPlaylist(
-          refreshed,
+          refreshedWithTracks,
         );
 
         setCachedPlaylist(
           libraryCacheKey,
-          refreshed,
+          refreshedWithTracks,
         );
       } catch (requestError) {
         if (
