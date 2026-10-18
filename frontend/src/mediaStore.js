@@ -1482,13 +1482,6 @@ export async function cleanupExpiredMedia(
               record.state ===
               "PINNED";
 
-            const isWarm =
-              Number.isSafeInteger(
-                record.warmUntil,
-              ) &&
-              record.warmUntil >
-                now;
-
             const hasPlayed =
               Number.isSafeInteger(
                 record.lastPlayedAt,
@@ -1506,8 +1499,7 @@ export async function cleanupExpiredMedia(
             // playback. Remove abandoned pre-play records/chunks as well.
             if (
               !isExpired ||
-              isPinned ||
-              isWarm
+              isPinned
             ) {
               continue;
             }
