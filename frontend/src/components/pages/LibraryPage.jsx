@@ -99,6 +99,7 @@ import {
   getCachedLibraryPageAsync,
   getCachedPlaylistAsync,
   setCachedLibraryAsync,
+  setCachedLibraryMetadataAsync,
   setCachedLibraryPageAsync,
   setCachedPlaylistAsync,
 } from "../../libraryCache.js";
@@ -964,19 +965,16 @@ const [
           setLibraryHasMore(nextTracks.length >= 1000);
         }
 
-        await setCachedLibraryAsync(
-          libraryCacheKey,
-          {
-            owned:
-              nextOwned,
-
-            saved:
-              nextSaved,
-
-            tracks:
-              nextTracks,
-          },
-        );
+        const librarySnapshot = {
+          owned: nextOwned,
+          saved: nextSaved,
+          tracks: nextTracks,
+        };
+        if (quiet) {
+          await setCachedLibraryMetadataAsync(libraryCacheKey, librarySnapshot);
+        } else {
+          await setCachedLibraryAsync(libraryCacheKey, librarySnapshot);
+        }
       } catch (requestError) {
         /*
          * If the connection disappeared
