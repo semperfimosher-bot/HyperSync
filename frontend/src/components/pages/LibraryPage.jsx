@@ -95,8 +95,9 @@ import {
 
 import {
   getCachedLibrary,
+  getCachedLibraryAsync,
   getCachedPlaylist,
-  setCachedLibrary,
+  setCachedLibraryAsync,
   setCachedPlaylist,
 } from "../../libraryCache.js";
 
@@ -841,7 +842,7 @@ const [
       }
 
       const cached =
-        getCachedLibrary(
+        await getCachedLibraryAsync(
           libraryCacheKey,
         );
 
@@ -954,7 +955,7 @@ const [
           nextTracks,
         );
 
-        setCachedLibrary(
+        await setCachedLibraryAsync(
           libraryCacheKey,
           {
             owned:
@@ -974,7 +975,7 @@ const [
          * to the persisted snapshot.
          */
         const fallback =
-          getCachedLibrary(
+          await getCachedLibraryAsync(
             libraryCacheKey,
           );
 
