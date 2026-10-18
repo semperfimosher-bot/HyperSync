@@ -1,13 +1,55 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 
-// Run only against a staging deployment you control. Never point this at
-// production without an explicitly approved maintenance/load-test window.
-const BASE_URL = (__ENV.TARGET_BASE_URL || "").replace(/\/$/, "");
+// Run only against an isolated staging deployment you control. The official
+// HyperSynced production hosts are explicitly rejected below.
+const BASE_URL = (__ENV.TARGET_BASE_URL || "").trim().replace(/\/+$/, "");
 const AUTH_TOKEN = __ENV.TEST_AUTH_TOKEN || "";
+const EXPECTED_STAGING_HOST = (__ENV.EXPECTED_STAGING_HOST || "")
+  .trim()
+  .toLowerCase();
+const CONFIRM_STAGING_ONLY = __ENV.CONFIRM_STAGING_ONLY || "";
 
 if (!BASE_URL) {
-  throw new Error("Set TARGET_BASE_URL to your staging API URL.");
+  throw new Error("Set TARGET_BASE_URL to your staging API origin.");
+}
+
+let targetUrl;
+try {
+  targetUrl = new URL(BASE_URL);
+} catch {
+  throw new Error("TARGET_BASE_URL must be a valid staging API origin.");
+}
+
+const targetHost = targetUrl.hostname.toLowerCase();
+if (
+  targetHost === "hypersynced.app" ||
+  targetHost.endsWith(".hypersynced.app")
+) {
+  throw new Error("Refusing to load-test a HyperSynced production host or subdomain.");
+}
+
+if (CONFIRM_STAGING_ONLY !== "YES") {
+  throw new Error("Set CONFIRM_STAGING_ONLY=YES only after verifying this is isolated staging.");
+}
+if (!EXPECTED_STAGING_HOST) {
+  throw new Error("Set EXPECTED_STAGING_HOST to the exact verified staging API hostname.");
+}
+if (targetUrl.hostname.toLowerCase() !== EXPECTED_STAGING_HOST) {
+  throw new Error("TARGET_BASE_URL hostname does not match EXPECTED_STAGING_HOST.");
+}
+
+if (
+  !["http:", "https:"].includes(targetUrl.protocol) ||
+  targetUrl.username ||
+  targetUrl.password ||
+  targetUrl.pathname !== "/" ||
+  targetUrl.search ||
+  targetUrl.hash
+) {
+  throw new Error(
+    "TARGET_BASE_URL must be an HTTP(S) origin only, with no credentials, path, query, or fragment.",
+  );
 }
 
 const headers = AUTH_TOKEN

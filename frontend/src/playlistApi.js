@@ -17,9 +17,82 @@ export function getSavedPlaylists() {
 }
 
 
-export function getLibraryTracks() {
+const TRACKS_PAGE_SIZE = 1000;
+
+
+function buildTrackPageQuery(
+  limit,
+  offset,
+) {
+  const params = new URLSearchParams();
+  const hasOffset =
+    Number.isInteger(offset) && offset >= 0;
+  const pageLimit =
+    Number.isInteger(limit) && limit > 0
+      ? limit
+      : hasOffset
+        ? TRACKS_PAGE_SIZE
+        : null;
+
+  if (pageLimit !== null) {
+    params.set("limit", String(pageLimit));
+    params.set(
+      "offset",
+      String(hasOffset ? offset : 0),
+    );
+  }
+
+  return params.toString();
+}
+
+
+async function getAllLibraryTrackPages() {
+  const tracks = [];
+
+  for (
+    let offset = 0;
+    ;
+    offset += TRACKS_PAGE_SIZE
+  ) {
+    const query = buildTrackPageQuery(
+      TRACKS_PAGE_SIZE,
+      offset,
+    );
+    const page = await apiRequest(
+      `/playlists/library/tracks?${query}`,
+    );
+    const pageTracks = Array.isArray(page)
+      ? page
+      : [];
+
+    tracks.push(...pageTracks);
+
+    if (pageTracks.length < TRACKS_PAGE_SIZE) {
+      return tracks;
+    }
+  }
+}
+
+
+export function getLibraryTracks({
+  limit,
+  offset,
+} = {}) {
+  if (
+    !Number.isInteger(limit) &&
+    !Number.isInteger(offset)
+  ) {
+    return getAllLibraryTrackPages();
+  }
+
+  const query = buildTrackPageQuery(
+    limit,
+    offset,
+  );
+
   return apiRequest(
-    "/playlists/library/tracks",
+    "/playlists/library/tracks" +
+      (query ? `?${query}` : ""),
   );
 }
 
@@ -36,35 +109,93 @@ export async function getLibraryTrack(
     return null;
   }
 
-  const tracks =
-    await getLibraryTracks();
-
-  return (
-    (
-      Array.isArray(tracks)
-        ? tracks
-        : []
-    ).find(
-      (track) =>
-        String(
-          track?.id ??
-          "",
-        ) ===
-          normalizedTrackId,
-    ) ??
-    null
-  );
+  /*
+   * Resolve a single track directly instead of downloading and scanning
+   * the user's entire library for every track action. This is important
+   * for large libraries and avoids multiplying a full-library response
+   * by each offline-download or liked-song action.
+   */
+  try {
+    return await apiRequest(
+      `/catalog/tracks/${encodeURIComponent(
+        normalizedTrackId,
+      )}`,
+    );
+  } catch {
+    return null;
+  }
 }
 
 
-export function getPlaylist(
+export async function getPlaylist(
   playlistId,
+  {
+    limit,
+    offset,
+  } = {},
 ) {
-  return apiRequest(
-    `/playlists/${encodeURIComponent(
-      playlistId,
-    )}`,
+  const encodedId = encodeURIComponent(
+    playlistId,
   );
+  const explicitlyPaged =
+    Number.isInteger(limit) ||
+    Number.isInteger(offset);
+
+  if (explicitlyPaged) {
+    const query = buildTrackPageQuery(
+      limit,
+      offset,
+    );
+
+    return apiRequest(
+      `/playlists/${encodedId}` +
+        (query ? `?${query}` : ""),
+    );
+  }
+
+  const firstQuery = buildTrackPageQuery(
+    TRACKS_PAGE_SIZE,
+    0,
+  );
+  const firstPage = await apiRequest(
+    `/playlists/${encodedId}?${firstQuery}`,
+  );
+  const tracks = Array.isArray(firstPage?.tracks)
+    ? [...firstPage.tracks]
+    : [];
+
+  if (tracks.length < TRACKS_PAGE_SIZE) {
+    return {
+      ...firstPage,
+      tracks,
+    };
+  }
+
+  for (
+    let pageOffset = TRACKS_PAGE_SIZE;
+    ;
+    pageOffset += TRACKS_PAGE_SIZE
+  ) {
+    const query = buildTrackPageQuery(
+      TRACKS_PAGE_SIZE,
+      pageOffset,
+    );
+    const page = await apiRequest(
+      `/playlists/${encodedId}?${query}`,
+    );
+    const pageTracks = Array.isArray(page?.tracks)
+      ? page.tracks
+      : [];
+
+    tracks.push(...pageTracks);
+
+    if (pageTracks.length < TRACKS_PAGE_SIZE) {
+      return {
+        ...firstPage,
+        tracks,
+      };
+    }
+  }
 }
 
 

@@ -504,6 +504,22 @@ export async function recordTrackPlayback(
     return null;
   }
 
+  // A playback event can arrive before the stable service-worker route has
+  // initialized its record. Create the record now, then start its retention
+  // window from confirmed playback rather than source preparation.
+  await ensureMediaRecord({
+    trackId,
+    mediaVersion,
+    mimeType:
+      meta.mimeType ??
+      meta.mime_type ??
+      null,
+    fileSize:
+      meta.fileSize ??
+      meta.file_size ??
+      null,
+  });
+
   return markMediaPlayed(
     trackId,
     mediaVersion,

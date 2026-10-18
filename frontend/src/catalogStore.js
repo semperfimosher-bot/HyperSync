@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -42,6 +43,15 @@ export function subscribeToCatalog(listener) {
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function releaseUnusedCatalog() {
+  if (listeners.size > 0) return false;
+  catalogRequest?.controller.abort();
+  catalogRequest = null;
+  catalogTracks = [];
+  catalogLoaded = false;
+  return true;
 }
 
 
@@ -196,6 +206,13 @@ export function removeCatalogTracks(
 }
 
 
+async function resyncCatalogAfterMutation(previousTracks) {
+  if (listeners.size === 0) { releaseUnusedCatalog(); return; }
+  if (previousTracks) setCatalogTracks(previousTracks);
+  await loadCatalog({ force: true }).catch(() => {});
+}
+
+
 export async function deleteCatalogTracks(
   trackIds,
 ) {
@@ -304,27 +321,13 @@ export async function deleteCatalogTracks(
       result.failed.length >
         0
     ) {
-      await loadCatalog({
-        force:
-          true,
-      }).catch(
-        () => {},
-      );
+      await resyncCatalogAfterMutation();
     }
 
     return result;
 
   } catch (error) {
-    setCatalogTracks(
-      previousTracks,
-    );
-
-    await loadCatalog({
-      force:
-        true,
-    }).catch(
-      () => {},
-    );
+    await resyncCatalogAfterMutation(previousTracks);
 
     throw error;
   }
@@ -410,13 +413,7 @@ return result;
      * backend state.
      */
 
-    setCatalogTracks(
-      previousTracks,
-    );
-
-    await loadCatalog({
-      force: true,
-    }).catch(() => {});
+    await resyncCatalogAfterMutation(previousTracks);
 
     throw error;
   }
@@ -424,6 +421,8 @@ return result;
 
 
 export function useCatalogTracks() {
+  const refreshGeneration = useRef(0);
+  const active = useRef(false);
   const [tracks, setTracks] =
     useState(catalogTracks);
 
@@ -435,9 +434,20 @@ export function useCatalogTracks() {
 
 
   useEffect(() => {
-    return subscribeToCatalog(
+    active.current = true;
+    const unsubscribe = subscribeToCatalog(
       setTracks,
     );
+    return () => {
+      active.current = false;
+      unsubscribe();
+      // Activity hides pages by cleaning their effects. Release both the shared
+      // array and this hidden component's reference, while preserving its UI state.
+      refreshGeneration.current += 1;
+      setLoading(true);
+      setTracks([]);
+      releaseUnusedCatalog();
+    };
   }, []);
 
 
@@ -446,6 +456,8 @@ export function useCatalogTracks() {
       async ({
         force = false,
       } = {}) => {
+        if (!active.current) return;
+        const generation = ++refreshGeneration.current;
         setLoading(true);
         setError("");
 
@@ -454,13 +466,13 @@ export function useCatalogTracks() {
             force,
           });
         } catch (error) {
-          setError(
+          if (generation === refreshGeneration.current && error?.name !== "AbortError") setError(
             error instanceof Error
               ? error.message
               : "Unable to load catalog.",
           );
         } finally {
-          setLoading(false);
+          if (generation === refreshGeneration.current) setLoading(false);
         }
       },
       [],
