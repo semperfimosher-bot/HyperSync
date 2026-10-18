@@ -174,6 +174,17 @@ async def list_tracks(
         default=None,
         description="Search by title, artist, album, or genre",
     ),
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=1000,
+        description="Optional page size (maximum 1000). Omit to preserve the legacy full-list response.",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of matching tracks to skip when using limit.",
+    ),
 ) -> list[TrackResponse]:
 
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -199,6 +210,8 @@ async def list_tracks(
             )
 
         stmt = stmt.order_by(Track.artist, Track.title)
+        if limit is not None:
+            stmt = stmt.offset(offset).limit(limit)
         result = await session.execute(stmt)
 
         tracks = result.scalars().all()
