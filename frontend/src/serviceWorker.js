@@ -277,20 +277,47 @@ globalThis.self?.addEventListener?.(
           // Keep one complete prior generation for tabs still executing its
           // modules. Failed installs without an entry point do not consume it.
           const activationKey = "/__hypersync/shell-activation";
-          const shells = keys.filter((key) => key.startsWith("hypersync-app-shell-"));
-          let previous = null;
-          let previousOrder = -1;
+          const existingShells = keys.filter((key) => key.startsWith("hypersync-app-shell-"));
           let maxOrder = 0;
-          for (const [index, key] of shells.entries()) {
+          for (const [index, key] of existingShells.entries()) {
             const cache = await caches.open(key);
             if (!await cache.match("/")) continue;
             const stamp = await cache.match(activationKey);
             const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
             maxOrder = Math.max(maxOrder, order);
-            if (key !== APP_SHELL_CACHE && order > previousOrder) { previous = key; previousOrder = order; }
           }
-          await (await caches.open(APP_SHELL_CACHE)).put(activationKey, Response.json({ order: Math.max(Date.now(), maxOrder + 1) }));
-          await Promise.all(shells.filter((key) => key !== APP_SHELL_CACHE && key !== previous).map((key) => caches.delete(key)));
+
+          // Stamp the active complete shell before choosing its predecessor.
+          // Re-read CacheStorage after stamping so cleanup also sees caches
+          // created during installation and does not retain an intermediate build.
+          await (await caches.open(APP_SHELL_CACHE)).put(
+            activationKey,
+            Response.json({ order: Math.max(Date.now(), maxOrder + 1) }),
+          );
+
+          const refreshedShells = (await caches.keys()).filter((key) => key.startsWith("hypersync-app-shell-"));
+          let previous = null;
+          let previousOrder = -1;
+          for (const [index, key] of refreshedShells.entries()) {
+            if (key === APP_SHELL_CACHE) continue;
+            const cache = await caches.open(key);
+            if (!await cache.match("/")) {
+              await caches.delete(key);
+              continue;
+            }
+            const stamp = await cache.match(activationKey);
+            const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
+            if (order > previousOrder) {
+              previous = key;
+              previousOrder = order;
+            }
+          }
+
+          await Promise.all(
+            refreshedShells
+              .filter((key) => key !== APP_SHELL_CACHE && key !== previous)
+              .map((key) => caches.delete(key)),
+          );
 
           await cleanupExpiredMedia()
             .catch(
