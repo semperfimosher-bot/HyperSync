@@ -35,6 +35,7 @@ jobs:
         run: |
           node --check ../load/k6-40-users.js
           node --check ../load/k6-100-users.js
+          node --check ../load/k6-500-users.js
 
       - name: Run offline regression tests
         run: npm run test:offline
