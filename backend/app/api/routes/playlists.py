@@ -601,6 +601,7 @@ async def load_playlist_tracks(
         .order_by(
             PlaylistTrack.position.asc(),
             PlaylistTrack.created_at.asc(),
+            PlaylistTrack.id.asc(),
         )
         .offset(offset)
     )
