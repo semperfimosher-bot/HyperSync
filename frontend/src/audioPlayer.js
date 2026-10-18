@@ -1895,6 +1895,15 @@ function attachEvents() {
         "playing",
       );
 
+      // Refresh automatic-cache retention only after the browser confirms
+      // audio is actually playing (not merely queued or assigned as a source).
+      if (currentTrackId && currentTrackMeta) {
+        void recordTrackPlayback(
+          currentTrackId,
+          currentTrackMeta,
+        ).catch(() => {});
+      }
+
       notify();
     },
   );
@@ -3095,18 +3104,6 @@ persistPlayerState({
   force:
     true,
 });
-
-
-/*
- * Cache-retention bookkeeping must not
- * block or break successful playback.
- */
-void recordTrackPlayback(
-  trackId,
-  playbackMeta,
-).catch(
-  () => {},
-);
 
 
 /*
