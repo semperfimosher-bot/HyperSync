@@ -12,6 +12,7 @@ class FakeRows:
         return self
 
     def all(self):
+        return []
 
     def first(self):
         return None
