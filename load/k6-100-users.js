@@ -1,8 +1,8 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 
-// Run only against a staging deployment you control. This script intentionally
-// requires an explicit target so it cannot accidentally load-test production.
+// Run only against an isolated staging deployment you control. The official
+// HyperSynced production hosts are explicitly rejected below.
 const BASE_URL = (__ENV.TARGET_BASE_URL || "").trim().replace(/\/+$/, "");
 const AUTH_TOKEN = __ENV.TEST_AUTH_TOKEN || "";
 
