@@ -1,3 +1,4 @@
+import RowPager, { useRowPagination } from "../ui/RowPager.jsx";
 import {
   useEffect,
   useMemo,
@@ -73,6 +74,7 @@ export default function AdminCatalogPage() {
 
 
   useEffect(() => {
+    if (loading || error) return;
     setSelectedTrackIds(
       (current) =>
         pruneTrackSelection(
@@ -82,6 +84,8 @@ export default function AdminCatalogPage() {
     );
   }, [
     tracks,
+    loading,
+    error,
   ]);
 
 
@@ -354,19 +358,12 @@ export default function AdminCatalogPage() {
     );
 
 
-  const visibleTrackIds =
-    (
-      normalizedSearch
-        ? searchResults
-        : folderValue
-          ? folderTracks
-          : []
-    ).map(
-      (track) =>
-        String(
-          track.id,
-        ),
-    );
+  const pageView = useRowPagination(
+    normalizedSearch ? searchResults : folderValue ? folderTracks : category ? folders : [],
+    `${normalizedSearch}:${category}:${folderValue}`,
+  );
+  const visibleTrackIds = (normalizedSearch || folderValue ? pageView.items : [])
+    .map((track) => String(track.id));
 
   const selectedTrackCount =
     selectedTrackIds.size;
@@ -626,7 +623,7 @@ export default function AdminCatalogPage() {
       searchResults.length > 0
         ? (
           <div className="admin-explorer-files">
-            {searchResults.map(
+            {pageView.items.map(
               renderFile,
             )}
           </div>
@@ -727,7 +724,7 @@ export default function AdminCatalogPage() {
   ) {
     explorerBody = (
       <div className="admin-explorer-folder-list">
-        {folders.map(
+        {pageView.items.map(
           (folder) => {
             const folderTrackIds =
               folder.tracks.map(
@@ -857,7 +854,7 @@ export default function AdminCatalogPage() {
   } else {
     explorerBody = (
       <div className="admin-explorer-files">
-        {folderTracks.map(
+        {pageView.items.map(
           renderFile,
         )}
       </div>
@@ -1135,7 +1132,9 @@ export default function AdminCatalogPage() {
           ) : null}
         </div>
 
+        <RowPager view={pageView} />
         {explorerBody}
+        <RowPager view={pageView} />
       </section>
     </div>
   );

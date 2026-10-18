@@ -1,4 +1,5 @@
 import { matchAppShell } from "./appShellCache.js";
+import { readBoundedResponse } from "./boundedResponse.js";
 import {
   clearAllMediaDatabases,
   cleanupExpiredMedia,
@@ -31,8 +32,10 @@ const DEFAULT_API_BASE_URL =
   import.meta.env
     ?.VITE_API_BASE_URL ??
   "/api";
-const APP_SHELL_CACHE =
-  "hypersync-app-shell-v3";
+const BUILD_MANIFEST = globalThis.__HYPERSYNC_BUILD_MANIFEST__ ?? null;
+const APP_SHELL_CACHE = BUILD_MANIFEST
+  ? `hypersync-app-shell-${BUILD_MANIFEST.revision}`
+  : "hypersync-app-shell-v3";
 
 const MAX_CACHED_ARTWORK_BYTES =
   12 * 1024 * 1024;
@@ -47,15 +50,67 @@ let lastMediaCleanupAt =
   0;
 
 
+async function fetchShellResource(url, consume) {
+  const controller = new AbortController();
+  let timeout;
+  let resource;
+  try {
+    return await Promise.race([
+      (async () => {
+        const asset = await fetch(url, { cache: "no-cache", signal: controller.signal });
+        resource = asset;
+        if (!asset.ok) throw new Error(`App shell asset unavailable: ${url}`);
+        return consume(asset, controller.signal);
+      })(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          void resource?.body?.cancel().catch(() => {});
+          reject(new Error("App shell asset timed out."));
+        }, 10000);
+      }),
+    ]);
+  } finally { clearTimeout(timeout); }
+}
+
+function cacheShellAsset(cache, url) {
+  return fetchShellResource(url, (asset) => cache.put(url, asset));
+}
+
+async function matchRetainedShellAsset(cache, request) {
+  const current = cache
+    ? await matchAppShell(cache, request, self.location.origin).catch(() => undefined)
+    : undefined;
+  if (current) return current;
+  if (!/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(request.url).pathname)) return undefined;
+  const keys = await caches.keys().catch(() => []);
+  for (const key of keys.reverse()) {
+    if (key === APP_SHELL_CACHE || !key.startsWith("hypersync-app-shell-")) continue;
+    const retained = await caches.open(key).catch(() => null);
+    const match = retained
+      ? await matchAppShell(retained, request, self.location.origin).catch(() => undefined)
+      : undefined;
+    if (match) return match;
+  }
+  return undefined;
+}
+
 async function precacheAppShell(navigationResponse = null) {
   const cache = await caches.open(APP_SHELL_CACHE);
-  const response = navigationResponse ?? await fetch("/", { cache: "no-cache" });
-  if (!response.ok) throw new Error("App shell is unavailable.");
-
-  const html = await response.clone().text();
+  const readDocument = async (response, signal) => {
+    if (!response.ok) throw new Error("App shell is unavailable.");
+    return { response, html: new TextDecoder().decode(await readBoundedResponse(response.clone(), 1024 * 1024, { signal })) };
+  };
+  const { response, html } = navigationResponse
+    ? await readDocument(navigationResponse)
+    : await fetchShellResource("/", readDocument);
+  if (BUILD_MANIFEST && !html.includes(`content="${BUILD_MANIFEST.revision}"`)) {
+    throw new Error("Navigation belongs to a different application build.");
+  }
   const referencedUrls = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
     .map((match) => match[1]);
   const assetUrls = [...new Set([
+    ...(BUILD_MANIFEST?.assets ?? []),
     ...referencedUrls,
     "/site.webmanifest",
     "/favicon.svg",
@@ -70,15 +125,22 @@ async function precacheAppShell(navigationResponse = null) {
 
   // Scripts/styles are required for a usable shell. Optional artwork must not
   // prevent installation, but a failed bundle must never replace working HTML.
-  const results = await Promise.allSettled(assetUrls.map(async (url) => {
-    // Vite names bundles by content hash. Reuse those immutable assets so
-    // navigation does not redownload the app on every page load.
-    if (/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(url).pathname)
-        && await matchAppShell(cache, new Request(url), self.location.origin)
-          .catch(() => undefined)) return;
-    const asset = await fetch(url, { cache: "no-cache" });
-    if (!asset.ok) throw new Error(`App shell asset unavailable: ${url}`);
-    await cache.put(url, asset);
+  const results = [];
+  let nextAsset = 0;
+  await Promise.all(Array.from({ length: Math.min(4, assetUrls.length) }, async () => {
+    while (nextAsset < assetUrls.length) {
+      const index = nextAsset++;
+      const url = assetUrls[index];
+      try {
+        if (!(/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(url).pathname)
+            && await matchAppShell(cache, new Request(url), self.location.origin).catch(() => undefined))) {
+          await cacheShellAsset(cache, url);
+        }
+        results[index] = { status: "fulfilled" };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
   }));
   for (let index = 0; index < results.length; index += 1) {
     if (/\.(?:m?js|css)$/.test(new URL(assetUrls[index]).pathname)
@@ -96,9 +158,16 @@ globalThis.self?.addEventListener?.(
     event.waitUntil(
       (
         async () => {
-          await precacheAppShell();
-
-          await self.skipWaiting();
+          try {
+            await precacheAppShell();
+            await self.skipWaiting();
+          } catch (error) {
+            try {
+              const cache = await caches.open(APP_SHELL_CACHE);
+              if (!await cache.match("/")) await caches.delete?.(APP_SHELL_CACHE);
+            } catch { /* Preserve the original install failure. */ }
+            throw error;
+          }
         }
       )(),
     );
@@ -205,23 +274,23 @@ globalThis.self?.addEventListener?.(
           const keys =
             await caches.keys();
 
-          await Promise.all(
-            keys
-              .filter(
-                (key) =>
-                  key.startsWith(
-                    "hypersync-app-shell-",
-                  ) &&
-                  key !==
-                    APP_SHELL_CACHE,
-              )
-              .map(
-                (key) =>
-                  caches.delete(
-                    key,
-                  ),
-              ),
-          );
+          // Keep one complete prior generation for tabs still executing its
+          // modules. Failed installs without an entry point do not consume it.
+          const activationKey = "/__hypersync/shell-activation";
+          const shells = keys.filter((key) => key.startsWith("hypersync-app-shell-"));
+          let previous = null;
+          let previousOrder = -1;
+          let maxOrder = 0;
+          for (const [index, key] of shells.entries()) {
+            const cache = await caches.open(key);
+            if (!await cache.match("/")) continue;
+            const stamp = await cache.match(activationKey);
+            const order = Number((await stamp?.json().catch(() => null))?.order) || index + 1;
+            maxOrder = Math.max(maxOrder, order);
+            if (key !== APP_SHELL_CACHE && order > previousOrder) { previous = key; previousOrder = order; }
+          }
+          await (await caches.open(APP_SHELL_CACHE)).put(activationKey, Response.json({ order: Math.max(Date.now(), maxOrder + 1) }));
+          await Promise.all(shells.filter((key) => key !== APP_SHELL_CACHE && key !== previous).map((key) => caches.delete(key)));
 
           await cleanupExpiredMedia()
             .catch(
@@ -461,9 +530,7 @@ export async function handleArtworkRequest(
         MAX_CACHED_ARTWORK_BYTES
     ) {
       const task =
-        response
-          .clone()
-          .arrayBuffer()
+        readBoundedResponse(response.clone(), MAX_CACHED_ARTWORK_BYTES)
           .then(
             (data) => {
               if (
@@ -985,9 +1052,15 @@ globalThis.self?.addEventListener?.(
                 (async () => {
                   const preloaded = await Promise.resolve(event.preloadResponse)
                     .catch(() => undefined);
-                  return preloaded ?? fetch(new Request(request, {
+                  const document = preloaded ?? await fetch(new Request(request, {
                     signal: controller.signal,
                   }));
+                  if (!document.ok) return document;
+                  const body = await readBoundedResponse(document, 1024 * 1024, { signal: controller.signal });
+                  const headers = new Headers(document.headers);
+                  headers.delete("Content-Encoding");
+                  headers.set("Content-Length", String(body.byteLength));
+                  return new Response(body, { status: document.status, statusText: document.statusText, headers });
                 })(),
                 deadline,
               ]);
@@ -1034,10 +1107,7 @@ globalThis.self?.addEventListener?.(
         (
           async () => {
             const cache = await caches.open(APP_SHELL_CACHE).catch(() => null);
-            const cached = cache
-              ? await matchAppShell(cache, request, self.location.origin)
-                .catch(() => undefined)
-              : undefined;
+            const cached = await matchRetainedShellAsset(cache, request);
             if (cached) return cached;
 
             const response = await fetch(request);

@@ -1,3 +1,4 @@
+import RowPager, { useRowPagination } from "../ui/RowPager.jsx";
 import {
   useEffect,
   useState,
@@ -210,6 +211,8 @@ export default function AdminUploadsPage() {
       }
     };
 
+
+  const publishedPage = useRowPagination(uploadedTracks, "published");
 
   const queueProgress =
     queue.length === 0
@@ -436,6 +439,7 @@ export default function AdminUploadsPage() {
           </p>
         ) : null}
 
+        <RowPager view={publishedPage} />
         {uploadedTracks.length === 0 ? (
           <div className="admin-empty-state">
             <strong>
@@ -449,7 +453,7 @@ export default function AdminUploadsPage() {
           </div>
         ) : (
           <div className="upload-list">
-            {uploadedTracks.map(
+            {publishedPage.items.map(
               (track) => (
                 <div
                   key={track.id}
@@ -498,6 +502,7 @@ export default function AdminUploadsPage() {
             )}
           </div>
         )}
+        <RowPager view={publishedPage} />
       </section>
     </div>
   );
