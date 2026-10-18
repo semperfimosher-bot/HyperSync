@@ -1497,9 +1497,7 @@ export async function cleanupExpiredMedia(
             const isExpired =
               hasPlayed
                 ? (
-                    Number.isSafeInteger(
-                      record.expiresAt,
-                    ) &&
+                    !Number.isSafeInteger(record.expiresAt) ||
                     record.expiresAt <= now
                   )
                 : true;
