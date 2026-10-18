@@ -25,7 +25,7 @@ if (typeof globalThis.localStorage === "undefined") {
   globalThis.localStorage = createStorage();
 }
 
-test("large library snapshots round-trip through IndexedDB without localStorage catalog copies", async () => {
+test("100,000-track libraries are stored and restored as bounded IndexedDB pages", async () => {
   const cache = await import(`./libraryCache.js?large-snapshot=${Date.now()}`);
   const userKey = `large-library-${Date.now()}`;
   const tracks = Array.from({ length: 100_000 }, (_, index) => ({
@@ -46,10 +46,15 @@ test("large library snapshots round-trip through IndexedDB without localStorage 
   assert.equal(localSnapshot.tracksStoredInIndexedDB, true);
 
   const restored = await cache.getCachedLibraryAsync(userKey);
-  assert.equal(restored.tracks.length, 100_000);
+  assert.equal(restored.tracks.length, 1000);
   assert.equal(restored.tracks[0].id, "track-0");
-  assert.equal(restored.tracks[99_999].id, "track-99999");
+  assert.equal(restored.tracks[999].id, "track-999");
   assert.equal(restored.owned[0].id, "owned-1");
+
+  await cache.setCachedLibraryPageAsync(userKey, 99_000, tracks.slice(99_000));
+  const lastPage = await cache.getCachedLibraryPageAsync(userKey, 99_000);
+  assert.equal(lastPage.length, 1000);
+  assert.equal(lastPage[999].id, "track-99999");
 
   await cache.clearCachedLibraryScopeAsync(userKey);
   assert.equal(await cache.getCachedLibraryAsync(userKey), null);
