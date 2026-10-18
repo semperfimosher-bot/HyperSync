@@ -579,8 +579,11 @@ def serialize_playlist_track(
 async def load_playlist_tracks(
     session: DatabaseSession,
     playlist_id: UUID,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[PlaylistTrackResponse]:
-    result = await session.execute(
+    stmt = (
         select(
             PlaylistTrack,
             Track,
@@ -599,7 +602,11 @@ async def load_playlist_tracks(
             PlaylistTrack.position.asc(),
             PlaylistTrack.created_at.asc(),
         )
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await session.execute(stmt)
 
     return [
         serialize_playlist_track(
