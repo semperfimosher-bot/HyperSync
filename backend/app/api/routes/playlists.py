@@ -787,6 +787,8 @@ async def get_saved_playlists(
 async def get_library_tracks(
     user: CurrentUser,
     session: DatabaseSession,
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> list[LibraryTrackResponse]:
     require_registered_user(
         user,
@@ -822,7 +824,7 @@ async def get_library_tracks(
         )
     )
 
-    result = await session.execute(
+    stmt = (
         select(
             Track,
         )
@@ -854,7 +856,12 @@ async def get_library_tracks(
             ).asc(),
             Track.id.asc(),
         )
+        .offset(offset)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    result = await session.execute(stmt)
 
     tracks = list(
         result.scalars().all()
