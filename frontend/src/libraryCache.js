@@ -403,6 +403,11 @@ export async function getCachedLibraryAsync(userKey) {
   const tracks = Array.isArray(legacy.tracks)
     ? legacy.tracks.slice(0, LIBRARY_PAGE_SIZE)
     : [];
+  if (Array.isArray(legacy.tracks) && legacy.tracks.length > 0) {
+    // One-time migration for pre-IndexedDB localStorage snapshots. The
+    // persisted copy is immediately reduced to page zero plus metadata.
+    await setCachedLibraryAsync(userKey, { ...legacy, tracks });
+  }
   return { ...legacy, tracks };
 }
 
