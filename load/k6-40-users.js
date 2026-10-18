@@ -1,8 +1,8 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 
-// Run only against a staging deployment you control. Never point this at
-// production without an explicitly approved maintenance/load-test window.
+// Run only against an isolated staging deployment you control. The official
+// HyperSynced production hosts are explicitly rejected below.
 const BASE_URL = (__ENV.TARGET_BASE_URL || "").trim().replace(/\/+$/, "");
 const AUTH_TOKEN = __ENV.TEST_AUTH_TOKEN || "";
 
