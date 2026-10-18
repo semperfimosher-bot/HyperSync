@@ -17,9 +17,25 @@ export function getSavedPlaylists() {
 }
 
 
-export function getLibraryTracks() {
+export function getLibraryTracks({
+  limit,
+  offset,
+} = {}) {
+  const params = new URLSearchParams();
+
+  if (Number.isInteger(limit) && limit > 0) {
+    params.set("limit", String(limit));
+  }
+
+  if (Number.isInteger(offset) && offset >= 0) {
+    params.set("offset", String(offset));
+  }
+
+  const query = params.toString();
+
   return apiRequest(
-    "/playlists/library/tracks",
+    "/playlists/library/tracks" +
+      (query ? `?${query}` : ""),
   );
 }
 
@@ -56,11 +72,27 @@ export async function getLibraryTrack(
 
 export function getPlaylist(
   playlistId,
+  {
+    limit,
+    offset,
+  } = {},
 ) {
+  const params = new URLSearchParams();
+
+  if (Number.isInteger(limit) && limit > 0) {
+    params.set("limit", String(limit));
+  }
+
+  if (Number.isInteger(offset) && offset >= 0) {
+    params.set("offset", String(offset));
+  }
+
+  const query = params.toString();
+
   return apiRequest(
     `/playlists/${encodeURIComponent(
       playlistId,
-    )}`,
+    )}` + (query ? `?${query}` : ""),
   );
 }
 
