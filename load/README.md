@@ -22,11 +22,15 @@ From the repository root, start with the lower-concurrency test:
 
 ```powershell
 $env:TARGET_BASE_URL = "https://YOUR-STAGING-API"
+$env:EXPECTED_STAGING_HOST = "YOUR-STAGING-API-HOSTNAME"
+$env:CONFIRM_STAGING_ONLY = "YES" # only after verifying isolated staging
 # Optional; omit this line to test public browsing only.
 $env:TEST_AUTH_TOKEN = "YOUR-DEDICATED-STAGING-USER-ACCESS-TOKEN"
 k6 run load/k6-40-users.js
 Remove-Item Env:TEST_AUTH_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:TARGET_BASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:EXPECTED_STAGING_HOST -ErrorAction SilentlyContinue
+Remove-Item Env:CONFIRM_STAGING_ONLY -ErrorAction SilentlyContinue
 ```
 
 Only after the 40-user run passes and the staging service recovers cleanly, run
