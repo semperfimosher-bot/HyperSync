@@ -106,7 +106,7 @@ test(
 
 
 test(
-  "library and playlist APIs support opt-in pagination without changing defaults",
+  "explicit library and playlist pages keep the requested limit and offset",
   async () => {
     const originalFetch = globalThis.fetch;
     const requested = [];
@@ -130,14 +130,101 @@ test(
         limit: 25,
         offset: 50,
       });
-      await getLibraryTracks();
-      await getPlaylist("playlist-1");
 
       assert.deepEqual(requested, [
         "/api/playlists/library/tracks?limit=25&offset=50",
         "/api/playlists/playlist-1?limit=25&offset=50",
-        "/api/playlists/library/tracks",
-        "/api/playlists/playlist-1",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
+
+test(
+  "default library and playlist reads aggregate pages without losing order or metadata",
+  async () => {
+    const originalFetch = globalThis.fetch;
+    const requested = [];
+    const libraryTracks = Array.from(
+      { length: 1001 },
+      (_, index) => ({
+        id: `library-${index}`,
+      }),
+    );
+    const playlistTracks = Array.from(
+      { length: 1001 },
+      (_, index) => ({
+        id: `playlist-track-${index}`,
+      }),
+    );
+
+    globalThis.fetch = async (url) => {
+      const requestUrl = new URL(
+        String(url),
+        "https://hypersync.test",
+      );
+      const offset = Number(
+        requestUrl.searchParams.get("offset") ?? 0,
+      );
+      requested.push(
+        requestUrl.pathname + requestUrl.search,
+      );
+
+      const source = requestUrl.pathname.endsWith(
+        "/library/tracks",
+      )
+        ? libraryTracks
+        : playlistTracks;
+      const page = source.slice(
+        offset,
+        offset + 1000,
+      );
+      const body = requestUrl.pathname.endsWith(
+        "/library/tracks",
+      )
+        ? page
+        : {
+            id: "playlist-1",
+            title: "Large playlist",
+            track_count: playlistTracks.length,
+            tracks: page,
+          };
+
+      return new Response(
+        JSON.stringify(body),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    };
+
+    try {
+      const library = await getLibraryTracks();
+      const playlist = await getPlaylist("playlist-1");
+
+      assert.equal(library.length, 1001);
+      assert.equal(library[0].id, "library-0");
+      assert.equal(library[1000].id, "library-1000");
+      assert.equal(playlist.tracks.length, 1001);
+      assert.equal(
+        playlist.tracks[0].id,
+        "playlist-track-0",
+      );
+      assert.equal(
+        playlist.tracks[1000].id,
+        "playlist-track-1000",
+      );
+      assert.equal(playlist.track_count, 1001);
+      assert.deepEqual(requested, [
+        "/api/playlists/library/tracks?limit=1000&offset=0",
+        "/api/playlists/library/tracks?limit=1000&offset=1000",
+        "/api/playlists/playlist-1?limit=1000&offset=0",
+        "/api/playlists/playlist-1?limit=1000&offset=1000",
       ]);
     } finally {
       globalThis.fetch = originalFetch;
