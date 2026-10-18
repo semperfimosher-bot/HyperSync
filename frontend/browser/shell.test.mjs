@@ -234,15 +234,15 @@ test("worker updates retain one complete prior build for old tabs and prune olde
     const cache = await caches.open(name);
     await cache.put("/assets/legacy-fixture-aa11.js", new Response("window.__legacyFixture = true;", { headers: { "Content-Type": "text/javascript" } }));
   }, baseCache);
-  async function update(build, expectedCaches) {
+  async function update(build, expectedCaches, priorCache) {
     state.build = build;
-    await page.evaluate(async ({ expectedCaches, activeCache }) => {
+    await page.evaluate(async ({ expectedCaches, activeCache, priorCache }) => {
       const activationKey = "/__hypersync/shell-activation";
-      const readOrder = async () => {
-        const cache = await caches.open(activeCache);
+      const readOrder = async (name) => {
+        const cache = await caches.open(name);
         return Number((await (await cache.match(activationKey))?.json().catch(() => null))?.order) || 0;
       };
-      const priorOrder = await readOrder();
+      const priorOrder = await readOrder(priorCache);
       const changed = new Promise((resolveChange, reject) => {
         const onChange = () => { clearTimeout(timer); resolveChange(); };
         const timer = setTimeout(() => {
@@ -259,15 +259,15 @@ test("worker updates retain one complete prior build for old tabs and prune olde
         const deadline = Date.now() + 10000;
         const poll = async () => {
           const names = (await caches.keys()).filter((name) => name.startsWith("hypersync-app-shell-")).sort();
-          if (await readOrder() > priorOrder && JSON.stringify(names) === JSON.stringify([...expectedCaches].sort())) return resolveWait();
+          if (await readOrder(activeCache) > priorOrder && JSON.stringify(names) === JSON.stringify([...expectedCaches].sort())) return resolveWait();
           if (Date.now() >= deadline) return rejectWait(new Error("Worker activation cleanup did not settle"));
           setTimeout(poll, 50);
         };
         poll();
       });
-    }, { expectedCaches, activeCache: `hypersync-app-shell-${build === 'rollback' ? shellManifest.revision : build === 'base' ? shellManifest.revision : `${shellManifest.revision}-${build}`}` });
+    }, { expectedCaches, priorCache, activeCache: `hypersync-app-shell-${build === 'rollback' ? shellManifest.revision : build === 'base' ? shellManifest.revision : `${shellManifest.revision}-${build}`}` });
   }
-  await update("b", [baseCache, `${baseCache}-b`]);
+  await update("b", [baseCache, `${baseCache}-b`], baseCache);
   assert.ok((await page.evaluate(() => caches.keys())).includes(baseCache));
   await page.evaluate(() => new Promise((resolveLoad, reject) => {
     const script = document.createElement("script");
@@ -277,8 +277,8 @@ test("worker updates retain one complete prior build for old tabs and prune olde
     document.body.append(script);
   }));
   assert.equal(await page.evaluate(() => window.__legacyFixture), true);
-  await update("rollback", [baseCache, `${baseCache}-b`]);
-  await update("c", [baseCache, `${baseCache}-c`]);
+  await update("rollback", [baseCache, `${baseCache}-b`], `${baseCache}-b`);
+  await update("c", [baseCache, `${baseCache}-c`], baseCache);
   // controllerchange can fire before the worker's activate waitUntil cleanup settles.
   await page.waitForFunction(async (expected) => {
     const names = (await caches.keys()).filter((name) => name.startsWith("hypersync-app-shell-")).sort();
