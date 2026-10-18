@@ -25,16 +25,20 @@ function buildTrackPageQuery(
   offset,
 ) {
   const params = new URLSearchParams();
+  const hasOffset =
+    Number.isInteger(offset) && offset >= 0;
+  const pageLimit =
+    Number.isInteger(limit) && limit > 0
+      ? limit
+      : hasOffset
+        ? TRACKS_PAGE_SIZE
+        : null;
 
-  if (Number.isInteger(limit) && limit > 0) {
-    params.set("limit", String(limit));
+  if (pageLimit !== null) {
+    params.set("limit", String(pageLimit));
     params.set(
       "offset",
-      String(
-        Number.isInteger(offset) && offset >= 0
-          ? offset
-          : 0,
-      ),
+      String(hasOffset ? offset : 0),
     );
   }
 
