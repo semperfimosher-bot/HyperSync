@@ -295,7 +295,7 @@ globalThis.self?.addEventListener?.(
             Response.json({ order: Math.max(Date.now(), maxOrder + 1) }),
           );
 
-          const refreshedShells = (await caches.keys()).filter((key) => key.startsWith("hypersync-app-shell-"));
+          const refreshedShells = [...new Set((await caches.keys()).filter((key) => key.startsWith("hypersync-app-shell-")))];
           let previous = null;
           let previousOrder = -1;
           for (const [index, key] of refreshedShells.entries()) {
