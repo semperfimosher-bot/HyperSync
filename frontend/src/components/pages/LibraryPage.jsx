@@ -347,6 +347,11 @@ const [
   ] = useState("");
 
   const [
+    visibleItemLimit,
+    setVisibleItemLimit,
+  ] = useState(100);
+
+  const [
     likedGenreFilter,
     setLikedGenreFilter,
   ] = useState(
@@ -2487,7 +2492,7 @@ if (offline) {
 
     return (
       <div className="hs-search-track-list">
-        {tracks.map(
+        {tracks.slice(0, visibleItemLimit).map(
           (
             track,
             index,
@@ -2857,6 +2862,34 @@ if (offline) {
         playlistSearchQuery,
       ],
     );
+
+  useEffect(() => {
+    setVisibleItemLimit(100);
+  }, [
+    activeTab,
+    selectedPlaylist?.id,
+    playlistSearchQuery,
+    likedGenreFilter,
+    selectedLibraryEntity?.key,
+    focusedLibraryTrack?.id,
+    sortMode,
+  ]);
+
+  const visibleItemTotal =
+    selectedPlaylist
+      ? filteredSelectedPlaylistTracks.length
+      : selectedLibraryEntity && activeLibraryEntity
+        ? (
+            Array.isArray(activeLibraryEntity.tracks)
+              ? activeLibraryEntity.tracks.length
+              : 0
+          )
+        : activeTab === "Artists" ||
+            activeTab === "Albums"
+          ? sortedActiveLibraryCollection.length
+          : activeTab === "Songs"
+            ? visibleSongTracks.length
+            : sortedVisiblePlaylists.length;
 
   useEffect(() => {
     setPlaylistSearchQuery(
@@ -3455,7 +3488,7 @@ if (offline) {
 
             <div className="hs-search-track-list">
 
-              {filteredSelectedPlaylistTracks.map(
+              {filteredSelectedPlaylistTracks.slice(0, visibleItemLimit).map(
                 (
                   track,
                   trackIndex,
@@ -3791,6 +3824,25 @@ if (offline) {
         }
       />
 
+      {visibleItemTotal > visibleItemLimit ? (
+        <div className="hs-library-load-more">
+          <button
+            type="button"
+            className="hs-search-playlist-action"
+            onClick={() => {
+              setVisibleItemLimit((current) =>
+                Math.min(
+                  current + 100,
+                  visibleItemTotal,
+                ),
+              );
+            }}
+          >
+            Load more ({Math.min(visibleItemLimit, visibleItemTotal)} of {visibleItemTotal})
+          </button>
+        </div>
+      ) : null}
+
       <TrackActionMenu
         menu={
           trackActionMenu.menu
@@ -4073,7 +4125,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {visibleSongTracks.map(
+            {visibleSongTracks.slice(0, visibleItemLimit).map(
               (
                 track,
                 index,
@@ -4432,7 +4484,7 @@ if (offline) {
 
           <div className="hs-search-entity-grid hs-library-entity-grid">
 
-            {sortedActiveLibraryCollection.map(
+            {sortedActiveLibraryCollection.slice(0, visibleItemLimit).map(
               (entity) => {
                 const artwork =
                   resolveArtworkUrl(
@@ -4665,7 +4717,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {sortedVisiblePlaylists.map(
+            {sortedVisiblePlaylists.slice(0, visibleItemLimit).map(
               (
                 playlist,
                 index,
