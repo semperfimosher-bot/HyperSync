@@ -59,7 +59,7 @@ Stages 1–6 established substantial code-level reliability and performance impr
 
 ## Implementation and verification record
 
-### 7.1 — Implemented; CI verification pending on final head
+### 7.1 — Implemented; CI verified on final Stage 7 head
 
 - Added `RequestDiagnosticsMiddleware` and registered it with the API application.
 - Successful, slow, and handled 5xx responses receive a generated `X-Request-ID`. Diagnostic records include request ID, HTTP method, route template (never the raw path), status/exception type, and duration.
@@ -82,5 +82,6 @@ No isolated staging environment credentials/configuration or staging-only media 
 ### 7.4 — Current gate
 
 - Latest pre-fix workflow runs passed on commit `e835aebfea5f19f0164dfc30d92a8688bf7bb6ed`.
-- The final-head workflows must pass after the request-ID regression fix before code-level completion can be declared.
-- **Stage 7 remains gated** until the final-head CI passes and the isolated staging/device checks above are completed or explicitly accepted as a release blocker by the project owner. No merge or deployment is authorized by this report.
+- Final-head Offline PWA checks passed on `26eaf3e8293719018eb573fd8c303d2efa375801` (run `39117707426`), including frontend tests/build/audit, backend regression/lint/type/security checks, and frontend/backend image builds.
+- Final-head Project verification passed on the same commit (run `39117707404`), including the isolated application journey and Windows verification tests.
+- **Stage 7 remains blocked for release sign-off** because isolated staging load/recovery drills and real-browser/device offline/playback checks are not yet complete. CI is green, but these external checks cannot be inferred from CI. No merge or deployment is authorized by this report.
