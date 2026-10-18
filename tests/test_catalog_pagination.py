@@ -50,6 +50,7 @@ async def test_catalog_pagination_applies_limit_and_offset(monkeypatch):
 
     response = await catalog_route.list_tracks(
         Response(),
+        q=None,
         limit=25,
         offset=50,
     )
