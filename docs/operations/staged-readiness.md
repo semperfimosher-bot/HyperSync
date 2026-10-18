@@ -20,7 +20,7 @@ Passing a unit suite is evidence for its tested behavior, not a whole-stage pass
 | 2. Stability | Base commit has successful Project verification and Offline PWA workflows; local base frontend suite: 261/261 | Verify this follow-up on its own commit; offline shell defects reproduced and fixed below |
 | 3. Security | Base workflows cover backend lint/types/security/dependency scans, auth/privacy tests; current frontend production audit: zero known vulnerabilities | Preserve account/cache isolation in review; repeat applicable security checks on final revision |
 | 4. Frontend performance | Existing request deduplication, Activity page preservation, bounded backend catalog pages | Main bundle 535.58 kB (147.18 kB gzip); warm public-profile pages have only a 12-hour TTL, no count bound; admin catalog retains all pages in memory; measure and resolve relevant limits |
-| 5. PWA/offline | Existing media chunk/range/ownership tests and CI browser journeys; new worker event-handler tests | Build-aware shell cache lifecycle, real browser update/partition/storage-pressure journeys, device playback/seek recovery remain to verify |
+| 5. PWA/offline | Existing media chunk/range/ownership unit tests; earlier CI has no browser automation; new worker event-handler tests | Build-aware shell cache lifecycle, real browser update/partition/storage-pressure journeys, device playback/seek recovery remain to verify |
 | 6. Library/playback | Local playback, queues, lyrics and offline media baseline exists | 100,000-song catalog/search measurements, playlist/download continuity and lyrics behavior; do not equate a backend 10k allocation fixture with this gate |
 | 7. Backend efficiency | Bounded uploads/catalog serialization, durable jobs, migration locks, provider bounds | Measure remaining duplicate requests/query costs and ranking CPU; add caching/SSE only where justified by a concrete flow |
 | 8. Scale/recovery | Disposable PostgreSQL restore and killed-worker CI rehearsals | Realistic 100-user mixed workload and constrained memory/CPU; existing HTTP probe caps concurrency at 64 and is not a 100-user certification |
@@ -83,3 +83,25 @@ pruned by this change; build-specific lifecycle work remains in stage 5.
    offline navigation if bundle splitting is introduced in stage 4.
 4. Only then execute stage 6 library scale/playback, stage 7 backend efficiency,
    stage 8 mixed-workload recovery, and stages 9–10 final regression/review.
+
+## Browser evidence correction and new check
+
+On source inspection, `scripts/verify_project.py` explicitly excludes browser
+automation. The CI job named `journeys` is not evidence of browser journeys.
+Earlier PR/review wording asserting browser journeys passed was inaccurate;
+retain its unit, PostgreSQL, build, and security evidence only.
+
+A new `browser-shell` CI job installs pinned Playwright Chromium and executes
+`npm run test:browser` against the production build on an ephemeral loopback
+server. It checks real service-worker control, offline reload/network recovery,
+upstream 503 fallback, and failed-bundle preparation preserving a runnable
+offline shell. The fixture has no real backend, credentials, or live providers.
+It does not certify authenticated user journeys, audio playback, mobile Safari,
+quota exhaustion, large catalogs, or capacity.
+
+Local execution is blocked: the Chromium archive download is truncated, and
+all three browser tests fail at browser launch because the executable is absent.
+This is recorded as BLOCKED, not passing; CI must supply actual browser evidence.
+The initial shell-fix commit `1e8ed4f` passed Offline PWA workflow 39095358203.
+Project verification workflow 39095358204 also passed that commit. The added
+browser check requires its own result; earlier green checks do not cover it.
