@@ -3,7 +3,7 @@ name: Project verification
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, Semifinals]
   workflow_dispatch:
     inputs:
       suite:
