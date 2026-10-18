@@ -130,10 +130,18 @@ test(
         limit: 25,
         offset: 50,
       });
+      await getLibraryTracks({
+        offset: 50,
+      });
+      await getPlaylist("playlist-2", {
+        offset: 50,
+      });
 
       assert.deepEqual(requested, [
         "/api/playlists/library/tracks?limit=25&offset=50",
         "/api/playlists/playlist-1?limit=25&offset=50",
+        "/api/playlists/library/tracks?limit=1000&offset=50",
+        "/api/playlists/playlist-2?limit=1000&offset=50",
       ]);
     } finally {
       globalThis.fetch = originalFetch;
