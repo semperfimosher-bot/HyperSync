@@ -135,6 +135,9 @@ export function clearCachedLibraryScope(
      * break account logout.
      */
   }
+
+  // Remove the larger snapshot as well; it is keyed by the same user scope.
+  void deleteIndexedDbLibrary(userKey);
 }
 
 
@@ -153,6 +156,8 @@ export function clearCachedLibrary(
       library: null,
     },
   );
+
+  void deleteIndexedDbLibrary(userKey);
 }
 
 
@@ -345,4 +350,20 @@ export async function setCachedLibraryAsync(userKey, library) {
 
   // Browsers without usable IndexedDB retain the legacy best-effort behavior.
   setCachedLibrary(userKey, snapshot);
+}
+
+
+async function deleteIndexedDbLibrary(userKey) {
+  let db;
+  try {
+    db = await openLibraryCacheDb();
+    if (!db) return;
+    const transaction = db.transaction(LIBRARY_STORE_NAME, "readwrite");
+    await idbRequest(
+      transaction.objectStore(LIBRARY_STORE_NAME).delete(getScopeKey(userKey)),
+    );
+    db.close();
+  } catch {
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+  }
 }
