@@ -3,11 +3,41 @@ import { check, sleep } from "k6";
 
 // Run only against a staging deployment you control. Never point this at
 // production without an explicitly approved maintenance/load-test window.
-const BASE_URL = (__ENV.TARGET_BASE_URL || "").replace(/\/$/, "");
+const BASE_URL = (__ENV.TARGET_BASE_URL || "").trim().replace(/\/+$/, "");
 const AUTH_TOKEN = __ENV.TEST_AUTH_TOKEN || "";
 
 if (!BASE_URL) {
-  throw new Error("Set TARGET_BASE_URL to your staging API URL.");
+  throw new Error("Set TARGET_BASE_URL to your staging API origin.");
+}
+
+let targetUrl;
+try {
+  targetUrl = new URL(BASE_URL);
+} catch {
+  throw new Error("TARGET_BASE_URL must be a valid staging API origin.");
+}
+
+const blockedProductionHosts = new Set([
+  "hypersynced.app",
+  "www.hypersynced.app",
+  "api.hypersynced.app",
+]);
+
+if (blockedProductionHosts.has(targetUrl.hostname.toLowerCase())) {
+  throw new Error("Refusing to load-test a known HyperSynced production host.");
+}
+
+if (
+  !["http:", "https:"].includes(targetUrl.protocol) ||
+  targetUrl.username ||
+  targetUrl.password ||
+  targetUrl.pathname !== "/" ||
+  targetUrl.search ||
+  targetUrl.hash
+) {
+  throw new Error(
+    "TARGET_BASE_URL must be an HTTP(S) origin only, with no credentials, path, query, or fragment.",
+  );
 }
 
 const headers = AUTH_TOKEN
