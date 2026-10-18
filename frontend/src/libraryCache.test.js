@@ -82,3 +82,52 @@ test("clearing one library scope does not clear another user's IndexedDB snapsho
 
   await cache.clearCachedLibraryScopeAsync(ownerB);
 });
+ 
+test("large playlist snapshots stay out of localStorage and round-trip through IndexedDB", async () => {
+  const cache = await import(`./libraryCache.js?large-playlist=${Date.now()}`);
+  const userKey = `playlist-owner-${Date.now()}`;
+  const tracks = Array.from({ length: 20_000 }, (_, index) => ({
+    id: `playlist-track-${index}`,
+    title: `Playlist Track ${index}`,
+  }));
+  const playlist = { id: "large-playlist", title: "Large Playlist", tracks };
+
+  await cache.setCachedPlaylistAsync(userKey, playlist);
+
+  const lightweight = cache.getCachedPlaylist(userKey, playlist.id);
+  assert.deepEqual(lightweight.tracks, []);
+  assert.equal(lightweight.tracksStoredInIndexedDB, true);
+  assert.equal(lightweight.trackCount, 20_000);
+
+  const restored = await cache.getCachedPlaylistAsync(userKey, playlist.id);
+  assert.equal(restored.tracks.length, 20_000);
+  assert.equal(restored.tracks[19_999].id, "playlist-track-19999");
+
+  await cache.clearCachedLibraryScopeAsync(userKey);
+  assert.equal(await cache.getCachedPlaylistAsync(userKey, playlist.id), null);
+});
+
+test("large playlist snapshots remain isolated by user scope", async () => {
+  const cache = await import(`./libraryCache.js?playlist-scope=${Date.now()}`);
+  const suffix = Date.now();
+  const ownerA = `playlist-owner-a-${suffix}`;
+  const ownerB = `playlist-owner-b-${suffix}`;
+
+  await cache.setCachedPlaylistAsync(ownerA, {
+    id: "same-playlist-id",
+    title: "Owner A",
+    tracks: [{ id: "private-a" }],
+  });
+  await cache.setCachedPlaylistAsync(ownerB, {
+    id: "same-playlist-id",
+    title: "Owner B",
+    tracks: [{ id: "private-b" }],
+  });
+
+  await cache.clearCachedLibraryScopeAsync(ownerA);
+  assert.equal(
+    (await cache.getCachedPlaylistAsync(ownerB, "same-playlist-id")).tracks[0].id,
+    "private-b",
+  );
+  await cache.clearCachedLibraryScopeAsync(ownerB);
+});
