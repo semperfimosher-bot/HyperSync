@@ -5,6 +5,10 @@ import { check, sleep } from "k6";
 // HyperSynced production hosts are explicitly rejected below.
 const BASE_URL = (__ENV.TARGET_BASE_URL || "").trim().replace(/\/+$/, "");
 const AUTH_TOKEN = __ENV.TEST_AUTH_TOKEN || "";
+const EXPECTED_STAGING_HOST = (__ENV.EXPECTED_STAGING_HOST || "")
+  .trim()
+  .toLowerCase();
+const CONFIRM_STAGING_ONLY = __ENV.CONFIRM_STAGING_ONLY || "";
 
 if (!BASE_URL) {
   throw new Error("Set TARGET_BASE_URL to your staging API origin.");
@@ -17,14 +21,22 @@ try {
   throw new Error("TARGET_BASE_URL must be a valid staging API origin.");
 }
 
-const blockedProductionHosts = new Set([
-  "hypersynced.app",
-  "www.hypersynced.app",
-  "api.hypersynced.app",
-]);
+const targetHost = targetUrl.hostname.toLowerCase();
+if (
+  targetHost === "hypersynced.app" ||
+  targetHost.endsWith(".hypersynced.app")
+) {
+  throw new Error("Refusing to load-test a HyperSynced production host or subdomain.");
+}
 
-if (blockedProductionHosts.has(targetUrl.hostname.toLowerCase())) {
-  throw new Error("Refusing to load-test a known HyperSynced production host.");
+if (CONFIRM_STAGING_ONLY !== "YES") {
+  throw new Error("Set CONFIRM_STAGING_ONLY=YES only after verifying this is isolated staging.");
+}
+if (!EXPECTED_STAGING_HOST) {
+  throw new Error("Set EXPECTED_STAGING_HOST to the exact verified staging API hostname.");
+}
+if (targetUrl.hostname.toLowerCase() !== EXPECTED_STAGING_HOST) {
+  throw new Error("TARGET_BASE_URL hostname does not match EXPECTED_STAGING_HOST.");
 }
 
 if (
