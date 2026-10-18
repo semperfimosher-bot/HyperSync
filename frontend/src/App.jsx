@@ -235,7 +235,8 @@ function MainPage({
 
 
   /*
-   * Keep visited pages alive for twelve hours.
+   * Keep app tabs alive for twelve hours; public profile instances also have
+   * a recent-page count limit so profile browsing cannot retain unlimited UI.
    *
    * React Activity preserves their UI and
    * component state while hidden, but cleans

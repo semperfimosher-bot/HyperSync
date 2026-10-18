@@ -19,7 +19,7 @@ Passing a unit suite is evidence for its tested behavior, not a whole-stage pass
 | 1. Architecture audit | `PERFECT-RELIABILITY-REVIEW.md`, baseline scope, backend operations and memory reports | Reconcile historical findings with current code; keep new findings reproducible and scoped |
 | 2. Stability | Base commit has successful Project verification and Offline PWA workflows; local base frontend suite: 261/261 | Verify this follow-up on its own commit; offline shell defects reproduced and fixed below |
 | 3. Security | Base workflows cover backend lint/types/security/dependency scans, auth/privacy tests; current frontend production audit: zero known vulnerabilities | Preserve account/cache isolation in review; repeat applicable security checks on final revision |
-| 4. Frontend performance | Existing request deduplication, Activity page preservation, bounded backend catalog pages | Main bundle 535.58 kB (147.18 kB gzip); warm public-profile pages have only a 12-hour TTL, no count bound; admin catalog retains all pages in memory; measure and resolve relevant limits |
+| 4. Frontend performance | Existing request deduplication, Activity page preservation, bounded backend catalog pages | Main bundle 535.88 kB (147.28 kB gzip); profile instances now capped at eight; admin catalog still retains all pages in memory; measure and resolve remaining limits |
 | 5. PWA/offline | Existing media chunk/range/ownership unit tests; earlier CI has no browser automation; new worker event-handler tests | Build-aware shell cache lifecycle, real browser update/partition/storage-pressure journeys, device playback/seek recovery remain to verify |
 | 6. Library/playback | Local playback, queues, lyrics and offline media baseline exists | 100,000-song catalog/search measurements, playlist/download continuity and lyrics behavior; do not equate a backend 10k allocation fixture with this gate |
 | 7. Backend efficiency | Bounded uploads/catalog serialization, durable jobs, migration locks, provider bounds | Measure remaining duplicate requests/query costs and ranking CPU; add caching/SSE only where justified by a concrete flow |
@@ -105,3 +105,21 @@ This is recorded as BLOCKED, not passing; CI must supply actual browser evidence
 The initial shell-fix commit `1e8ed4f` passed Offline PWA workflow 39095358203.
 Project verification workflow 39095358204 also passed that commit. The added
 browser check requires its own result; earlier green checks do not cover it.
+
+## Stage 4 bounded profile retention
+
+A 1,000-distinct-profile visit fixture retained 1,000 warm page instances before
+the fix. It now retains eight recent public-profile instances, plus any ordinary
+app tabs. The active profile is never evicted by the cap; same-timestamp visits
+use touch order. Revisiting a retained profile preserves its instance key.
+Account boundaries, the twelve-hour TTL, and upload/main-tab state remain intact.
+An older evicted profile reloads its view when revisited. This is a measured
+retained-instance bound, not a measured browser heap reduction.
+
+Four new regressions failed before the relevant fixes. All 277 frontend unit
+tests pass, production build passes (535.88 kB main chunk, existing warning),
+and independent review found no blocker. Current-commit CI must still pass.
+
+The new real Chromium browser-shell job passed on `4673a11` in workflow
+39096454894. It provides the three specifically described shell checks, not
+full authenticated/music/device acceptance. Stages 4–5 remain open.
