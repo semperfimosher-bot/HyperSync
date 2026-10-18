@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -13,7 +12,6 @@ class FakeRows:
         return self
 
     def all(self):
-        return []
 
     def first(self):
         return None
@@ -21,8 +19,6 @@ class FakeRows:
     def __iter__(self):
         return iter([])
 
-    def all_rows(self):
-        return []
 
 
 class FakeSession:
