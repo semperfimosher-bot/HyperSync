@@ -1,3 +1,4 @@
+import { matchAppShell } from "./appShellCache.js";
 import {
   clearAllMediaDatabases,
   cleanupExpiredMedia,
@@ -46,114 +47,48 @@ let lastMediaCleanupAt =
   0;
 
 
-async function precacheAppShell() {
-  const cache =
-    await caches.open(
-      APP_SHELL_CACHE,
-    );
+async function precacheAppShell(navigationResponse = null) {
+  const cache = await caches.open(APP_SHELL_CACHE);
+  const response = navigationResponse ?? await fetch("/", { cache: "no-cache" });
+  if (!response.ok) throw new Error("App shell is unavailable.");
 
-  const response =
-    await fetch(
-      "/",
-      {
-        cache:
-          "no-cache",
-      },
-    );
+  const html = await response.clone().text();
+  const referencedUrls = [...html.matchAll(/(?:src|href)=["']([^"']+)["']/g)]
+    .map((match) => match[1]);
+  const assetUrls = [...new Set([
+    ...referencedUrls,
+    "/site.webmanifest",
+    "/favicon.svg",
+    "/apple-touch-icon.png",
+    "/icon-192.png",
+    "/icon-512.png",
+    "/hypersync-home-hero.png",
+  ].filter((value) => value && !value.startsWith("data:"))
+    .map((value) => new URL(value, self.location.origin))
+    .filter((url) => url.origin === self.location.origin)
+    .map((url) => url.href))];
 
-  if (!response.ok) {
-    return;
+  // Scripts/styles are required for a usable shell. Optional artwork must not
+  // prevent installation, but a failed bundle must never replace working HTML.
+  const results = await Promise.allSettled(assetUrls.map(async (url) => {
+    // Vite names bundles by content hash. Reuse those immutable assets so
+    // navigation does not redownload the app on every page load.
+    if (/\/assets\/[^/]+-[\w-]+\.(?:m?js|css)$/.test(new URL(url).pathname)
+        && await matchAppShell(cache, new Request(url), self.location.origin)
+          .catch(() => undefined)) return;
+    const asset = await fetch(url, { cache: "no-cache" });
+    if (!asset.ok) throw new Error(`App shell asset unavailable: ${url}`);
+    await cache.put(url, asset);
+  }));
+  for (let index = 0; index < results.length; index += 1) {
+    if (/\.(?:m?js|css)$/.test(new URL(assetUrls[index]).pathname)
+        && results[index].status === "rejected") {
+      throw results[index].reason;
+    }
   }
-
-  /*
-   * Save index.html.
-   */
-  await cache.put(
-    "/",
-    response.clone(),
-  );
-
-  /*
-   * Find the hashed Vite JS/CSS files
-   * referenced by index.html and cache
-   * those too.
-   */
-  const html =
-    await response.text();
-
-  const matches =
-    [
-      ...html.matchAll(
-        /(?:src|href)=["']([^"']+)["']/g,
-      ),
-    ];
-
-  const assetUrls =
-    [
-      ...new Set(
-        [
-          ...matches.map(
-            (match) =>
-              match[1],
-          ),
-          "/site.webmanifest",
-          "/favicon.svg",
-          "/apple-touch-icon.png",
-          "/icon-192.png",
-          "/icon-512.png",
-          "/hypersync-home-hero.png",
-        ]
-          .filter(
-            (value) =>
-              value &&
-              !value.startsWith(
-                "data:",
-              ),
-          )
-          .map(
-            (value) =>
-              new URL(
-                value,
-                self.location.origin,
-              ),
-          )
-          .filter(
-            (url) =>
-              url.origin ===
-              self.location.origin,
-          )
-          .map(
-            (url) =>
-              url.href,
-          ),
-      ),
-    ];
-
-  await Promise.allSettled(
-    assetUrls.map(
-      async (url) => {
-        const assetResponse =
-          await fetch(
-            url,
-            {
-              cache:
-                "no-cache",
-            },
-          );
-
-        if (
-          assetResponse.ok
-        ) {
-          await cache.put(
-            url,
-            assetResponse,
-          );
-        }
-      },
-    ),
-  );
+  // Publish the entry point only after its required assets are safely stored.
+  await cache.put("/", response);
 }
-
 
 globalThis.self?.addEventListener?.(
   "install",
@@ -1030,74 +965,48 @@ globalThis.self?.addEventListener?.(
       event.respondWith(
         (
           async () => {
-            const cache =
-              await caches.open(
-                APP_SHELL_CACHE,
-              );
-
-            const controller =
-              new AbortController();
-
-            const timeoutId =
-              setTimeout(
-                () => {
-                  controller.abort();
-                },
-                NAVIGATION_NETWORK_TIMEOUT_MS,
-              );
+            // Cache storage is optional; a storage failure must not break online use.
+            const cache = await caches.open(APP_SHELL_CACHE).catch(() => null);
+            const controller = new AbortController();
+            let timeoutId;
+            const deadline = new Promise((_, reject) => {
+              timeoutId = setTimeout(() => {
+                controller.abort();
+                reject(new Error("Navigation timed out."));
+              }, NAVIGATION_NETWORK_TIMEOUT_MS);
+            });
+            const cachedShell = () => cache
+              ? cache.match("/").catch(() => undefined)
+              : Promise.resolve(undefined);
 
             try {
-              const preloaded =
-                await event
-                  .preloadResponse;
-
-              const response =
-                preloaded ??
-                await fetch(
-                  new Request(
-                    request,
-                    {
-                      signal:
-                        controller.signal,
-                    },
-                  ),
-                );
-
-              if (
-                response.ok
-              ) {
-                await cache.put(
-                  "/",
-                  response.clone(),
-                );
+              // Aborting fetch alone does not settle a stalled preload promise.
+              const response = await Promise.race([
+                (async () => {
+                  const preloaded = await Promise.resolve(event.preloadResponse)
+                    .catch(() => undefined);
+                  return preloaded ?? fetch(new Request(request, {
+                    signal: controller.signal,
+                  }));
+                })(),
+                deadline,
+              ]);
+              if (!response.ok) {
+                return (await cachedShell()) ?? response;
               }
-
+              if (cache) {
+                // Keep the previous offline entry point until the new bundles
+                // are stored. Cache work must not delay a working online page.
+                event.waitUntil(precacheAppShell(response.clone()).catch(() => {}));
+              }
               return response;
             } catch {
-              const cached =
-                await cache.match(
-                  "/",
-                );
-
-              if (cached) {
-                return cached;
-              }
-
-              return new Response(
+              return (await cachedShell()) ?? new Response(
                 "HyperSynced is offline.",
-                {
-                  status: 503,
-
-                  headers: {
-                    "Content-Type":
-                      "text/plain",
-                  },
-                },
+                { status: 503, headers: { "Content-Type": "text/plain" } },
               );
             } finally {
-              clearTimeout(
-                timeoutId,
-              );
+              clearTimeout(timeoutId);
             }
           }
         )(),
@@ -1124,32 +1033,16 @@ globalThis.self?.addEventListener?.(
       event.respondWith(
         (
           async () => {
-            const cache =
-              await caches.open(
-                APP_SHELL_CACHE,
-              );
+            const cache = await caches.open(APP_SHELL_CACHE).catch(() => null);
+            const cached = cache
+              ? await matchAppShell(cache, request, self.location.origin)
+                .catch(() => undefined)
+              : undefined;
+            if (cached) return cached;
 
-            const cached =
-              await cache.match(
-                request,
-              );
-
-            if (cached) {
-              return cached;
-            }
-
-            const response =
-              await fetch(
-                request,
-              );
-
-            if (
-              response.ok
-            ) {
-              await cache.put(
-                request,
-                response.clone(),
-              );
+            const response = await fetch(request);
+            if (response.ok && cache) {
+              await cache.put(request, response.clone()).catch(() => {});
             }
 
             return response;
