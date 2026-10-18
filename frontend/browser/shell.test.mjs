@@ -21,7 +21,7 @@ async function fixture(t, { admin = false } = {}) {
   const state = { mode: "healthy", build: "base", catalogFetches: 0 };
   const user = { id: "browser-admin", username: "browser-admin", display_name: "Fixture Admin", role: "admin", account_type: "registered" };
   const catalog = Array.from({ length: 261 }, (_, index) => ({ id: `track-${index}`, title: `Song ${String(index).padStart(3, "0")}`, artist: "Fixture Artist", album: "Fixture Album", genre: "Fixture", mime_type: "audio/wav" }));
-  const revision = () => state.build === "base" ? shellManifest.revision : `${shellManifest.revision}-${state.build}`;
+  const revision = () => state.build === "base" || state.build === "rollback" ? shellManifest.revision : `${shellManifest.revision}-${state.build}`;
   const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://127.0.0.1").pathname;
     const send = (status, body, type = "text/html") => {
@@ -53,7 +53,9 @@ async function fixture(t, { admin = false } = {}) {
         else if (state.mode === "recovered") send(200, html.replace("<html", '<html data-network-recovered="true"'));
         else send(200, html.replaceAll(shellManifest.revision, revision()));
       } else if (path === "/sw.js") {
-        send(200, (await readFile(resolve(dist, "sw.js"), "utf8")).replaceAll(shellManifest.revision, revision()), "text/javascript");
+        const workerSource = (await readFile(resolve(dist, "sw.js"), "utf8")).replaceAll(shellManifest.revision, revision());
+        // Simulate rolling back to the original build: same shell revision, but a new worker script identity.
+        send(200, state.build === "rollback" ? `${workerSource}\n/* rollback fixture */` : workerSource, "text/javascript");
       } else if (path === "/assets/quota-fixture-aa11.js") {
         send(200, "window.__quotaFixture = true;/*" + "x".repeat(10000) + "*/", "text/javascript");
       } else {
@@ -232,9 +234,15 @@ test("worker updates retain one complete prior build for old tabs and prune olde
     const cache = await caches.open(name);
     await cache.put("/assets/legacy-fixture-aa11.js", new Response("window.__legacyFixture = true;", { headers: { "Content-Type": "text/javascript" } }));
   }, baseCache);
-  async function update(build) {
+  async function update(build, expectedCaches) {
     state.build = build;
-    await page.evaluate(async () => {
+    await page.evaluate(async ({ expectedCaches, activeCache }) => {
+      const activationKey = "/__hypersync/shell-activation";
+      const readOrder = async () => {
+        const cache = await caches.open(activeCache);
+        return Number((await (await cache.match(activationKey))?.json().catch(() => null))?.order) || 0;
+      };
+      const priorOrder = await readOrder();
       const changed = new Promise((resolveChange, reject) => {
         const onChange = () => { clearTimeout(timer); resolveChange(); };
         const timer = setTimeout(() => {
@@ -245,9 +253,21 @@ test("worker updates retain one complete prior build for old tabs and prune olde
       });
       await (await navigator.serviceWorker.getRegistration()).update();
       await changed;
-    });
+      // controllerchange precedes completion of activate.waitUntil; wait for both
+      // the new activation stamp and the cache-pruning side effect before proceeding.
+      await new Promise((resolveWait, rejectWait) => {
+        const deadline = Date.now() + 10000;
+        const poll = async () => {
+          const names = (await caches.keys()).filter((name) => name.startsWith("hypersync-app-shell-")).sort();
+          if (await readOrder() > priorOrder && JSON.stringify(names) === JSON.stringify([...expectedCaches].sort())) return resolveWait();
+          if (Date.now() >= deadline) return rejectWait(new Error("Worker activation cleanup did not settle"));
+          setTimeout(poll, 50);
+        };
+        poll();
+      });
+    }, { expectedCaches, activeCache: `hypersync-app-shell-${build === 'rollback' ? shellManifest.revision : build === 'base' ? shellManifest.revision : `${shellManifest.revision}-${build}`}` });
   }
-  await update("b");
+  await update("b", [baseCache, `${baseCache}-b`]);
   assert.ok((await page.evaluate(() => caches.keys())).includes(baseCache));
   await page.evaluate(() => new Promise((resolveLoad, reject) => {
     const script = document.createElement("script");
@@ -257,8 +277,8 @@ test("worker updates retain one complete prior build for old tabs and prune olde
     document.body.append(script);
   }));
   assert.equal(await page.evaluate(() => window.__legacyFixture), true);
-  await update("base");
-  await update("c");
+  await update("rollback", [baseCache, `${baseCache}-b`]);
+  await update("c", [baseCache, `${baseCache}-c`]);
   // controllerchange can fire before the worker's activate waitUntil cleanup settles.
   await page.waitForFunction(async (expected) => {
     const names = (await caches.keys()).filter((name) => name.startsWith("hypersync-app-shell-")).sort();
