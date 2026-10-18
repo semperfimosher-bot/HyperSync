@@ -17,21 +17,74 @@ export function getSavedPlaylists() {
 }
 
 
-export function getLibraryTracks({
+const TRACKS_PAGE_SIZE = 1000;
+
+
+function buildTrackPageQuery(
   limit,
   offset,
-} = {}) {
+) {
   const params = new URLSearchParams();
 
   if (Number.isInteger(limit) && limit > 0) {
     params.set("limit", String(limit));
+    params.set(
+      "offset",
+      String(
+        Number.isInteger(offset) && offset >= 0
+          ? offset
+          : 0,
+      ),
+    );
   }
 
-  if (Number.isInteger(offset) && offset >= 0) {
-    params.set("offset", String(offset));
+  return params.toString();
+}
+
+
+async function getAllLibraryTrackPages() {
+  const tracks = [];
+
+  for (
+    let offset = 0;
+    ;
+    offset += TRACKS_PAGE_SIZE
+  ) {
+    const query = buildTrackPageQuery(
+      TRACKS_PAGE_SIZE,
+      offset,
+    );
+    const page = await apiRequest(
+      `/playlists/library/tracks?${query}`,
+    );
+    const pageTracks = Array.isArray(page)
+      ? page
+      : [];
+
+    tracks.push(...pageTracks);
+
+    if (pageTracks.length < TRACKS_PAGE_SIZE) {
+      return tracks;
+    }
+  }
+}
+
+
+export function getLibraryTracks({
+  limit,
+  offset,
+} = {}) {
+  if (
+    !Number.isInteger(limit) &&
+    !Number.isInteger(offset)
+  ) {
+    return getAllLibraryTrackPages();
   }
 
-  const query = params.toString();
+  const query = buildTrackPageQuery(
+    limit,
+    offset,
+  );
 
   return apiRequest(
     "/playlists/library/tracks" +
@@ -70,30 +123,75 @@ export async function getLibraryTrack(
 }
 
 
-export function getPlaylist(
+export async function getPlaylist(
   playlistId,
   {
     limit,
     offset,
   } = {},
 ) {
-  const params = new URLSearchParams();
-
-  if (Number.isInteger(limit) && limit > 0) {
-    params.set("limit", String(limit));
-  }
-
-  if (Number.isInteger(offset) && offset >= 0) {
-    params.set("offset", String(offset));
-  }
-
-  const query = params.toString();
-
-  return apiRequest(
-    `/playlists/${encodeURIComponent(
-      playlistId,
-    )}` + (query ? `?${query}` : ""),
+  const encodedId = encodeURIComponent(
+    playlistId,
   );
+  const explicitlyPaged =
+    Number.isInteger(limit) ||
+    Number.isInteger(offset);
+
+  if (explicitlyPaged) {
+    const query = buildTrackPageQuery(
+      limit,
+      offset,
+    );
+
+    return apiRequest(
+      `/playlists/${encodedId}` +
+        (query ? `?${query}` : ""),
+    );
+  }
+
+  const firstQuery = buildTrackPageQuery(
+    TRACKS_PAGE_SIZE,
+    0,
+  );
+  const firstPage = await apiRequest(
+    `/playlists/${encodedId}?${firstQuery}`,
+  );
+  const tracks = Array.isArray(firstPage?.tracks)
+    ? [...firstPage.tracks]
+    : [];
+
+  if (tracks.length < TRACKS_PAGE_SIZE) {
+    return {
+      ...firstPage,
+      tracks,
+    };
+  }
+
+  for (
+    let pageOffset = TRACKS_PAGE_SIZE;
+    ;
+    pageOffset += TRACKS_PAGE_SIZE
+  ) {
+    const query = buildTrackPageQuery(
+      TRACKS_PAGE_SIZE,
+      pageOffset,
+    );
+    const page = await apiRequest(
+      `/playlists/${encodedId}?${query}`,
+    );
+    const pageTracks = Array.isArray(page?.tracks)
+      ? page.tracks
+      : [];
+
+    tracks.push(...pageTracks);
+
+    if (pageTracks.length < TRACKS_PAGE_SIZE) {
+      return {
+        ...firstPage,
+        tracks,
+      };
+    }
+  }
 }
 
 
