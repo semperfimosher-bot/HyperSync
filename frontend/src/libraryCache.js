@@ -406,6 +406,10 @@ export async function getCachedLibraryAsync(userKey) {
   return { ...legacy, tracks };
 }
 
+export async function setCachedLibraryMetadataAsync(userKey, metadata) {
+  await writeLibraryMetadataAsync(userKey, metadata);
+}
+
 async function writeLibraryMetadataAsync(userKey, metadata) {
   let db;
   try {
