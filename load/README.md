@@ -42,8 +42,12 @@ Remove-Item Env:TARGET_BASE_URL -ErrorAction SilentlyContinue
 ```
 
 Use the actual staging API origin, for example
-`https://staging-api.example.com`. Do not use a production URL. The scripts
-request `/api/...` paths from that origin.
+`https://staging-api.example.com`. Do not use a production URL. Both scripts
+reject the known production hosts `hypersynced.app`, `www.hypersynced.app`, and
+`api.hypersynced.app`, and reject origins with credentials, paths, query strings,
+or fragments. This guard is not a substitute for checking the target hostname
+before each run: other aliases or hosting-provider URLs can still point to
+production. The scripts request `/api/...` paths from the supplied origin.
 
 ## What the tests cover
 
