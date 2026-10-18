@@ -27,6 +27,9 @@ from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
+from .middleware.request_diagnostics import (
+    RequestDiagnosticsMiddleware,
+)
 from .security.rate_limit import (
     cleanup_stale_rate_limits,
 )
@@ -508,6 +511,11 @@ app.add_middleware(
     admission_timeout_seconds=(
         settings.api_admission_timeout_seconds
     ),
+)
+
+app.add_middleware(
+    RequestDiagnosticsMiddleware,
+    slow_request_ms=1000.0,
 )
 
 app.add_middleware(
