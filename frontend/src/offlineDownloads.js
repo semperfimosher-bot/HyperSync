@@ -2063,7 +2063,7 @@ export async function searchDownloadedTracks(
 
   const queryTerms =
     normalizedQuery
-      .split(/\\s+/)
+      .split(/\s+/)
       .filter(Boolean);
 
   if (
