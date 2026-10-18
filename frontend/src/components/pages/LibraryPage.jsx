@@ -107,6 +107,43 @@ import {
   mergeLibraryTracks,
 } from "../../libraryEntities.js";
 
+import {
+  getLibraryRenderItems,
+  getNextLibraryRenderCount,
+  LIBRARY_RENDER_BATCH_SIZE,
+} from "../../libraryRenderWindow.js";
+
+function LibraryLoadMore({
+  label,
+  visibleCount,
+  totalCount,
+  onClick,
+}) {
+  if (
+    visibleCount >=
+    totalCount
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="hs-library-load-more-wrap hs-library-load-more-wrap--span">
+      <button
+        type="button"
+        className="hs-search-primary-action hs-library-load-more"
+        onClick={onClick}
+      >
+        Show more {label}
+        {" · "}
+        {visibleCount.toLocaleString()}
+        {" / "}
+        {totalCount.toLocaleString()}
+      </button>
+    </div>
+  );
+}
+
+
 function formatDuration(
   seconds,
 ) {
@@ -245,6 +282,41 @@ function LibraryPage({
     setSortMode,
   ] = useState(
     "smart",
+  );
+
+  const [
+    visiblePlaylistTrackCount,
+    setVisiblePlaylistTrackCount,
+  ] = useState(
+    LIBRARY_RENDER_BATCH_SIZE,
+  );
+
+  const [
+    visibleDownloadedTrackCount,
+    setVisibleDownloadedTrackCount,
+  ] = useState(
+    LIBRARY_RENDER_BATCH_SIZE,
+  );
+
+  const [
+    visibleEntityTrackCount,
+    setVisibleEntityTrackCount,
+  ] = useState(
+    LIBRARY_RENDER_BATCH_SIZE,
+  );
+
+  const [
+    visibleEntityCardCount,
+    setVisibleEntityCardCount,
+  ] = useState(
+    LIBRARY_RENDER_BATCH_SIZE,
+  );
+
+  const [
+    visiblePlaylistCount,
+    setVisiblePlaylistCount,
+  ] = useState(
+    LIBRARY_RENDER_BATCH_SIZE,
   );
 
   const [
@@ -595,6 +667,32 @@ const [
     removeDownloadedSongTarget,
     setRemoveDownloadedSongTarget,
   ] = useState(null);
+
+  useEffect(() => {
+    setVisiblePlaylistTrackCount(
+      LIBRARY_RENDER_BATCH_SIZE,
+    );
+    setVisibleDownloadedTrackCount(
+      LIBRARY_RENDER_BATCH_SIZE,
+    );
+    setVisibleEntityTrackCount(
+      LIBRARY_RENDER_BATCH_SIZE,
+    );
+    setVisibleEntityCardCount(
+      LIBRARY_RENDER_BATCH_SIZE,
+    );
+    setVisiblePlaylistCount(
+      LIBRARY_RENDER_BATCH_SIZE,
+    );
+  }, [
+    activeTab,
+    focusedLibraryTrack?.id,
+    likedGenreFilter,
+    playlistSearchQuery,
+    selectedLibraryEntity?.key,
+    selectedPlaylist?.id,
+    sortMode,
+  ]);
 
   useEffect(() => {
     let cancelled =
@@ -2469,9 +2567,15 @@ if (offline) {
         sortMode,
       );
 
+    const renderedTracks =
+      getLibraryRenderItems(
+        tracks,
+        visibleEntityTrackCount,
+      );
+
     return (
       <div className="hs-search-track-list">
-        {tracks.map(
+        {renderedTracks.map(
           (
             track,
             index,
@@ -2621,6 +2725,25 @@ if (offline) {
             );
           },
         )}
+        <LibraryLoadMore
+          label="tracks"
+          visibleCount={
+            renderedTracks.length
+          }
+          totalCount={
+            tracks.length
+          }
+          onClick={() => {
+            setVisibleEntityTrackCount(
+              (current) =>
+                getNextLibraryRenderCount(
+                  current,
+                  tracks.length,
+                ),
+            );
+          }}
+        />
+
       </div>
     );
   }
@@ -2705,6 +2828,12 @@ if (offline) {
         ]
       : sortedDownloadedTracks;
 
+  const renderedSongTracks =
+    getLibraryRenderItems(
+      visibleSongTracks,
+      visibleDownloadedTrackCount,
+    );
+
   const sortedVisiblePlaylists =
     useMemo(
       () =>
@@ -2722,6 +2851,12 @@ if (offline) {
       ],
     );
 
+  const renderedVisiblePlaylists =
+    getLibraryRenderItems(
+      sortedVisiblePlaylists,
+      visiblePlaylistCount,
+    );
+
   const sortedActiveLibraryCollection =
     useMemo(
       () =>
@@ -2733,6 +2868,12 @@ if (offline) {
         activeLibraryCollection,
         sortMode,
       ],
+    );
+
+  const renderedActiveLibraryCollection =
+    getLibraryRenderItems(
+      sortedActiveLibraryCollection,
+      visibleEntityCardCount,
     );
 
   const sortedSelectedPlaylistTracks =
@@ -2840,6 +2981,12 @@ if (offline) {
         genreFilteredSelectedPlaylistTracks,
         playlistSearchQuery,
       ],
+    );
+
+  const renderedSelectedPlaylistTracks =
+    getLibraryRenderItems(
+      filteredSelectedPlaylistTracks,
+      visiblePlaylistTrackCount,
     );
 
   useEffect(() => {
@@ -3439,7 +3586,7 @@ if (offline) {
 
             <div className="hs-search-track-list">
 
-              {filteredSelectedPlaylistTracks.map(
+              {renderedSelectedPlaylistTracks.map(
                 (
                   track,
                   trackIndex,
@@ -3722,6 +3869,20 @@ if (offline) {
                   );
                 },
               )}
+
+              <LibraryLoadMore
+                label="playlist tracks"
+                visibleCount={renderedSelectedPlaylistTracks.length}
+                totalCount={filteredSelectedPlaylistTracks.length}
+                onClick={() => {
+                  setVisiblePlaylistTrackCount((current) =>
+                    getNextLibraryRenderCount(
+                      current,
+                      filteredSelectedPlaylistTracks.length,
+                    ),
+                  );
+                }}
+              />
 
             </div>
 
@@ -4057,7 +4218,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {visibleSongTracks.map(
+            {renderedSongTracks.map(
               (
                 track,
                 index,
@@ -4278,6 +4439,20 @@ if (offline) {
               },
             )}
 
+            <LibraryLoadMore
+              label="downloaded songs"
+              visibleCount={renderedSongTracks.length}
+              totalCount={visibleSongTracks.length}
+              onClick={() => {
+                setVisibleDownloadedTrackCount((current) =>
+                  getNextLibraryRenderCount(
+                    current,
+                    visibleSongTracks.length,
+                  ),
+                );
+              }}
+            />
+
           </div>
 
         )}
@@ -4416,7 +4591,7 @@ if (offline) {
 
           <div className="hs-search-entity-grid hs-library-entity-grid">
 
-            {sortedActiveLibraryCollection.map(
+            {renderedActiveLibraryCollection.map(
               (entity) => {
                 const artwork =
                   resolveArtworkUrl(
@@ -4581,6 +4756,20 @@ if (offline) {
               },
             )}
 
+            <LibraryLoadMore
+              label={activeTab.toLowerCase()}
+              visibleCount={renderedActiveLibraryCollection.length}
+              totalCount={sortedActiveLibraryCollection.length}
+              onClick={() => {
+                setVisibleEntityCardCount((current) =>
+                  getNextLibraryRenderCount(
+                    current,
+                    sortedActiveLibraryCollection.length,
+                  ),
+                );
+              }}
+            />
+
           </div>
 
         )}
@@ -4649,7 +4838,7 @@ if (offline) {
 
           <div className="hs-search-track-list">
 
-            {sortedVisiblePlaylists.map(
+            {renderedVisiblePlaylists.map(
               (
                 playlist,
                 index,
@@ -5007,6 +5196,20 @@ if (offline) {
                 );
               },
             )}
+
+            <LibraryLoadMore
+              label="playlists"
+              visibleCount={renderedVisiblePlaylists.length}
+              totalCount={sortedVisiblePlaylists.length}
+              onClick={() => {
+                setVisiblePlaylistCount((current) =>
+                  getNextLibraryRenderCount(
+                    current,
+                    sortedVisiblePlaylists.length,
+                  ),
+                );
+              }}
+            />
 
           </div>
 

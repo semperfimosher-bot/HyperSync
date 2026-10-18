@@ -8431,3 +8431,22 @@ button:disabled {
     width: 100%;
   }
 }
+
+/* Keep large Library collections responsive by rendering rows in batches. */
+.hs-library-load-more-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 10px;
+}
+
+.hs-library-load-more-wrap--span {
+  grid-column: 1 / -1;
+}
+
+.hs-library-load-more {
+  max-width: 100%;
+  min-height: 38px;
+  padding: 0 18px;
+  font-size: 8px;
+}
