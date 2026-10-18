@@ -3,14 +3,6 @@ import "fake-indexeddb/auto";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  clearCachedLibraryAsync,
-  clearCachedLibraryScopeAsync,
-  getCachedLibrary,
-  getCachedLibraryAsync,
-  setCachedLibraryAsync,
-} from "./libraryCache.js";
-
 function createStorage() {
   const values = new Map();
   return {
