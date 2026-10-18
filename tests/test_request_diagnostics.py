@@ -25,6 +25,10 @@ def make_app(status_code: int = 200) -> FastAPI:
             content={"item": item_id},
         )
 
+    @app.get("/explode/{item_id}")
+    async def explode(item_id: str) -> JSONResponse:
+        raise RuntimeError("do not expose this exception message")
+
     return app
 
 
@@ -90,3 +94,38 @@ async def test_server_error_is_logged_without_query_or_body(
     assert any("status=503" in message for message in messages)
     assert all("signed-url-secret" not in message for message in messages)
     assert all("/items/abc" not in message for message in messages)
+
+
+
+@pytest.mark.asyncio
+async def test_unhandled_exception_returns_request_id_without_leaking_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = make_app()
+    caplog.set_level(
+        logging.ERROR,
+        logger="backend.app.middleware.request_diagnostics",
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/explode/private-user-id?token=secret-query-value",
+        )
+
+    request_id = response.headers.get("x-request-id", "")
+    assert re.fullmatch(r"[0-9a-f]{32}", request_id)
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal Server Error"}
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "backend.app.middleware.request_diagnostics"
+    ]
+    assert any(f"request_id={request_id}" in message for message in messages)
+    assert all("do not expose this exception message" not in message for message in messages)
+    assert all("secret-query-value" not in message for message in messages)
+    assert all("private-user-id" not in message for message in messages)
