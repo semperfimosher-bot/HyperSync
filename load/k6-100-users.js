@@ -53,13 +53,23 @@ function request(path, route, expectedStatus = 200) {
 }
 
 export default function () {
-  request("/api/catalog/tracks", "catalog");
+  // Exercise both the beginning and later offsets of a large catalog while
+  // keeping each response bounded. The test fixture should contain 100,000
+  // published tracks for the offsets to represent the target workload.
+  const offset = ((__VU - 1) % 100) * 1000;
+  request(
+    `/api/catalog/tracks?limit=1000&offset=${offset}`,
+    "catalog",
+  );
   sleep(0.2 + Math.random() * 0.4);
   request("/api/search?q=music&sort=smart", "search");
 
   // Private endpoints are tested only with a dedicated staging test account.
   if (AUTH_TOKEN) {
-    request("/api/playlists/library/tracks", "library");
+    request(
+      `/api/playlists/library/tracks?limit=1000&offset=${offset}`,
+      "library",
+    );
     request("/api/playlists/mine", "playlists");
   }
 
