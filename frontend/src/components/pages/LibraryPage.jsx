@@ -96,9 +96,9 @@ import {
 import {
   getCachedLibrary,
   getCachedLibraryAsync,
-  getCachedPlaylist,
+  getCachedPlaylistAsync,
   setCachedLibraryAsync,
-  setCachedPlaylist,
+  setCachedPlaylistAsync,
 } from "../../libraryCache.js";
 
 import {
@@ -790,7 +790,7 @@ const [
                 playlistId,
               );
 
-            setCachedPlaylist(
+            await setCachedPlaylistAsync(
               libraryCacheKey,
               refreshed,
             );
@@ -1079,7 +1079,7 @@ const [
           refreshedWithTracks,
         );
 
-        setCachedPlaylist(
+        await setCachedPlaylistAsync(
           libraryCacheKey,
           refreshedWithTracks,
         );
@@ -1229,7 +1229,7 @@ const [
 
     const cached =
       downloaded ??
-      getCachedPlaylist(
+      await getCachedPlaylistAsync(
         libraryCacheKey,
         initialPlaylistId,
       );
@@ -1308,7 +1308,7 @@ const [
         return;
       }
 
-      setCachedPlaylist(
+      await setCachedPlaylistAsync(
         libraryCacheKey,
         playlist,
       );
@@ -1455,7 +1455,7 @@ useEffect(() => {
 
   const cached =
     downloaded ??
-    getCachedPlaylist(
+    await getCachedPlaylistAsync(
       libraryCacheKey,
       playlistId,
     );
@@ -1617,7 +1617,7 @@ if (offline) {
       offlineOwnerKey,
     );
 
-    setCachedPlaylist(
+    await setCachedPlaylistAsync(
   libraryCacheKey,
   playlist,
 );
