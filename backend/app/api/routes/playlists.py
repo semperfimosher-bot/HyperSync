@@ -624,6 +624,9 @@ async def serialize_playlist_detail(
     session: DatabaseSession,
     playlist: Playlist,
     viewer: User | None,
+    *,
+    track_limit: int | None = None,
+    track_offset: int = 0,
 ) -> PlaylistDetailResponse:
     summary = await serialize_playlist_summary(
         session,
@@ -634,6 +637,8 @@ async def serialize_playlist_detail(
     tracks = await load_playlist_tracks(
         session,
         playlist.id,
+        limit=track_limit,
+        offset=track_offset,
     )
 
     return PlaylistDetailResponse(
