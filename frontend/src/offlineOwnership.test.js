@@ -1540,6 +1540,17 @@ test(
       [rows[0].trackId],
     );
 
+    const combinedMatches =
+      await offline.searchDownloadedTracks(
+        "cafe jose",
+        ownerA,
+      );
+
+    assert.deepEqual(
+      combinedMatches.map((track) => track.id),
+      [rows[0].trackId],
+    );
+
     const artistMatches =
       await offline.searchDownloadedTracks(
         "jose",

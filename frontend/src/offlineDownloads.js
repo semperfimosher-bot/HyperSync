@@ -2061,9 +2061,14 @@ export async function searchDownloadedTracks(
       query,
     );
 
+  const queryTerms =
+    normalizedQuery
+      .split(/\\s+/)
+      .filter(Boolean);
+
   if (
     !normalizedOwnerKey ||
-    !normalizedQuery
+    queryTerms.length === 0
   ) {
     return [];
   }
@@ -2094,8 +2099,11 @@ export async function searchDownloadedTracks(
             )
             .join(" ");
 
-        return haystack.includes(
-          normalizedQuery,
+        return queryTerms.every(
+          (term) =>
+            haystack.includes(
+              term,
+            ),
         );
       },
     );
