@@ -1,7 +1,7 @@
 """Database-free tests for bounded library-track pagination."""
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -50,8 +50,8 @@ async def test_library_track_page_applies_limit_and_offset(monkeypatch):
     monkeypatch.setattr(routes, "_track_artwork_version", lambda _track: None)
 
     result = await routes.get_library_tracks(
-        user,
-        session,
+        cast(Any, user),
+        cast(Any, session),
         limit=25,
         offset=50,
     )
@@ -91,8 +91,8 @@ async def test_library_track_legacy_call_keeps_unpaged_contract(monkeypatch):
     monkeypatch.setattr(routes, "_track_artwork_version", lambda _track: None)
 
     result = await routes.get_library_tracks(
-        user,
-        session,
+        cast(Any, user),
+        cast(Any, session),
         limit=None,
         offset=0,
     )
