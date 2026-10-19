@@ -363,9 +363,12 @@ test("IndexedDB media survives reload and supports offline range, decoding, play
   await context.setOffline(true);
   await page.reload();
   await page.locator("main").waitFor({ state: "visible" });
-  // Reloading can show the first-visit overlay again in this isolated browser context.
+  // The auth overlay is lazy-loaded, so a synchronous count can miss it and
+  // leave its modal layer blocking navigation after reload. Wait for the guest
+  // action to mount before continuing the offline playback journey.
   const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
-  if (await guestButton.count()) await guestButton.click();
+  await guestButton.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  if (await guestButton.isVisible().catch(() => false)) await guestButton.click();
   await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
   const range = await page.evaluate(async () => {
     const response = await fetch("/__hypersync/media/browser-audio/v1", { headers: { Range: "bytes=10-19" } });
