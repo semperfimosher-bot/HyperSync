@@ -101,7 +101,7 @@ test(
       );
     }
 
-    assert.match(source, /mobilePlayerDetailsOpen \\?/);
+    assert.match(source, /mobilePlayerDetailsLoaded \\?/);
     assert.match(source, /notificationDetail \\?/);
     assert.match(source, /authOpen \\?/);
     assert.match(source, /installHelpMode \\?/);
