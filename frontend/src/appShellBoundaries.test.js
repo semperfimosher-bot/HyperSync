@@ -101,9 +101,13 @@ test(
       );
     }
 
-    assert.match(source, /mobilePlayerDetailsLoaded \\?/);
-    assert.match(source, /notificationDetail \\?/);
-    assert.match(source, /authOpen \\?/);
-    assert.match(source, /installHelpMode \\?/);
+    for (const condition of [
+      "{mobilePlayerDetailsLoaded ? (",
+      "{notificationDetail ? (",
+      "{authOpen ? (",
+      "{installHelpMode ? (",
+    ]) {
+      assert.ok(source.includes(condition), condition);
+    }
   },
 );
