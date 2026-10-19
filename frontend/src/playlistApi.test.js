@@ -151,6 +151,40 @@ test(
 
 
 test(
+  "explicit first library page makes one bounded request without fetching the whole library",
+  async () => {
+    const originalFetch = globalThis.fetch;
+    const requested = [];
+    const page = Array.from({ length: 1000 }, (_, index) => ({
+      id: `track-${index}`,
+    }));
+
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    try {
+      const result = await getLibraryTracks({
+        limit: 1000,
+        offset: 0,
+      });
+
+      assert.equal(result.length, 1000);
+      assert.deepEqual(requested, [
+        "/api/playlists/library/tracks?limit=1000&offset=0",
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
+
+test(
   "default library and playlist reads aggregate pages without losing order or metadata",
   async () => {
     const originalFetch = globalThis.fetch;
