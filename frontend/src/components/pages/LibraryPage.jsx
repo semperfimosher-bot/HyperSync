@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -20,6 +21,7 @@ import {
   createPlaylist,
   deletePlaylist,
   getLibraryTracks,
+  LIBRARY_TRACKS_PAGE_SIZE,
   getMyPlaylists,
   getPlaylist,
   getSavedPlaylists,
@@ -396,6 +398,27 @@ const [
       ? cachedLibrary.tracks
       : [],
 );
+
+const libraryTracksRef = useRef(libraryTracks);
+
+const [
+  hasMoreLibraryTracks,
+  setHasMoreLibraryTracks,
+] = useState(
+  () =>
+    cachedLibrary?.hasMoreLibraryTracks ??
+    (Array.isArray(cachedLibrary?.tracks) &&
+      cachedLibrary.tracks.length >= LIBRARY_TRACKS_PAGE_SIZE),
+);
+
+const [
+  loadingMoreLibraryTracks,
+  setLoadingMoreLibraryTracks,
+] = useState(false);
+
+useEffect(() => {
+  libraryTracksRef.current = libraryTracks;
+}, [libraryTracks]);
 
 const [
   selectedLibraryEntity,
