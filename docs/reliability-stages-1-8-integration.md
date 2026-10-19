@@ -35,12 +35,21 @@ The branches independently changed overlapping implementation files. This pass p
 - `tests/test_catalog_pagination.py`
 - E2E files whose diffs include line-ending/formatting noise.
 
+## Current verification record
+
+The following workflows passed on implementation commit `f38ab8f8a7dad5e34736d809fec3c441e18c6485`:
+
+- [Project verification run 39187206307](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39187206307): isolated application journey, operational-rehearsal safety contracts, and Windows verification tests passed.
+- [Offline PWA checks run 39187206341](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39187206341): frontend offline regression tests/build, staging-load-script syntax checks, backend regression tests, Ruff lint, Pyright type checks, dependency audit, Bandit scan, and both production container-image checks passed.
+
+These are CI results, not staging or device acceptance. Any subsequent commit must be verified independently; a green earlier SHA does not certify a later SHA.
+
 ## Release acceptance still required
 
-1. Review the combined diff in a real Git checkout and reconcile the overlapping files above.
-2. Run the repository's full backend regression, frontend tests/build, production-image builds, type/security checks, and E2E suites against this exact branch head.
+1. Reconcile the overlapping files above with a real three-way diff and targeted tests; do not replace whole files blindly.
+2. Run the complete E2E browser suite against this exact final candidate and preserve the run results.
 3. Run staging-only smoke, offline launch, upload/retry and duplicate-safety, artwork fallback, audio range, same-device song/position restore, and recovery checks using an isolated staging hostname, development database, and separate test media storage.
 4. Run staged load tests only after verifying that the target hostname routes exclusively to the isolated staging environment. Begin at 40 users, then 100; do not run production load tests.
 5. Confirm no Jam/cross-device playback-control behavior has been reintroduced, and preserve same-device playback restoration.
 
-No staging load test or production deployment is performed by this integration commit. Stage completion is not certified until the acceptance checks above have evidence.
+No staging load test or production deployment has been performed. Stage completion is not certified until the acceptance checks above have evidence.
