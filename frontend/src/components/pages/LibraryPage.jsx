@@ -5333,6 +5333,28 @@ if (offline) {
 
     )}
 
+      {hasMoreLibraryTracks ? (
+        <div className="hs-library-load-more-wrap">
+          <button
+            type="button"
+            className="hs-search-primary-action hs-library-load-more"
+            disabled={
+              loadingMoreLibraryTracks ||
+              (typeof navigator !== "undefined" && navigator.onLine === false)
+            }
+            onClick={() => {
+              void loadMoreLibraryTracks();
+            }}
+          >
+            {loadingMoreLibraryTracks
+              ? "Loading more tracks…"
+              : typeof navigator !== "undefined" && navigator.onLine === false
+                ? "Connect to load more tracks"
+                : `Load more library tracks · ${libraryTracks.length.toLocaleString()} loaded`}
+          </button>
+        </div>
+      ) : null}
+
       <DownloadRemovalConfirm
         open={
           Boolean(
