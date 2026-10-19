@@ -111,3 +111,35 @@ test(
     }
   },
 );
+
+
+test(
+  "large libraries bootstrap with a bounded page and load later pages on demand",
+  () => {
+    const source = fs.readFileSync(
+      new URL(
+        "./components/pages/LibraryPage.jsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    assert.match(
+      source,
+      /getLibraryTracks\(\{\s*limit:\s*LIBRARY_TRACKS_PAGE_SIZE,\s*offset:\s*0,/s,
+    );
+    assert.match(
+      source,
+      /const loadMoreLibraryTracks = useCallback/,
+    );
+    assert.match(
+      source,
+      /getLibraryTracks\(\{\s*limit:\s*LIBRARY_TRACKS_PAGE_SIZE,\s*offset,/s,
+    );
+    assert.equal(
+      source.includes("getLibraryTracks(),"),
+      false,
+      "initial library loading must not aggregate every page",
+    );
+  },
+);
