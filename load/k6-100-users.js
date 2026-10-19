@@ -94,24 +94,56 @@ function request(path, route, expectedStatus = 200) {
   return response;
 }
 
+function checkCatalogPage(response) {
+  let page;
+  try {
+    page = response.json();
+  } catch {
+    check(null, { "catalog returns a page envelope": () => false });
+    return null;
+  }
+
+  check(page, {
+    "catalog returns a page envelope": (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Array.isArray(value.items),
+    "catalog page is bounded to 250 tracks": (value) =>
+      Array.isArray(value?.items) && value.items.length <= 250,
+    "catalog cursor is null or a string": (value) =>
+      value?.next_cursor === null || typeof value?.next_cursor === "string",
+  });
+  return page;
+}
+
 export default function () {
-  // Exercise both the beginning and later offsets of a large catalog while
-  // keeping each response bounded. The test fixture should contain 100,000
-  // published tracks for the offsets to represent the target workload.
-  const offset = ((__VU - 1) % 100) * 1000;
-  request(
-    `/api/catalog/tracks?limit=1000&offset=${offset}`,
+  // Exercise the real keyset-pagination contract against a representative
+  // 100,000-track staging catalog. limit/offset are not supported by this API;
+  // using them silently fell back to the legacy full-catalog response.
+  const firstPageResponse = request(
+    "/api/catalog/tracks?page_size=250",
     "catalog",
   );
+  if (firstPageResponse.status === 200) {
+    const firstPage = checkCatalogPage(firstPageResponse);
+    if (typeof firstPage?.next_cursor === "string") {
+      const nextPageResponse = request(
+        `/api/catalog/tracks?page_size=250&cursor=${encodeURIComponent(firstPage.next_cursor)}`,
+        "catalog",
+      );
+      if (nextPageResponse.status === 200) {
+        checkCatalogPage(nextPageResponse);
+      }
+    }
+  }
+
   sleep(0.2 + Math.random() * 0.4);
   request("/api/search?q=music&sort=smart", "search");
 
   // Private endpoints are tested only with a dedicated staging test account.
   if (AUTH_TOKEN) {
-    request(
-      `/api/playlists/library/tracks?limit=1000&offset=${offset}`,
-      "library",
-    );
+    request("/api/playlists/library/tracks?limit=1000&offset=0", "library");
     request("/api/playlists/mine", "playlists");
   }
 
