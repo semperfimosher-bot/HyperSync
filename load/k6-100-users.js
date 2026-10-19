@@ -73,6 +73,7 @@ export const options = {
     },
   },
   thresholds: {
+    checks: ["rate>0.99"],
     http_req_failed: ["rate<0.01"],
     http_req_duration: ["p(95)<750", "p(99)<1500"],
     "http_req_duration{route:catalog}": ["p(95)<750"],
