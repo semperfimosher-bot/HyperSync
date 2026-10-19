@@ -22,6 +22,7 @@ from .middleware.overload import (
     database_pool_timeout_handler,
 )
 from .middleware.request_limits import RequestBodyLimitMiddleware
+from .middleware.request_diagnostics import RequestDiagnosticsMiddleware
 from .security.rate_limit import (
     cleanup_stale_rate_limits,
 )
@@ -441,6 +442,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Keep diagnostics outside CORS and admission middleware so failures receive
+# a request ID, while logs never include raw URLs or exception messages.
+app.add_middleware(
+    RequestDiagnosticsMiddleware,
 )
 
 app.add_exception_handler(
