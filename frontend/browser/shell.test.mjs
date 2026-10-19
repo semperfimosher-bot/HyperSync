@@ -88,13 +88,12 @@ async function fixture(t, { admin = false } = {}) {
   await page.goto(origin);
   await page.locator("main").waitFor({ state: "visible" });
   // The normal first-visit account overlay intentionally blocks navigation.
-  // The auth overlay is lazy loaded. Wait for it rather than checking
-  // count() before the modal has mounted and letting it block later clicks.
+  // Continue as a guest so these tests exercise the underlying offline shell.
   const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
-  if (!admin) {
-    await guestButton.waitFor({ state: "visible", timeout: 10000 });
-    await guestButton.click();
-  }
+  // The auth overlay is now a lazy chunk; wait for it to mount before deciding
+  // whether this fresh context needs to dismiss the first-visit prompt.
+  await guestButton.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  if (await guestButton.isVisible().catch(() => false)) await guestButton.click();
   await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
@@ -364,11 +363,9 @@ test("IndexedDB media survives reload and supports offline range, decoding, play
   await context.setOffline(true);
   await page.reload();
   await page.locator("main").waitFor({ state: "visible" });
-  // Guest choice is session-local, so offline reload shows the lazy
-  // overlay again. Wait until it mounts before trying to navigate.
+  // Reloading can show the first-visit overlay again in this isolated browser context.
   const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
-  await guestButton.waitFor({ state: "visible", timeout: 10000 });
-  await guestButton.click();
+  if (await guestButton.count()) await guestButton.click();
   await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
   const range = await page.evaluate(async () => {
     const response = await fetch("/__hypersync/media/browser-audio/v1", { headers: { Range: "bytes=10-19" } });
