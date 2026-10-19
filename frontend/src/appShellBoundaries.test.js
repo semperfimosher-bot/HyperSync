@@ -95,11 +95,8 @@ test(
       "components/auth/AuthOverlay.jsx",
       "components/ui/AppInstallModal.jsx",
     ]) {
-      assert.match(
-        source,
-        new RegExp(
-          `lazy\\(\\(\\) => import\\(["']\\./${component.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}["']\\)\\)`,
-        ),
+      assert.ok(
+        source.includes(`lazy(() => import("./${component}"))`),
         component,
       );
     }
