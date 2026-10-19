@@ -532,10 +532,11 @@ function openOfflineDatabase() {
           database.onversionchange =
             () => {
               database.close();
-
-              offlineDatabasePromise =
-                null;
+              offlineDatabasePromise = null;
             };
+          database.addEventListener("close", () => {
+            offlineDatabasePromise = null;
+          });
 
           return database;
         },
