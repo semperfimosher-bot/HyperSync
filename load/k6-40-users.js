@@ -122,6 +122,8 @@ function checkCatalogPage(response) {
 }
 
 export default function () {
+  const libraryOffset = ((__VU - 1) % 10) * 1000;
+
   // Match the real client: request a bounded first page rather than the legacy
   // full-catalog export, which would distort load and memory measurements.
   const firstPageResponse = request(
@@ -146,7 +148,22 @@ export default function () {
 
   // Private endpoints are exercised only with a dedicated staging account.
   if (AUTH_TOKEN) {
-    request("/api/playlists/library/tracks", "library");
+    const libraryResponse = request(
+      `/api/playlists/library/tracks?limit=1000&offset=${libraryOffset}`,
+      "library",
+    );
+    if (libraryResponse.status === 200) {
+      check(libraryResponse, {
+        "library response is a bounded page": (response) => {
+          try {
+            const body = response.json();
+            return Array.isArray(body) && body.length <= 1000;
+          } catch {
+            return false;
+          }
+        },
+      });
+    }
     request("/api/playlists/mine", "playlists");
   }
 
