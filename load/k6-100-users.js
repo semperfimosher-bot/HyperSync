@@ -146,7 +146,22 @@ export default function () {
 
   // Private endpoints are tested only with a dedicated staging test account.
   if (AUTH_TOKEN) {
-    request(`/api/playlists/library/tracks?limit=1000&offset=${libraryOffset}`, "library");
+    const libraryResponse = request(
+      `/api/playlists/library/tracks?limit=1000&offset=${libraryOffset}`,
+      "library",
+    );
+    if (libraryResponse.status === 200) {
+      check(libraryResponse, {
+        "library response is a bounded page": (response) => {
+          try {
+            const body = response.json();
+            return Array.isArray(body) && body.length <= 1000;
+          } catch {
+            return false;
+          }
+        },
+      });
+    }
     request("/api/playlists/mine", "playlists");
   }
 
