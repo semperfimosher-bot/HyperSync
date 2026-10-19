@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from backend.app.middleware.request_diagnostics import (
     RequestDiagnosticsMiddleware,
 )
+from backend.app.main import app as production_app
 
 
 def make_app(status_code: int = 200) -> FastAPI:
@@ -129,3 +130,16 @@ async def test_unhandled_exception_returns_request_id_without_leaking_exception(
     assert all("do not expose this exception message" not in message for message in messages)
     assert all("secret-query-value" not in message for message in messages)
     assert all("private-user-id" not in message for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_application_registers_request_diagnostics_middleware() -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=production_app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/")
+
+    assert response.status_code == 200
+    request_id = response.headers.get("x-request-id", "")
+    assert re.fullmatch(r"[0-9a-f]{32}", request_id)
