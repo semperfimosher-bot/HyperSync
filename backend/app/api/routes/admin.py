@@ -239,6 +239,23 @@ def _direct_upload_is_safe(
     )
 
 
+def _validate_audio_upload_size(
+    file_size: int,
+    *,
+    max_bytes: int,
+) -> None:
+    if file_size <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio file size must be positive.",
+        )
+    if file_size > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Audio upload exceeds the configured maximum of {max_bytes} bytes.",
+        )
+
+
 def _valid_release_year(
     value: int | None,
 ) -> int | None:
@@ -988,6 +1005,12 @@ async def prepare_direct_track_upload(
             ),
         )
 
+    settings = get_settings()
+    _validate_audio_upload_size(
+        payload.file_size,
+        max_bytes=settings.audio_max_upload_bytes,
+    )
+
     duplicate = (
         await _find_duplicate_track(
             session,
@@ -1020,8 +1043,6 @@ async def prepare_direct_track_upload(
             "reason":
                 "backend-processing-required",
         }
-
-    settings = get_settings()
 
     object_key = (
         f"{settings.b2_audio_prefix}/"
@@ -1176,6 +1197,10 @@ async def finalize_direct_track_upload(
     artwork_object_key = None
 
     try:
+        _validate_audio_upload_size(
+            original_file_size,
+            max_bytes=get_settings().audio_max_upload_bytes,
+        )
         try:
             object_info = await run_blocking(
                 head_b2_object,
@@ -1199,6 +1224,10 @@ async def finalize_direct_track_upload(
                 0,
             )
             or 0
+        )
+        _validate_audio_upload_size(
+            stored_size,
+            max_bytes=get_settings().audio_max_upload_bytes,
         )
 
         if (
