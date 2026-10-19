@@ -37,17 +37,19 @@ The branches independently changed overlapping implementation files. This pass p
 
 ## Current verification record
 
-The following workflows passed on implementation commit `f38ab8f8a7dad5e34736d809fec3c441e18c6485`:
+Both CI workflows passed on implementation commit `9ef6119d6f3631f7587c5f88b8554a7bdee7f540`:
 
-- [Project verification run 39187206307](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39187206307): isolated application journey, operational-rehearsal safety contracts, and Windows verification tests passed.
-- [Offline PWA checks run 39187206341](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39187206341): frontend offline regression tests/build, staging-load-script syntax checks, backend regression tests, Ruff lint, Pyright type checks, dependency audit, Bandit scan, and both production container-image checks passed.
+- [Project verification run 39189853215](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39189853215): isolated application verification, bounded fixture memory check, operational rehearsal, safety-contract tests, and Windows verification tests passed.
+- [Offline PWA checks run 39189853228](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39189853228): frontend unit/regression tests, build, staging-load-script syntax checks, Playwright browser tests, backend regression tests, Ruff lint, Pyright type checks, dependency audit, Bandit scan, and both production container-image checks passed.
 
-These are CI results, not staging or device acceptance. Any subsequent commit must be verified independently; a green earlier SHA does not certify a later SHA.
+The Playwright run exposed a missing app-shell manifest plugin registration and two nondeterministic offline fixtures. The plugin is now registered in Vite; the browser fixtures explicitly stall the local server when testing offline fallback. All 10 browser scenarios passed on this implementation head.
+
+Playwright is currently installed as a pinned CI-only runtime (`1.56.1`) because it is not yet a declared frontend dev dependency. Promote it into `frontend/package.json` and regenerate the lockfile with the project package manager when a normal dependency update can be performed. These are CI results, not isolated staging or physical-device acceptance. Any subsequent commit must be verified independently; a green earlier SHA does not certify a later SHA.
 
 ## Release acceptance still required
 
 1. Reconcile the overlapping files above with a real three-way diff and targeted tests; do not replace whole files blindly.
-2. Make the existing browser suite executable and run it against this exact final candidate. `frontend/browser/shell.test.mjs` contains real Playwright service-worker/offline/media tests, but Playwright is not declared in `frontend/package.json` or its lockfile and the current CI workflow does not invoke that file. Wire the dependency, browser installation, and test command into CI only after validating the existing suite against the current build; do not count Node unit tests as browser E2E coverage.
+2. Keep the Playwright browser suite green and make its dependency management conventional: the suite now runs in CI and all 10 browser scenarios passed, but Playwright is still installed as a pinned CI-only runtime rather than a declared dev dependency with a lockfile entry.
 3. Run staging-only smoke, offline launch, upload/retry and duplicate-safety, artwork fallback, audio range, same-device song/position restore, and recovery checks using an isolated staging hostname, development database, and separate test media storage.
 4. Run staged load tests only after verifying that the target hostname routes exclusively to the isolated staging environment. Begin at 40 users, then 100; do not run production load tests.
 5. Confirm no Jam/cross-device playback-control behavior has been reintroduced, and preserve same-device playback restoration.
