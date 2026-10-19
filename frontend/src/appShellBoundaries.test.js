@@ -75,3 +75,39 @@ test(
     }
   },
 );
+
+
+test(
+  "rarely used overlays are split from startup and mounted only on demand",
+  () => {
+    const source =
+      fs.readFileSync(
+        new URL(
+          "./App.jsx",
+          import.meta.url,
+        ),
+        "utf8",
+      );
+
+    for (const component of [
+      "components/ui/NotificationDetailOverlay.jsx",
+      "components/player/MobilePlayerDetails.jsx",
+      "components/auth/AuthOverlay.jsx",
+      "components/ui/AppInstallModal.jsx",
+    ]) {
+      assert.ok(
+        source.includes(`lazy(() => import("./${component}"))`),
+        component,
+      );
+    }
+
+    for (const condition of [
+      "{mobilePlayerDetailsLoaded ? (",
+      "{notificationDetail ? (",
+      "{authOpen ? (",
+      "{installHelpMode ? (",
+    ]) {
+      assert.ok(source.includes(condition), condition);
+    }
+  },
+);

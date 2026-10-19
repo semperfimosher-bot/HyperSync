@@ -56,8 +56,7 @@ import {
   SEARCH_SUGGESTIONS,
 } from "./constants.js";
 
-import NotificationDetailOverlay from
-  "./components/ui/NotificationDetailOverlay.jsx";
+const NotificationDetailOverlay = lazy(() => import("./components/ui/NotificationDetailOverlay.jsx"));
 
 import PageErrorBoundary from
   "./components/ui/PageErrorBoundary.jsx";
@@ -65,8 +64,7 @@ import PageErrorBoundary from
 import PlayerBar from
   "./components/player/PlayerBar.jsx";
 
-import MobilePlayerDetails from
-  "./components/player/MobilePlayerDetails.jsx";
+const MobilePlayerDetails = lazy(() => import("./components/player/MobilePlayerDetails.jsx"));
 
 import BrandLogo from "./components/ui/BrandLogo.jsx";
 
@@ -80,8 +78,7 @@ import MobileHeader from "./components/layout/MobileHeader.jsx";
 import MobileBottomNav from
   "./components/layout/MobileBottomNav.jsx";
 
-import AuthOverlay from
-  "./components/auth/AuthOverlay.jsx";
+const AuthOverlay = lazy(() => import("./components/auth/AuthOverlay.jsx"));
 
 import DesktopSidebar from "./components/layout/DesktopSidebar.jsx";
 
@@ -142,8 +139,7 @@ import useMessageNotifications from
 import useDownloadedPlaylistUpdates from
   "./hooks/useDownloadedPlaylistUpdates.js";
 
-import AppInstallModal from
-  "./components/ui/AppInstallModal.jsx";
+const AppInstallModal = lazy(() => import("./components/ui/AppInstallModal.jsx"));
 
 const loadHomePage = () => import("./components/pages/HomePage.jsx");
 const HomePage = lazy(loadHomePage);
@@ -850,6 +846,10 @@ export default function App() {
   const [
     mobilePlayerDetailsOpen,
     setMobilePlayerDetailsOpen,
+  ] = useState(false);
+  const [
+    mobilePlayerDetailsLoaded,
+    setMobilePlayerDetailsLoaded,
   ] = useState(false);
 
   const [authOpen, setAuthOpen] =
@@ -2522,24 +2522,21 @@ const clearPlaylistToOpen =
         }
 
         onOpenPlayerDetails={() => {
-          setMobilePlayerDetailsOpen(
-            true,
-          );
+          setMobilePlayerDetailsLoaded(true);
+          setMobilePlayerDetailsOpen(true);
         }}
       />
 
-      <MobilePlayerDetails
-        open={
-          mobilePlayerDetailsOpen
-        }
-        onClose={() => {
-          setMobilePlayerDetailsOpen(
-            false,
-          );
-        }}
-
-
-      />
+      {mobilePlayerDetailsLoaded ? (
+        <Suspense fallback={null}>
+          <MobilePlayerDetails
+            open={mobilePlayerDetailsOpen}
+            onClose={() => {
+              setMobilePlayerDetailsOpen(false);
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       <MobileBottomNav
         activePage={activePage}
@@ -2569,55 +2566,49 @@ const clearPlaylistToOpen =
         </div>
       ) : null}
 
-<AppInstallModal
-  open={
-    Boolean(
-      installHelpMode,
-    )
-  }
-  mode={
-    installHelpMode
-  }
-  onClose={() => {
-    setInstallHelpMode(
-      "",
-    );
-  }}
-/>
+{installHelpMode ? (
+  <Suspense fallback={null}>
+    <AppInstallModal
+      open
+      mode={installHelpMode}
+      onClose={() => {
+        setInstallHelpMode("");
+      }}
+    />
+  </Suspense>
+) : null}
 
-<NotificationDetailOverlay
-  notification={
-    notificationDetail
-  }
-  onClose={
-    closeNotificationDetail
-  }
-  onOpenMessage={
-    openMessageUser
-  }
-  onOpenSharedMusic={
-    openSharedMusicFromMessage
-  }
-/>
+{notificationDetail ? (
+  <Suspense fallback={null}>
+    <NotificationDetailOverlay
+      notification={notificationDetail}
+      onClose={closeNotificationDetail}
+      onOpenMessage={openMessageUser}
+      onOpenSharedMusic={openSharedMusicFromMessage}
+    />
+  </Suspense>
+) : null}
 
-<AuthOverlay
-  open={authOpen}
-  mode={authMode}
-  onModeChange={setAuthMode}
-  onClose={() => {
-    setAuthOpen(false);
-  }}
-  onAuthenticated={
-    handleAuthenticated
-  }
-  onForgotPassword={() => {
-    setAuthOpen(false);
-    setRecoveryOpen(true);
-  }}
-  onGuest={() => {
-    setAuthOpen(false);
-  }}
-/>
+{authOpen ? (
+  <Suspense fallback={null}>
+    <AuthOverlay
+      open
+      mode={authMode}
+      onModeChange={setAuthMode}
+      onClose={() => {
+        setAuthOpen(false);
+      }}
+      onAuthenticated={handleAuthenticated}
+      onForgotPassword={() => {
+        setAuthOpen(false);
+        setRecoveryOpen(true);
+      }}
+      onGuest={() => {
+        setAuthOpen(false);
+      }}
+    />
+  </Suspense>
+) : null}
 
 <PasswordRecoveryOverlay
   open={
