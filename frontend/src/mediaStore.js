@@ -421,10 +421,11 @@ function openMediaDatabase() {
           database.onversionchange =
             () => {
               database.close();
-
-              databasePromise =
-                null;
+              databasePromise = null;
             };
+          database.addEventListener("close", () => {
+            databasePromise = null;
+          });
 
           return database;
         },
