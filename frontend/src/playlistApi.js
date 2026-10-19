@@ -17,7 +17,8 @@ export function getSavedPlaylists() {
 }
 
 
-const TRACKS_PAGE_SIZE = 1000;
+export const LIBRARY_TRACKS_PAGE_SIZE = 1000;
+const TRACKS_PAGE_SIZE = LIBRARY_TRACKS_PAGE_SIZE;
 
 
 function buildTrackPageQuery(
