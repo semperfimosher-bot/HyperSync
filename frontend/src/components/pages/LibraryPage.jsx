@@ -953,6 +953,8 @@ const [
         setOwnedPlaylists([]);
         setSavedPlaylists([]);
         setLibraryTracks([]);
+        libraryTracksRef.current = [];
+        setHasMoreLibraryTracks(false);
 
         return;
       }
@@ -998,12 +1000,14 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              cached.tracks,
-            )
-              ? cached.tracks
-              : [],
+          const cachedTracks = Array.isArray(cached.tracks)
+            ? cached.tracks
+            : [];
+          setLibraryTracks(cachedTracks);
+          libraryTracksRef.current = cachedTracks;
+          setHasMoreLibraryTracks(
+            cached.hasMoreLibraryTracks ??
+            cachedTracks.length >= LIBRARY_TRACKS_PAGE_SIZE,
           );
 
           setError("");
@@ -1011,6 +1015,8 @@ const [
           setOwnedPlaylists([]);
           setSavedPlaylists([]);
           setLibraryTracks([]);
+          libraryTracksRef.current = [];
+          setHasMoreLibraryTracks(false);
 
           setError(
             "This Library has not been cached on this device yet.",
@@ -1043,7 +1049,10 @@ const [
           await Promise.all([
             getMyPlaylists(),
             getSavedPlaylists(),
-            getLibraryTracks(),
+            getLibraryTracks({
+              limit: LIBRARY_TRACKS_PAGE_SIZE,
+              offset: 0,
+            }),
           ]);
 
         const nextOwned =
@@ -1056,10 +1065,31 @@ const [
             ? saved
             : [];
 
-        const nextTracks =
-          Array.isArray(tracks)
-            ? tracks
-            : [];
+        const fetchedTracks = Array.isArray(tracks)
+          ? tracks
+          : [];
+        const existingTracks = libraryTracksRef.current;
+        let nextTracks = fetchedTracks;
+        if (quiet && existingTracks.length) {
+          const fetchedIds = new Set(
+            fetchedTracks.map((track) => String(track.id)),
+          );
+          const byId = new Map(
+            existingTracks.map((track) => [String(track.id), track]),
+          );
+          for (const track of fetchedTracks) {
+            byId.set(String(track.id), track);
+          }
+          nextTracks = [
+            ...fetchedTracks,
+            ...existingTracks.filter(
+              (track) => !fetchedIds.has(String(track.id)),
+            ),
+          ].map((track) => byId.get(String(track.id)) ?? track);
+        }
+        const nextHasMore =
+          fetchedTracks.length >= LIBRARY_TRACKS_PAGE_SIZE ||
+          (quiet && existingTracks.length > fetchedTracks.length);
 
         setOwnedPlaylists(
           nextOwned,
@@ -1069,9 +1099,9 @@ const [
           nextSaved,
         );
 
-        setLibraryTracks(
-          nextTracks,
-        );
+        setLibraryTracks(nextTracks);
+        libraryTracksRef.current = nextTracks;
+        setHasMoreLibraryTracks(nextHasMore);
 
         await setCachedLibrary(
           libraryCacheKey,
@@ -1084,6 +1114,9 @@ const [
 
             tracks:
               nextTracks,
+
+            hasMoreLibraryTracks:
+              nextHasMore,
           },
         );
       } catch (requestError) {
@@ -1114,12 +1147,14 @@ const [
               : [],
           );
 
-          setLibraryTracks(
-            Array.isArray(
-              fallback.tracks,
-            )
-              ? fallback.tracks
-              : [],
+          const fallbackTracks = Array.isArray(fallback.tracks)
+            ? fallback.tracks
+            : [];
+          setLibraryTracks(fallbackTracks);
+          libraryTracksRef.current = fallbackTracks;
+          setHasMoreLibraryTracks(
+            fallback.hasMoreLibraryTracks ??
+            fallbackTracks.length >= LIBRARY_TRACKS_PAGE_SIZE,
           );
 
           setError("");
