@@ -1,13 +1,16 @@
 from io import BytesIO
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
 
 from backend.app.api.routes import admin as admin_route
 from backend.app.config import Settings
+from backend.app.models.account import User
 
 
 def _settings(**overrides):
@@ -68,8 +71,8 @@ async def test_prepare_direct_upload_rejects_oversized_file_before_database_or_b
     with pytest.raises(HTTPException) as error:
         await admin_route.prepare_direct_track_upload(
             payload,
-            user=object(),
-            session=object(),
+            user=cast(User, object()),
+            session=cast(AsyncSession, object()),
         )
 
     assert error.value.status_code == 413
@@ -106,8 +109,8 @@ async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(mon
             duration_seconds=180,
             mime_type="audio/mpeg",
             original_file_size=1025,
-            user=object(),
-            session=session,
+            user=cast(User, object()),
+            session=cast(AsyncSession, session),
             background_tasks=BackgroundTasks(),
         )
 
@@ -150,8 +153,8 @@ async def test_backend_upload_rejects_oversized_file_before_processing_or_storag
             title="Song",
             artist="Artist",
             duration_seconds=180,
-            user=object(),
-            session=session,
+            user=cast(User, object()),
+            session=cast(AsyncSession, session),
             background_tasks=BackgroundTasks(),
         )
 
