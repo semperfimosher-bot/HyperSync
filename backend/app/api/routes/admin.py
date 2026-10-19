@@ -113,6 +113,19 @@ async def _find_duplicate_track(
     )
 
 
+async def _audio_object_is_referenced(
+    session: DatabaseSession,
+    object_key: str,
+) -> bool:
+    """Never delete prepared audio after a catalog row references it."""
+    result = await session.execute(
+        select(Track.id)
+        .where(Track.b2_object_key == object_key)
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
 ADMIN_DATABASE_DELETE_CONFIRMATION = (
     "DELETE ALL DATA"
 )
@@ -1097,10 +1110,23 @@ async def prepare_direct_track_upload(
 async def cancel_direct_track_upload(
     payload: CancelDirectTrackUploadRequest,
     user: AdminUser,
+    session: DatabaseSession,
 ):
     _validate_prepared_audio_key(
         payload.object_key,
     )
+
+    # An aborted client may have missed a successful finalize response.
+    # Do not destroy a track's published audio on a late cancellation.
+    try:
+        if await _audio_object_is_referenced(session, payload.object_key):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Audio upload has already been finalized.",
+            )
+    finally:
+        # Never hold a database connection across B2 network I/O.
+        await session.rollback()
 
     bucket = get_b2_bucket()
 
@@ -1113,7 +1139,6 @@ async def cancel_direct_track_upload(
         )
 
     except Exception:
-        deleted_versions = 0
         logger.exception(
             (
                 "Unable to clean cancelled direct-upload "
@@ -1121,6 +1146,10 @@ async def cancel_direct_track_upload(
             ),
             payload.object_key,
         )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to clean cancelled upload; retry cancellation.",
+        ) from None
 
     return {
         "success": True,
@@ -1201,6 +1230,15 @@ async def finalize_direct_track_upload(
             original_file_size,
             max_bytes=get_settings().audio_max_upload_bytes,
         )
+        if await _audio_object_is_referenced(session, object_key):
+            # A stale or replayed finalize request must never clean up
+            # or reattach an already published B2 object.
+            cleanup_audio = False
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Audio upload has already been finalized.",
+            )
+        await session.rollback()
         try:
             object_info = await run_blocking(
                 head_b2_object,
@@ -1450,33 +1488,49 @@ async def finalize_direct_track_upload(
     finally:
         if cleanup_audio:
             try:
-                await delete_all_object_versions(
-                    bucket,
-                    object_key,
+                # Another request may have committed the object while
+                # this request was failing. Database uncertainty must
+                # fail closed rather than delete potentially live audio.
+                referenced = await _audio_object_is_referenced(
+                    session, object_key,
                 )
             except Exception:
                 logger.exception(
-                    (
-                        "Unable to clean failed direct-upload "
-                        "audio object %s."
-                    ),
-                    object_key,
+                    "Cannot verify failed direct-upload cleanup; preserving object."
                 )
+                referenced = True
+            finally:
+                await session.rollback()
 
-            if artwork_object_key:
+            if not referenced:
                 try:
                     await delete_all_object_versions(
                         bucket,
-                        artwork_object_key,
+                        object_key,
                     )
                 except Exception:
                     logger.exception(
                         (
                             "Unable to clean failed direct-upload "
-                            "artwork object %s."
+                            "audio object %s."
                         ),
-                        artwork_object_key,
+                        object_key,
                     )
+
+                if artwork_object_key:
+                    try:
+                        await delete_all_object_versions(
+                            bucket,
+                            artwork_object_key,
+                        )
+                    except Exception:
+                        logger.exception(
+                            (
+                                "Unable to clean failed direct-upload "
+                                "artwork object %s."
+                            ),
+                            artwork_object_key,
+                        )
 
 
 def _copy_upload_to_path(upload, path: Path) -> None:
