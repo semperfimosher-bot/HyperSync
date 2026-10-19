@@ -1,3 +1,5 @@
+import "fake-indexeddb/auto";
+
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -30,6 +32,43 @@ test("player exposes only local control, with no remote injection or Jam callbac
     assert.equal(name in player, false, name);
   }
 });
+
+test("automatic offline retention starts only after the audio element emits playing", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    new Response("[]", { headers: { "Content-Type": "application/json" } }),
+  );
+
+  const mediaStore = await import("./mediaStore.js");
+  const trackId = "retention-event-track";
+  const mediaVersion = "retention-event-version";
+
+  await player.playTrack(trackId, {
+    title: "Retention event",
+    artist: "Test",
+    audioUrl: "https://example.invalid/retention-event.mp3",
+    mediaVersion,
+    mimeType: "audio/mpeg",
+    fileSize: 1024,
+  });
+
+  const beforePlaying = await mediaStore.getMediaRecord(trackId, mediaVersion);
+  assert.equal(beforePlaying, null, "selecting a track must not start retention");
+
+  player._getAudioElement().dispatchEvent(new Event("playing"));
+
+  let played = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    played = await mediaStore.getMediaRecord(trackId, mediaVersion);
+    if (played?.lastPlayedAt !== null && played?.lastPlayedAt !== undefined) break;
+  }
+
+  assert.ok(Number.isSafeInteger(played?.lastPlayedAt));
+  assert.ok(Number.isSafeInteger(played?.expiresAt));
+  assert.equal(played.expiresAt, played.lastPlayedAt + mediaStore.MEDIA_EXPIRY_MS);
+  player.stopTrack();
+});
+
 
 test("seek, volume and pause change the local audio element", () => {
   const audio = player._getAudioElement();
