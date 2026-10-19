@@ -11,6 +11,7 @@ This pass removes known whole-audio and whole-catalog Python allocations. It doe
 | Legacy full catalog exports | 1;250-row database partitions,64KiB response reads |
 | Paged catalog | 500 rows maximum; frontendrequests250 |
 | Audio upload copy | 1MiB chunks into disk-backed temporary storage |
+| Accepted audio file size | 512MiB default across direct-B2 and backend-processing paths; finalization verifies actual stored size; configure `AUDIO_MAX_UPLOAD_BYTES` from 1 byte to 5,000,000,000 bytes |
 | Embedded metadata | 8MiB cumulative parser reads; complex/compressed/nested ID3 skipped |
 | Artwork | 5MiB |
 | Artist ranking | 256-row stream,500 winning IDs |
