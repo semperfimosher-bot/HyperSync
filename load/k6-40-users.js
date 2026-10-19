@@ -97,14 +97,53 @@ function request(path, route, expectedStatus = 200) {
   return response;
 }
 
+function checkCatalogPage(response) {
+  let page;
+  try {
+    page = response.json();
+  } catch {
+    check(null, { "catalog returns a page envelope": () => false });
+    return null;
+  }
+
+  check(page, {
+    "catalog returns a page envelope": (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Array.isArray(value.items),
+    "catalog page is bounded to 250 tracks": (value) =>
+      Array.isArray(value?.items) && value.items.length <= 250,
+    "catalog cursor is null or a string": (value) =>
+      value?.next_cursor === null || typeof value?.next_cursor === "string",
+  });
+  return page;
+}
+
 export default function () {
-  // Public browsing paths used by guest and signed-in users.
-  request("/api/catalog/tracks", "catalog");
+  // Match the real client: request a bounded first page rather than the legacy
+  // full-catalog export, which would distort load and memory measurements.
+  const firstPageResponse = request(
+    "/api/catalog/tracks?page_size=250",
+    "catalog",
+  );
+  if (firstPageResponse.status === 200) {
+    const firstPage = checkCatalogPage(firstPageResponse);
+    if (typeof firstPage?.next_cursor === "string") {
+      const nextPageResponse = request(
+        `/api/catalog/tracks?page_size=250&cursor=${encodeURIComponent(firstPage.next_cursor)}`,
+        "catalog",
+      );
+      if (nextPageResponse.status === 200) {
+        checkCatalogPage(nextPageResponse);
+      }
+    }
+  }
+
   sleep(0.2 + Math.random() * 0.4);
   request("/api/search?q=music&sort=smart", "search");
 
-  // Supply a dedicated staging user's access token to exercise private data
-  // endpoints too. Without it, this run deliberately tests public browsing only.
+  // Private endpoints are exercised only with a dedicated staging account.
   if (AUTH_TOKEN) {
     request("/api/playlists/library/tracks", "library");
     request("/api/playlists/mine", "playlists");
