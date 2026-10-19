@@ -47,7 +47,7 @@ These are CI results, not staging or device acceptance. Any subsequent commit mu
 ## Release acceptance still required
 
 1. Reconcile the overlapping files above with a real three-way diff and targeted tests; do not replace whole files blindly.
-2. Add a genuine browser-level E2E suite and run it against this exact final candidate. The current branch contains Node-based frontend regression tests and a shell test, but no configured Playwright/Cypress browser journey suite; do not describe those tests as browser E2E coverage.
+2. Make the existing browser suite executable and run it against this exact final candidate. `frontend/browser/shell.test.mjs` contains real Playwright service-worker/offline/media tests, but Playwright is not declared in `frontend/package.json` or its lockfile and the current CI workflow does not invoke that file. Wire the dependency, browser installation, and test command into CI only after validating the existing suite against the current build; do not count Node unit tests as browser E2E coverage.
 3. Run staging-only smoke, offline launch, upload/retry and duplicate-safety, artwork fallback, audio range, same-device song/position restore, and recovery checks using an isolated staging hostname, development database, and separate test media storage.
 4. Run staged load tests only after verifying that the target hostname routes exclusively to the isolated staging environment. Begin at 40 users, then 100; do not run production load tests.
 5. Confirm no Jam/cross-device playback-control behavior has been reintroduced, and preserve same-device playback restoration.
