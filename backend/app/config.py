@@ -69,7 +69,8 @@ class Settings(BaseSettings):
     api_admission_timeout_seconds: float = 5.0
     maintenance_worker_enabled: bool = True
     request_max_body_bytes: int = 64 * 1024 * 1024
-    # Direct-to-B2 uploads bypass the API request-body ceiling; keep a separate hard file-size budget.
+    # Direct-to-B2 uploads bypass the request-body ceiling.
+    # Enforce a separate hard file-size budget.
     audio_max_upload_bytes: int = 512 * 1024 * 1024
     media_max_concurrent_uploads: int = 1
     media_max_concurrent_streams: int = 4
@@ -319,8 +320,15 @@ class Settings(BaseSettings):
             raise ValueError("DB_IDLE_TRANSACTION_TIMEOUT_MS must be at least 1.")
         if self.request_max_body_bytes < 1:
             raise ValueError("REQUEST_MAX_BODY_BYTES must be at least 1.")
-        if not 1 <= self.audio_max_upload_bytes <= 5_000_000_000:
-            raise ValueError("AUDIO_MAX_UPLOAD_BYTES must be between 1 and 5,000,000,000 for single-request B2 uploads.")
+        if not (
+            1
+            <= self.audio_max_upload_bytes
+            <= 5_000_000_000
+        ):
+            raise ValueError(
+                "AUDIO_MAX_UPLOAD_BYTES must be between 1 and "
+                "5,000,000,000 for single-request B2 uploads."
+            )
         if min(self.media_max_concurrent_uploads, self.media_max_concurrent_streams,
                self.catalog_max_concurrent_exports) < 1:
             raise ValueError("Media and catalog concurrency limits must be at least 1.")
