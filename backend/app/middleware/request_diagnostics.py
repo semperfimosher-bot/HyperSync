@@ -45,7 +45,13 @@ class RequestDiagnosticsMiddleware:
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
                 response_started = True
-                headers = list(message.get("headers", []))
+                # Never pass through a caller- or handler-supplied ID: it could
+                # be duplicated or spoof the identifier used to correlate logs.
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"x-request-id"
+                ]
                 headers.append((b"x-request-id", request_id.encode("ascii")))
                 message = {**message, "headers": headers}
             await send(message)
