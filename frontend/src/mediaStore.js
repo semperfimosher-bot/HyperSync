@@ -1775,12 +1775,20 @@ export async function cleanupExpiredMedia(
             const record
             of records
           ) {
-            const isExpired =
+            const hasPlayed =
               Number.isSafeInteger(
-                record.expiresAt,
-              ) &&
-              record.expiresAt <=
-                now;
+                record.lastPlayedAt,
+              );
+
+            const isExpired =
+              hasPlayed
+                ? (
+                    !Number.isSafeInteger(
+                      record.expiresAt,
+                    ) ||
+                    record.expiresAt <= now
+                  )
+                : true;
 
             const isPinned =
               record.state ===
