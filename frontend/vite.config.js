@@ -7,6 +7,7 @@ import {
 
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { appShellManifestPlugin } from './build/appShellManifest.mjs'
 
 setDefaultResultOrder(
   'verbatim',
@@ -86,7 +87,7 @@ const serviceWorker =
   )
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), appShellManifestPlugin()],
   build: {
     manifest: "manifest.json",
     rolldownOptions: {
