@@ -251,7 +251,7 @@ def _validate_audio_upload_size(
         )
     if file_size > max_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Audio upload exceeds the configured maximum of {max_bytes} bytes.",
         )
 

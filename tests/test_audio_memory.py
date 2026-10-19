@@ -117,6 +117,7 @@ async def test_cancelled_upload_finishes_before_cleanup_and_removes_tempfile(mon
             audio_compression_min_source_kbps=224,
             audio_compression_min_savings_percent=10,
             audio_compression_timeout_seconds=3,
+            audio_max_upload_bytes=512 * 1024 * 1024,
             b2_audio_prefix="audio",
         ),
     )
@@ -202,7 +203,14 @@ async def test_direct_finalize_rejects_oversized_artwork(monkeypatch):
 
     from backend.app.api.routes import admin
 
-    monkeypatch.setattr(admin, "get_settings", lambda: SimpleNamespace(b2_audio_prefix="audio"))
+    monkeypatch.setattr(
+        admin,
+        "get_settings",
+        lambda: SimpleNamespace(
+            b2_audio_prefix="audio",
+            audio_max_upload_bytes=512 * 1024 * 1024,
+        ),
+    )
     monkeypatch.setattr(admin, "get_b2_bucket", lambda: MagicMock())
     monkeypatch.setattr(
         admin, "head_b2_object", lambda _key: {"ContentLength": 5, "ContentType": "audio/mpeg"}
