@@ -87,7 +87,6 @@ async def test_library_track_legacy_call_keeps_unpaged_contract(monkeypatch):
     monkeypatch.setattr(routes, "_track_audio_url", lambda _track: None)
     monkeypatch.setattr(routes, "_track_artwork_url", lambda _track: None)
     monkeypatch.setattr(routes, "_track_media_version", lambda _track: None)
-    monkeypatch.setattr(routes, "_track_media_version", lambda _track: None)
     monkeypatch.setattr(routes, "_track_artwork_version", lambda _track: None)
 
     result = await routes.get_library_tracks(
