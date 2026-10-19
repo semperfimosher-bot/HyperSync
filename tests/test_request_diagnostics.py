@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
 
+from backend.app.main import app as production_app
 from backend.app.middleware.request_diagnostics import (
     RequestDiagnosticsMiddleware,
 )
-from backend.app.main import app as production_app
 
 
 def make_app(status_code: int = 200) -> FastAPI:
