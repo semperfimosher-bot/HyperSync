@@ -1,8 +1,10 @@
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, UploadFile
+from starlette.datastructures import Headers
 
 from backend.app.api.routes import admin as admin_route
 from backend.app.config import Settings
@@ -112,3 +114,46 @@ async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(mon
     assert error.value.status_code == 413
     session.rollback.assert_awaited_once()
     cleanup.assert_awaited_once_with(bucket, "audio/oversized.mp3")
+
+
+@pytest.mark.asyncio
+async def test_backend_upload_rejects_oversized_file_before_processing_or_storage(monkeypatch):
+    monkeypatch.setattr(
+        admin_route,
+        "get_settings",
+        lambda: SimpleNamespace(audio_max_upload_bytes=4),
+    )
+    monkeypatch.setattr(
+        admin_route,
+        "extract_embedded_audio_metadata_file",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("oversized audio must be rejected before parsing"),
+        ),
+    )
+    monkeypatch.setattr(
+        admin_route,
+        "get_b2_bucket",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("oversized audio must never reach B2"),
+        ),
+    )
+    session = SimpleNamespace(rollback=AsyncMock())
+    upload = UploadFile(
+        file=BytesIO(b"12345"),
+        filename="song.mp3",
+        headers=Headers({"content-type": "audio/mpeg"}),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        await admin_route.upload_track(
+            file=upload,
+            title="Song",
+            artist="Artist",
+            duration_seconds=180,
+            user=object(),
+            session=session,
+            background_tasks=BackgroundTasks(),
+        )
+
+    assert error.value.status_code == 413
+    session.rollback.assert_awaited_once()

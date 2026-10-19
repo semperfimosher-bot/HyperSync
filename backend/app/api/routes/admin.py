@@ -1559,6 +1559,10 @@ async def upload_track(
     try:
         await run_blocking(_copy_upload_to_path, file.file, source_path)
         original_file_size = source_path.stat().st_size
+        _validate_audio_upload_size(
+            original_file_size,
+            max_bytes=settings.audio_max_upload_bytes,
+        )
         embedded_metadata = await run_blocking(extract_embedded_audio_metadata_file, source_path)
 
         resolved_metadata = resolve_track_metadata(
