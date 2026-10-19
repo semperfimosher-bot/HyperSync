@@ -1729,10 +1729,8 @@ export async function cleanupExpiredMedia(
       "Media cleanup time must be a non-negative safe integer.",
     );
   }
-
   const database =
     await openMediaDatabase();
-
   return new Promise(
     (
       resolve,
@@ -1746,33 +1744,26 @@ export async function cleanupExpiredMedia(
           ],
           "readwrite",
         );
-
       const mediaStore =
         transaction.objectStore(
           MEDIA_RECORD_STORE,
         );
-
       const chunkStore =
         transaction.objectStore(
           MEDIA_CHUNK_STORE,
         );
-
       const mediaKeyIndex =
         chunkStore.index(
           "mediaKey",
         );
-
       let deletedCount =
         0;
-
       const request =
         mediaStore.getAll();
-
       request.onsuccess =
         () => {
           const records =
             request.result;
-
           for (
             const record
             of records
@@ -1781,7 +1772,6 @@ export async function cleanupExpiredMedia(
               Number.isSafeInteger(
                 record.lastPlayedAt,
               );
-
             const isExpired =
               hasPlayed
                 ? (
@@ -1790,19 +1780,16 @@ export async function cleanupExpiredMedia(
                     ) ||
                     record.expiresAt <= now
                   )
-                : true;
-
+                : record.state === "PARTIAL";
             const isPinned =
               record.state ===
               "PINNED";
-
             const isWarm =
               Number.isSafeInteger(
                 record.warmUntil,
               ) &&
               record.warmUntil >
                 now;
-
             if (
               !isExpired ||
               isPinned ||
@@ -1810,52 +1797,41 @@ export async function cleanupExpiredMedia(
             ) {
               continue;
             }
-
             mediaStore.delete(
               record.key,
             );
-
             deletedCount +=
               1;
-
             const cursorRequest =
               mediaKeyIndex.openCursor(
                 record.key,
               );
-
             cursorRequest.onsuccess =
               () => {
                 const cursor =
                   cursorRequest.result;
-
                 if (!cursor) {
                   return;
                 }
-
                 cursor.delete();
-
                 cursor.continue();
               };
-
             cursorRequest.onerror =
               () => {
                 transaction.abort();
               };
           }
         };
-
       request.onerror =
         () => {
           transaction.abort();
         };
-
       transaction.oncomplete =
         () => {
           resolve(
             deletedCount,
           );
         };
-
       transaction.onerror =
         () => {
           reject(
@@ -1865,7 +1841,6 @@ export async function cleanupExpiredMedia(
               ),
           );
         };
-
       transaction.onabort =
         () => {
           reject(
