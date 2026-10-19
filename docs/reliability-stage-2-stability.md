@@ -1,28 +1,47 @@
 # Stage 2 — Stability and critical bug fixes
 
-**Code verification commit:** `87e60402f1856843476aa35ff4376b6e7208a16d` on `Semifinals`  
-**Scope:** confirmed playback/offline-retention correctness issue; preserve local playback and existing cache policy.
+**Branch:** `Semifinals`  
+**Evidence baseline:** `4e417ba63c4321388ec73371b5cb2e3cf6102ab8`  
+**Status:** Automated code gate passes; operational acceptance remains open.
 
-## Confirmed issue and fix
+## Scope and guardrails
 
-Automatic media-cache retention was recorded immediately after the `audio.play()` promise resolved. That is earlier than the media element's explicit `playing` event and can start the retention window before confirmed playback. The retention update now occurs from the actual `playing` event and uses the active track metadata. It is non-blocking and errors remain isolated from playback.
+Stage 2 covers confirmed defects that can cause crashes, broken core workflows, unsafe recovery, or regressions in authentication, uploads, playback, and lyrics. Preserve existing user-visible behavior unless a fix requires a documented change. Do not merge, deploy, alter Northflank, access production data, or run production load tests as part of this stage.
 
-A new `localPlayback.test.js` regression verifies that selecting a track alone does not create a played/retained record, and that the retention timestamp/expiry are set after the audio element emits `playing`. The existing local queue, seek, pause, next/previous, and no-remote-control checks remain in the same suite.
+A green CI run demonstrates the checks that CI actually ran; it does not demonstrate live provider integration or deployed-environment readiness.
 
-## Exact-head automated evidence
+## Verified code and automated regression coverage
 
-[Offline PWA checks — run 39191644456](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39191644456) passed on the code verification commit, including:
+The latest recorded CI runs for the evidence baseline both passed:
 
-- Frontend offline regression tests and production build.
-- Ten real Chromium browser-shell scenarios: offline reload/control, 503 fallback, navigation deadline, failed bundle update/install safety, deferred Search offline navigation, admin paging DOM bounds, build retention, quota failure, and IndexedDB offline media range/playback/seek.
-- Backend regression suite: **540 passed, 2 skipped**.
-- Operational tooling tests: **37 passed**.
-- Ruff, Pyright (0 errors), backend dependency audit (no known vulnerabilities), Bandit scan, frontend production dependency audit, and both production image/config checks.
+- [Offline PWA checks — run 39243608779](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39243608779)
+- [Project verification — run 39243608772](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39243608772)
 
-[Project verification — run 39191644451](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39191644451) also passed on the same code SHA, including isolated PostgreSQL application verification, bounded fixture-memory measurement, backup-restore/killed-worker recovery rehearsal, operational safety contracts, and Windows verification-runner tests. Both workflows are green on `87e60402f1856843476aa35ff4376b6e7208a16d`.
+Recorded evidence includes **557 backend tests passed and 2 skipped**, frontend production build and browser regressions, Ruff, Pyright, dependency/security checks, production image/config checks, isolated PostgreSQL application journeys, backup/restore and killed-worker recovery rehearsal, and Windows verification tests.
 
-## Stage 2 gate and limitations
+Relevant regression coverage in the repository includes:
 
-**Code-level stability gate:** targeted fix and regression test are implemented; the complete Offline PWA workflow passed. The remaining external-provider and device checks are not represented as passed here: real B2 upload/retry/CORS, authenticated browser playback/lyrics, offline storage pressure, and isolated staging recovery/load tests remain gated for the appropriate later stages.
+- `tests/test_auth_session_lifecycle.py`: registration/session lifecycle, refresh behavior, and session-row handling.
+- `tests/test_upload_recovery.py`, `tests/test_audio_upload_limits.py`, and upload cleanup/duplicate-prevention tests: upload recovery, size enforcement, CORS planning, cleanup, and duplicate prevention.
+- `tests/test_track_lyrics.py` and `tests/test_lrclib_service.py`: lyrics endpoint/cache behavior and provider-service behavior under controlled tests.
+- `frontend/src/localPlayback.test.js`: local queue/seek/pause/next/previous behavior and the regression that automatic media-retention timing begins on the audio element's `playing` event, not merely after selecting a track.
+- `tests/test_backend_load_recovery.py` and the isolated project-verification journey: bounded overload behavior and controlled recovery.
+- The browser regression suite: offline reload/navigation, failed updates/install, cache quota failure, and local IndexedDB media playback/seek.
 
-No merge, deployment, Northflank change, production-data access, or production load test was performed.
+These are automated test results, not a claim that live B2, a real browser session against staging, or a physical device was exercised.
+
+## Remaining acceptance gates
+
+Stage 2 cannot be called fully complete until the following checks run against a **confirmed isolated staging deployment and staging-only accounts/data**:
+
+1. **Authentication:** browser sign-in, refresh, expired/invalid session behavior, and recovery after reconnect.
+2. **Uploads:** a small test-media upload through the configured provider path; confirm preflight/CORS, upload completion, retry/failure handling, final object-size validation, and cleanup of abandoned uploads.
+3. **Playback and lyrics:** authenticated browser playback, seeking/range requests, lyrics fetch and synchronized-line progression, and recovery after a temporary network interruption.
+4. **Service recovery:** confirm staging health/readiness before and after a controlled staging-only restart or worker interruption; retain the actual verification report.
+5. **Evidence:** record the staging build/commit identity, pass/fail results, relevant sanitized errors, and unresolved defects. Do not record tokens, cookies, signed URLs, or other secrets.
+
+Do not run destructive upload or recovery checks against production. Do not run load tests under Stage 2; scale testing belongs to its separately gated stage and must remain staging-only.
+
+## Current conclusion
+
+The code-level regression gate is green on the evidence baseline. The operational gates above are **not yet evidenced as passed**, so Stage 2 remains open rather than being falsely signed off. The repository's staging guide uses placeholders and does not establish that a staging deployment is currently available. A staging origin and a dedicated test account/provider configuration are required to execute the remaining real-environment checks. Credentials should be entered through the approved secret mechanism, never pasted into source files or committed.
