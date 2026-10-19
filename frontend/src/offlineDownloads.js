@@ -3,6 +3,10 @@ import {
 } from "./api/client.js";
 
 import {
+  readBoundedResponse,
+} from "./boundedResponse.js";
+
+import {
   addMediaPinReference,
   deleteDownloadJob,
   ensureMediaRecord,
@@ -1049,7 +1053,11 @@ async function cacheTrackArtwork(
   }
 
   const data =
-    await response.arrayBuffer();
+    await readBoundedResponse(
+      response,
+      MAX_OFFLINE_ARTWORK_BYTES,
+      { signal },
+    );
 
   if (
     data.byteLength <= 0 ||
