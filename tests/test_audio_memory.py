@@ -225,7 +225,12 @@ async def test_direct_finalize_rejects_oversized_artwork(monkeypatch):
             mime_type="audio/mpeg",
             original_file_size=5,
             user=MagicMock(),
-            session=MagicMock(rollback=AsyncMock()),
+            session=MagicMock(
+                rollback=AsyncMock(),
+                execute=AsyncMock(
+                    return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+                ),
+            ),
             background_tasks=BackgroundTasks(),
             artwork=UploadFile(BytesIO(b"x" * (5 * 1024 * 1024 + 1)), filename="cover.jpg"),
         )
