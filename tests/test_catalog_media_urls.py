@@ -314,6 +314,19 @@ async def test_artwork_proxy_does_not_expose_storage_exceptions(monkeypatch) -> 
         lambda: lambda: FakeSession(),
     )
     monkeypatch.setattr(catalog_route, "run_blocking", fail_storage)
+    logged_errors = []
+    monkeypatch.setattr(
+        catalog_route.logger,
+        "error",
+        lambda message, *args, **kwargs: logged_errors.append(message),
+    )
+    monkeypatch.setattr(
+        catalog_route.logger,
+        "exception",
+        lambda *args, **kwargs: pytest.fail(
+            "Storage exception details must not be logged.",
+        ),
+    )
 
     with pytest.raises(HTTPException) as caught:
         await catalog_route.get_track_artwork(track.id)
@@ -323,3 +336,6 @@ async def test_artwork_proxy_does_not_expose_storage_exceptions(monkeypatch) -> 
     assert caught.value.detail == (
         "Artwork is temporarily unavailable. Please retry later."
     )
+    assert logged_errors == [
+        "Unable to retrieve catalog artwork from storage.",
+    ]
