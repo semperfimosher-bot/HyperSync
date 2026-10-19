@@ -1377,6 +1377,19 @@ function attachEvents() {
         "playing",
       );
 
+      // Only start automatic-cache retention after the browser confirms playback.
+      if (
+        currentTrackId &&
+        currentTrackMeta
+      ) {
+        void recordTrackPlayback(
+          currentTrackId,
+          currentTrackMeta,
+        ).catch(
+          () => {},
+        );
+      }
+
       notify();
     },
   );
@@ -2427,18 +2440,6 @@ persistPlayerState({
   force:
     true,
 });
-
-
-/*
- * Cache-retention bookkeeping must not
- * block or break successful playback.
- */
-void recordTrackPlayback(
-  trackId,
-  playbackMeta,
-).catch(
-  () => {},
-);
 
 
 /* Start a backend listening session for the selected catalog track. */
