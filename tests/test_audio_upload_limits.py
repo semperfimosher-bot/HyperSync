@@ -120,6 +120,43 @@ async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(mon
 
 
 @pytest.mark.asyncio
+async def test_finalize_checks_actual_b2_size_when_client_claims_smaller_file(monkeypatch):
+    bucket = object()
+    cleanup = AsyncMock()
+    session = SimpleNamespace(rollback=AsyncMock())
+    head = AsyncMock(return_value={"ContentLength": 1025, "ContentType": "audio/mpeg"})
+    monkeypatch.setattr(
+        admin_route,
+        "get_settings",
+        lambda: SimpleNamespace(
+            b2_audio_prefix="audio",
+            audio_max_upload_bytes=1024,
+        ),
+    )
+    monkeypatch.setattr(admin_route, "get_b2_bucket", lambda: bucket)
+    monkeypatch.setattr(admin_route, "delete_all_object_versions", cleanup)
+    monkeypatch.setattr(admin_route, "head_b2_object", head)
+
+    with pytest.raises(HTTPException) as error:
+        await admin_route.finalize_direct_track_upload(
+            object_key="audio/lying-size.mp3",
+            title="Large track",
+            artist="Test artist",
+            duration_seconds=180,
+            mime_type="audio/mpeg",
+            original_file_size=1024,
+            user=cast(User, object()),
+            session=cast(AsyncSession, session),
+            background_tasks=BackgroundTasks(),
+        )
+
+    assert error.value.status_code == 413
+    head.assert_awaited_once_with("audio/lying-size.mp3")
+    session.rollback.assert_awaited_once()
+    cleanup.assert_awaited_once_with(bucket, "audio/lying-size.mp3")
+
+
+@pytest.mark.asyncio
 async def test_backend_upload_rejects_oversized_file_before_processing_or_storage(monkeypatch):
     monkeypatch.setattr(
         admin_route,
