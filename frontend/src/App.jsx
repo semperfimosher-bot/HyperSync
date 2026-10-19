@@ -847,6 +847,10 @@ export default function App() {
     mobilePlayerDetailsOpen,
     setMobilePlayerDetailsOpen,
   ] = useState(false);
+  const [
+    mobilePlayerDetailsLoaded,
+    setMobilePlayerDetailsLoaded,
+  ] = useState(false);
 
   const [authOpen, setAuthOpen] =
     useState(
@@ -2518,16 +2522,15 @@ const clearPlaylistToOpen =
         }
 
         onOpenPlayerDetails={() => {
-          setMobilePlayerDetailsOpen(
-            true,
-          );
+          setMobilePlayerDetailsLoaded(true);
+          setMobilePlayerDetailsOpen(true);
         }}
       />
 
-      {mobilePlayerDetailsOpen ? (
+      {mobilePlayerDetailsLoaded ? (
         <Suspense fallback={null}>
           <MobilePlayerDetails
-            open
+            open={mobilePlayerDetailsOpen}
             onClose={() => {
               setMobilePlayerDetailsOpen(false);
             }}
