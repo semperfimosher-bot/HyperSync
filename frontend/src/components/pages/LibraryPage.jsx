@@ -400,6 +400,9 @@ const [
 );
 
 const libraryTracksRef = useRef(libraryTracks);
+const libraryNextOffsetRef = useRef(
+  cachedLibrary?.libraryNextOffset ?? libraryTracks.length,
+);
 
 const [
   hasMoreLibraryTracks,
@@ -954,6 +957,7 @@ const [
         setSavedPlaylists([]);
         setLibraryTracks([]);
         libraryTracksRef.current = [];
+        libraryNextOffsetRef.current = 0;
         setHasMoreLibraryTracks(false);
 
         return;
@@ -1005,6 +1009,8 @@ const [
             : [];
           setLibraryTracks(cachedTracks);
           libraryTracksRef.current = cachedTracks;
+          libraryNextOffsetRef.current =
+            cached.libraryNextOffset ?? cachedTracks.length;
           setHasMoreLibraryTracks(
             cached.hasMoreLibraryTracks ??
             cachedTracks.length >= LIBRARY_TRACKS_PAGE_SIZE,
@@ -1016,6 +1022,7 @@ const [
           setSavedPlaylists([]);
           setLibraryTracks([]);
           libraryTracksRef.current = [];
+          libraryNextOffsetRef.current = 0;
           setHasMoreLibraryTracks(false);
 
           setError(
@@ -1087,6 +1094,9 @@ const [
             ),
           ].map((track) => byId.get(String(track.id)) ?? track);
         }
+        if (!quiet) {
+          libraryNextOffsetRef.current = fetchedTracks.length;
+        }
         const nextHasMore =
           fetchedTracks.length >= LIBRARY_TRACKS_PAGE_SIZE ||
           (quiet && existingTracks.length > fetchedTracks.length);
@@ -1117,6 +1127,9 @@ const [
 
             hasMoreLibraryTracks:
               nextHasMore,
+
+            libraryNextOffset:
+              libraryNextOffsetRef.current,
           },
         );
       } catch (requestError) {
@@ -1152,6 +1165,8 @@ const [
             : [];
           setLibraryTracks(fallbackTracks);
           libraryTracksRef.current = fallbackTracks;
+          libraryNextOffsetRef.current =
+            fallback.libraryNextOffset ?? fallbackTracks.length;
           setHasMoreLibraryTracks(
             fallback.hasMoreLibraryTracks ??
             fallbackTracks.length >= LIBRARY_TRACKS_PAGE_SIZE,
@@ -1190,7 +1205,7 @@ const [
     setError("");
 
     try {
-      const offset = libraryTracksRef.current.length;
+      const offset = libraryNextOffsetRef.current;
       const page = await getLibraryTracks({
         limit: LIBRARY_TRACKS_PAGE_SIZE,
         offset,
@@ -1207,6 +1222,7 @@ const [
         additions.length > 0;
 
       libraryTracksRef.current = nextTracks;
+      libraryNextOffsetRef.current = offset + nextPage.length;
       setLibraryTracks(nextTracks);
       setHasMoreLibraryTracks(nextHasMore);
 
@@ -1215,6 +1231,7 @@ const [
         saved: savedPlaylists,
         tracks: nextTracks,
         hasMoreLibraryTracks: nextHasMore,
+        libraryNextOffset: libraryNextOffsetRef.current,
       });
     } catch (requestError) {
       setError(
