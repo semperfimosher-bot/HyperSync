@@ -160,6 +160,10 @@ test("failed bundle update reports failure and preserves a runnable offline app"
   assert.equal(reply.type, "HYPERSYNC_PREPARE_OFFLINE_APP_COMPLETE");
   assert.equal(await cachedHtml(page), html);
   await context.setOffline(true);
+  // Chromium can still reach a loopback fixture while offline emulation is
+  // enabled. Stall the fixture explicitly so this verifies the cached fallback,
+  // not a successful response from the local test server.
+  state.mode = "stalled";
   assert.equal((await page.reload()).status(), 200);
   await page.locator("main").waitFor({ state: "visible" });
   assert.deepEqual(pageErrors, []);
@@ -187,6 +191,9 @@ test("a rejected new worker install keeps the incumbent controller and runnable 
   assert.deepEqual(outcome, { state: "redundant", incumbent: true });
   assert.equal(await cachedHtml(page), html);
   await context.setOffline(true);
+  // Force the local fixture to stop responding because loopback may remain
+  // reachable under Chromium's offline emulation.
+  state.mode = "stalled";
   assert.equal((await page.reload()).status(), 200);
   await page.locator("main").waitFor({ state: "visible" });
 });
