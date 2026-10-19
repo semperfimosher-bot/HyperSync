@@ -1,6 +1,7 @@
 """Database-free tests for bounded library-track pagination."""
 
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -36,7 +37,7 @@ async def test_library_track_page_applies_limit_and_offset(monkeypatch):
             return [track]
 
     class Session:
-        statement = None
+        statement: Any | None = None
 
         async def execute(self, statement):
             self.statement = statement
