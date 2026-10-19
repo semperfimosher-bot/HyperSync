@@ -1780,7 +1780,7 @@ export async function cleanupExpiredMedia(
                     ) ||
                     record.expiresAt <= now
                   )
-                : record.state === "PARTIAL";
+                : ["PARTIAL", "COMPLETE"].includes(record.state);
             const isPinned =
               record.state ===
               "PINNED";
