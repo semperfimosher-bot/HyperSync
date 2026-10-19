@@ -118,6 +118,8 @@ function checkCatalogPage(response) {
 }
 
 export default function () {
+  const libraryOffset = ((__VU - 1) % 100) * 1000;
+
   // Exercise the real keyset-pagination contract against a representative
   // 100,000-track staging catalog. limit/offset are not supported by this API;
   // using them silently fell back to the legacy full-catalog response.
@@ -143,7 +145,7 @@ export default function () {
 
   // Private endpoints are tested only with a dedicated staging test account.
   if (AUTH_TOKEN) {
-    request("/api/playlists/library/tracks?limit=1000&offset=0", "library");
+    request(`/api/playlists/library/tracks?limit=1000&offset=${libraryOffset}`, "library");
     request("/api/playlists/mine", "playlists");
   }
 
