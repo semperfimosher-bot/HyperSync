@@ -311,6 +311,9 @@ async def test_upload_accepts_missing_metadata_and_schedules_enrichment(
     endpoint = admin.finalize_direct_track_upload if direct else admin.upload_track
     app.add_api_route("/upload", endpoint, methods=["POST"])
     session = MagicMock(commit=AsyncMock(), rollback=AsyncMock())
+    session.execute = AsyncMock(
+        return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+    )
 
     async def commit():
         if commit_lost and session.add.called:

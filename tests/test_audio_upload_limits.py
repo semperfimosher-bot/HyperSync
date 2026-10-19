@@ -82,7 +82,12 @@ async def test_prepare_direct_upload_rejects_oversized_file_before_database_or_b
 async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(monkeypatch):
     bucket = object()
     cleanup = AsyncMock()
-    session = SimpleNamespace(rollback=AsyncMock())
+    session = SimpleNamespace(
+        rollback=AsyncMock(),
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+        ),
+    )
     monkeypatch.setattr(
         admin_route,
         "get_settings",
@@ -115,7 +120,7 @@ async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(mon
         )
 
     assert error.value.status_code == 413
-    session.rollback.assert_awaited_once()
+    assert session.rollback.await_count >= 2
     cleanup.assert_awaited_once_with(bucket, "audio/oversized.mp3")
 
 
@@ -123,7 +128,12 @@ async def test_finalize_rejects_oversized_direct_upload_and_cleans_b2_object(mon
 async def test_finalize_checks_actual_b2_size_when_client_claims_smaller_file(monkeypatch):
     bucket = object()
     cleanup = AsyncMock()
-    session = SimpleNamespace(rollback=AsyncMock())
+    session = SimpleNamespace(
+        rollback=AsyncMock(),
+        execute=AsyncMock(
+            return_value=SimpleNamespace(scalar_one_or_none=lambda: None)
+        ),
+    )
     head = MagicMock(return_value={"ContentLength": 1025, "ContentType": "audio/mpeg"})
     monkeypatch.setattr(
         admin_route,
@@ -152,7 +162,7 @@ async def test_finalize_checks_actual_b2_size_when_client_claims_smaller_file(mo
 
     assert error.value.status_code == 413
     head.assert_called_once_with("audio/lying-size.mp3")
-    session.rollback.assert_awaited_once()
+    assert session.rollback.await_count >= 2
     cleanup.assert_awaited_once_with(bucket, "audio/lying-size.mp3")
 
 
