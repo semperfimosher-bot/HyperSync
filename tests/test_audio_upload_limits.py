@@ -1,7 +1,7 @@
 from io import BytesIO
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException, UploadFile
@@ -124,7 +124,7 @@ async def test_finalize_checks_actual_b2_size_when_client_claims_smaller_file(mo
     bucket = object()
     cleanup = AsyncMock()
     session = SimpleNamespace(rollback=AsyncMock())
-    head = AsyncMock(return_value={"ContentLength": 1025, "ContentType": "audio/mpeg"})
+    head = MagicMock(return_value={"ContentLength": 1025, "ContentType": "audio/mpeg"})
     monkeypatch.setattr(
         admin_route,
         "get_settings",
@@ -151,7 +151,7 @@ async def test_finalize_checks_actual_b2_size_when_client_claims_smaller_file(mo
         )
 
     assert error.value.status_code == 413
-    head.assert_awaited_once_with("audio/lying-size.mp3")
+    head.assert_called_once_with("audio/lying-size.mp3")
     session.rollback.assert_awaited_once()
     cleanup.assert_awaited_once_with(bucket, "audio/lying-size.mp3")
 
