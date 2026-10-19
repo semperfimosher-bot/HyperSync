@@ -89,7 +89,7 @@ import DesktopTopbar from "./components/layout/DesktopTopbar.jsx";
 
 import DesktopRightRail from "./components/layout/DesktopRightRail.jsx";
 
-import HomePage from "./components/pages/HomePage.jsx";
+
 
 
 
@@ -145,6 +145,11 @@ import useDownloadedPlaylistUpdates from
 import AppInstallModal from
   "./components/ui/AppInstallModal.jsx";
 
+const loadHomePage = () => import("./components/pages/HomePage.jsx");
+const HomePage = lazy(loadHomePage);
+// Start fetching the default page during app bootstrap while keeping its code
+// out of the main bundle's parse/evaluation path.
+void loadHomePage().catch(() => {});
 const LibraryPage = lazy(() => import("./components/pages/LibraryPage.jsx"));
 const SearchPage = lazy(() => import("./components/pages/SearchPage.jsx"));
 const MessagesPage = lazy(() => import("./components/pages/MessagesPage.jsx"));
