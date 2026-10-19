@@ -1177,6 +1177,62 @@ const [
     ],
   );
 
+  const loadMoreLibraryTracks = useCallback(async () => {
+    if (
+      loadingMoreLibraryTracks ||
+      !hasMoreLibraryTracks ||
+      (typeof navigator !== "undefined" && navigator.onLine === false)
+    ) {
+      return;
+    }
+
+    setLoadingMoreLibraryTracks(true);
+    setError("");
+
+    try {
+      const offset = libraryTracksRef.current.length;
+      const page = await getLibraryTracks({
+        limit: LIBRARY_TRACKS_PAGE_SIZE,
+        offset,
+      });
+      const nextPage = Array.isArray(page) ? page : [];
+      const current = libraryTracksRef.current;
+      const knownIds = new Set(current.map((track) => String(track.id)));
+      const additions = nextPage.filter(
+        (track) => !knownIds.has(String(track.id)),
+      );
+      const nextTracks = [...current, ...additions];
+      const nextHasMore =
+        nextPage.length >= LIBRARY_TRACKS_PAGE_SIZE &&
+        additions.length > 0;
+
+      libraryTracksRef.current = nextTracks;
+      setLibraryTracks(nextTracks);
+      setHasMoreLibraryTracks(nextHasMore);
+
+      await setCachedLibrary(libraryCacheKey, {
+        owned: ownedPlaylists,
+        saved: savedPlaylists,
+        tracks: nextTracks,
+        hasMoreLibraryTracks: nextHasMore,
+      });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load more library tracks.",
+      );
+    } finally {
+      setLoadingMoreLibraryTracks(false);
+    }
+  }, [
+    hasMoreLibraryTracks,
+    libraryCacheKey,
+    loadingMoreLibraryTracks,
+    ownedPlaylists,
+    savedPlaylists,
+  ]);
+
   useEffect(() => {
     void loadLibrary();
   }, [
