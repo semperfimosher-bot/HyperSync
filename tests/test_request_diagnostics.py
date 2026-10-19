@@ -143,3 +143,27 @@ async def test_application_registers_request_diagnostics_middleware() -> None:
     assert response.status_code == 200
     request_id = response.headers.get("x-request-id", "")
     assert re.fullmatch(r"[0-9a-f]{32}", request_id)
+
+@pytest.mark.asyncio
+async def test_request_id_replaces_handler_supplied_identifier() -> None:
+    app = FastAPI()
+    app.add_middleware(RequestDiagnosticsMiddleware)
+
+    @app.get("/spoof")
+    async def spoof() -> JSONResponse:
+        return JSONResponse(
+            content={"ok": True},
+            headers={"x-request-id": "caller-controlled"},
+        )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/spoof")
+
+    request_ids = response.headers.get_list("x-request-id")
+    assert len(request_ids) == 1
+    assert re.fullmatch(r"[0-9a-f]{32}", request_ids[0])
+    assert request_ids[0] != "caller-controlled"
+
