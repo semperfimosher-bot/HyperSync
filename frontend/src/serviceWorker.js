@@ -47,7 +47,7 @@ const MEDIA_CLEANUP_INTERVAL_MS =
   6 * 60 * 60 * 1000;
 
 let lastMediaCleanupAt =
-  0;
+  Date.now();
 
 
 async function fetchShellResource(url, consume) {
