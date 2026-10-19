@@ -19,7 +19,7 @@ A new `localPlayback.test.js` regression verifies that selecting a track alone d
 - Operational tooling tests: **37 passed**.
 - Ruff, Pyright (0 errors), backend dependency audit (no known vulnerabilities), Bandit scan, frontend production dependency audit, and both production image/config checks.
 
-The additional Project verification workflow on this same SHA was still running when this record was prepared. It must complete successfully before using the SHA as the combined two-workflow checkpoint; any failure must be investigated.
+[Project verification — run 39191644451](https://github.com/semperfimosher-bot/HyperSync/actions/runs/39191644451) also passed on the same code SHA, including isolated PostgreSQL application verification, bounded fixture-memory measurement, backup-restore/killed-worker recovery rehearsal, operational safety contracts, and Windows verification-runner tests. Both workflows are green on `87e60402f1856843476aa35ff4376b6e7208a16d`.
 
 ## Stage 2 gate and limitations
 
