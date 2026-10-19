@@ -21,8 +21,8 @@ from .middleware.overload import (
     DatabaseAdmissionMiddleware,
     database_pool_timeout_handler,
 )
-from .middleware.request_limits import RequestBodyLimitMiddleware
 from .middleware.request_diagnostics import RequestDiagnosticsMiddleware
+from .middleware.request_limits import RequestBodyLimitMiddleware
 from .security.rate_limit import (
     cleanup_stale_rate_limits,
 )
