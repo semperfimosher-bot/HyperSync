@@ -1,0 +1,92 @@
+name: Deploy backend to Contabo VPS
+
+on:
+  push:
+    branches:
+      - Semifinals
+    paths:
+      - "backend/**"
+      - "migrations/**"
+      - "scripts/backend-entrypoint.sh"
+      - "Dockerfile.backend"
+      - "requirements.backend.txt"
+      - "alembic.ini"
+      - ".github/workflows/deploy-vps-backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hypersynced-vps-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: vps-staging
+    steps:
+      - name: Install SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Build and safely replace backend on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eu
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/hypersynced
+          git fetch origin Semifinals
+          git reset --hard origin/Semifinals
+
+          test -f /opt/hypersynced/backend/.env
+          docker build --file Dockerfile.backend --tag hypersynced-backend:candidate .
+
+          old_name="hypersynced-backend-rollback"
+          if docker container inspect "$old_name" >/dev/null 2>&1; then
+            docker rm -f "$old_name"
+          fi
+
+          docker stop hypersynced-backend
+          docker rename hypersynced-backend "$old_name"
+
+          rollback() {
+            docker rm -f hypersynced-backend >/dev/null 2>&1 || true
+            if docker container inspect "$old_name" >/dev/null 2>&1; then
+              docker rename "$old_name" hypersynced-backend
+              docker start hypersynced-backend
+            fi
+          }
+          trap rollback ERR
+
+          docker run -d --name hypersynced-backend --restart unless-stopped             --env-file /opt/hypersynced/backend/.env             -p 127.0.0.1:8000:8000             hypersynced-backend:candidate
+
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$healthy" -ne 1 ]; then
+            docker logs --tail 100 hypersynced-backend || true
+            false
+          fi
+
+          trap - ERR
+          docker rm "$old_name"
+          docker image tag hypersynced-backend:candidate hypersynced-backend:latest
+          echo "VPS backend deployment healthy."
+          REMOTE
