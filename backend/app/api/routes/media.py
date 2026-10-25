@@ -115,14 +115,20 @@ async def get_media_source(
 
     settings = get_settings()
 
-    ttl = max(
-        int(settings.b2_presigned_url_ttl_seconds),
-        60,
+    # Pass the clamped TTL into the signer so the advertised lifetime
+    # cannot diverge from the actual presigned URL lifetime.
+    ttl = min(
+        max(
+            int(settings.b2_presigned_url_ttl_seconds),
+            60,
+        ),
+        7 * 24 * 60 * 60,
     )
 
     try:
         url = create_presigned_download_url(
             track.b2_object_key,
+            ttl_seconds=ttl,
         )
 
     except Exception as exc:
