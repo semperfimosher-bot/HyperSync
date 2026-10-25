@@ -115,9 +115,14 @@ async def get_media_source(
 
     settings = get_settings()
 
-    ttl = max(
-        int(settings.b2_presigned_url_ttl_seconds),
-        60,
+    # Keep the advertised expiry aligned with the TTL clamp used by
+    # create_presigned_download_url: 60 seconds through 7 days.
+    ttl = min(
+        max(
+            int(settings.b2_presigned_url_ttl_seconds),
+            60,
+        ),
+        7 * 24 * 60 * 60,
     )
 
     try:
