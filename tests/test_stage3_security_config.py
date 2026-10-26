@@ -45,6 +45,8 @@ def test_hosted_environments_reject_weak_configured_optional_secrets(
     field: str,
     value: str,
 ) -> None:
+    from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         Settings(
             environment="production",
