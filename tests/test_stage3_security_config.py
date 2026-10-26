@@ -1,5 +1,4 @@
 import pytest
-
 from backend.app.config import Settings
 
 
