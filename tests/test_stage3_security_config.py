@@ -1,7 +1,5 @@
 import pytest
 
-from pydantic import ValidationError
-
 from backend.app.config import Settings
 
 
@@ -25,6 +23,8 @@ def test_hosted_environments_reject_missing_short_or_placeholder_jwt_secrets(
     environment: str,
     secret: str,
 ) -> None:
+    from pydantic import ValidationError
+
     with pytest.raises(ValidationError, match="JWT_SECRET"):
         Settings(
             environment=environment,
