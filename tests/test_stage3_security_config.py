@@ -1,5 +1,6 @@
-from backend.app.config import Settings
 import pytest
+
+from backend.app.config import Settings
 
 
 DATABASE_URL = "postgresql://verification:verification@localhost/hypersync"
