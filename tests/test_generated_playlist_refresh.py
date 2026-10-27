@@ -2,11 +2,12 @@ from datetime import (
     UTC,
     datetime,
 )
+from typing import cast
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.database import get_session_factory
 from backend.app.models import Base
@@ -774,7 +775,7 @@ async def test_smart_playlist_freshness_reuses_precomputed_catalog_timestamp() -
 
     session = Session()
     is_stale = await generated_playlists.generated_playlist_needs_refresh(
-        session,
+        cast(AsyncSession, session),
         playlist,
         catalog_latest_track_update=now,
         catalog_freshness_checked=True,
