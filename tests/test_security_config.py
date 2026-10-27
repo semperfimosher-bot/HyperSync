@@ -16,6 +16,10 @@ VALID_SECRET = "kB7aD9mQ3pX8vN2hL5rT1wZ6cF4sY0jR9uE7xC3pV8nM2"
         "replace-with-a-long-random-secret",
         "your-jwt-secret",
         "test-secret-that-is-longer-than-thirty-two-characters",
+        "change-me",
+        "your-production-secret",
+        "development-secret",
+        "test-secret-please-change-this",
     ],
 )
 def test_staging_and_production_reject_missing_or_placeholder_jwt_secrets(
@@ -85,10 +89,12 @@ def test_development_may_omit_jwt_secret_for_local_setup() -> None:
     [
         ("admin_database_delete_password", "replace-with-admin-reset-password"),
         ("admin_database_delete_password", "short"),
+        ("admin_database_delete_password", "change-me"),
         ("admin_account_creation_password", "replace-with-admin-account-creation-password"),
         ("admin_account_creation_password", "short"),
         ("password_recovery_secret", "replace-with-a-long-random-secret"),
         ("password_recovery_secret", "short"),
+        ("password_recovery_secret", "your-recovery-secret"),
     ],
 )
 def test_staging_and_production_reject_weak_optional_secrets(
