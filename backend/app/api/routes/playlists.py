@@ -797,6 +797,43 @@ async def renumber_playlist_tracks(
 # ---------------------------------------------------------------------------
 
 
+async def refresh_generated_playlist_batch(
+    session: DatabaseSession,
+    playlists: list[Playlist],
+) -> list[Playlist]:
+    """Refresh generated playlists while sharing the catalog freshness read."""
+    if not playlists:
+        return []
+
+    has_smart_playlists = any(
+        playlist.visibility == "generated"
+        and playlist.generated_kind in {"smart", "genre"}
+        for playlist in playlists
+    )
+    latest_track_update: datetime | None = None
+    freshness_checked = False
+    if has_smart_playlists:
+        catalog_result = await session.execute(
+            select(func.max(Track.updated_at)).where(
+                Track.is_published.is_(True),
+            )
+        )
+        latest_track_update = catalog_result.scalar_one()
+        freshness_checked = True
+
+    refreshed: list[Playlist] = []
+    for playlist in playlists:
+        refreshed.append(
+            await refresh_generated_playlist_if_stale(
+                session,
+                playlist,
+                catalog_latest_track_update=latest_track_update,
+                catalog_freshness_checked=freshness_checked,
+            )
+        )
+    return refreshed
+
+
 @router.get(
     "/mine",
     response_model=list[PlaylistSummaryResponse],
@@ -824,13 +861,10 @@ async def get_my_playlists(
 
     playlists = list(result.scalars().all())
 
-    refreshed_playlists = [
-        await refresh_generated_playlist_if_stale(
-            session,
-            playlist,
-        )
-        for playlist in playlists
-    ]
+    refreshed_playlists = await refresh_generated_playlist_batch(
+        session,
+        playlists,
+    )
 
     return await serialize_playlist_summaries(
         session,
@@ -876,13 +910,10 @@ async def get_saved_playlists(
 
     playlists = list(result.scalars().all())
 
-    refreshed_playlists = [
-        await refresh_generated_playlist_if_stale(
-            session,
-            playlist,
-        )
-        for playlist in playlists
-    ]
+    refreshed_playlists = await refresh_generated_playlist_batch(
+        session,
+        playlists,
+    )
 
     return await serialize_playlist_summaries(
         session,
