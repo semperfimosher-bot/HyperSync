@@ -1,5 +1,4 @@
 import pytest
-from backend.app.config import Settings
 
 
 DATABASE_URL = "postgresql://verification:verification@localhost/hypersync"
@@ -24,6 +23,8 @@ def test_hosted_environments_reject_missing_short_or_placeholder_jwt_secrets(
 ) -> None:
     from pydantic import ValidationError
 
+    from backend.app.config import Settings
+
     with pytest.raises(ValidationError, match="JWT_SECRET"):
         Settings(
             environment=environment,
@@ -46,6 +47,8 @@ def test_hosted_environments_reject_weak_configured_optional_secrets(
 ) -> None:
     from pydantic import ValidationError
 
+    from backend.app.config import Settings
+
     with pytest.raises(ValidationError):
         Settings(
             environment="production",
@@ -59,6 +62,8 @@ def test_hosted_environments_reject_weak_configured_optional_secrets(
 def test_hosted_environments_accept_unique_long_secrets(
     environment: str,
 ) -> None:
+    from backend.app.config import Settings
+
     settings = Settings(
         environment=environment,
         database_url=DATABASE_URL,
