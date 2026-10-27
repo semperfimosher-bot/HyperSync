@@ -529,6 +529,132 @@ async def serialize_playlist_summary(
     )
 
 
+
+async def serialize_playlist_summaries(
+    session: DatabaseSession,
+    playlists: list[Playlist],
+    viewer: User | None,
+) -> list[PlaylistSummaryResponse]:
+    """Build playlist summaries with a fixed number of batched database reads."""
+    if not playlists:
+        return []
+
+    playlist_ids = [playlist.id for playlist in playlists]
+    owner_ids = {
+        playlist.owner_id
+        for playlist in playlists
+        if playlist.owner_id is not None
+    }
+
+    stats_result = await session.execute(
+        select(
+            PlaylistTrack.playlist_id,
+            func.count(PlaylistTrack.id),
+            func.coalesce(func.sum(Track.duration_seconds), 0),
+        )
+        .join(Track, Track.id == PlaylistTrack.track_id)
+        .where(
+            PlaylistTrack.playlist_id.in_(playlist_ids),
+            Track.is_published.is_(True),
+        )
+        .group_by(PlaylistTrack.playlist_id)
+    )
+    statistics = {
+        playlist_id: (int(count or 0), int(duration or 0))
+        for playlist_id, count, duration in stats_result.all()
+    }
+
+    ranked_artwork = (
+        select(
+            PlaylistTrack.playlist_id.label("playlist_id"),
+            Track,
+            func.row_number()
+            .over(
+                partition_by=PlaylistTrack.playlist_id,
+                order_by=(
+                    PlaylistTrack.position.asc(),
+                    PlaylistTrack.created_at.asc(),
+                    PlaylistTrack.id.asc(),
+                ),
+            )
+            .label("artwork_rank"),
+        )
+        .join(Track, Track.id == PlaylistTrack.track_id)
+        .where(
+            PlaylistTrack.playlist_id.in_(playlist_ids),
+            Track.is_published.is_(True),
+        )
+        .subquery()
+    )
+    artwork_result = await session.execute(
+        select(ranked_artwork.c.playlist_id, Track)
+        .join(Track, Track.id == ranked_artwork.c.id)
+        .where(ranked_artwork.c.artwork_rank <= 4)
+        .order_by(
+            ranked_artwork.c.playlist_id,
+            ranked_artwork.c.artwork_rank,
+        )
+    )
+    artwork_by_playlist: dict[UUID, list[str | None]] = {}
+    for playlist_id, track in artwork_result.all():
+        artwork_by_playlist.setdefault(playlist_id, []).append(
+            _track_artwork_url(track)
+        )
+
+    owners_result = await session.execute(
+        select(User.id, User.username).where(User.id.in_(owner_ids))
+    ) if owner_ids else None
+    usernames = {
+        owner_id: (username or "User")
+        for owner_id, username in (owners_result.all() if owners_result else [])
+    }
+
+    saved_ids: set[UUID] = set()
+    if viewer is not None:
+        saved_result = await session.execute(
+            select(SavedPlaylist.playlist_id).where(
+                SavedPlaylist.user_id == viewer.id,
+                SavedPlaylist.playlist_id.in_(playlist_ids),
+            )
+        )
+        saved_ids = set(saved_result.scalars().all())
+
+    summaries: list[PlaylistSummaryResponse] = []
+    for playlist in playlists:
+        artwork_urls = artwork_by_playlist.get(playlist.id, [])
+        artwork_url = next((artwork for artwork in artwork_urls if artwork), None)
+        track_count, total_duration = statistics.get(playlist.id, (0, 0))
+        summaries.append(
+            PlaylistSummaryResponse(
+                id=playlist.id,
+                title=playlist.title,
+                description=playlist.description,
+                visibility=playlist.visibility,
+                owner_id=playlist.owner_id,
+                owner_username=(
+                    "HyperSynced"
+                    if playlist.owner_id is None
+                    else usernames.get(playlist.owner_id, "User")
+                ),
+                track_count=track_count,
+                total_duration_seconds=total_duration,
+                artwork_url=artwork_url,
+                artwork_urls=artwork_urls,
+                is_owner=bool(viewer is not None and viewer.id == playlist.owner_id),
+                is_saved=playlist.id in saved_ids,
+                is_liked_songs=bool(
+                    playlist.owner_id is not None
+                    and playlist.generated_key == f"liked:{playlist.owner_id}"
+                ),
+                generated_kind=playlist.generated_kind,
+                generated_query=playlist.generated_query,
+                created_at=playlist.created_at,
+                updated_at=playlist.updated_at,
+            )
+        )
+    return summaries
+
+
 def serialize_playlist_track(
     playlist_track: PlaylistTrack,
     track: Track,
@@ -706,14 +832,11 @@ async def get_my_playlists(
         for playlist in playlists
     ]
 
-    return [
-        await serialize_playlist_summary(
-            session,
-            playlist,
-            user,
-        )
-        for playlist in refreshed_playlists
-    ]
+    return await serialize_playlist_summaries(
+        session,
+        refreshed_playlists,
+        user,
+    )
 
 
 @router.get(
