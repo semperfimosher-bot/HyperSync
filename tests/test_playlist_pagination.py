@@ -37,7 +37,7 @@ async def test_playlist_track_page_applies_limit_offset_and_stable_order() -> No
     assert isinstance(session.statement, Select)
     assert session.statement._limit_clause.value == 250
     assert session.statement._offset_clause.value == 500
-    order_columns = [column.name for column in session.statement._order_by_clauses]
+    order_columns = [column.element.name for column in session.statement._order_by_clauses]
     assert order_columns == ["position", "created_at", "id"]
 
 
