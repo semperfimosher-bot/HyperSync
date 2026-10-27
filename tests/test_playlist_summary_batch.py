@@ -18,7 +18,7 @@ class Result:
         self._values = values or []
 
     def all(self) -> list[Any]:
-        return self._rows
+        return self._values if self._values else self._rows
 
     def scalars(self) -> "Result":
         return self
