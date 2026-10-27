@@ -884,14 +884,11 @@ async def get_saved_playlists(
         for playlist in playlists
     ]
 
-    return [
-        await serialize_playlist_summary(
-            session,
-            playlist,
-            user,
-        )
-        for playlist in refreshed_playlists
-    ]
+    return await serialize_playlist_summaries(
+        session,
+        refreshed_playlists,
+        user,
+    )
 
 
 @router.get(
