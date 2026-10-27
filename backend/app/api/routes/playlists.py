@@ -582,8 +582,11 @@ def serialize_playlist_track(
 async def load_playlist_tracks(
     session: DatabaseSession,
     playlist_id: UUID,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[PlaylistTrackResponse]:
-    result = await session.execute(
+    stmt = (
         select(
             PlaylistTrack,
             Track,
@@ -601,11 +604,15 @@ async def load_playlist_tracks(
         .order_by(
             PlaylistTrack.position.asc(),
             PlaylistTrack.created_at.asc(),
+            PlaylistTrack.id.asc(),
         )
     )
+    # Preserve the legacy full-playlist contract unless pagination is requested.
+    if limit is not None:
+        stmt = stmt.offset(offset).limit(limit)
+    result = await session.execute(stmt)
 
-    return [
-        serialize_playlist_track(
+    return [        serialize_playlist_track(
             playlist_track,
             track,
         )
@@ -620,6 +627,9 @@ async def serialize_playlist_detail(
     session: DatabaseSession,
     playlist: Playlist,
     viewer: User | None,
+    *,
+    track_limit: int | None = None,
+    track_offset: int = 0,
 ) -> PlaylistDetailResponse:
     summary = await serialize_playlist_summary(
         session,
@@ -630,6 +640,8 @@ async def serialize_playlist_detail(
     tracks = await load_playlist_tracks(
         session,
         playlist.id,
+        limit=track_limit,
+        offset=track_offset,
     )
 
     return PlaylistDetailResponse(
@@ -1401,6 +1413,8 @@ async def get_playlist(
     playlist_id: UUID,
     session: DatabaseSession,
     viewer: OptionalCurrentUser,
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> PlaylistDetailResponse:
     playlist = await get_playlist_or_404(
         session,
@@ -1427,6 +1441,8 @@ async def get_playlist(
         session,
         playlist,
         viewer,
+        track_limit=limit,
+        track_offset=offset,
     )
 
 
