@@ -38,12 +38,12 @@ async def test_playlist_track_page_applies_limit_offset_and_stable_order() -> No
     assert result == []
     statement = fake_session.statement
     assert isinstance(statement, Select)
-    limit_clause = getattr(statement, "_limit_clause")
-    offset_clause = getattr(statement, "_offset_clause")
+    limit_clause = statement._limit_clause
+    offset_clause = statement._offset_clause
     assert limit_clause is not None
     assert offset_clause is not None
-    assert getattr(limit_clause, "value") == 250
-    assert getattr(offset_clause, "value") == 500
+    assert limit_clause.value == 250
+    assert offset_clause.value == 500
     order_columns = [
         column.element.name
         for column in statement._order_by_clauses
@@ -62,5 +62,5 @@ async def test_legacy_playlist_track_read_remains_unbounded_without_limit() -> N
 
     statement = fake_session.statement
     assert isinstance(statement, Select)
-    assert getattr(statement, "_limit_clause") is None
-    assert getattr(statement, "_offset_clause") is None
+    assert statement._limit_clause is None
+    assert statement._offset_clause is None
