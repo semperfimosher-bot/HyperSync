@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -107,6 +108,13 @@ class PlaylistTrack(
 
     __table_args__ = (
         UniqueConstraint("playlist_id", "track_id", name="uq_playlist_tracks_playlist_track"),
+        Index(
+            "ix_playlist_tracks_page_order",
+            "playlist_id",
+            "position",
+            "created_at",
+            "id",
+        ),
     )
 
     playlist_id: Mapped[UUID] = mapped_column(
