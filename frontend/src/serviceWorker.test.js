@@ -1226,3 +1226,42 @@ test(
     );
   },
 );
+
+
+test(
+  "clearing HyperSynced client data preserves unrelated CacheStorage entries",
+  async () => {
+    const serviceWorker = await loadServiceWorkerModule();
+    const originalCaches = globalThis.caches;
+    const deleted = [];
+    const existing = [
+      "hypersync-app-shell-build-a",
+      "hypersynced-media-v1",
+      "hypersync-runtime-cache",
+      "another-app-cache",
+      "workbox-precache-v2",
+    ];
+    globalThis.caches = {
+      keys: async () => existing,
+      delete: async (key) => {
+        deleted.push(key);
+        return true;
+      },
+    };
+
+    try {
+      const cleared = await serviceWorker.clearAllWorkerCaches();
+      assert.deepEqual(cleared, [
+        "hypersync-app-shell-build-a",
+        "hypersynced-media-v1",
+        "hypersync-runtime-cache",
+      ]);
+      assert.deepEqual(deleted, cleared);
+      assert.equal(deleted.includes("another-app-cache"), false);
+      assert.equal(deleted.includes("workbox-precache-v2"), false);
+    } finally {
+      if (originalCaches === undefined) delete globalThis.caches;
+      else globalThis.caches = originalCaches;
+    }
+  },
+);

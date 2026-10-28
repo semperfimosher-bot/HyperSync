@@ -175,20 +175,19 @@ globalThis.self?.addEventListener?.(
 );
 
 
-async function clearAllWorkerCaches() {
-  const keys =
-    await caches.keys();
-
-  await Promise.allSettled(
-    keys.map(
-      (key) =>
-        caches.delete(
-          key,
-        ),
-    ),
+export async function clearAllWorkerCaches() {
+  const keys = await caches.keys();
+  const ownedKeys = keys.filter(
+    (key) =>
+      key.startsWith("hypersync-") ||
+      key.startsWith("hypersynced-"),
   );
 
-  return keys;
+  await Promise.allSettled(
+    ownedKeys.map((key) => caches.delete(key)),
+  );
+
+  return ownedKeys;
 }
 
 
