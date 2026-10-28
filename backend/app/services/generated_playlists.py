@@ -678,6 +678,9 @@ async def get_cached_artist_playlist(
 async def generated_playlist_needs_refresh(
     session: AsyncSession,
     playlist: Playlist,
+    *,
+    catalog_latest_track_update: datetime | None = None,
+    catalog_freshness_checked: bool = False,
 ) -> bool:
     if (
         playlist.visibility != "generated"
@@ -736,23 +739,23 @@ async def generated_playlist_needs_refresh(
             "genre",
         }
     ):
-        catalog_result = (
-            await session.execute(
-                select(
-                    func.max(
-                        Track.updated_at,
-                    )
-                ).where(
-                    Track.is_published.is_(
-                        True,
+        if catalog_freshness_checked:
+            latest_track_update = catalog_latest_track_update
+        else:
+            catalog_result = (
+                await session.execute(
+                    select(
+                        func.max(
+                            Track.updated_at,
+                        )
+                    ).where(
+                        Track.is_published.is_(
+                            True,
+                        )
                     )
                 )
             )
-        )
-
-        latest_track_update = (
-            catalog_result.scalar_one()
-        )
+            latest_track_update = catalog_result.scalar_one()
 
         if latest_track_update is None:
             return False
@@ -868,10 +871,15 @@ async def generated_playlist_needs_refresh(
 async def refresh_generated_playlist_if_stale(
     session: AsyncSession,
     playlist: Playlist,
+    *,
+    catalog_latest_track_update: datetime | None = None,
+    catalog_freshness_checked: bool = False,
 ) -> Playlist:
     if not await generated_playlist_needs_refresh(
         session,
         playlist,
+        catalog_latest_track_update=catalog_latest_track_update,
+        catalog_freshness_checked=catalog_freshness_checked,
     ):
         return playlist
 

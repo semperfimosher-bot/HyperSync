@@ -2,11 +2,12 @@ from datetime import (
     UTC,
     datetime,
 )
+from typing import cast
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.app.database import get_session_factory
 from backend.app.models import Base
@@ -748,3 +749,37 @@ async def test_generated_playlist_collision_does_not_rollback_unrelated_work(
 
         assert persisted is not None
         assert persisted.genre == "Country"
+
+
+@pytest.mark.asyncio
+async def test_smart_playlist_freshness_reuses_precomputed_catalog_timestamp() -> None:
+    now = datetime.now(UTC)
+    playlist = Playlist(
+        id=uuid4(),
+        title="country",
+        description=None,
+        visibility="generated",
+        owner_id=uuid4(),
+        generated_kind="smart",
+        generated_query="country",
+        generated_at=now,
+        generator_version=generated_playlists.GENERATOR_VERSION,
+    )
+
+    class Session:
+        calls = 0
+
+        async def execute(self, statement):
+            self.calls += 1
+            raise AssertionError("precomputed catalog freshness must avoid another query")
+
+    session = Session()
+    is_stale = await generated_playlists.generated_playlist_needs_refresh(
+        cast(AsyncSession, session),
+        playlist,
+        catalog_latest_track_update=now,
+        catalog_freshness_checked=True,
+    )
+
+    assert is_stale is False
+    assert session.calls == 0
