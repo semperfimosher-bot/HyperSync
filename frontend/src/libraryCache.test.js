@@ -7,9 +7,11 @@ import {
   clearCachedLibraryScope,
   getCachedLibrary,
   getCachedLibraryAsync,
+  getCachedLibraryPageAsync,
   getCachedPlaylist,
   getCachedPlaylistAsync,
   setCachedLibrary,
+  setCachedLibraryPageAsync,
   setCachedPlaylist,
 } from "./libraryCache.js";
 
@@ -182,6 +184,41 @@ test(
         await getCachedPlaylistAsync(ownerB, playlistB)
       ).tracks[0].id,
       "owner-b-private-track",
+    );
+  },
+);
+
+
+test(
+  "library pages are cached separately, isolated by account, and cleared on logout",
+  async () => {
+    const suffix = Date.now().toString();
+    const ownerA = "page-cache-owner-a-" + suffix;
+    const ownerB = "page-cache-owner-b-" + suffix;
+    const pageA = [{ id: "owner-a-page-1000" }];
+    const pageB = [{ id: "owner-b-page-1000" }];
+
+    await setCachedLibraryPageAsync(ownerA, 1000, pageA);
+    await setCachedLibraryPageAsync(ownerB, 1000, pageB);
+
+    assert.deepEqual(
+      await getCachedLibraryPageAsync(ownerA, 1000),
+      pageA,
+    );
+    assert.deepEqual(
+      await getCachedLibraryPageAsync(ownerB, 1000),
+      pageB,
+    );
+
+    await clearCachedLibraryScope(ownerA);
+
+    assert.equal(
+      await getCachedLibraryPageAsync(ownerA, 1000),
+      null,
+    );
+    assert.deepEqual(
+      await getCachedLibraryPageAsync(ownerB, 1000),
+      pageB,
     );
   },
 );

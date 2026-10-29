@@ -98,8 +98,10 @@ import {
 import {
   getCachedLibrary,
   getCachedLibraryAsync,
+  getCachedLibraryPageAsync,
   getCachedPlaylistAsync,
   setCachedLibrary,
+  setCachedLibraryPageAsync,
   setCachedPlaylist,
 } from "../../libraryCache.js";
 
@@ -1132,6 +1134,11 @@ const [
               libraryNextOffsetRef.current,
           },
         );
+        await setCachedLibraryPageAsync(
+          libraryCacheKey,
+          0,
+          fetchedTracks,
+        );
       } catch (requestError) {
         /*
          * If the connection disappeared
@@ -1195,8 +1202,7 @@ const [
   const loadMoreLibraryTracks = useCallback(async () => {
     if (
       loadingMoreLibraryTracks ||
-      !hasMoreLibraryTracks ||
-      (typeof navigator !== "undefined" && navigator.onLine === false)
+      !hasMoreLibraryTracks
     ) {
       return;
     }
@@ -1206,11 +1212,22 @@ const [
 
     try {
       const offset = libraryNextOffsetRef.current;
-      const page = await getLibraryTracks({
-        limit: LIBRARY_TRACKS_PAGE_SIZE,
-        offset,
-      });
-      const nextPage = Array.isArray(page) ? page : [];
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      let nextPage = null;
+
+      if (offline) {
+        nextPage = await getCachedLibraryPageAsync(libraryCacheKey, offset);
+        if (!Array.isArray(nextPage)) {
+          throw new Error("That library page is not available offline yet.");
+        }
+      } else {
+        const page = await getLibraryTracks({
+          limit: LIBRARY_TRACKS_PAGE_SIZE,
+          offset,
+        });
+        nextPage = Array.isArray(page) ? page : [];
+        await setCachedLibraryPageAsync(libraryCacheKey, offset, nextPage);
+      }
       const current = libraryTracksRef.current;
       const knownIds = new Set(current.map((track) => String(track.id)));
       const additions = nextPage.filter(
