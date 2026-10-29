@@ -2361,3 +2361,8 @@ async def retry_maintenance_job(job_id: UUID, user: AdminUser, session: Database
     if not await retry_failed_job(session, job_id):
         raise HTTPException(status_code=404, detail="Exhausted maintenance job not found.")
     return {"success": True}
+
+
+# Backward-compatible import for existing tests and internal callers.
+# The route implementation now lives in admin_users.py.
+from .admin_users import _delete_admin_selected_user  # noqa: E402
