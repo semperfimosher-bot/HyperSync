@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from .routes import (
     admin,
+    admin_users,
     artists,
     audio,
     auth,
@@ -44,6 +45,11 @@ api_router.include_router(
 
 api_router.include_router(
     admin.router,
+    prefix="/api",
+)
+
+api_router.include_router(
+    admin_users.router,
     prefix="/api",
 )
 
