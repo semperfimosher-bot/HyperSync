@@ -1,0 +1,153 @@
+name: Deploy Contabo VPS
+
+on:
+  push:
+    branches: [Semifinals]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two deployments against the same VPS at the same time.
+concurrency:
+  group: hypersynced-contabo-vps
+  cancel-in-progress: false
+
+jobs:
+  build-check:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out Semifinals
+        uses: actions/checkout@v4
+        with:
+          ref: Semifinals
+
+      - name: Build production backend image
+        run: docker build --file Dockerfile.backend --tag hypersynced-backend:ci .
+
+  deploy:
+    name: Deploy and health-check VPS
+    needs: build-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate required deployment secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            if [ -z "$(printenv "$name")" ]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Configure pinned SSH host and key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Pull, build, deploy, and verify with rollback on failure
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          DEPLOY_COMMIT: ${{ github.sha }}
+          DEPLOY_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/id_ed25519" \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "sudo -n bash -s -- '$DEPLOY_COMMIT' '$DEPLOY_RUN_ID'" <<'REMOTE'
+          set -Eeuo pipefail
+          DEPLOY_COMMIT="$1"
+          DEPLOY_RUN_ID="$2"
+          APP_DIR=/opt/hypersynced
+          CONTAINER=hypersynced-backend
+          IMAGE=hypersynced-backend:latest
+          PREVIOUS_CONTAINER="hypersynced-backend-rollback-$DEPLOY_RUN_ID"
+          PREVIOUS_IMAGE=""
+
+          cd "$APP_DIR"
+          test -f backend/.env || { echo "Missing $APP_DIR/backend/.env; refusing deployment."; exit 1; }
+          git fetch origin Semifinals
+          git reset --hard "$DEPLOY_COMMIT"
+          test "$(git rev-parse HEAD)" = "$DEPLOY_COMMIT" || { echo "Checkout does not match triggering commit."; exit 1; }
+
+          if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+            PREVIOUS_IMAGE="$(docker inspect -f '{{.Image}}' "$CONTAINER")"
+            docker tag "$PREVIOUS_IMAGE" "hypersynced-backend:rollback-$DEPLOY_RUN_ID"
+            docker stop "$CONTAINER"
+            docker rename "$CONTAINER" "$PREVIOUS_CONTAINER"
+          fi
+
+          rollback() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "Deployment failed; attempting to restore the previous container."
+              docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+              if docker inspect "$PREVIOUS_CONTAINER" >/dev/null 2>&1; then
+                docker rename "$PREVIOUS_CONTAINER" "$CONTAINER"
+                docker start "$CONTAINER" >/dev/null
+              elif [ -n "$PREVIOUS_IMAGE" ]; then
+                docker run -d --name "$CONTAINER" --restart unless-stopped \
+                  --env-file "$APP_DIR/backend/.env" \
+                  -p 127.0.0.1:8000:8000 "$PREVIOUS_IMAGE" >/dev/null
+              fi
+              exit "$status"
+            fi
+          }
+          trap rollback EXIT
+
+          docker build --file Dockerfile.backend --tag "$IMAGE" .
+          docker rm -f "$PREVIOUS_CONTAINER" >/dev/null 2>&1 || true
+          docker run -d --name "$CONTAINER" --restart unless-stopped \
+            --env-file "$APP_DIR/backend/.env" \
+            -p 127.0.0.1:8000:8000 "$IMAGE" >/dev/null
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            if python3 - <<'PY'
+          import json
+          import urllib.request
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=3) as response:
+                  data = json.load(response)
+              raise SystemExit(0 if response.status == 200 and data.get("database") == "healthy" else 1)
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            docker logs --tail 100 "$CONTAINER" || true
+            echo "New container did not become ready within 5 minutes."
+            exit 1
+          fi
+
+          trap - EXIT
+          docker rm -f "$PREVIOUS_CONTAINER" >/dev/null 2>&1 || true
+          docker image rm "hypersynced-backend:rollback-$DEPLOY_RUN_ID" >/dev/null 2>&1 || true
+          echo "Deployment successful: $DEPLOY_COMMIT"
+          REMOTE
