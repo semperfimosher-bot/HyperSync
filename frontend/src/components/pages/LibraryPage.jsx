@@ -1134,6 +1134,11 @@ const [
               libraryNextOffsetRef.current,
           },
         );
+        await setCachedLibraryPageAsync(
+          libraryCacheKey,
+          0,
+          fetchedTracks,
+        );
       } catch (requestError) {
         /*
          * If the connection disappeared
