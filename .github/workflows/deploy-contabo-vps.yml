@@ -116,7 +116,6 @@ jobs:
           trap rollback EXIT
 
           docker build --file Dockerfile.backend --tag "$IMAGE" .
-          docker rm -f "$PREVIOUS_CONTAINER" >/dev/null 2>&1 || true
           docker run -d --name "$CONTAINER" --restart unless-stopped \
             --env-file "$APP_DIR/backend/.env" \
             -p 127.0.0.1:8000:8000 "$IMAGE" >/dev/null
