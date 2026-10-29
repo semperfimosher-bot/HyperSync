@@ -303,6 +303,64 @@ function persistCacheSnapshots(
 }
 
 
+
+const LIBRARY_PAGE_CACHE_VERSION = "library-page-v1";
+
+function getLibraryPageSnapshotKey(userKey, offset) {
+  if (!Number.isInteger(offset) || offset < 0) return null;
+  return (
+    getSnapshotPrefix(userKey) +
+    LIBRARY_PAGE_CACHE_VERSION +
+    "|" +
+    String(offset)
+  );
+}
+
+/*
+ * Keep paginated library responses separate from the aggregate metadata
+ * snapshot. This avoids rewriting every previously loaded track when the
+ * user requests another page. Existing owner-prefix cleanup removes these
+ * records together with the rest of that account's library cache.
+ */
+export async function getCachedLibraryPageAsync(userKey, offset = 0) {
+  const key = getLibraryPageSnapshotKey(userKey, offset);
+  if (!key) return null;
+
+  try {
+    const snapshot = await getLibrarySnapshot(key);
+    if (Array.isArray(snapshot?.tracks)) {
+      return snapshot.tracks;
+    }
+  } catch {
+    // A cache miss or unavailable IndexedDB must not break library loading.
+  }
+
+  if (offset === 0) {
+    const legacy = await getCachedLibraryAsync(userKey);
+    if (Array.isArray(legacy?.tracks)) {
+      return legacy.tracks;
+    }
+  }
+
+  return null;
+}
+
+export async function setCachedLibraryPageAsync(userKey, offset, tracks) {
+  const key = getLibraryPageSnapshotKey(userKey, offset);
+  if (!key || !Array.isArray(tracks)) return false;
+
+  try {
+    await saveLibrarySnapshot(key, {
+      tracks,
+      cachedAt: Date.now(),
+    });
+    return true;
+  } catch {
+    // Best-effort cache only: the network result remains usable.
+    return false;
+  }
+}
+
 export function getCachedLibrary(
   userKey,
 ) {
