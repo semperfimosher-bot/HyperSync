@@ -2453,6 +2453,21 @@ return getState();
 }
 
 
+export async function restoreTrackPaused(track, positionSeconds = 0) {
+  if (!track?.id) return null;
+  cancelActivePlaybackSession();
+  clearQueue();
+  applyTrackMetadata(track.id, track);
+  restoredTimeSeconds = Math.max(0, Number(positionSeconds) || 0);
+  persistPlayerState({ force: true, currentTime: restoredTimeSeconds });
+  const state = await ensureCurrentTrackSource();
+  if (!audio.paused) audio.pause();
+  setPlaybackPhase("paused");
+  notify();
+  return state ?? getState();
+}
+
+
 export async function playTrack(
   trackId,
   meta = {},
