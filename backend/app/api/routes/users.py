@@ -1215,8 +1215,24 @@ class PlaybackStateUpdateRequest(BaseModel):
     position_seconds: float = Field(default=0, ge=0, le=86_400)
 
 
+class PlaybackTrackSummary(BaseModel):
+    id: UUID
+    title: str
+    artist: str
+    album: str | None = None
+    genre: str | None = None
+    release_year: int | None = None
+    audio_url: str | None = None
+    artwork_url: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    duration_seconds: int | None = None
+    media_version: str | None = None
+    artwork_version: str | None = None
+
+
 class PlaybackStateResponse(BaseModel):
-    track: TrackSummary | None = None
+    track: PlaybackTrackSummary | None = None
     position_seconds: float = 0
     updated_at: datetime | None = None
 
@@ -1236,7 +1252,7 @@ async def get_my_playback_state(
     if track is None or not track.is_published:
         return PlaybackStateResponse()
     return PlaybackStateResponse(
-        track=TrackSummary(
+        track=PlaybackTrackSummary(
             id=track.id,
             title=track.title,
             artist=track.artist,
@@ -1247,10 +1263,9 @@ async def get_my_playback_state(
             artwork_url=artwork_url(track),
             mime_type=track.mime_type,
             file_size=track.file_size,
+            duration_seconds=track.duration_seconds,
             media_version=_track_media_version(track),
             artwork_version=_track_artwork_version(track),
-            play_count=0,
-            last_played_at=state.playback_updated_at or datetime.now(UTC),
         ),
         position_seconds=state.playback_position_seconds,
         updated_at=state.playback_updated_at,
@@ -1311,8 +1326,6 @@ async def update_my_playback_state(
             file_size=track.file_size,
             media_version=_track_media_version(track),
             artwork_version=_track_artwork_version(track),
-            play_count=0,
-            last_played_at=state.playback_updated_at,
         ),
         position_seconds=payload.position_seconds,
         updated_at=state.playback_updated_at,
