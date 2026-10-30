@@ -4,10 +4,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-// The app must not register a background path that can interrupt local audio.
-test("app shell has no account playback transport or remote control wiring", () => {
+// Account checkpoints may restore the last track, but the app must not
+// register live device discovery, remote commands, or cross-device control.
+test("app shell keeps account checkpoints separate from live remote controls", () => {
   const source = readFileSync(new URL("./App.jsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /playbackDevices|playbackRemoteCommands|playback-state|playback-devices|setRemotePlaybackController/);
+  assert.match(source, /bindAccountPlayback/);
+  assert.doesNotMatch(source, /playbackDevices|playbackRemoteCommands|playback-devices|setRemotePlaybackController/);
 });
 
 class TestAudio extends EventTarget {
