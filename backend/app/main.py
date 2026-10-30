@@ -57,6 +57,7 @@ MEDIA_IDENTITY_RETRY_SECONDS = 30.0
 _ACTIVITY_EXCLUDED_PREFIXES = (
     "/api/users/me/listening",
     "/api/users/me/app-state",
+    "/api/users/me/playback-state",
     "/api/messages/push/",
     "/api/messages/admin-notifications/",
     "/api/messages/notifications/",
