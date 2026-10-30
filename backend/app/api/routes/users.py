@@ -1210,6 +1210,115 @@ async def decline_follow_request(
     }
 
 
+class PlaybackStateUpdateRequest(BaseModel):
+    track_id: UUID | None = None
+    position_seconds: float = Field(default=0, ge=0, le=86_400)
+
+
+class PlaybackStateResponse(BaseModel):
+    track: TrackSummary | None = None
+    position_seconds: float = 0
+    updated_at: datetime | None = None
+
+
+@router.get(
+    "/me/playback-state",
+    response_model=PlaybackStateResponse,
+)
+async def get_my_playback_state(
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    state = await session.get(UserAppState, user.id)
+    if state is None or state.playback_track_id is None:
+        return PlaybackStateResponse()
+    track = await session.get(Track, state.playback_track_id)
+    if track is None or not track.is_published:
+        return PlaybackStateResponse()
+    return PlaybackStateResponse(
+        track=TrackSummary(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            genre=track.genre,
+            release_year=track.release_year,
+            audio_url=audio_url(track),
+            artwork_url=artwork_url(track),
+            mime_type=track.mime_type,
+            file_size=track.file_size,
+            media_version=_track_media_version(track),
+            artwork_version=_track_artwork_version(track),
+            play_count=0,
+            last_played_at=state.playback_updated_at or datetime.now(UTC),
+        ),
+        position_seconds=state.playback_position_seconds,
+        updated_at=state.playback_updated_at,
+    )
+
+
+@router.put(
+    "/me/playback-state",
+    response_model=PlaybackStateResponse,
+)
+async def update_my_playback_state(
+    payload: PlaybackStateUpdateRequest,
+    user: CurrentUser,
+    session: DatabaseSession,
+):
+    track = None
+    if payload.track_id is not None:
+        track_result = await session.execute(
+            select(Track).where(
+                Track.id == payload.track_id,
+                Track.is_published.is_(True),
+            )
+        )
+        track = track_result.scalar_one_or_none()
+        if track is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Track not found.",
+            )
+
+    state = await session.get(UserAppState, user.id)
+    if state is None:
+        state = UserAppState(user_id=user.id)
+        session.add(state)
+
+    state.playback_track_id = track.id if track is not None else None
+    state.playback_position_seconds = payload.position_seconds
+    state.playback_paused = True
+    state.playback_updated_at = datetime.now(UTC)
+    await session.commit()
+
+    if track is None:
+        return PlaybackStateResponse(
+            position_seconds=payload.position_seconds,
+            updated_at=state.playback_updated_at,
+        )
+    return PlaybackStateResponse(
+        track=TrackSummary(
+            id=track.id,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+            genre=track.genre,
+            release_year=track.release_year,
+            audio_url=audio_url(track),
+            artwork_url=artwork_url(track),
+            mime_type=track.mime_type,
+            file_size=track.file_size,
+            media_version=_track_media_version(track),
+            artwork_version=_track_artwork_version(track),
+            play_count=0,
+            last_played_at=state.playback_updated_at,
+        ),
+        position_seconds=payload.position_seconds,
+        updated_at=state.playback_updated_at,
+    )
+
+
 @router.get(
     "/me/app-state",
     response_model=AppStateResponse,
