@@ -2461,6 +2461,16 @@ export async function restoreTrackPaused(track, positionSeconds = 0) {
   restoredTimeSeconds = Math.max(0, Number(positionSeconds) || 0);
   persistPlayerState({ force: true, currentTime: restoredTimeSeconds });
   const state = await ensureCurrentTrackSource();
+  if (audio.readyState >= 1) {
+    const maximum = Number.isFinite(audio.duration)
+      ? audio.duration
+      : restoredTimeSeconds;
+    try {
+      audio.currentTime = Math.max(0, Math.min(restoredTimeSeconds, maximum));
+    } catch {
+      // The next Play action will retry the saved seek.
+    }
+  }
   if (!audio.paused) audio.pause();
   setPlaybackPhase("paused");
   notify();
