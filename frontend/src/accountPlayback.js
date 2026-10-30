@@ -49,7 +49,7 @@ export function bindAccountPlayback(userId) {
 
     if (!ready) {
       if (
-        (trackId && observedTrackId && trackId !== observedTrackId) ||
+        (trackId && trackId !== observedTrackId) ||
         state?.phase === "playing"
       ) {
         userInteractedBeforeRestore = true;
