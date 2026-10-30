@@ -13,9 +13,9 @@ export function bindAccountPlayback(userId) {
   const save = (force = false) => {
     if (!active || !ready) return;
     const state = player.getState();
-    if (!state?.id) return;
+    if (!state?.trackId) return;
     const position = Math.max(0, Number(state.currentTime) || 0);
-    const key = `${state.id}:${Math.floor(position)}`;
+    const key = `${state.trackId}:${Math.floor(position)}`;
     if (!force && key === lastSavedKey) return;
     lastSavedKey = key;
     const payload = { track_id: state.id, position_seconds: position };
