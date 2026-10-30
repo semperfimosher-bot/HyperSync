@@ -7,17 +7,24 @@ from backend.app.main import app
 
 
 @pytest.mark.asyncio
-async def test_removed_live_control_and_jam_endpoints_are_unavailable() -> None:
+async def test_account_playback_state_is_authenticated_and_live_controls_are_removed() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        for method, path in (
-            ("GET", "/api/users/me/playback-state"),
-            ("PATCH", "/api/users/me/playback-state"),
-            ("POST", "/api/users/me/playback-devices/poll"),
-            ("POST", "/api/users/me/playback-devices/other-browser/commands"),
-            ("POST", "/api/jams"),
+        # Account playback state is intentionally available, but only to an
+        # authenticated account. PATCH is not an exposed write method.
+        response = await client.get("/api/users/me/playback-state")
+        assert response.status_code == 401, response.text
+
+        response = await client.patch("/api/users/me/playback-state", json={})
+        assert response.status_code == 405, response.text
+
+        # These legacy live-control and Jam endpoints must remain absent.
+        for path in (
+            "/api/users/me/playback-devices/poll",
+            "/api/users/me/playback-devices/other-browser/commands",
+            "/api/jams",
         ):
-            response = await client.request(method, path, json={})
-            assert response.status_code == 404, (method, path, response.text)
+            response = await client.post(path, json={})
+            assert response.status_code == 404, (path, response.text)
 
 
 @pytest.mark.asyncio
