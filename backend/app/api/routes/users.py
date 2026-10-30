@@ -1313,7 +1313,7 @@ async def update_my_playback_state(
             updated_at=state.playback_updated_at,
         )
     return PlaybackStateResponse(
-        track=TrackSummary(
+        track=PlaybackTrackSummary(
             id=track.id,
             title=track.title,
             artist=track.artist,
@@ -1324,6 +1324,7 @@ async def update_my_playback_state(
             artwork_url=artwork_url(track),
             mime_type=track.mime_type,
             file_size=track.file_size,
+            duration_seconds=track.duration_seconds,
             media_version=_track_media_version(track),
             artwork_version=_track_artwork_version(track),
         ),
