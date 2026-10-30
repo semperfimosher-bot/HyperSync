@@ -18,7 +18,7 @@ export function bindAccountPlayback(userId) {
     const key = `${state.trackId}:${Math.floor(position)}`;
     if (!force && key === lastSavedKey) return;
     lastSavedKey = key;
-    const payload = { track_id: state.id, position_seconds: position };
+    const payload = { track_id: state.trackId, position_seconds: position };
     writeChain = writeChain.catch(() => {}).then(() => {
       if (!active) return;
       return apiRequest("/users/me/playback-state", {
@@ -30,7 +30,7 @@ export function bindAccountPlayback(userId) {
 
   const unsubscribe = player.subscribe((state) => {
     if (!active || !ready) return;
-    const trackId = state?.id ?? null;
+    const trackId = state?.trackId ?? null;
     if (trackId && trackId !== lastTrackId) {
       lastTrackId = trackId;
       save(true);
