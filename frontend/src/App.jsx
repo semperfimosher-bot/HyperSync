@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import * as player from "./audioPlayer.js";
+import { bindAccountPlayback } from "./accountPlayback.js";
 
 import {
   getGreetingName,
@@ -1517,6 +1518,11 @@ const persistAppView =
 }, [
   cancelPendingSearchSave,
 ]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return undefined;
+    return bindAccountPlayback(currentUser.id);
+  }, [currentUser?.id]);
 
   function handleLogout() {
   navigationGenerationRef.current += 1;
