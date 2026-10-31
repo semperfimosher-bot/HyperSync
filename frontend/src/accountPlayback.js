@@ -1,6 +1,12 @@
 import { apiRequest } from "./api/client.js";
 import * as player from "./audioPlayer.js";
 
+let activeFlush = null;
+
+export async function flushAccountPlayback() {
+  await activeFlush?.();
+}
+
 export function bindAccountPlayback(userId) {
   if (!userId) return () => {};
 
@@ -14,14 +20,14 @@ export function bindAccountPlayback(userId) {
   let lastPhase = player.getState()?.phase ?? null;
   let observedTrackId = player.getState()?.trackId ?? null;
 
-  const save = (force = false) => {
-    if (!active || !ready) return;
+  const save = (force = false, keepalive = false) => {
+    if (!active || !ready) return writeChain;
     const state = player.getState();
-    if (!state?.trackId) return;
+    if (!state?.trackId) return writeChain;
 
     const position = Math.max(0, Number(state.currentTime) || 0);
     const key = `${state.trackId}:${Math.floor(position)}`;
-    if (!force && (key === lastSavedKey || key === pendingKey)) return;
+    if (!force && (key === lastSavedKey || key === pendingKey)) return writeChain;
 
     pendingKey = key;
     const payload = {
@@ -35,12 +41,14 @@ export function bindAccountPlayback(userId) {
         await apiRequest("/users/me/playback-state", {
           method: "PUT",
           body: JSON.stringify(payload),
+          keepalive,
         });
         lastSavedKey = key;
       } finally {
         if (pendingKey === key) pendingKey = "";
       }
-    });
+    }).catch(() => {});
+    return writeChain;
   };
 
   const unsubscribe = player.subscribe((state) => {
@@ -95,6 +103,16 @@ export function bindAccountPlayback(userId) {
     }
   };
 
+  const flush = async (keepalive = false) => {
+    if (!active) return;
+    await save(true, keepalive);
+    await writeChain.catch(() => {});
+  };
+  activeFlush = () => flush(false);
+  const onPageExit = () => {
+    void flush(true);
+  };
+  window.addEventListener("pagehide", onPageExit);
   const interval = window.setInterval(() => {
     void refreshAccountState().finally(() => {
       save(false);
@@ -128,6 +146,8 @@ export function bindAccountPlayback(userId) {
     active = false;
     window.clearInterval(interval);
     document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.removeEventListener("pagehide", onPageExit);
+    if (activeFlush) activeFlush = null;
     unsubscribe();
   };
 }
