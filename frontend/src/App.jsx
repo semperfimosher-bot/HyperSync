@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import * as player from "./audioPlayer.js";
-import { bindAccountPlayback } from "./accountPlayback.js";
+import { bindAccountPlayback, flushAccountPlayback } from "./accountPlayback.js";
 
 import {
   getGreetingName,
@@ -1524,7 +1524,7 @@ const persistAppView =
     return bindAccountPlayback(currentUser.id);
   }, [currentUser?.id]);
 
-  function handleLogout() {
+  async function handleLogout() {
   navigationGenerationRef.current += 1;
   cancelPendingSearchSave();
   clearPersistedAppView(currentUser?.id);
@@ -1535,6 +1535,7 @@ const persistAppView =
    * account logs out.
    */
   player.pausePlayback();
+  await flushAccountPlayback();
 
   const offlineOwnerKey =
     getOfflineOwnerKey(
