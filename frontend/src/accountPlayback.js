@@ -8,8 +8,6 @@ export function bindAccountPlayback(userId) {
   let ready = false;
   let userInteractedBeforeRestore = false;
   let lastTrackId = null;
-  let lastAccountTrackId = null;
-  let accountUpdateWaitingForLocalPlayback = false;
   let lastSavedKey = "";
   let pendingKey = "";
   let writeChain = Promise.resolve();
@@ -52,7 +50,8 @@ export function bindAccountPlayback(userId) {
     if (!ready) {
       if (
         (trackId && trackId !== observedTrackId) ||
-        state?.phase === "playing"
+        state?.phase === "playing" ||
+        state?.phase === "loading"
       ) {
         userInteractedBeforeRestore = true;
       }
@@ -61,15 +60,13 @@ export function bindAccountPlayback(userId) {
       return;
     }
 
-    if (!accountUpdateWaitingForLocalPlayback) {
-      if (trackId && trackId !== lastTrackId) {
-        lastTrackId = trackId;
-        save(true);
-      }
+    if (trackId && trackId !== lastTrackId) {
+      lastTrackId = trackId;
+      save(true);
+    }
 
-      if (lastPhase === "playing" && state?.phase !== "playing") {
-        save(true);
-      }
+    if (lastPhase === "playing" && state?.phase !== "playing") {
+      save(true);
     }
 
     lastPhase = state?.phase ?? null;
@@ -84,19 +81,10 @@ export function bindAccountPlayback(userId) {
 
   const refreshAccountState = async () => {
     try {
-      const snapshot = await apiRequest("/users/me/playback-state");
-      publishAccountState(snapshot);
-      const track = snapshot?.track;
-      if (!track?.id || track.id === lastAccountTrackId) return;
-      if (player.getState()?.phase === "playing") {
-        accountUpdateWaitingForLocalPlayback = true;
-        return;
-      }
-      await player.restoreTrackPaused(track, snapshot.position_seconds);
-      lastAccountTrackId = track.id;
-      accountUpdateWaitingForLocalPlayback = false;
-      lastTrackId = track.id;
-      lastSavedKey = `${track.id}:${Math.floor(Number(snapshot.position_seconds) || 0)}`;
+      // Live account updates are informational only. Never restore a remote
+      // checkpoint into an already-open player: that replaces its audio source
+      // and can interrupt a local queue selection or an in-progress load.
+      publishAccountState(await apiRequest("/users/me/playback-state"));
     } catch {
       // Keep the last known account snapshot during temporary network errors.
     }
@@ -104,23 +92,18 @@ export function bindAccountPlayback(userId) {
 
   const interval = window.setInterval(() => {
     void refreshAccountState().finally(() => {
-      if (!accountUpdateWaitingForLocalPlayback) save(false);
+      save(false);
     });
   }, 5_000);
   const onVisibilityChange = () => {
-    if (document.visibilityState === "hidden" && !accountUpdateWaitingForLocalPlayback) save(true);
+    if (document.visibilityState === "hidden") save(true);
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   apiRequest("/users/me/playback-state").then(async (saved) => {
     if (!active) return;
     publishAccountState(saved);
-    lastAccountTrackId = saved?.track?.id ?? null;
-    if (saved?.track?.id && player.getState()?.phase === "playing" && player.getState()?.trackId !== saved.track.id) {
-      accountUpdateWaitingForLocalPlayback = true;
-    }
-
-    if (saved?.track?.id && !userInteractedBeforeRestore && !accountUpdateWaitingForLocalPlayback) {
+    if (saved?.track?.id && !userInteractedBeforeRestore) {
       lastTrackId = saved.track.id;
       lastSavedKey = `${saved.track.id}:${Math.floor(Number(saved.position_seconds) || 0)}`;
       await player.restoreTrackPaused(saved.track, saved.position_seconds);
