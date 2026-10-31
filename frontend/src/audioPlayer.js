@@ -40,12 +40,6 @@ import {
 } from "./player/mediaSessionState.js";
 
 import {
-  clearPersistedPlayerState,
-  readPersistedPlayerState,
-  writePersistedPlayerState,
-} from "./playerPersistence.js";
-
-import {
   notifyListeningHistoryChanged,
   canRecordListeningHistory,
 } from "./homeRecentlyPlayed.js";
@@ -117,14 +111,6 @@ let sourcePreparationPromise =
 
 let sourcePreparationTrackId =
   null;
-
-
-/*
- * timeupdate can fire many times per
- * second. Do not hammer localStorage.
- */
-let lastPersistenceWriteAt =
-  0;
 
 
 let currentQueue =
@@ -464,11 +450,7 @@ function getSafeCurrentTime() {
 }
 
 
-function persistPlayerState({
-  force = false,
-  currentTime =
-    getSafeCurrentTime(),
-} = {}) {
+ = {}) {
   if (
     !currentTrackId ||
     !currentTrackMeta
@@ -1424,10 +1406,7 @@ function attachEvents() {
       );
     }
 
-    persistPlayerState({
-      force:
-        true,
-    });
+    
 
     notify();
   },
@@ -1505,7 +1484,7 @@ function attachEvents() {
     audio.addEventListener(
     "timeupdate",
     () => {
-      persistPlayerState();
+      
     },
   );
 
@@ -1513,10 +1492,7 @@ function attachEvents() {
   audio.addEventListener(
     "volumechange",
     () => {
-      persistPlayerState({
-        force:
-          true,
-      });
+      
     },
   );
 
@@ -1557,7 +1533,6 @@ function attachEvents() {
 
 
 attachEvents();
-restorePersistedPlayerState();
 
 
 function handleBackgroundPlaybackLifecycle() {
@@ -1566,10 +1541,7 @@ function handleBackgroundPlaybackLifecycle() {
       ?.visibilityState ===
       "hidden";
 
-  persistPlayerState({
-    force:
-      true,
-  });
+  
 
   updateMediaSession(
     getState(),
@@ -2056,154 +2028,6 @@ async function ensureCurrentTrackSource() {
 }
 
 
-function restorePersistedPlayerState() {
-  const saved =
-    readPersistedPlayerState();
-
-  if (
-    !saved?.trackId
-  ) {
-    return;
-  }
-
-
-  const meta =
-    normalizeTrackMeta(
-      saved.meta,
-    );
-
-
-  recentTrackIds =
-    [];
-
-  for (
-    const trackId
-    of (
-      Array.isArray(
-        saved.recentTrackIds,
-      )
-        ? saved.recentTrackIds
-        : []
-    )
-  ) {
-    rememberAutoplayTrack(
-      trackId,
-    );
-  }
-
-
-  currentTrackId =
-    String(
-      saved.trackId,
-    );
-
-  currentTrackMeta =
-    meta;
-
-  currentArtworkUrl =
-    meta.artworkUrl;
-
-  currentTrackTitle =
-    meta.title;
-
-  currentTrackArtist =
-    meta.artist;
-
-  rememberAutoplayTrack(
-    currentTrackId,
-  );
-
-
-  const savedTime =
-    Number(
-      saved.currentTime,
-    );
-
-  restoredTimeSeconds =
-    Number.isFinite(
-      savedTime,
-    )
-      ? Math.max(
-          savedTime,
-          0,
-        )
-      : 0;
-
-
-  const savedVolume =
-    Number(
-      saved.volume,
-    );
-
-  if (
-    Number.isFinite(
-      savedVolume,
-    )
-  ) {
-    audio.volume =
-      Math.max(
-        0,
-        Math.min(
-          1,
-          savedVolume,
-        ),
-      );
-  }
-
-
-  if (
-    typeof saved.muted ===
-    "boolean"
-  ) {
-    audio.muted =
-      saved.muted;
-  }
-
-
-  /*
-   * A restored player is ALWAYS paused.
-   * Browsers should never auto-resume
-   * music after a refresh.
-   */
-  setPlaybackPhase(
-    "paused",
-  );
-
-  notify();
-
-
-  void ensureAutoplayQueue({
-    force:
-      true,
-  }).catch(
-    () => {},
-  );
-
-
-  /*
-   * Start rebuilding/loading the media
-   * immediately, but do NOT call play().
-   */
-  void ensureCurrentTrackSource()
-    .catch(() => {
-      /*
-       * Keep the restored bar usable even
-       * if preload temporarily fails.
-       * togglePlay() will retry.
-       */
-      if (
-        currentTrackId
-      ) {
-        setPlaybackPhase(
-          "paused",
-        );
-
-        notify();
-      }
-    });
-}
-
-
 function applyTrackMetadata(
   trackId,
   meta,
@@ -2242,13 +2066,7 @@ function applyTrackMetadata(
    * This means even an immediate refresh
    * still restores the player bar.
    */
-  persistPlayerState({
-    force:
-      true,
-
-    currentTime:
-      0,
-  });
+  
 
   notify();
 }
@@ -2436,10 +2254,7 @@ rememberAutoplayTrack(
   trackId,
 );
 
-persistPlayerState({
-  force:
-    true,
-});
+
 
 
 /* Start a backend listening session for the selected catalog track. */
@@ -2459,7 +2274,7 @@ export async function restoreTrackPaused(track, positionSeconds = 0) {
   clearQueue();
   applyTrackMetadata(track.id, track);
   restoredTimeSeconds = Math.max(0, Number(positionSeconds) || 0);
-  persistPlayerState({ force: true, currentTime: restoredTimeSeconds });
+  
   const state = await ensureCurrentTrackSource();
   if (audio.readyState >= 1) {
     const maximum = Number.isFinite(audio.duration)
@@ -2769,7 +2584,7 @@ export async function playUrl(
   restoredTimeSeconds =
   0;
 
-  clearPersistedPlayerState();
+  
 
   currentArtworkUrl =
     artworkUrl;
@@ -2943,10 +2758,7 @@ export function silenceLocalPlayback() {
   }
 
 
-  persistPlayerState({
-    force:
-      true,
-  });
+  
 
 
   notify();
@@ -3018,7 +2830,7 @@ currentTrackArtist =
 restoredTimeSeconds =
   0;
 
-clearPersistedPlayerState();
+
 
 
   setPlaybackPhase(
@@ -3057,10 +2869,7 @@ export function seekTo(
       ),
     );
 
-  persistPlayerState({
-    force:
-      true,
-  });
+  
 
   notify();
 }
@@ -3080,10 +2889,7 @@ export function setVolume(
       ),
     );
 
-  persistPlayerState({
-    force:
-      true,
-  });
+  
 
   notify();
 }
