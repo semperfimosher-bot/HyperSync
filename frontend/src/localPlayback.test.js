@@ -12,6 +12,18 @@ test("app shell keeps account checkpoints separate from live remote controls", (
   assert.doesNotMatch(source, /playbackDevices|playbackRemoteCommands|playback-devices|setRemotePlaybackController/);
 });
 
+test("playback resume is restored and checkpointed through the account database only", () => {
+  const audioSource = readFileSync(new URL("./audioPlayer.js", import.meta.url), "utf8");
+  const accountSource = readFileSync(new URL("./accountPlayback.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(audioSource, /playerPersistence|restorePersistedPlayerState|readPersistedPlayerState/);
+  assert.match(accountSource, /apiRequest\("\/users\/me\/playback-state"\)/);
+  assert.match(accountSource, /restoreTrackPaused\(saved\.track, saved\.position_seconds\)/);
+  assert.match(accountSource, /method: "PUT"[\s\S]*?position_seconds: position/);
+  assert.match(accountSource, /setInterval\(\(\) => \{\s*save\(false\);\s*\},\s*5_000\)/);
+  assert.match(accountSource, /keepalive/);
+});
+
 class TestAudio extends EventTarget {
   paused = true;
   currentTime = 0;
