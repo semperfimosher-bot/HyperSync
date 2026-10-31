@@ -8,6 +8,8 @@ export function bindAccountPlayback(userId) {
   let ready = false;
   let userInteractedBeforeRestore = false;
   let lastTrackId = null;
+  let lastAccountTrackId = null;
+  let accountUpdateWaitingForLocalPlayback = false;
   let lastSavedKey = "";
   let pendingKey = "";
   let writeChain = Promise.resolve();
@@ -59,13 +61,15 @@ export function bindAccountPlayback(userId) {
       return;
     }
 
-    if (trackId && trackId !== lastTrackId) {
-      lastTrackId = trackId;
-      save(true);
-    }
+    if (!accountUpdateWaitingForLocalPlayback) {
+      if (trackId && trackId !== lastTrackId) {
+        lastTrackId = trackId;
+        save(true);
+      }
 
-    if (lastPhase === "playing" && state?.phase !== "playing") {
-      save(true);
+      if (lastPhase === "playing" && state?.phase !== "playing") {
+        save(true);
+      }
     }
 
     lastPhase = state?.phase ?? null;
@@ -80,7 +84,19 @@ export function bindAccountPlayback(userId) {
 
   const refreshAccountState = async () => {
     try {
-      publishAccountState(await apiRequest("/users/me/playback-state"));
+      const snapshot = await apiRequest("/users/me/playback-state");
+      publishAccountState(snapshot);
+      const track = snapshot?.track;
+      if (!track?.id || track.id === lastAccountTrackId) return;
+      if (player.getState()?.phase === "playing") {
+        accountUpdateWaitingForLocalPlayback = true;
+        return;
+      }
+      await player.restoreTrackPaused(track, snapshot.position_seconds);
+      lastAccountTrackId = track.id;
+      accountUpdateWaitingForLocalPlayback = false;
+      lastTrackId = track.id;
+      lastSavedKey = `${track.id}:${Math.floor(Number(snapshot.position_seconds) || 0)}`;
     } catch {
       // Keep the last known account snapshot during temporary network errors.
     }
@@ -98,8 +114,12 @@ export function bindAccountPlayback(userId) {
   apiRequest("/users/me/playback-state").then(async (saved) => {
     if (!active) return;
     publishAccountState(saved);
+    lastAccountTrackId = saved?.track?.id ?? null;
+    if (saved?.track?.id && player.getState()?.phase === "playing" && player.getState()?.trackId !== saved.track.id) {
+      accountUpdateWaitingForLocalPlayback = true;
+    }
 
-    if (saved?.track?.id && !userInteractedBeforeRestore) {
+    if (saved?.track?.id && !userInteractedBeforeRestore && !accountUpdateWaitingForLocalPlayback) {
       lastTrackId = saved.track.id;
       lastSavedKey = `${saved.track.id}:${Math.floor(Number(saved.position_seconds) || 0)}`;
       await player.restoreTrackPaused(saved.track, saved.position_seconds);
