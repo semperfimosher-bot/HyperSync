@@ -79,7 +79,10 @@ export function bindAccountPlayback(userId) {
     }));
   };
 
+  let refreshInFlight = false;
   const refreshAccountState = async () => {
+    if (!active || refreshInFlight) return;
+    refreshInFlight = true;
     try {
       // Live account updates are informational only. Never restore a remote
       // checkpoint into an already-open player: that replaces its audio source
@@ -87,6 +90,8 @@ export function bindAccountPlayback(userId) {
       publishAccountState(await apiRequest("/users/me/playback-state"));
     } catch {
       // Keep the last known account snapshot during temporary network errors.
+    } finally {
+      refreshInFlight = false;
     }
   };
 
