@@ -103,8 +103,9 @@ export function bindAccountPlayback(userId) {
   };
 
   const interval = window.setInterval(() => {
-    if (!accountUpdateWaitingForLocalPlayback) save(false);
-    void refreshAccountState();
+    void refreshAccountState().finally(() => {
+      if (!accountUpdateWaitingForLocalPlayback) save(false);
+    });
   }, 5_000);
   const onVisibilityChange = () => {
     if (document.visibilityState === "hidden" && !accountUpdateWaitingForLocalPlayback) save(true);
