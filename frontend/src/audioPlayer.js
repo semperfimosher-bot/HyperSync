@@ -450,57 +450,6 @@ function getSafeCurrentTime() {
 }
 
 
- = {}) {
-  if (
-    !currentTrackId ||
-    !currentTrackMeta
-  ) {
-    return;
-  }
-
-  const now =
-    Date.now();
-
-  if (
-    !force &&
-    now -
-      lastPersistenceWriteAt <
-      1000
-  ) {
-    return;
-  }
-
-  lastPersistenceWriteAt =
-    now;
-
-  writePersistedPlayerState({
-    trackId:
-      currentTrackId,
-
-    meta:
-      currentTrackMeta,
-
-    currentTime:
-      Number.isFinite(
-        currentTime,
-      )
-        ? Math.max(
-            currentTime,
-            0,
-          )
-        : 0,
-
-    volume:
-      audio.volume,
-
-    muted:
-      audio.muted,
-
-    recentTrackIds: [
-      ...recentTrackIds,
-    ],
-  });
-}
 
 
 function hasAudioSource() {
