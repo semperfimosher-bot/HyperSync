@@ -71,7 +71,25 @@ export function bindAccountPlayback(userId) {
     lastPhase = state?.phase ?? null;
   });
 
-  const interval = window.setInterval(() => save(false), 30_000);
+  const publishAccountState = (snapshot) => {
+    if (!active) return;
+    window.dispatchEvent(new CustomEvent("hypersynced:account-playback", {
+      detail: snapshot?.track?.id ? snapshot : null,
+    }));
+  };
+
+  const refreshAccountState = async () => {
+    try {
+      publishAccountState(await apiRequest("/users/me/playback-state"));
+    } catch {
+      // Keep the last known account snapshot during temporary network errors.
+    }
+  };
+
+  const interval = window.setInterval(() => {
+    save(false);
+    void refreshAccountState();
+  }, 5_000);
   const onVisibilityChange = () => {
     if (document.visibilityState === "hidden") save(true);
   };
@@ -79,6 +97,7 @@ export function bindAccountPlayback(userId) {
 
   apiRequest("/users/me/playback-state").then(async (saved) => {
     if (!active) return;
+    publishAccountState(saved);
 
     if (saved?.track?.id && !userInteractedBeforeRestore) {
       lastTrackId = saved.track.id;

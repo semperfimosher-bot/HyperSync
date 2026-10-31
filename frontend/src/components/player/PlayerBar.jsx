@@ -60,6 +60,37 @@ export default function PlayerBar({
   const playerDetailsPointerRef =
     useRef(null);
 
+  const [accountPlayback, setAccountPlayback] = useState(null);
+
+  useEffect(() => {
+    const onAccountPlayback = (event) => setAccountPlayback(event.detail ?? null);
+    window.addEventListener("hypersynced:account-playback", onAccountPlayback);
+    return () => window.removeEventListener("hypersynced:account-playback", onAccountPlayback);
+  }, []);
+
+  const playAccountTrack = useCallback(async () => {
+    const snapshot = accountPlayback;
+    const track = snapshot?.track;
+    if (!track?.id) return;
+    try {
+      await player.playTrack(track.id, {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        audioUrl: track.audio_url,
+        artworkUrl: track.artwork_url,
+        mimeType: track.mime_type,
+        fileSize: track.file_size,
+        mediaVersion: track.media_version,
+        artworkVersion: track.artwork_version,
+        durationSeconds: track.duration_seconds,
+      });
+      player.seekTo(Number(snapshot.position_seconds) || 0);
+    } catch {
+      // Do not disturb existing local playback if loading fails.
+    }
+  }, [accountPlayback]);
+
   const [
     state,
     setState,
@@ -426,6 +457,23 @@ export default function PlayerBar({
         clearPlayerDetailsPress
       }
     >
+
+      {accountPlayback?.track && (
+        <div className="player-bar__account-latest" style={{
+          position: "absolute", left: 12, top: -44, zIndex: 5,
+          display: "flex", alignItems: "center", gap: 10,
+          maxWidth: "min(420px, calc(100vw - 24px))",
+          padding: "6px 10px", borderRadius: 8,
+          background: "var(--surface, #171717)",
+          border: "1px solid var(--border, #333)",
+        }}>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <strong style={{ display: "block", fontSize: 11 }}>Latest on account</strong>
+            <small>{accountPlayback.track.title} · {accountPlayback.track.artist}</small>
+          </span>
+          <button type="button" onClick={() => void playAccountTrack()}>Play here</button>
+        </div>
+      )}
 
       {/* =================================================
           LEFT - CURRENT TRACK
