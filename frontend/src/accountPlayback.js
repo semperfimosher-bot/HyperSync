@@ -21,7 +21,7 @@ export function bindAccountPlayback(userId) {
   let observedTrackId = player.getState()?.trackId ?? null;
 
   const save = (force = false, keepalive = false) => {
-    if (!active || !ready) return writeChain;
+    if (!active || (!ready && !keepalive)) return writeChain;
     const state = player.getState();
     if (!state?.trackId) return writeChain;
 
@@ -108,7 +108,8 @@ export function bindAccountPlayback(userId) {
     await save(true, keepalive);
     await writeChain.catch(() => {});
   };
-  activeFlush = () => flush(false);
+  const flushHandler = () => flush(true);
+  activeFlush = flushHandler;
   const onPageExit = () => {
     void flush(true);
   };
@@ -147,7 +148,7 @@ export function bindAccountPlayback(userId) {
     window.clearInterval(interval);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("pagehide", onPageExit);
-    if (activeFlush) activeFlush = null;
+    if (activeFlush === flushHandler) activeFlush = null;
     unsubscribe();
   };
 }
