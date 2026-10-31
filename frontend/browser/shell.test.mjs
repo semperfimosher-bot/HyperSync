@@ -375,7 +375,7 @@ test("IndexedDB media survives reload and supports offline range, decoding, play
       audio.addEventListener("error", () => { clearTimeout(timer); reject(new Error("Offline media could not be decoded")); }, { once: true });
       audio.load();
     });
-    assert.ok(Math.abs(audio.duration - 8) < 0.1, "offline WAV duration must be decoded");
+    if (Math.abs(audio.duration - 8) >= 0.1) throw new Error("Offline WAV duration was not decoded correctly.");
     await audio.play();
     await new Promise((resolveProgress, reject) => {
       const timer = setTimeout(() => reject(new Error("Offline audio playback did not advance")), 5000);
