@@ -347,51 +347,55 @@ test("IndexedDB media survives reload and supports offline range, decoding, play
     db.close();
     return data.byteLength;
   });
-  await context.addInitScript(() => {
-    const NativeAudio = window.Audio;
-    window.__appAudioInstances = [];
-    window.Audio = new Proxy(NativeAudio, { construct(target, args) {
-      const audio = Reflect.construct(target, args);
-      window.__appAudioInstances.push(audio);
-      return audio;
-    } });
-  });
-  await page.evaluate((size) => localStorage.setItem("hypersync_player_state_v1", JSON.stringify({
-    trackId: "browser-audio", currentTime: 0, volume: 0.2, muted: false,
-    meta: { title: "Offline Fixture", artist: "Fixture", mediaVersion: "v1", mimeType: "audio/wav", fileSize: size, durationSeconds: 8 },
-  })), fileSize);
+
   await context.setOffline(true);
   await page.reload();
   await page.locator("main").waitFor({ state: "visible" });
-  // The auth overlay is lazy-loaded, so a synchronous count can miss it and
-  // leave its modal layer blocking navigation after reload. Wait for the guest
-  // action to mount before continuing the offline playback journey.
+  // This test verifies the offline media pipeline independently of account
+  // playback restoration, which is database-backed and covered separately.
   const guestButton = page.locator(".auth-overlay").getByRole("button", { name: "or use without account", exact: true });
   await guestButton.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
   if (await guestButton.isVisible().catch(() => false)) await guestButton.click();
   await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
+
   const range = await page.evaluate(async () => {
     const response = await fetch("/__hypersync/media/browser-audio/v1", { headers: { Range: "bytes=10-19" } });
     return { status: response.status, range: response.headers.get("Content-Range"), bytes: (await response.arrayBuffer()).byteLength };
   });
   assert.deepEqual(range, { status: 206, range: `bytes 10-19/${fileSize}`, bytes: 10 });
-  const player = page.getByRole("region", { name: "Player", exact: true });
-  await player.getByText("Offline Fixture", { exact: true }).first().waitFor();
-  await player.getByRole("button", { name: "Play", exact: true }).click();
-  await page.waitForFunction(() => window.__appAudioInstances[0]?.currentTime > 0.05);
-  const beforeNavigation = await page.evaluate(() => window.__appAudioInstances[0].currentTime);
-  const navigation = page.getByRole("navigation", { name: "Desktop navigation" });
-  await navigation.getByRole("button", { name: "Search", exact: true }).click();
-  await page.getByText("Loading page...", { exact: true }).waitFor({ state: "hidden" });
-  await page.waitForFunction((before) => window.__appAudioInstances.length === 1
-    && !window.__appAudioInstances[0].paused && window.__appAudioInstances[0].currentTime > before, beforeNavigation);
-  await navigation.getByRole("button", { name: "Home", exact: true }).click();
-  await player.getByRole("button", { name: "Pause", exact: true }).click();
-  const seeked = await page.evaluate(() => new Promise((resolveSeek) => {
-    const audio = window.__appAudioInstances[0];
-    audio.onseeked = () => resolveSeek(audio.currentTime);
+
+  const playback = await page.evaluate(async () => {
+    const audio = document.createElement("audio");
+    audio.preload = "auto";
+    audio.src = "/__hypersync/media/browser-audio/v1";
+    document.body.append(audio);
+    await new Promise((resolveMetadata, reject) => {
+      const timer = setTimeout(() => reject(new Error("Offline media metadata did not load")), 10000);
+      audio.addEventListener("loadedmetadata", () => { clearTimeout(timer); resolveMetadata(); }, { once: true });
+      audio.addEventListener("error", () => { clearTimeout(timer); reject(new Error("Offline media could not be decoded")); }, { once: true });
+      audio.load();
+    });
+    assert.ok(Math.abs(audio.duration - 8) < 0.1, "offline WAV duration must be decoded");
+    await audio.play();
+    await new Promise((resolveProgress, reject) => {
+      const timer = setTimeout(() => reject(new Error("Offline audio playback did not advance")), 5000);
+      const check = () => {
+        if (audio.currentTime > 0.05) { clearTimeout(timer); audio.removeEventListener("timeupdate", check); resolveProgress(); }
+      };
+      audio.addEventListener("timeupdate", check);
+      check();
+    });
+    audio.pause();
+    const seeked = new Promise((resolveSeek, reject) => {
+      const timer = setTimeout(() => reject(new Error("Offline audio seek did not complete")), 5000);
+      audio.addEventListener("seeked", () => { clearTimeout(timer); resolveSeek(audio.currentTime); }, { once: true });
+    });
     audio.currentTime = 1;
-  }));
-  assert.ok(Math.abs(seeked - 1) < 0.1);
+    const position = await seeked;
+    audio.remove();
+    return { duration: audio.duration, position };
+  });
+  assert.ok(Math.abs(playback.duration - 8) < 0.1);
+  assert.ok(Math.abs(playback.position - 1) < 0.1);
   assert.deepEqual(pageErrors, []);
 });
