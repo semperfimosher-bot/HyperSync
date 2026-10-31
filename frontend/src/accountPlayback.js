@@ -22,6 +22,7 @@ export function bindAccountPlayback(userId) {
 
   const save = (force = false, keepalive = false) => {
     if (!active || (!ready && !keepalive)) return writeChain;
+
     const state = player.getState();
     if (!state?.trackId) return writeChain;
 
@@ -36,7 +37,7 @@ export function bindAccountPlayback(userId) {
     };
 
     writeChain = writeChain.catch(() => {}).then(async () => {
-      if (!active) return;
+      if (!active && !keepalive) return;
       try {
         await apiRequest("/users/me/playback-state", {
           method: "PUT",
@@ -48,13 +49,14 @@ export function bindAccountPlayback(userId) {
         if (pendingKey === key) pendingKey = "";
       }
     }).catch(() => {});
+
     return writeChain;
   };
 
   const unsubscribe = player.subscribe((state) => {
     if (!active) return;
-    const trackId = state?.trackId ?? null;
 
+    const trackId = state?.trackId ?? null;
     if (!ready) {
       if (
         (trackId && trackId !== observedTrackId) ||
@@ -87,46 +89,36 @@ export function bindAccountPlayback(userId) {
     }));
   };
 
-  let refreshInFlight = false;
-  const refreshAccountState = async () => {
-    if (!active || refreshInFlight) return;
-    refreshInFlight = true;
-    try {
-      // Live account updates are informational only. Never restore a remote
-      // checkpoint into an already-open player: that replaces its audio source
-      // and can interrupt a local queue selection or an in-progress load.
-      publishAccountState(await apiRequest("/users/me/playback-state"));
-    } catch {
-      // Keep the last known account snapshot during temporary network errors.
-    } finally {
-      refreshInFlight = false;
-    }
-  };
-
   const flush = async (keepalive = false) => {
-    if (!active) return;
+    if (!active && !keepalive) return;
     await save(true, keepalive);
     await writeChain.catch(() => {});
   };
+
   const flushHandler = () => flush(true);
   activeFlush = flushHandler;
+
   const onPageExit = () => {
     void flush(true);
   };
   window.addEventListener("pagehide", onPageExit);
-  const interval = window.setInterval(() => {
-    void refreshAccountState().finally(() => {
-      save(false);
-    });
+
+  const checkpointInterval = window.setInterval(() => {
+    save(false);
   }, 5_000);
+
   const onVisibilityChange = () => {
-    if (document.visibilityState === "hidden") save(true);
+    if (document.visibilityState === "hidden") {
+      void flush(true);
+    }
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   apiRequest("/users/me/playback-state").then(async (saved) => {
     if (!active) return;
+
     publishAccountState(saved);
+
     if (saved?.track?.id && !userInteractedBeforeRestore) {
       lastTrackId = saved.track.id;
       lastSavedKey = `${saved.track.id}:${Math.floor(Number(saved.position_seconds) || 0)}`;
@@ -145,7 +137,7 @@ export function bindAccountPlayback(userId) {
 
   return () => {
     active = false;
-    window.clearInterval(interval);
+    window.clearInterval(checkpointInterval);
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("pagehide", onPageExit);
     if (activeFlush === flushHandler) activeFlush = null;
