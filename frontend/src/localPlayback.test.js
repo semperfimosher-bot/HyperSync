@@ -19,7 +19,8 @@ test("playback resume is restored and checkpointed through the account database 
   assert.doesNotMatch(audioSource, /playerPersistence|restorePersistedPlayerState|readPersistedPlayerState/);
   assert.match(accountSource, /apiRequest\("\/users\/me\/playback-state"\)/);
   assert.match(accountSource, /restoreTrackPaused\(saved\.track, saved\.position_seconds\)/);
-  assert.match(accountSource, /method: "PUT"[\s\S]*?position_seconds: position/);
+  assert.match(accountSource, /const payload = \{\s*track_id: state\.trackId,\s*position_seconds: position/);
+  assert.match(accountSource, /method: "PUT"[\s\S]*?body: JSON\.stringify\(payload\)/);
   assert.match(accountSource, /setInterval\(\(\) => \{\s*save\(false\);\s*\},\s*5_000\)/);
   assert.match(accountSource, /keepalive/);
 });
